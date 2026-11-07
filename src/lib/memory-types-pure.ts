@@ -13,8 +13,10 @@ export type Typed = {
   kind?: string; source?: string | null; confirmation?: string | null; tags?: string[] | null; folder?: string | null;
   created_at: string; content?: string; statement?: string; status?: string; supersedes?: string | null;
 };
-/** legacy: an old name-based scope still honoured here, set only when that name identifies exactly one owned project. */
-export type Ctx = { now: number; project?: string; chat?: string; legacy?: string };
+/** legacy: an old name-based scope still honoured here, set only when that name identifies exactly one owned project.
+ *  since = that project's creation: an older name-tagged memory belonged to an earlier (deleted) project of the same name. */
+export type Legacy = { name: string; since: string };
+export type Ctx = { now: number; project?: string; chat?: string; legacy?: Legacy };
 
 const DAY = 86_400_000, HOUR = 3_600_000;
 const OWNER = /^(?:capture|upload|url|user_said|owner|core|chat|phone|call)$/;
@@ -85,7 +87,7 @@ export const legacyScopeKey = (name: string) => name.replace(/\s+/g, " ").trim()
 /** Tags that pin a newly saved memory to where it was said: "chat:<id>" for chat-scoped wording, "scope:<project>" for
  *  project-scoped wording. Caller-supplied chat:/until:/revoked tags are dropped (a model must not widen or forge scope). */
 export function scopeTags(text: string, tags: string[] | undefined, ctx: { chat?: string | null; project?: string | null }): string[] {
-  const own = (tags ?? []).filter((x) => !/^(?:chat:|scope:|until:|revoked$)/.test(x)); // scope comes from where it was said, never from the caller
+  const own = (tags ?? []).filter((x) => !/^(?:chat:|scope:|origin:|until:|revoked$)/.test(x)); // scope and origin come from where it was said, never from the caller
   const s = temporaryOf(text.slice(0, 400), new Date().toISOString(), ctx.project, ctx.chat);
   if (s?.kind === "chat") own.push(`chat:${chatKey(ctx.chat) || "unknown"}`); // no chat id: fails closed (eligible nowhere)
   else if (s?.kind === "project") own.push(`scope:${s.project ?? ""}`.slice(0, 40)); // no project id: empty scope fails closed, including title-only cues
@@ -93,6 +95,9 @@ export function scopeTags(text: string, tags: string[] | undefined, ctx: { chat?
 }
 
 const tagged = (r: Typed, p: string) => (r.tags ?? []).find((t) => t.startsWith(p))?.slice(p.length);
+/** When the memory's claim first existed: a correction carries its original's time (origin:); one without it predates
+ *  that tag, so its original's age is unknown and the legacy name cutoff treats it as failed (""). */
+const bornAt = (r: Typed) => tagged(r, "origin:") ?? (tagged(r, "corrects:") ? "" : r.created_at);
 const textOf = (r: Typed) => r.statement ?? r.content ?? "";
 const projectOf = (r: Typed) => tagged(r, "scope:") ?? r.folder ?? null;
 
@@ -127,7 +132,8 @@ export function isCurrent(r: Typed, ctx: Ctx): boolean {
   if (s.kind === "chat") return !!s.chat && s.chat === chatKey(ctx.chat); // no originating chat id, or another chat: never
   if (s.kind !== "project") return true;
   if (same(s.project, ctx.project)) return true;
-  return !!ctx.legacy && !!s.project && !KEY.test(s.project) && legacyScopeKey(s.project) === legacyScopeKey(ctx.legacy);
+  return !!ctx.legacy && !!s.project && !KEY.test(s.project) && legacyScopeKey(s.project) === legacyScopeKey(ctx.legacy.name)
+    && Date.parse(bornAt(r)) >= Date.parse(ctx.legacy.since); // NaN (missing/bad date) fails closed
 }
 
 /** Retrieval filter (25): drop history copies, expired/out-of-scope records, and anything a current correction replaces. */
