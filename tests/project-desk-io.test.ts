@@ -56,6 +56,7 @@ test("project desk renders project selection, local notes, references and task l
     if (name.endsWith("/deeplink-pure")) return { linkToHash: (target: any) => `#o=${target.planet}&id=${target.id}` };
     if (name.endsWith("/core-chats-pure")) return chats;
     if (name.endsWith("/nav-pure")) return { NAV_EVENT: "orbit:navigate" };
+    if (name.endsWith("/project-list")) return { watchProjects: (load: () => void) => (load(), () => {}), notifyProjectsChanged: () => {} };
     if (name === "./i18n") return { useT: () => ({ t: (key: any, params: any) => translate("en", key, params) }) };
     throw new Error(name);
   } });
@@ -78,6 +79,7 @@ test("project desk lists cloud-only VAULT files as unselectable and says to rest
     if (name.endsWith("/deeplink-pure")) return { linkToHash: () => "#" };
     if (name.endsWith("/core-chats-pure")) return chats;
     if (name.endsWith("/nav-pure")) return { NAV_EVENT: "orbit:navigate" };
+    if (name.endsWith("/project-list")) return { watchProjects: (load: () => void) => (load(), () => {}), notifyProjectsChanged: () => {} };
     if (name === "./i18n") return { useT: () => ({ t: (key: any, params: any) => translate("en", key, params) }) };
     throw new Error(name);
   } });
