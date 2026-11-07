@@ -108,7 +108,9 @@ export function saveUpload(file: File, opts: { exact?: boolean; taken?: string[]
     const err = uploadError(file.size, await usage(files));
     if (err) throw new VaultError(err, 413);
     const clean = sanitizeName(file.name);
-    const name = uniqueName(clean, [...files.map((f) => f.name), ...(opts.taken ?? [])]);
+    // Names of cloud-backed records whose file isn't here are reserved too, even when the cloud list failed or the caller passed none.
+    const cloudBacked = opts.restore ? [] : Object.values((await readMeta()).files).filter((f) => f.sync === "cloud" || f.sync === "restored").map((f) => f.name);
+    const name = uniqueName(clean, [...files.map((f) => f.name), ...(opts.taken ?? []), ...cloudBacked]);
     if (opts.exact && name !== clean) throw new VaultError(`"${clean}" already exists on this PC`, 409);
     const tmp = path.join(dir, `.upload-${crypto.randomUUID()}.tmp`);
     try {
