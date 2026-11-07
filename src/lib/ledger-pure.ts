@@ -43,6 +43,7 @@ type Data = {
   "health.issue": { issue: string; status: "new" | "regressed" | "resolved" }; // self-healing (health.ts): the issue id only, never log text
   "dev.session.start": { session: string }; // Roblox dev session log (dev-session.ts): the session id only, never code, paths or console text
   "dev.session.end": { session: string };
+  "selfdev.control": { action: "pause" | "stop" | "restore" }; // self-development view (api/selfdev): the requested action only
   "twin.shown": { kind: string; ref: string; fallback: boolean }; // ORBIT twin (twin.ts): kind and item id only, never the decision or the argument
   "twin.muted": { kind: string; muted: boolean };
   "company.step": { chain: string; role: Role; status: "started" | "done" | "approval" | "failed" }; // agent company (company.ts): chain id and role only, never text
@@ -99,6 +100,7 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "health.issue": { issue: id, status: oneOf(["new", "regressed", "resolved"]) },
   "dev.session.start": { session: id },
   "dev.session.end": { session: id },
+  "selfdev.control": { action: oneOf(["pause", "stop", "restore"]) },
   "twin.shown": { kind: id, ref: id, fallback: bool },
   "twin.muted": { kind: id, muted: bool },
   "screen.look": { message: id },

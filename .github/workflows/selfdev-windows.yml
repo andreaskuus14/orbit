@@ -1,0 +1,37 @@
+name: Self-dev Windows checks
+
+# Installs the self-development supervisor/builder on a throwaway Windows VM and drills it (supervisor/windows/ci-verify.ps1):
+# account boundary probes, scheduled-task build/install, Stop-all, a locked file during install, rollback, emergency stop.
+# Isolated ORBIT, local git remote, no secrets, no model. Never touches the PC.
+on:
+  push:
+    branches: [self-dev-loop]
+    paths: ["supervisor/**", "selfdev/**", ".github/workflows/selfdev-windows.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: selfdev-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install, probe and drill
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File supervisor\windows\ci-verify.ps1
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selfdev-windows
+          path: selfdev-windows/
+          retention-days: 14

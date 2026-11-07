@@ -10,6 +10,10 @@ export async function register() {
       const { join } = await import("node:path");
       try { (globalThis as { __orbitBuildId?: string | null }).__orbitBuildId = readFileSync(join(process.cwd(), process.env.ORBIT_DIST_DIR || ".next", "BUILD_ID"), "utf8").trim(); } catch { /* reported as null */ }
     }
+    const { isolated, isolationProblem } = await import("./lib/isolation-pure");
+    const problem = isolationProblem(process.env);
+    if (problem) throw new Error(`[orbit] refusing to start: ${problem}`);
+    if (isolated(process.env)) { console.log("[orbit] isolated instance: no scheduler, queues, watchers or self-test"); return; }
     const { startScheduler } = await import("./lib/scheduler");
     startScheduler();
     const { startClipQueue } = await import("./lib/clips/factory");

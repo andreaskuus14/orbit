@@ -36,6 +36,7 @@ const DATA: Record<string, object> = {
   "health.issue": { issue: "h1a2b3c4d", status: "new" },
   "dev.session.start": { session: "0b9c2f4e-1d2a-4c3b-8e5f-6a7b8c9d0e1f" },
   "dev.session.end": { session: "0b9c2f4e-1d2a-4c3b-8e5f-6a7b8c9d0e1f" },
+  "selfdev.control": { action: "stop" },
   "twin.shown": { kind: "spend", ref: "story-1", fallback: false },
   "twin.muted": { kind: "spend", muted: true },
   "screen.look": { message: "0b9c2f4e-1d2a-4c3b-8e5f-6a7b8c9d0e1f" },

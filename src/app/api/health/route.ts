@@ -8,5 +8,8 @@ export function GET() {
     uptimeSec: Math.round(process.uptime()),
     // The build this server was started from (set in instrumentation.ts); launch.ps1 restarts it when .next was rebuilt.
     buildId: (globalThis as { __orbitBuildId?: string | null }).__orbitBuildId ?? null,
+    // The commit this build was made from; the release supervisor compares it with the release it installed.
+    commit: process.env.ORBIT_BUILD_COMMIT || null,
+    isolated: process.env.ORBIT_ISOLATED === "1",
   });
 }

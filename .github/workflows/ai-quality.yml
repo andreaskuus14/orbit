@@ -12,15 +12,19 @@ concurrency:
   group: ai-quality-${{ github.ref }}
   cancel-in-progress: true
 
+# Tests and the build run the PR's own code, so each runs in its own job (fresh VM and checkout): nothing they do can change
+# the files another step runs (self-development: a model-written test must not be able to rewrite the eval runner or other
+# tests). `check` is the required check the release supervisor waits for; it passes only after `tests` and `build` passed.
+env:
+  NEXT_TELEMETRY_DISABLED: '1'
+  # The existing bridge test skips when no signed-in Claude CLI is available.
+  # All synthetic evaluation and ordinary unit tests still run.
+  ORBIT_CLAUDE_BIN: /nonexistent/orbit-test-claude
+
 jobs:
-  check:
+  tests:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      NEXT_TELEMETRY_DISABLED: '1'
-      # The existing bridge test skips when no signed-in Claude CLI is available.
-      # All synthetic evaluation and ordinary unit tests still run.
-      ORBIT_CLAUDE_BIN: /nonexistent/orbit-test-claude
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,7 +34,34 @@ jobs:
           cache-dependency-path: package-lock.json
       # Reproducible install from the committed lockfile; fails if package.json and the lockfile disagree.
       - run: npm ci --no-audit --no-fund
-      - run: npx tsc --noEmit -p .
       - run: npm test
-      - run: npm run eval:ai
+      - name: Tests left the committed files unchanged
+        run: git diff --exit-code --stat
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci --no-audit --no-fund
       - run: npx next build
+
+  check:
+    needs: [tests, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit -p .
+      - run: npm run eval:ai
