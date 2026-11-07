@@ -10,6 +10,7 @@ real account:
 | `pair` | A failed pairing attempt (wrong code, or a right code whose device can't be saved) doesn't use up a valid code. |
 | `coldstart` | With `stop-all.json` on, unreadable or damaged at boot, a task queued before boot never starts. A control run with it off does start. |
 | `studio` | One AI Story Short from idea to export through the real STUDIO UI: the fake CLI writes the script, the fake Higgsfield (`ORBIT_HIGGSFIELD_DRY_RUN=1`, no network or credits) prices it, Approve renders it with local Kokoro narration into the review queue, the weekly cap counts exactly the quote, and Download returns a playable MP4. Takes up to ~10 min where the optional Hyperframes effects layer is installed. Set `ORBIT_FFMPEG` if `ffmpeg-static` has no binary. |
+| `phone` | The signed-in home's top bar fits on phones 320–412 px wide: every control is on screen and tappable, nothing scrolls the page sideways, and ⋯ holds Work, Galaxy and Sign out there. Desktop keeps Work and Galaxy in the bar. |
 | `briefing` | phonemizer isn't loaded at boot. A PC call speaks through Kokoro in its own process. Two briefings in a row succeed with a broken feed among real ones. The server keeps answering with no fatal stop, and no configured secret appears in `server.log` or `crash.log`. |
 
 A cut-off compressed response can't reach a briefing here, because `safeFetch` refuses local addresses. `npm test` reproduces it

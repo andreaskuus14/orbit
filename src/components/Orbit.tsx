@@ -651,15 +651,18 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <NotificationCenter home={!shown && !approach && !gameOpen} />
           <StudioNotifier />
           <OrbitExplore selected={shown} onSelect={select} />
-          <button className="chip hud-search" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label={t("hud.search")} title={t("hud.searchTitle")}>⌕</button>
-          <button className="chip" onClick={() => setWorkOpen("work")} aria-keyshortcuts="Alt+W" title={t("hud.workTitle")}>{t("hud.work")}</button>
-          <button className="chip" onClick={toggleView} title={t("hud.viewTitle")}>{t(view === "3d" ? "hud.index" : "hud.galaxy")}</button>
+          <button className="chip hud-search hud-phone-menu" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label={t("hud.search")} title={t("hud.searchTitle")}>⌕</button>
+          <button className="chip hud-phone-menu" onClick={() => setWorkOpen("work")} aria-keyshortcuts="Alt+W" title={t("hud.workTitle")}>{t("hud.work")}</button>
+          <button className="chip hud-phone-menu" onClick={toggleView} title={t("hud.viewTitle")}>{t(view === "3d" ? "hud.index" : "hud.galaxy")}</button>
           <button className="chip hud-more" popoverTarget="hud-menu" aria-label={t("hud.more")} title={t("hud.moreTitle")}>⋯</button>
         </div>
       </header>
       {/* Native popover: light-dismiss and Esc for free, drawn in the top layer above every panel. */}
       <div id="hud-menu" popover="auto" className="glass hud-menu" aria-label={t("hud.more")}>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))}>{t("menu.search")} <kbd>Ctrl+K</kbd></button>
+        {/* On a phone Work and Galaxy/Index leave the top bar (it didn't fit) and live here. */}
+        <button className="hud-menu-item hud-menu-phone" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => setWorkOpen("work")}>{t("hud.work")}</button>
+        <button className="hud-menu-item hud-menu-phone" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={toggleView}>{t(view === "3d" ? "hud.index" : "hud.galaxy")}</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => select("profile")}>{t("menu.profile")}</button>
         <div className="hud-menu-group" role="group" aria-label={t("menu.qualityGroup")}>
           <span className="muted">{t("menu.quality")}</span>

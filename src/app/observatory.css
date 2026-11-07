@@ -176,16 +176,23 @@ summary.core-step::-webkit-details-marker { display: none; }
   .orbit-shell .drawer { border-radius: 20px 20px 0 0; }
   .orbit-shell .hud-bar-top { gap: .25rem; }
   .orbit-shell .hud-bar-top > .chip { padding-inline: .5rem; letter-spacing: .04em; }
-  .orbit-shell .logo img { display: none; }
+  /* Phone top bar: logo mark instead of the wordmark, and ⌕ / Work / Galaxy move into ⋯, so every control fits on screen. */
+  .orbit-shell .logo > span:not(.brand) { display: none; } /* the wordmark; the mark (or its fallback "O") stays as the home button */
+  .orbit-shell .logo img { width: 28px; height: 28px; }
+  .orbit-shell .hud-bar-top > .hud-phone-menu { display: none; }
+  .orbit-shell .hud-bar-top > .explore-trigger { flex-shrink: 0; } .orbit-shell .explore-trigger > span { display: none; } /* the ↗ spilled into ⋯ */
   .orbit-explore { padding: 1rem; max-height: 82dvh; }
   .explore-grid { column-gap: .75rem; }
   .overview-heading { padding-top: .5rem; }
 }
+@media (min-width: 641px) { .hud-menu .hud-menu-phone { display: none; } }
 @media (max-width: 380px) {
   .explore-grid { grid-template-columns: 1fr; }
   .orbit-shell .logo .brand { font-size: .75rem; }
   .orbit-shell .hud-bar-top > .hud-search { display: none; }
-  .orbit-shell > header { padding-inline: .5rem; gap: .25rem; }
+  .orbit-shell .hud-bar-top { gap: .125rem; }
+  .orbit-shell .hud-bar-top > .chip { padding-inline: .35rem; letter-spacing: 0; }
+  .orbit-shell > header { padding-inline: .375rem; gap: .25rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   .orbit-shell *, .orbit-explore, .world-loading-ring, .activity-orbit { animation: none !important; transition: none !important; }
