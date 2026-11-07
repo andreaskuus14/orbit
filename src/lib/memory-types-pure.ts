@@ -95,6 +95,9 @@ export function scopeTags(text: string, tags: string[] | undefined, ctx: { chat?
 }
 
 const tagged = (r: Typed, p: string) => (r.tags ?? []).find((t) => t.startsWith(p))?.slice(p.length);
+/** When the memory's claim first existed: a correction carries its original's time (origin:); one without it predates
+ *  that tag, so its original's age is unknown and the legacy name cutoff treats it as failed (""). */
+const bornAt = (r: Typed) => tagged(r, "origin:") ?? (tagged(r, "corrects:") ? "" : r.created_at);
 const textOf = (r: Typed) => r.statement ?? r.content ?? "";
 const projectOf = (r: Typed) => tagged(r, "scope:") ?? r.folder ?? null;
 
@@ -130,7 +133,7 @@ export function isCurrent(r: Typed, ctx: Ctx): boolean {
   if (s.kind !== "project") return true;
   if (same(s.project, ctx.project)) return true;
   return !!ctx.legacy && !!s.project && !KEY.test(s.project) && legacyScopeKey(s.project) === legacyScopeKey(ctx.legacy.name)
-    && Date.parse(r.created_at) >= Date.parse(ctx.legacy.since); // NaN (missing/bad date) fails closed
+    && Date.parse(bornAt(r)) >= Date.parse(ctx.legacy.since); // NaN (missing/bad date) fails closed
 }
 
 /** Retrieval filter (25): drop history copies, expired/out-of-scope records, and anything a current correction replaces. */
