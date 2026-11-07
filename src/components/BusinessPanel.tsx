@@ -28,7 +28,7 @@ const BusinessMap = dynamic(() => import("./BusinessMap"), { ssr: false, loading
 // Add businesses, move them through stages, let CORE draft the first message. Nothing is sent unless you click Approve & send twice (AGENTS.md rule 6).
 
 type Funnel = { counts: Record<Stage, number>; monthly: number; total: number };
-type State = { prospects: Prospect[]; funnel: Funnel; canSend?: boolean };
+type State = { prospects: Prospect[]; funnel: Funnel; canSend?: boolean; nightDrafts?: string[] }; // nightDrafts: ids with a new follow-up draft from last night
 
 async function call(method: "GET" | "POST", body?: object) {
   const res = await fetch("/api/business", { method, cache: "no-store", ...(body && { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
@@ -126,7 +126,7 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
           </div>
           {!st.prospects.length && <p className="muted">No businesses yet. Add one you could walk into or call this week: a bakery that takes cake orders, a cleaning or renovation firm, a salon.</p>}
           <ul className="space-y-2">
-            {shown.map((p) => <Row key={p.id} p={p} lit={lit === p.id} due={due.has(p.id)} busy={busy} act={act} canSend={!!st.canSend} />)}
+            {shown.map((p) => <Row key={p.id} p={p} lit={lit === p.id} due={due.has(p.id)} busy={busy} act={act} canSend={!!st.canSend} nightDraft={!!st.nightDrafts?.includes(p.id)} />)}
           </ul>
           <ContractsPanel prospects={st.prospects} />
         </>
@@ -285,7 +285,7 @@ function Timeline({ p, busy, act }: { p: Prospect; busy: string; act: (key: stri
   );
 }
 
-function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; due: boolean; busy: string; act: (key: string, body: object) => Promise<boolean>; canSend: boolean }) {
+function Row({ p, lit, due, busy, act, canSend, nightDraft = false }: { p: Prospect; lit: boolean; due: boolean; busy: string; act: (key: string, body: object) => Promise<boolean>; canSend: boolean; nightDraft?: boolean }) {
   const { t } = useT();
   const unverified = p.crm ? !p.crm.verified : false;
   const [notes, setNotes] = useState(p.notes);
@@ -333,6 +333,8 @@ function Row({ p, lit, due, busy, act, canSend }: { p: Prospect; lit: boolean; d
           <option value="auto">Angle: CORE picks</option>{TEMPLATES.map((t) => <option key={t} value={t}>Angle: {t}</option>)}</select>}
         <button className="chip" disabled={any} onClick={() => void act(`draft:${p.id}`, { action: "draft", id: p.id, lang, angle })}>
           {busy === `draft:${p.id}` ? "CORE is writing…" : p.draft ? "✍ Redraft message" : "✍ Draft first message"}</button>
+        {p.stage === "contacted" && nightDraft && <button className="chip" disabled={any} onClick={() => void act(`night:${p.id}`, { action: "followup", id: p.id, use: "night" })}>
+          {busy === `night:${p.id}` ? "Loading…" : "🌙 Use last night's draft"}</button>}
         {p.stage === "contacted" && <button className="chip" disabled={any || !p.draft.trim()} onClick={() => void act(`followup:${p.id}`, { action: "followup", id: p.id, lang })}>
           {busy === `followup:${p.id}` ? "CORE is writing…" : "✍ Draft follow-up"}</button>}
         <button className={`chip ${sure ? "error" : ""}`} disabled={any} onClick={() => (sure ? void act(`del:${p.id}`, { action: "delete", id: p.id }) : (setSure(true), setTimeout(() => setSure(false), 4000)))}>
