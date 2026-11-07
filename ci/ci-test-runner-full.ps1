@@ -46,7 +46,7 @@ try {
   # Agent 3 variant: the builder's REAL dependency tree (npm ci from the lockfile), so typecheck, test and gate kinds can run.
   New-Item -ItemType Directory -Force "$bh\repo-deps" | Out-Null
   Copy-Item "$live\package.json", "$live\package-lock.json" "$bh\repo-deps"
-  Push-Location "$bh\repo-deps"; & npm ci --no-audit --no-fund *> "$out\deps-npm-ci.log"; $npmExit = $LASTEXITCODE; Pop-Location
+  Push-Location "$bh\repo-deps"; cmd.exe /c "npm ci --no-audit --no-fund > `"$out\deps-npm-ci.log`" 2>&1"; $npmExit = $LASTEXITCODE # via cmd: npm warnings on stderr must not stop the script; Pop-Location
   Check ($npmExit -eq 0 -and (Test-Path "$bh\repo-deps\node_modules\next")) "builder dependency tree installed (npm ci from the lockfile)"
   Set-NetFirewallProfile -All -Enabled True # disposable VM only: the runner's rule needs the firewall on
   $it = Start-Process powershell -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$out\install-test-runner.log" -RedirectStandardError "$out\install-test-runner-err.log" `
