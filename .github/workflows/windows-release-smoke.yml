@@ -73,8 +73,8 @@ jobs:
         run: |
           $env:LOCALAPPDATA = "$env:RUNNER_TEMP\la"; New-Item -ItemType Directory -Force $env:LOCALAPPDATA | Out-Null
           npm test *> ../out/unit-tests.log; $e = $LASTEXITCODE
-          Get-Content ../out/unit-tests.log | Select-String -Pattern '^# (tests|pass|fail|skipped)' | ForEach-Object { $_.Line } | Tee-Object ../out/unit-counts.txt
-          Get-Content ../out/unit-tests.log | Select-String -Pattern '^not ok' -Context 0,14 | Select-Object -First 20 | ForEach-Object { $_.ToString() }
+          Get-Content ../out/unit-tests.log | Select-String -Pattern '^(#|ℹ) (tests|pass|fail|skipped) \d' | ForEach-Object { $_.Line -replace '^ℹ', '#' } | Tee-Object ../out/unit-counts.txt
+          Get-Content ../out/unit-tests.log | Select-String -Pattern '^not ok|^✖ ' -Context 0,14 | Select-Object -First 20 | ForEach-Object { $_.ToString() }
           exit $e
       - name: Build
         id: build
