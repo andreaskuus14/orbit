@@ -13,8 +13,10 @@ export type Typed = {
   kind?: string; source?: string | null; confirmation?: string | null; tags?: string[] | null; folder?: string | null;
   created_at: string; content?: string; statement?: string; status?: string; supersedes?: string | null;
 };
-/** legacy: an old name-based scope still honoured here, set only when that name identifies exactly one owned project. */
-export type Ctx = { now: number; project?: string; chat?: string; legacy?: string };
+/** legacy: an old name-based scope still honoured here, set only when that name identifies exactly one owned project.
+ *  since = that project's creation: an older name-tagged memory belonged to an earlier (deleted) project of the same name. */
+export type Legacy = { name: string; since: string };
+export type Ctx = { now: number; project?: string; chat?: string; legacy?: Legacy };
 
 const DAY = 86_400_000, HOUR = 3_600_000;
 const OWNER = /^(?:capture|upload|url|user_said|owner|core|chat|phone|call)$/;
@@ -127,7 +129,8 @@ export function isCurrent(r: Typed, ctx: Ctx): boolean {
   if (s.kind === "chat") return !!s.chat && s.chat === chatKey(ctx.chat); // no originating chat id, or another chat: never
   if (s.kind !== "project") return true;
   if (same(s.project, ctx.project)) return true;
-  return !!ctx.legacy && !!s.project && !KEY.test(s.project) && legacyScopeKey(s.project) === legacyScopeKey(ctx.legacy);
+  return !!ctx.legacy && !!s.project && !KEY.test(s.project) && legacyScopeKey(s.project) === legacyScopeKey(ctx.legacy.name)
+    && Date.parse(r.created_at) >= Date.parse(ctx.legacy.since); // NaN (missing/bad date) fails closed
 }
 
 /** Retrieval filter (25): drop history copies, expired/out-of-scope records, and anything a current correction replaces. */
