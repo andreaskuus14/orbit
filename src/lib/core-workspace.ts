@@ -4,7 +4,7 @@ import { fileRev, type Basis } from "./artifact-rev-pure.ts";
 import type { WriteEvidence } from "./completion-pure.ts";
 import { wsConfirmOffer, wsWriteBlocked, type WsGate, type WsPending } from "./ws-intent-pure.ts";
 import { explicitBuild, slugify as wsSlug } from "./ws-intent-pure.ts";
-import { SITE_GUIDE, SITE_PIPELINE } from "./site-guide.ts";
+import { SITE_GUIDE, SITE_PIPELINE, UNPLANNED_HINT, guideDue } from "./site-guide.ts";
 import { factsLine, isFullstackPlan, lintDepth, lintSite, siteStepHint, wantsBackend } from "./site-pipeline-pure.ts";
 export const WS_TOOLS = ["ws_list", "ws_read", "ws_write", "ws_create", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft", "ws_run", "ws_stop"] as const;
 export type WsTool = (typeof WS_TOOLS)[number];
@@ -205,9 +205,9 @@ export async function runWsTool(userId: string, tool: WsTool, input: Record<stri
         }
         const check = hasIndex ? await siteCheck(userId, c.slug, priorWrites, question) : "";
         const paths = ((await ws.listFiles(userId, c.slug)) ?? []).map((f) => f.path);
-        // The design guide loads with the build step, right after the plan is written.
-        const guide = written.some((e) => e.path === "plan.md") && !paths.some((p) => p.endsWith(".css")) ? `\n${SITE_GUIDE}` : "";
-        const next = paths.includes("plan.md") ? `\n${siteStepHint(paths, (await ws.readWsFile(userId, c.slug, "plan.md"))?.text ?? "")}` : "";
+        // The design guide loads right after the plan is written, or when a site is written without one (a one-shot build).
+        const guide = guideDue(paths, written.map((e) => e.path ?? "")) ? `\n${SITE_GUIDE}` : "";
+        const next = paths.includes("plan.md") ? `\n${siteStepHint(paths, (await ws.readWsFile(userId, c.slug, "plan.md"))?.text ?? "")}` : guide ? `\n${UNPLANNED_HINT}` : "";
         for (const e of written) onEvidence?.({ ...e, check: verifiedLine(check) });
         return `${failed ? "Error: workspace write is incomplete. Some files failed; report the partial result.\n" : ""}Workspace ${c.slug}:\n${lines.join("\n")}\n${hasIndex ? "" : "index.html isn't there yet; "}Preview link: ${await ws.previewUrl(userId, c.slug)}${check}${next}${guide}`;
       }
