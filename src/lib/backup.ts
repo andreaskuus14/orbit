@@ -82,6 +82,7 @@ export async function buildExport(sb: SupabaseClient, user: { id: string; email?
     local: { // LIFE and CORE projects live in local files, not Supabase
       life: await import("./life").then((m) => m.exportLife()).catch((e) => ({ error: `life.json could not be read: ${e instanceof Error ? e.message : e}` })),
       core_projects: await import("./core-chats").then((m) => m.getChats(user.id)).catch((e) => ({ error: `core-chats.json could not be read: ${e instanceof Error ? e.message : e}` })),
+      project_desks: await import("./project-desk").then((m) => m.exportDesks(user.id)).catch((e) => ({ error: `project-desks.json could not be read: ${e instanceof Error ? e.message : e}` })),
     },
     files: {
       note: signFiles

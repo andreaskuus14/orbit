@@ -22,6 +22,12 @@ export async function getDesk(user: string, project: string): Promise<Desk> {
   await state.__orbitProjectDesk?.catch(() => {});
   return checked((await read())[archScopeKey(user, project)]);
 }
+/** Export only this user's metadata; linked VAULT file bytes remain in the existing VAULT storage. */
+export async function exportDesks(user: string): Promise<Record<string, Desk>> {
+  await state.__orbitProjectDesk?.catch(() => {});
+  const prefix = `${user}:`;
+  return Object.fromEntries(Object.entries(await read()).filter(([key]) => key.startsWith(prefix)).map(([key, desk]) => [key.slice(prefix.length), checked(desk)]));
+}
 /** Exact revision check prevents a stale tab from replacing newer notes/references. */
 export function saveDesk(user: string, project: string, rev: number, input: Omit<Desk, "rev">): Promise<Desk | null> {
   const run = (state.__orbitProjectDesk ?? Promise.resolve()).catch(() => {}).then(async () => {

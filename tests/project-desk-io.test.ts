@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import * as pure from "../src/lib/project-desk-pure.ts";
 import { translate } from "../src/lib/i18n-pure.ts";
+import * as chats from "../src/lib/core-chats-pure.ts";
 
 const require = createRequire(import.meta.url), project = "11111111-1111-4111-8111-111111111111";
 const compile = (file: string) => ts.transpileModule(readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
@@ -46,13 +47,15 @@ test("ARCH scene and history routes scope every read/write to the authorized pro
 });
 test("project desk renders project selection, local notes, references and task links", () => {
   const m = { exports: {} as any };
-  const desk = { rev: 2, notes: "Use timber", references: [{ title: "Reference", url: "https://example.com/" }] };
-  const state: any[] = [[{ id: project, name: "My house", status: "active" }], "", desk, desk, true, false, "", [{ id: "task-1", title: "Study site", status: "done" }], "", "", ""];
+  const desk = { rev: 2, notes: "Use timber", references: [{ title: "Reference", url: "https://example.com/" }], files: [{ id: project, label: "Old name.png" }], productions: [{ id: "job:clip", title: "Project film" }], palette: ["#aabbcc"] };
+  const state: any[] = [[{ id: project, name: "My house", status: "active" }], "", desk, desk, true, false, "", [{ id: "task-1", title: "Study site", status: "done" }], "", "", "", [{ id: project, name: "Renamed.png", type: "image", version: 3 }], "#112233"];
   runInNewContext(compile("components/ProjectDesk.tsx"), { module: m, exports: m.exports, JSON, require: (name: string) => {
     if (name === "react") return { ...require("react"), useState: () => [state.shift(), () => {}], useEffect: () => {} };
     if (name === "react/jsx-runtime") return require(name);
     if (name.endsWith("/project-desk-pure")) return pure;
-    if (name.endsWith("/deeplink-pure")) return { linkToHash: () => "#o=operations&k=task&id=task-1" };
+    if (name.endsWith("/deeplink-pure")) return { linkToHash: (target: any) => `#o=${target.planet}&id=${target.id}` };
+    if (name.endsWith("/core-chats-pure")) return chats;
+    if (name.endsWith("/nav-pure")) return { NAV_EVENT: "orbit:navigate" };
     if (name === "./i18n") return { useT: () => ({ t: (key: any, params: any) => translate("en", key, params) }) };
     throw new Error(name);
   } });
@@ -60,4 +63,32 @@ test("project desk renders project selection, local notes, references and task l
   assert.match(html, /My house/); assert.match(html, /Use timber/); assert.match(html, /https:\/\/example.com\//);
   assert.match(html, /Study site/); assert.match(html, /#o=operations/); assert.match(html, /not sent to AI/);
   assert.match(html, /Save notes and references/);
+  assert.match(html, /Renamed.png/); assert.match(html, /file=Renamed.png/); assert.doesNotMatch(html, /file=Old/);
+  assert.match(html, /Project film/); assert.match(html, /#o=studio/); assert.match(html, /#aabbcc/); assert.match(html, /Open project in CORE/);
+});
+test("project chat requests are navigation data only and reject malformed IDs", () => {
+  assert.deepEqual(chats.projectChatRequest({ projectId: project, chatId: "chat-1", message: "Must never be sent" }), { projectId: project, chatId: "chat-1" });
+  assert.equal(chats.projectChatRequest({ projectId: "../other" }), null);
+  assert.equal(chats.projectChatRequest({ projectId: project, chatId: "<script>" }), null);
+  assert.equal(chats.projectChatRequest(null), null);
+});
+test("connecting CORE uses the existing project ID, preserves pins and never copies desk notes", async () => {
+  const m = { exports: {} as any }, store = chats.emptyChats(), events: any[] = [];
+  let allowed = true, writes = 0;
+  runInNewContext(compile("app/api/projects/core/route.ts"), { module: m, exports: m.exports, Response, Date, require: (name: string) => {
+    if (name.endsWith("/supabase/server")) return { requireUser: async () => ({ user: { id: "owner" }, sb: { from: () => ({ select() { return this; }, eq() { return this; }, maybeSingle: async () => ({ data: { name: "My house" }, error: null }) }) } }) };
+    if (name.endsWith("/project-access")) return { projectScope: async () => allowed ? project : new Response(null, { status: 404 }) };
+    if (name.endsWith("/core-chats")) return { updateChats: async (_user: string, fn: any) => { writes++; return fn(store); } };
+    if (name.endsWith("/core-chats-pure")) return chats;
+    if (name.endsWith("/activity")) return { logActivity: (event: any) => events.push(event) };
+    throw new Error(name);
+  } });
+  const req = new Request(`http://orbit/api/projects/core?project=${project}`, { method: "POST" });
+  assert.equal((await m.exports.POST(req)).status, 200);
+  assert.equal(store.projects[0].id, project); assert.equal(store.projects[0].instructions, ""); assert.equal(store.projects[0].pins.length, 0);
+  store.projects[0].pins.push({ id: "pin", title: "Owner pin", text: "Preserve", at: "now" });
+  assert.equal((await m.exports.POST(req)).status, 200);
+  assert.equal(store.projects.length, 1); assert.equal(store.projects[0].pins.length, 1); assert.equal(events.length, 1);
+  allowed = false;
+  assert.equal((await m.exports.POST(req)).status, 404); assert.equal(writes, 2);
 });

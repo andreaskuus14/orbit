@@ -1,6 +1,6 @@
 # ARCH project desk — first shared workspace
 
-This first increment connects ARCH to the existing OPERATIONS project IDs. It does not create a third project registry or merge CORE's separate chat-project system.
+The first increment connects ARCH to the existing OPERATIONS project IDs. The follow-up connects CORE and STUDIO through those IDs; it does not merge existing projects by name or create a third registry.
 
 ## Use
 
@@ -23,7 +23,17 @@ Existing project tasks appear with links to their OPERATIONS detail. **Start tas
 
 ## Remaining scope
 
-CORE chat projects, VAULT attachment membership, image/palette boards, STUDIO project membership and a cross-module “continue this project” command are not integrated yet. Desk notes are local to this installation; this is not a cloud migration. Existing export/restore tooling does not yet include the new desk metadata file. Version snapshots retain the existing delayed-save behavior; switching quickly after an edit may preserve the current model without adding that edit as a history snapshot.
+An arbitrary cross-module “continue this project” voice/command-bar command is not integrated yet. Desk notes remain local; this is not a cloud migration. Existing restore tooling has no new one-click importer for desk metadata. Version snapshots retain the existing delayed-save behavior; switching quickly after an edit may preserve the current model without adding that edit as a history snapshot. Imported IFC summaries still do not become editable geometry.
+
+## Follow-up: shared context, files and STUDIO
+
+- **Open project in CORE** explicitly registers a CORE project with the owned OPERATIONS project's ID, then opens its latest listed chat or a new chat in that project. It does not send a message, run a model, copy the desk notes/reference contents, merge older same-named projects or overwrite pinned notes/instructions. CORE project names retain their existing 80-character cap. Chat lookup is limited to the existing newest-chat list; an older chat beyond that list may not be found. Unknown/deleted chats fall back to a new chat in the requested project.
+- **Files and visual references** attach existing local VAULT file IDs. Cards resolve current filenames/versions from VAULT metadata, so renames keep the association; removed/unavailable files are shown explicitly. Linked images display local thumbnails, and a palette holds up to 12 colors. Detaching a reference does not delete the original. No file content enters a model prompt. Cloud-only files must first be restored in VAULT before they can be selected here.
+- **STUDIO → Projects** uses the same desk and canonical IDs. Link existing production records to a project and open their normal review view. Links can exist in more than one project. Membership does not alter rendering, review, rights, scheduling or publishing, and the general pipeline is not filtered automatically. Existing uploads/credit approvals remain unchanged.
+- **Tab recovery** keeps unsaved desk edits, pending references and task text in session storage on a best-effort basis. Recovery happens only after the desk API confirms access. A recovered older revision cannot overwrite newer server notes. Explicit Reload saved notes discards recovered desk edits. Closing the whole browser/tab can still lose session-only recovery; Save remains the durable action.
+- **Backup/export** includes this signed-in user's desk metadata under `local.project_desks`, including links, palette and clip/file memberships. Other users' entries are excluded. Linked file bytes remain in the existing VAULT storage; the metadata export is not a new file-copy or restore mechanism.
+
+Follow-up implementation is on `codex/project-context-and-files`, stacked on `codex/arch-project-workspace` / PR 377 until that parent is merged. No new dependencies, migrations, REA changes or deployment. The 33 focused checks passed; the full gate is running.
 
 ## Verification
 

@@ -15,6 +15,14 @@ const CONTEXT_PINS = 6000; // pinned-note text CORE sees per turn
 /** Browser-side: the chat CORE reopens on mount, and the event that starts a fresh one (palette, voice). */
 export const ACTIVE_CHAT_KEY = "orbit.core.chat";
 export const CORE_NEW_CHAT = "orbit:core-new-chat";
+export const CORE_PROJECT_REQUEST_KEY = "orbit.core.pendingProject";
+export type ProjectChatRequest = { projectId: string; chatId?: string };
+/** UI navigation only: no message is submitted and no task starts. */
+export function projectChatRequest(raw: unknown): ProjectChatRequest | null {
+  const v = raw as Partial<ProjectChatRequest> | null;
+  if (!v || !isId(v.projectId) || (v.chatId !== undefined && !isId(v.chatId))) return null;
+  return { projectId: v.projectId, ...(v.chatId && { chatId: v.chatId }) };
+}
 
 export type Pin = { id: string; title: string; text: string; at: string };
 export type Project = { id: string; name: string; instructions: string; pins: Pin[]; createdAt: string };
