@@ -86,7 +86,7 @@ export function briefDecisions(night: NightApproval[], work: WorkItem[], remote:
   for (const r of remote) if (r.kind !== "invoice") out.push({ // invoice reminders come from invoices-pure briefInvoices
     id: r.id, title: plain(r.title),
     what: r.kind === "clip" ? `the clip ${q(r.title)}` : r.kind === "spend" ? `the ${r.credits ?? ""} credit spend for ${q(r.title)}`.replace("  ", " ") : r.kind === "nego" ? `your reply to ${plain(r.title)}` : `the email to ${plain(r.title)}`,
-    open: r.kind === "clip" ? { panel: "studio", view: "review" } : r.kind === "send" ? { panel: "business" } : r.kind === "nego" ? (r.detail?.startsWith("Deal") ? { panel: "markets", tab: "Deals" } : { panel: "business" }) : { panel: "studio" },
+    open: r.kind === "clip" ? { panel: "studio", view: "review" } : r.kind === "send" ? { link: clientLink(r.id.replace(/^send:/, "")) } : r.kind === "nego" ? (r.detail?.startsWith("Deal") ? { panel: "markets", tab: "Deals" } : { panel: "business" }) : { panel: "studio" },
   });
   return out;
 }
@@ -207,8 +207,9 @@ export const TODAY_ROWS = 6; // per group; the rest is counted in "more"
 export function todayGroups(x: BriefIn, now: number): TodayGroup[] {
   const snoozed = new Set(x.snoozed), out: TodayGroup[] = [];
   const group = (key: TodayGroup["key"], label: string, rows: TodayRow[], failed?: string) => {
+    const cap = key === "decisions" ? Infinity : TODAY_ROWS; // every decision stays reachable from the card
     if (failed) out.push({ key, label, rows: [], failed });
-    else if (rows.length) out.push({ key, label, rows: rows.slice(0, TODAY_ROWS), ...(rows.length > TODAY_ROWS && { more: rows.length - TODAY_ROWS }) });
+    else if (rows.length) out.push({ key, label, rows: rows.slice(0, cap), ...(rows.length > cap && { more: rows.length - cap }) });
   };
 
   // Decisions: every one waiting, not only the two that are spoken. Emails and spends keep "open" only.
@@ -232,8 +233,9 @@ export function todayGroups(x: BriefIn, now: number): TodayGroup[] {
 
   // Calendar: all of today's events. Titles only with his LIFE opt-in (as in the spoken brief); otherwise the time alone.
   const cal = x.morning.calendar;
-  if (cal) group("calendar", "Calendar today", cal.today.map((e, k) => ({ id: `cal:${x.day}:${k}`, title: x.life ? plain(e.title) : "Calendar event", detail: e.time, open: { panel: "life" } })),
-    cal.connected ? undefined : "The calendar couldn't be read, so today's events are unknown.");
+  if (cal?.expired) group("calendar", "Calendar today", [], "Google Calendar sign-in expired, so today's events are unknown. Reconnect it in LIFE.");
+  else if (cal?.error) group("calendar", "Calendar today", [], `The calendar couldn't be read (${plain(cal.error)}), so today's events are unknown.`);
+  else if (cal?.connected) group("calendar", "Calendar today", cal.today.map((e, k) => ({ id: `cal:${x.day}:${k}`, title: x.life ? plain(e.title) : "Calendar event", detail: e.time, open: { panel: "life" } })));
 
   // Projects: what moved in the last day, one row per OPERATIONS project, opening its newest changed task.
   const pj = x.projects;

@@ -44,7 +44,7 @@ test("decisions: every one waiting is listed with its action; only two are spoke
   assert.deepEqual(d.rows.map((r) => r.id), ["decision:task:t1", "decision:task:t2", "decision:send:p9"]);
   assert.deepEqual(d.rows[0].approve, { task: "t1" });
   assert.equal(d.rows[2].approve, undefined, "an email is never one-tap approved, here either");
-  assert.deepEqual(d.rows[2].open, { panel: "business" });
+  assert.deepEqual(d.rows[2].open, { link: "#o=business&v=client&k=client&id=p9" }, "an email opens that client's card, where the draft and its send approval are");
   assert.equal(b.items.filter((i) => i.kind === "decision").length, 2);
   // A snoozed decision leaves the card's list too.
   assert.deepEqual(groupOf(todayGroups(base({ snoozed: ["decision:task:t2"] }), now), "decisions")!.rows.map((r) => r.id), ["decision:task:t1", "decision:send:p9"]);
@@ -84,7 +84,9 @@ test("a source that couldn't be read says so instead of looking empty", () => {
   assert.ok(one.rows.some((r) => r.id === "followup:failed" && /couldn't be read/.test(r.title)));
   assert.ok(one.rows.some((r) => r.id === "deadline:g-over"));
   assert.match(groupOf(todayGroups(base({ projects: null }), now), "projects")!.failed!, /couldn't be read/);
-  assert.match(groupOf(todayGroups(base({}, { calendar: { connected: false, today: [] } }), now), "calendar")!.failed!, /couldn't be read/);
+  assert.match(groupOf(todayGroups(base({}, { calendar: { connected: true, today: [], error: "Couldn't reach Google Calendar" } }), now), "calendar")!.failed!, /couldn't be read \(Couldn't reach Google Calendar\)/);
+  assert.match(groupOf(todayGroups(base({}, { calendar: { connected: false, today: [], expired: true } }), now), "calendar")!.failed!, /sign-in expired.*Reconnect it in LIFE/);
+  assert.equal(groupOf(todayGroups(base({}, { calendar: { connected: false, today: [] } }), now), "calendar"), undefined, "not connected: no claim either way");
   // Not gathered at all (no Google calendar configured, no project data passed): no group, rather than a false "nothing".
   const none = todayGroups(base({ projects: undefined }, { calendar: undefined }), now);
   assert.equal(groupOf(none, "calendar"), undefined); assert.equal(groupOf(none, "projects"), undefined);
@@ -144,4 +146,21 @@ test("the brief overlay renders Today with labelled Approve/Open per row and the
   assert.doesNotMatch(html, /aria-label="Approve: Tartu Cafe"/, "no one-tap approve for an email");
   assert.match(html, /Project tasks couldn&#x27;t be read\./);
   assert.doesNotMatch(html, /Dentist/, "calendar titles stay hidden without the LIFE opt-in");
+});
+
+test("every decision is listed, with no '+N more' cap (Agent 6 #1)", () => {
+  const many = briefDecisions([], [], Array.from({ length: 11 }, (_, k) => ({ id: `send:c${k}`, kind: "send" as const, title: `Client ${k}` })));
+  const d = groupOf(todayGroups(base({ decisions: many }), now), "decisions")!;
+  assert.equal(d.rows.length, 11); assert.equal(d.more, undefined);
+});
+
+test("goal deadlines count days in his time zone, not the server's (Agent 6 #3)", async () => {
+  const { dayKey, safeZone } = await import("../src/lib/agent-stats-pure.ts");
+  const { goalDeadlines } = await import("../src/lib/morning-rank-pure.ts");
+  const at = new Date("2026-11-07T22:30:00Z"); // 00:30 on 8 Nov in Tallinn; still 7 Nov on a UTC host
+  const goal = [{ id: "g", doc: { title: "Hand in the model", status: "running", deadline: "2026-11-08" } }];
+  assert.equal(goalDeadlines(goal, dayKey(at, safeZone("Europe/Tallinn")))[0].days, 0, "due today in Tallinn");
+  assert.equal(goalDeadlines(goal, dayKey(at, "UTC"))[0].days, 1, "the old server-day answer");
+  const src = (await import("node:fs")).readFileSync(new URL("../src/lib/morning.ts", import.meta.url), "utf8");
+  assert.match(src, /deadlines\(sb, userId, dayKey\(new Date\(now\), safeZone\(tz\)\)\)/);
 });
