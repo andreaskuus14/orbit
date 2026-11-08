@@ -4,7 +4,7 @@ import { IfcAPI } from "web-ifc";
 import { starterScene } from "../src/lib/arch-pure.ts";
 import { toIfc } from "../src/lib/arch-ifc-pure.ts";
 import { sunPosition } from "../src/lib/sun-pure.ts";
-import { dmsToDeg, ifcGroup, lengthScale, northFromTrueNorth, placeOnPlot, shadowStudyTimes } from "../src/lib/arch-ifc-import-pure.ts";
+import { sunSite, dmsToDeg, ifcGroup, lengthScale, northFromTrueNorth, placeOnPlot, shadowStudyTimes } from "../src/lib/arch-ifc-import-pure.ts";
 import { readIfc, type IfcModel } from "../src/lib/arch-ifc-read.ts";
 
 test("site angles: DMS with millionths, shared sign, range checked", () => {
@@ -83,7 +83,15 @@ test("a rotated true north and millimetre units are honoured", async () => {
 
 test("refuses oversized and empty files with a plain message", async () => {
   await ready;
-  assert.throws(() => readIfc(api, { byteLength: 200 * 1048576 } as Uint8Array), /up to 150 MB/);
+  assert.throws(() => readIfc(api, { byteLength: 200 * 1048576 } as Uint8Array), /up to 80 MB/);
   const empty = toIfc({ ...starterScene(), parts: [] }, { time: new Date(0) });
   await assert.rejects(read(empty), /No building geometry/);
+});
+
+test("an IFC's site drives the sun only while open; his own location is never changed", () => {
+  const own = { lat: 59.437, lon: 24.754, hour: 12, on: true }, file = { lat: 49.100435, lon: 8.436539 };
+  assert.equal(sunSite(file, own), file);
+  assert.equal(sunSite(null, own), own);
+  assert.equal(sunSite(undefined, own), own, "closed (or no site in the file): back to his own, nothing to restore");
+  assert.deepEqual(own, { lat: 59.437, lon: 24.754, hour: 12, on: true });
 });

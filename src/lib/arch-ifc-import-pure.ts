@@ -2,8 +2,9 @@
 // model: web-ifc tessellates it (arch-ifc-read.ts); this file holds the limits and the maths that need no geometry kernel.
 // Axes as arch-ifc-pure: IFC X = ARCH x, IFC Y = ARCH −z, IFC Z = ARCH y (up). web-ifc already hands back Y-up metres.
 
-/** The file comes from outside: refuse what would freeze the tab instead of trying. */
-export const IFC_LIMITS = { bytes: 150 * 1024 * 1024, triangles: 3_000_000 };
+/** The file comes from outside and web-ifc parses on the main thread: past these limits the tab would freeze, so refuse.
+ *  shortcut: a ~50 MB file still blocks the tab for seconds; move readIfc to a worker if real projects get that big. */
+export const IFC_LIMITS = { bytes: 80 * 1024 * 1024, triangles: 3_000_000 };
 /** Checked before the file is read into memory, and again on the bytes. */
 export function checkIfcSize(bytes: number): void {
   if (bytes > IFC_LIMITS.bytes) throw new Error(`This IFC is ${Math.round(bytes / 1048576)} MB; ARCH opens files up to ${IFC_LIMITS.bytes / 1048576} MB.`);
@@ -65,4 +66,9 @@ export function shadowStudyTimes(year: number, lon: number): { label: string; at
   return ([[2, "21 Mar"], [5, "21 Jun"], [11, "21 Dec"]] as const).flatMap(([m, day]) => [9, 12, 15].map((h) => ({
     label: `${day} · ${String(h).padStart(2, "0")}:00 solar`, at: new Date(Date.UTC(year, m, 21) + (h - lon / 15) * 3_600_000),
   })));
+}
+
+/** Location the sun uses: an open IFC's own site, else his. Never merged into his state, so closing the IFC needs no restore. */
+export function sunSite<T extends { lat: number; lon: number }>(ifcSite: { lat: number; lon: number } | null | undefined, own: T): T | { lat: number; lon: number } {
+  return ifcSite ?? own;
 }
