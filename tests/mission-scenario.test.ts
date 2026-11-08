@@ -6,6 +6,7 @@ import path from "node:path";
 import vm from "node:vm";
 import ts from "typescript";
 import * as completionPure from "../src/lib/completion-pure.ts";
+import * as answerCallPure from "../src/lib/answer-call-pure.ts";
 import * as chainsPure from "../src/lib/chains-pure.ts";
 import * as companyPure from "../src/lib/company-pure.ts";
 import * as missionsPure from "../src/lib/missions-pure.ts";
@@ -131,7 +132,7 @@ function boot(w: World, missing = new Set<string>()) {
     },
   };
   const mods: Row = {
-    "./claude": claude, "./authority": { authorizeAction: async () => ({ ok: true }) }, "./stop-all": stopAll, "./stop-all-pure": stopAllPure, "./completion-pure": completionPure, "./task-claim-pure": taskClaimPure,
+    "./claude": claude, "./authority": { authorizeAction: async () => ({ ok: true }) }, "./stop-all": stopAll, "./stop-all-pure": stopAllPure, "./completion-pure": completionPure, "./answer-call-pure": answerCallPure, "./task-claim-pure": taskClaimPure,
     "./company-pure": companyPure, "./chains-pure": chainsPure, "./missions-pure": missionsPure, "./durable": { noteWrite: () => {} }, "./pure": pure,
     "./memory": { KINDS: ["note"], createMemory: (_sb: unknown, userId: string, input: Row) => ctx.__memory({ ...input, user_id: userId }) }, "./core-ui": { needsSelfReview: () => false }, "./completion": { verifyRow: async () => {} },
     "./foreground-pure": foregroundPure, "./clip-store-pure": clipStorePure, "./memory-types-pure": memoryTypesPure, "./mission-checks-pure": missionChecksPure, "./research-pilot-pure": researchPilotPure, "./agent-defs-pure": agentDefsPure,
