@@ -51,3 +51,32 @@ test("compare: previous run at the same label, >15% and >=1 ms p95 is a regressi
   assert.match(formatRun(b, rows), /studio .*REGRESSION/);
   assert.equal(compareRuns(null, b).some((r) => r.regressed), false);
 });
+
+test("comparison skips hidden or mismatched runs even if the saved window label is the same", () => {
+  const baseline = run(1, "1536x864", { studio: 20 });
+  const current = run(7, baseline.label, { studio: 30 });
+  const candidates = [
+    { ...baseline, at: 2, hidden: true },
+    { ...baseline, at: 3, gpu: "SwiftShader" },
+    { ...baseline, at: 4, w: 1535 },
+    { ...baseline, at: 5, h: 863 },
+    { ...baseline, at: 6, dpr: 2 },
+  ];
+  assert.equal(previousOf([baseline, ...candidates], current), baseline);
+  assert.equal(previousOf([baseline, ...candidates], { ...current, hidden: true }), null);
+  assert.equal(previousOf([{ ...baseline, gpu: "unknown" }], { ...current, gpu: "unknown" }), null);
+  for (const other of candidates) assert.equal(compareRuns(other, current)[0].prevP95, null);
+  assert.equal(compareRuns(baseline, current)[0].regressed, true);
+});
+
+test("changed rendering is reported without producing a false performance alert", () => {
+  const baseline = run(1, "1536x864", { studio: 20 });
+  const current = run(2, baseline.label, { studio: 30 });
+  current.segments[0].rdpr = 1.5;
+  const rows = compareRuns(baseline, current);
+  assert.equal(rows[0].renderChanged, true);
+  assert.equal(rows[0].prevP95, null);
+  assert.deepEqual(regressionLines(current, rows), []);
+  assert.match(formatRun(current, rows), /render settings changed/);
+  assert.match(formatRun(current, compareRuns(null, current)), /No comparable baseline/);
+});

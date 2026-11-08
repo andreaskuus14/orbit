@@ -144,6 +144,7 @@ const BASE = {
   "galaxy.week.one": "{n} event this week", "galaxy.week.other": "{n} events this week", "galaxy.quiet": "quiet this week", "galaxy.today.one": "{n} new today", "galaxy.today.other": "{n} new today", "galaxy.leads.one": "{n} lead", "galaxy.leads.other": "{n} leads", "galaxy.toContact": "{n} to contact", "galaxy.won": "{n} won", "galaxy.habits": "{done}/{total} habits today",
   "quiet.brief": "Morning brief", "quiet.morning": "Good morning", "quiet.recap": "Since you left", "quiet.tour": "What's new", "quiet.new": "{n} new", "quiet.needYou": "{n} need you", "quiet.dot": "new", "quiet.aria": "Status: {s}. Open the list", "quiet.title": "Waiting for you",
 
+  "perf.renderChanged": "Render changed", "perf.noBaseline": "No comparable baseline. Match the visible window, GPU and pixel ratio.",
   "common.loading": "Loading…", "common.add": "Add", "common.remove": "Remove", "common.cancel": "Cancel", "common.copied": "Copied",
 
   "overview.aria": "Planets", "overview.kicker": "ORBIT / YOUR WORKSPACE", "overview.title1": "A universe.", "overview.title2": "Yours to shape.",
@@ -1019,6 +1020,7 @@ export const ET: Partial<Record<Key, string>> = {
   "galaxy.week.one": "{n} sündmus sel nädalal", "galaxy.week.other": "{n} sündmust sel nädalal", "galaxy.quiet": "sel nädalal vaikne", "galaxy.today.one": "{n} uus täna", "galaxy.today.other": "{n} uut täna", "galaxy.leads.one": "{n} kontakt", "galaxy.leads.other": "{n} kontakti", "galaxy.toContact": "{n} võtta ühendust", "galaxy.won": "{n} võidetud", "galaxy.habits": "{done}/{total} harjumust täna",
   "quiet.brief": "Hommikune ülevaade", "quiet.morning": "Tere hommikust", "quiet.recap": "Sinu äraolekul", "quiet.tour": "Mis on uut", "quiet.new": "{n} uut", "quiet.needYou": "{n} vajab sind", "quiet.dot": "uus", "quiet.aria": "Olek: {s}. Ava nimekiri", "quiet.title": "Sind ootab",
 
+  "perf.renderChanged": "Renderdus muutus", "perf.noBaseline": "Võrreldav mõõtmine puudub. Kasuta sama nähtavat akent, graafikaprotsessorit ja pikslisuhet.",
   "common.loading": "Laadin…", "common.add": "Lisa", "common.remove": "Eemalda", "common.cancel": "Tühista", "common.copied": "Kopeeritud",
 
   "overview.aria": "Planeedid", "overview.kicker": "ORBIT / SINU TÖÖRUUM", "overview.title1": "Universum.", "overview.title2": "Sinu kujundada.",
