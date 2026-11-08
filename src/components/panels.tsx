@@ -82,6 +82,16 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
 /* ---------------- CORE chat ---------------- */
+/** Polls a handed-off task until it finishes (or the chat moves on): its result replaces the dropped stream. */
+async function waitTask(id: string, live: () => boolean): Promise<{ status: string; result?: string | null; error?: string | null } | null> {
+  for (let i = 0; i < 360 && live(); i++) { // shortcut: polls up to 30 min; a longer task stays in OPERATIONS
+    await new Promise((r) => setTimeout(r, 5000));
+    const t = await fetch(`/api/tasks?id=${encodeURIComponent(id)}`).then((r) => r.json()).then((j) => (j.tasks as { id: string; status: string; result?: string; error?: string }[] | undefined)?.find((x) => x.id === id), () => undefined);
+    if (t && ["done", "failed", "cancelled", "interrupted", "blocked"].includes(t.status)) return t;
+  }
+  return null;
+}
+
 export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreeted }: { initial: string | null; onConsumed: () => void; onOpenMemory: (id: string) => void; greeting?: string | null; onGreeted?: () => void }) {
   const { t: tr } = useT();
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -228,7 +238,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     setRows([]); setBgTask(null);
     since.current = Date.now();
     let steps: LiveRow[] = []; // mirrors `rows` so "done" can keep them under the answer
-    let handedOff = false;
+    let handedOff = false, bgId = "";
     const ac = new AbortController();
     abort.current = ac;
     let partial = "";
@@ -269,7 +279,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           if (talk && speechGen() === myGen) { stopSpeech(); myGen = speechGen(); } // restart, unless the user already silenced it
           setLive("");
         } else if (ev.type === "background" && ev.taskId) {
-          handedOff = true; setBgTask(ev.taskId);
+          handedOff = true; bgId = ev.taskId; setBgTask(ev.taskId);
         } else if (ev.type === "bg_done") {
           flush(); setLive(null); partial = "";
           setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", live: { rows: steps, ms: Date.now() - since.current } }]);
@@ -299,7 +309,11 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       if (talk) stopSpeech();
       if (!stopped) ac.abort(); // e.g. a malformed line: stop the server-side CLI too
       if (!stopped) dispatchEvent(new CustomEvent<CoreSignal>(CORE_SIGNAL, { detail: { type: "error" } }));
-      if (!(stopped && handedOff) && here()) setMsgs((m) => [...m, stopped // after a handoff, Stop only stops watching: the work goes on in OPERATIONS
+      if (handedOff && !stopped && bgId) { // the stream dropped (sleep, proxy, server timeout) but the task runs on the server: wait for it
+        const t = await waitTask(bgId, here);
+        if (t && here()) setMsgs((m) => [...m, t.status === "done" ? { role: "assistant", content: t.result ?? "", live: { rows: steps, ms: Date.now() - since.current } }
+          : { role: "assistant", content: t.error || `The task ended as ${t.status}.`, error: true }]);
+      } else if (!(stopped && handedOff) && here()) setMsgs((m) => [...m, stopped // after a handoff, Stop only stops watching: the work goes on in OPERATIONS
         ? { role: "assistant", content: `${partial}${partial ? "\n\n" : ""}_Stopped._`, live: { rows: steps, ms: Date.now() - since.current } }
         : { role: "assistant", content: e instanceof Error ? e.message : "CORE failed", error: true }]);
     } finally {
@@ -341,7 +355,17 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     queued.current = null;
     void send(q);
   }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs, busy, live]);
+  // Follow the answer only while the reader is at the bottom: scrolling up to read keeps its place (audit 8 Nov).
+  const atBottom = useRef(true);
+  useEffect(() => {
+    const box = end.current?.parentElement;
+    if (!box) return;
+    const on = () => { atBottom.current = box.scrollHeight - box.scrollTop - box.clientHeight < 80; };
+    box.addEventListener("scroll", on, { passive: true });
+    return () => box.removeEventListener("scroll", on);
+  }, []);
+  useEffect(() => { atBottom.current = true; }, [msgs.length]); // a new message (yours or CORE's) jumps back down
+  useEffect(() => { if (atBottom.current) end.current?.scrollIntoView({ block: "end" }); }, [msgs, busy, live]);
 
   // Memoised so streaming deltas re-render only the live bubble, not the whole history.
   const history = useMemo(() => msgs.map((m, i) => (

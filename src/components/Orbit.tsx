@@ -606,7 +606,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {view === "3d" && !shown && living.open && <TimeTravel days={living.days} setDays={living.setDays} onClose={() => { living.setOpen(false); living.setDays(0); }} />}
       {view === "3d" && <BootSequence reduced={reduced} />}
       {view === "3d" && (
-        <div className="absolute inset-0" style={galaxyGone && !staged ? { visibility: "hidden" } : undefined} inert={(galaxyGone && !staged) || undefined}>
+        <div className="galaxy-layer absolute inset-0" data-dim={(panel === "core" && !dive) || undefined} style={galaxyGone && !staged ? { visibility: "hidden" } : undefined} inert={(galaxyGone && !staged) || undefined}>
           <Galaxy selected={approach ?? panel} onSelect={galaxySelect} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel && !dive} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={galaxyGone} universe={living.universe} ships={ships} dilation={dilation}
             dive={dive} onDiveCross={onDiveCross} onDiveCancel={onDiveCancel} onIdle={onGalaxyIdle} />
         </div>

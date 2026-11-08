@@ -970,6 +970,12 @@ function RenderScale({ max, onDpr }: { max: number; onDpr: (dpr: number) => void
   });
   return null;
 }
+/** Draws a "demand" canvas at a steady low rate (the dimmed scene behind an open panel). */
+function Throttle({ fps }: { fps: number }) {
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => { const id = setInterval(() => invalidate(), 1000 / fps); return () => clearInterval(id); }, [invalidate, fps]);
+  return null;
+}
 const SCALE_KEY = "orbit.render.scale";
 function loadScale(): ScaleState { try { const v = Number(localStorage.getItem(SCALE_KEY)); return newScale(v); } catch { return newScale(1); } }
 function saveScale(s: ScaleState) { try { localStorage.setItem(SCALE_KEY, String(s.scale)); } catch { /* storage off */ } }
@@ -1000,6 +1006,14 @@ export default function Galaxy(props: GalaxyProps) {
     document.addEventListener("visibilitychange", update);
     return () => document.removeEventListener("visibilitychange", update);
   }, []);
+  // A panel covers most of the scene and dims it: once the camera has settled, draw at 30 fps instead of the screen's rate
+  // (audit 8 Nov: ~98 frames/s behind an open CORE chat; 16-22 fps while panels opened).
+  const [idle, setIdle] = useState(false);
+  useEffect(() => {
+    if (!props.panelOpen) { setIdle(false); return; }
+    const t = setTimeout(() => setIdle(true), 1500);
+    return () => clearTimeout(t);
+  }, [props.panelOpen]);
   const mode = props.quality ?? "auto";
   const level: QualityLevel = mode === "high" ? 3 : mode === "low" ? 0 : (Math.min(autoLevel, max) as QualityLevel);
   perfCtx.level = level; perfCtx.selected = props.selected ?? null; perfCtx.paused = !!props.paused; // read by the freeze log
@@ -1051,7 +1065,7 @@ export default function Galaxy(props: GalaxyProps) {
   }, [stop, selected, onSelect]);
   return (
     <div className="relative h-full w-full">
-      <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={(props.paused && !staged) || !visible ? "never" : "always"} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={dpr ?? [1, dprMax]}
+      <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={(props.paused && !staged) || !visible ? "never" : idle && !staged ? "demand" : "always"} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={dpr ?? [1, dprMax]}
         gl={{ antialias: true, powerPreference: "high-performance", toneMapping: THREE.ACESFilmicToneMapping }}>
         <color attach="background" args={["#000003"]} />
         {/* Depth haze: far orbits and belts sink into the void (shader layers ignore it). */}
@@ -1099,9 +1113,9 @@ export default function Galaxy(props: GalaxyProps) {
             synchronously in one 14 s frame (owner's PC); the loader stays up instead. Hidden parts warm after the first frames. */}
         <WarmCompile cap={20_000} defer onDone={compiled} onLater={props.onIdle} />
         <Dilation span={props.dilation} reduced={props.reduced} />
-        <RenderScale max={dprMax} onDpr={setDpr} />
+        {idle && !staged ? <Throttle fps={30} /> : <RenderScale max={dprMax} onDpr={setDpr} />} {/* throttled frames are not strain */}
         <FirstFrames onReady={onReady} />
-        {mode === "auto" && !staged && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
+        {mode === "auto" && !staged && !idle && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
         {/* Low quality drops post-processing entirely (the renderer's own ACES tone mapping still applies). */}
         {q.bloom > 0 && (
           <EffectComposer key={level} enabled={!staged} multisampling={q.msaa}>

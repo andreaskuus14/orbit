@@ -3,9 +3,10 @@
 import { saveUpload } from "./vault";
 import { assetName } from "./local-ai-pure";
 import { stopAllOn } from "./stop-all";
-import { COMFY_NOT_RUNNING, PHOTO, checkImage, comfyUrl, parseHistory, parseQueued, parseStats, seedOf, sizeFor, viewPath, workflow, type ComfyHealth } from "./comfy-pure";
+import { checkImage, comfyModel, comfyModelName, comfyNotRunning, comfyUrl, imageWorkflow, parseHistory, parseQueued, parseStats, seedOf, sizeFor, viewPath, type ComfyHealth, type ComfyModel } from "./comfy-pure";
 
 const base = () => comfyUrl(process.env.ORBIT_COMFY_URL);
+export const configuredComfyModel = () => comfyModel(process.env.ORBIT_COMFY_MODEL);
 const G = globalThis as unknown as { __orbitComfy?: Promise<boolean> | null; __orbitComfyFree?: NodeJS.Timeout };
 const stats = (u: string, ms = 4000) => fetch(`${u}/system_stats`, { cache: "no-store", signal: AbortSignal.timeout(ms) }).then((r) => (r.ok ? r.json() : null), () => null);
 
@@ -29,17 +30,23 @@ function autostart(u: string): Promise<boolean> {
     closeSync(log);
     child.on("error", () => { G.__orbitComfy = null; });
     child.on("exit", () => { G.__orbitComfy = null; });
-    for (let i = 0; i < 60; i++) { await new Promise((r) => setTimeout(r, 1500)); if (await stats(u, 2000)) return true; } // first start ~20-60 s
+    // First launch on Windows can exceed the usual 90 seconds while Python initializes.
+    const deadline = Date.now() + (configuredComfyModel() === "nitrofusion2" ? 180_000 : 90_000);
+    while (Date.now() < deadline && child.exitCode === null && child.pid) {
+      await new Promise((r) => setTimeout(r, 1500));
+      if (await stats(u, 2000)) return true;
+    }
     return false;
   })().finally(() => { setTimeout(() => { if (G.__orbitComfy) G.__orbitComfy = null; }, 60_000); }));
 }
 
-export async function comfyHealth(): Promise<ComfyHealth> {
+export async function comfyHealth(): Promise<ComfyHealth & { model: ComfyModel }> {
   const u = base();
-  if (!u) return parseStats(null, false);
+  const model = configuredComfyModel();
+  if (!u) return { ...parseStats(null, false), model };
   const j = await stats(u);
   if (!j && (await installed())) void autostart(u); // not running: start it in the background; the next check shows it
-  return parseStats(j, await installed());
+  return { ...parseStats(j, await installed()), model };
 }
 
 /** Is local generation usable right now (running, or installed and started within the wait)? */
@@ -55,9 +62,11 @@ export async function generate(prompt: string, aspect: unknown, seedText = promp
   const u = base();
   if (!u) throw new Error("ORBIT_COMFY_URL must point at this PC (http://127.0.0.1:<port>).");
   if (stopAllOn()) throw new Error("ORBIT is paused (Stop-all is on)");
-  if (!(await comfyReady())) throw new Error(COMFY_NOT_RUNNING);
+  const model = configuredComfyModel();
+  if (!(await comfyReady())) throw new Error(comfyNotRunning(model));
   const [width, height] = sizeFor(aspect);
-  const q = parseQueued(await (await post(u, "/prompt", { prompt: workflow({ prompt: `${prompt}. ${PHOTO}`, width, height, seed: seedOf(seedText) }), client_id: "orbit" })).json().catch(() => null));
+  const graph = imageWorkflow(model, { prompt, width, height, seed: seedOf(seedText) });
+  const q = parseQueued(await (await post(u, "/prompt", { prompt: graph, client_id: "orbit" })).json().catch(() => null), model);
   if ("error" in q) throw new Error(q.error);
   const until = Date.now() + timeoutMs; // the first picture loads the 6.9 GB model from disk
   try {
@@ -91,6 +100,6 @@ export async function makeImage(i: Record<string, unknown>): Promise<string> {
 export async function runComfyTool(i: Record<string, unknown>): Promise<string> {
   try {
     const saved = await makeImage(i);
-    return `Saved the picture as "${saved}" in VAULT (made on his PC with SDXL-Lightning in ComfyUI; free, nothing uploaded). Show it with vault_read or tell him where it is.`;
+    return `Saved the picture as "${saved}" in VAULT (made on his PC with ${comfyModelName(configuredComfyModel())} in ComfyUI; free, nothing uploaded). Show it with vault_read or tell him where it is.`;
   } catch (e) { return `Error: ${e instanceof Error ? e.message : String(e)}`; }
 }
