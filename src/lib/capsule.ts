@@ -1,4 +1,4 @@
-import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { orbitDataDir } from "./data-dir.ts";
 import { CONFIG_FILE, EXT, capsuleName, diffManifests, fallbackDue, makeKeyring, manifest, openCapsule, packFiles, parseName, pickFiles, readHeader, rotate, seal, unpackFiles,
@@ -152,8 +152,13 @@ export const restoreCapsule = (name: unknown, pass: unknown) => serial(async () 
   try {
     for (const t of targets) {
       current = t.dest;
-      const made = await mkdir(path.dirname(t.dest), { recursive: true });
-      if (made) madeDirs.push(made);
+      const parent = path.relative(root, path.dirname(t.dest));
+      let dir = root;
+      for (const part of parent.split(path.sep).filter(Boolean)) {
+        dir = path.join(dir, part);
+        try { await mkdir(dir); madeDirs.push(dir); }
+        catch (e) { if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; }
+      }
       await writeFile(t.dest + ".tmp", t.data);
       await rename(t.dest + ".tmp", t.dest);
       done.push(t.dest);
@@ -167,7 +172,10 @@ export const restoreCapsule = (name: unknown, pass: unknown) => serial(async () 
       await undo(d, () => o === null || o === undefined ? rm(d, { force: true }) : atomicWrite(d, o));
       await undo(d + ".tmp", () => rm(d + ".tmp", { force: true }));
     }
-    for (const d of madeDirs.reverse()) await rm(d, { recursive: true, force: true }).catch(() => left.push(path.relative(root, d)));
+    // An unrelated writer may have added data while restore was running. Only remove directories that are still empty.
+    for (const d of madeDirs.reverse()) await undo(d, () => rmdir(d).catch((e: NodeJS.ErrnoException) => {
+      if (e.code !== "ENOENT") throw e;
+    }));
     const why = e instanceof Error ? e.message : String(e);
     throw new Error(left.length
       ? `Restore failed (${why}) and could not undo ${left.join(", ")}. The data from before the restore is in ${safety.name}.`
