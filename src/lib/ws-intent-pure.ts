@@ -45,11 +45,20 @@ export function namedWorkspace(question: string, workspaces: string[] = []): str
 
 export const isGoAhead = (q: string) => YES.test(q.trim());
 
+/** A "don't" aimed at the action itself: the whole message is a stop ("stop", "cancel", "never mind"), "not now", or a
+ *  don't/never/stop/cancel followed within three words by one of `verbs` ("don't build it", "cancel the reminder").
+ *  "Build a site, don't use red" or "remind me to never skip leg day" negate a detail, not the write. */
+export function saysNotTo(q: string, verbs: string): boolean {
+  if (/^\s*(?:no|nope|stop|cancel|never ?mind|don'?t|do not|wait)\b[\s.!]*$/.test(q) || /\bnot now\b/.test(q)) return true;
+  return new RegExp(`\\b(?:don'?t|do not|never|stop|cancel)\\b(?!\\s+forget)(?:\\s+\\S+){0,3}?\\s+(?:${verbs})\\b`).test(q);
+}
+const WS_VERBS = "build\\w*|make|making|creat\\w*|writ\\w*|edit\\w*|chang\\w*|touch\\w*|run\\w*|start\\w*|deploy\\w*|cod\\w*|add\\w*|delet\\w*|remov\\w*|updat\\w*|do|doing|it|that|this|anything|files?|workspace";
+
 /** null = allowed; else the refusal CORE sees. */
 export function wsWriteBlocked(question: string, tainted: boolean, gate: WsGate = {}): string | null {
   if (tainted) return "workspace files change only for the user's own request, before any page, file or agent output is in context";
   const q = question.toLowerCase();
-  if (/\b(?:don'?t|do not|never|stop|cancel|not now)\b/.test(q) || ET_NOT.test(q)) return "the user said not to; answer instead";
+  if (saysNotTo(q.replace(/[‘’ʼ]/g, "'"), WS_VERBS) || ET_NOT.test(q)) return "the user said not to; answer instead";
   if (/^\s*(?:how|what|why|which|when|where|explain)\b/.test(q) || etQuestion(q) || /^\s*seleta/.test(q)) return "the user asked a question; answer it instead of writing files";
   const target = typeof gate.target === "string" ? slugify(gate.target) : null;
   const p = gate.pending && (gate.now ?? Date.now()) - gate.pending.at < PENDING_MS ? gate.pending : null;
