@@ -19,6 +19,7 @@ export type CachedTool = { name: string; description: string; annotations: Annot
 /** local: a program on his PC that doesn't reach the internet (Blender). Only a local plugin's writes can run without his click. */
 export type Plugin = {
   name: string; command?: string; args: string[]; env: Record<string, string>; url?: string; enabled: boolean; local: boolean;
+  headers?: Record<string, string>; // http only: sent with every request (a sign-in token); masked like env, never logged
   tools: Record<string, Mode>; others?: Mode; timeoutSec: number; note?: string;
   cache?: { at: string; tools: CachedTool[]; error?: string };
 };
@@ -27,6 +28,9 @@ export type Gate = { mode: Mode; tier: Tier; local: boolean };
 const NAME = /^[a-z0-9][a-z0-9-]{0,31}$/; // no "_": the server part of plugin__<server>__<tool> must parse back unambiguously
 const TOOL = /^[A-Za-z0-9_.-]{1,64}$/;
 const ENV = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+const HEADER = /^[A-Za-z0-9-]{1,64}$/;
+// Set by the MCP transport itself; a plugin overriding them would break the protocol, not sign in.
+const RESERVED_HEADERS = new Set(["host", "content-length", "content-type", "accept", "connection", "mcp-session-id", "mcp-protocol-version", "last-event-id"]);
 const str = (x: unknown, max: number) => (typeof x === "string" && x.trim() && x.length <= max && !/[\r\n\0]/.test(x) ? x.trim() : undefined);
 const isMode = (x: unknown): x is Mode => MODES.includes(x as Mode);
 
@@ -55,6 +59,16 @@ export function validatePlugin(b: unknown): Plugin | string {
       env[k] = v;
     }
   }
+  const headers: Record<string, string> = {};
+  if (o.headers !== undefined) {
+    if (!url) return "headers are for http plugins (url) only; a command plugin gets env";
+    if (!o.headers || typeof o.headers !== "object" || Array.isArray(o.headers)) return "headers must be an object";
+    for (const [k, v] of Object.entries(o.headers)) {
+      if (!HEADER.test(k) || RESERVED_HEADERS.has(k.toLowerCase())) return `headers ${k.slice(0, 40)}: not a header ORBIT can send`;
+      if (typeof v !== "string" || !v || v.length > 4000 || /[\r\n\0]/.test(v)) return `headers ${k}: value must be one line of text`;
+      headers[k] = v;
+    }
+  }
   const tools: Record<string, Mode> = {};
   if (o.tools !== undefined) {
     if (!o.tools || typeof o.tools !== "object" || Array.isArray(o.tools)) return "tools must be an object of tool → auto|ask|off";
@@ -65,6 +79,7 @@ export function validatePlugin(b: unknown): Plugin | string {
   if (!Number.isInteger(t) || t < 5 || t > 600) return "timeoutSec: 5-600";
   const p: Plugin = { name, args: args as string[], env, enabled: o.enabled !== false, local: o.local === true, tools, timeoutSec: t };
   if (command) p.command = command; else p.url = url;
+  if (Object.keys(headers).length) p.headers = headers;
   if (o.others !== undefined) p.others = o.others as Mode;
   const note = str(o.note, 300);
   if (note) p.note = note;
@@ -316,7 +331,17 @@ export function parsePending(raw: string | null): Pending[] {
 }
 
 /** What the panel/API may show of a plugin: env values never leave the server (tokens). */
-export const publicPlugin = (p: Plugin) => ({ ...p, env: Object.fromEntries(Object.keys(p.env).map((k) => [k, "•••"])) });
+const mask = (o: Record<string, string>) => Object.fromEntries(Object.keys(o).map((k) => [k, "•••"]));
+export const publicPlugin = (p: Plugin) => ({ ...p, env: mask(p.env), ...(p.headers && { headers: mask(p.headers) }) });
+
+/** Why a connection failed, in his words. An http server that refuses the sign-in (401/403) points at the token, never shows it. */
+export function connectError(e: unknown, p: Pick<Plugin, "url" | "headers">): string {
+  const code = (e as { code?: unknown })?.code;
+  if (p.url && (code === 401 || code === 403)) return p.headers ? `sign-in refused (HTTP ${code}): check the token in this plugin's headers, it may have expired` : `this server needs a sign-in (HTTP ${code}): add its token under "headers", e.g. {"Authorization": "Bearer …"}`;
+  let m = (e instanceof Error ? e.message : String(e)).slice(0, 300);
+  for (const v of Object.values(p.headers ?? {})) if (v.length >= 8) m = m.split(v).join("•••"); // a server echoing the token back
+  return m;
+}
 
 /** Profile → Plugins "Suggested": well-known official/popular MCP servers, with exactly what he runs first. Add pre-fills the form. */
 export const SUGGESTED: { title: string; about: string; install: string; plugin: Record<string, unknown> }[] = [
