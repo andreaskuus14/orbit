@@ -225,3 +225,17 @@ test("checkArgs fails closed: unusable schemas refuse, bad args refuse, legacy c
   assert.deepEqual(cleanTool(JSON.parse(JSON.stringify(huge))), huge, "a refusal survives the plugins.json round trip");
   assert.deepEqual(cleanTool(JSON.parse(JSON.stringify(ok))), ok);
 });
+
+test("headers: http only, no protocol headers, masked for the panel; sign-in errors point at the token", async () => {
+  const { validatePlugin, publicPlugin, connectError } = await import("../src/lib/plugins-pure.ts");
+  const ok = validatePlugin({ name: "vid", url: "https://example.com/mcp", headers: { Authorization: "Bearer abcdefgh123" } });
+  assert.equal(typeof ok, "object");
+  assert.deepEqual(publicPlugin(ok as never).headers, { Authorization: "•••" });
+  assert.match(String(validatePlugin({ name: "x", command: "npx", headers: { A: "b" } })), /http plugins/);
+  assert.match(String(validatePlugin({ name: "x", url: "https://e.com", headers: { "Mcp-Session-Id": "s" } })), /not a header/);
+  assert.match(String(validatePlugin({ name: "x", url: "https://e.com", headers: { A: "b\nX-Evil: 1" } })), /one line/);
+  assert.equal("headers" in (validatePlugin({ name: "x", url: "https://e.com" }) as object), false);
+  const e401 = Object.assign(new Error("Error POSTing to endpoint: bad token Bearer abcdefgh123"), { code: 401 });
+  assert.match(connectError(e401, { url: "https://e.com", headers: { Authorization: "Bearer abcdefgh123" } }), /^sign-in refused \(HTTP 401\)/);
+  assert.equal(connectError(new Error("boom Bearer abcdefgh123"), { url: "https://e.com", headers: { Authorization: "Bearer abcdefgh123" } }), "boom •••");
+});
