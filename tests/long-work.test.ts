@@ -56,3 +56,11 @@ test("out of steps before the request is done: hand off, then at most 2 extra bu
   const core = await readFile(new URL("../src/lib/core.ts", import.meta.url), "utf8");
   assert.match(core, /if \(more === "handoff"\) throw new CoreHandoff/); assert.match(core, /extra: store\.extra/); // the background run keeps the count
 });
+
+test("dropNote: a lost connection says how long it ran and how long the tab was hidden; other errors stay as they are", async () => {
+  const { dropNote } = await import("../src/lib/long-work-pure.ts");
+  assert.equal(dropNote("network error", 287_400, 140_000, false), "network error (after 287 s; tab hidden 140 s)");
+  assert.equal(dropNote("Connection to CORE was lost", 61_000, 0, true), "Connection to CORE was lost (after 61 s; tab hidden 0 s, hidden now)");
+  assert.equal(dropNote("TypeError: Failed to fetch", 5_000, 0, false), "TypeError: Failed to fetch (after 5 s; tab hidden 0 s)");
+  assert.equal(dropNote("Budget exceeded", 5_000, 0, false), "Budget exceeded");
+});
