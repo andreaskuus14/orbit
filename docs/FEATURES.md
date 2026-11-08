@@ -56,6 +56,7 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 ## OPERATIONS
 
 - Agent tasks, projects, automations. *Save as recipe* on a finished task; re-run it from AGENTS → Recipes or by saying "run recipe <name>".
+- **Team (Mission Control):** the coding agents' handoff board in four sections: Done, Working, Blocked, Needs you. Each item shows the agent, one sentence, the proof (*Test passed*, *Test failed*, *Merged* or *Deployed*; denials like "nothing merged" don't count) and a PR or test-run link. Updates for the same agent and PR are grouped; the latest one counts. On a phone, Needs you comes first. Reads the Notion board when `ORBIT_NOTION_TOKEN` and `ORBIT_TEAM_BOARD` are set (re-read every minute, or with Refresh); otherwise it shows a sample board labelled *live status unavailable* with the reason. Read-only. Browser check: `npm run check:team-status`.
 
 ## AGENTS
 
