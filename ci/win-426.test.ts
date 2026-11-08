@@ -19,8 +19,8 @@ const PDF = "%PDF-1.4 synthetic report";
 
 const shortName = (file: string) => path.basename(execFileSync("powershell", ["-NoProfile", "-Command", `(New-Object -ComObject Scripting.FileSystemObject).GetFile('${file}').ShortPath`], { encoding: "utf8" }).trim());
 /** Holds file open with no sharing (like an editor or AV scanner) until release(). */
-function lock(file: string) {
-  const ps = spawn("powershell", ["-NoProfile", "-Command", `$f=[IO.File]::Open('${file}','Open','ReadWrite','None'); [Console]::Out.WriteLine('locked'); [Console]::In.ReadLine() | Out-Null; $f.Close()`], { stdio: ["pipe", "pipe", "inherit"] });
+function lock(file: string, share = "None") {
+  const ps = spawn("powershell", ["-NoProfile", "-Command", `$f=[IO.File]::Open('${file}','Open','ReadWrite','${share}'); [Console]::Out.WriteLine('locked'); [Console]::In.ReadLine() | Out-Null; $f.Close()`], { stdio: ["pipe", "pipe", "inherit"] });
   const ready = new Promise<void>((r) => ps.stdout.on("data", (d) => { if (String(d).includes("locked")) r(); }));
   return { ready, release: () => new Promise<void>((r) => { ps.on("exit", () => r()); ps.stdin.end("\n"); }) };
 }
@@ -65,21 +65,30 @@ test("capsule restore with a locked file: fails or succeeds cleanly, safety back
   const desk = path.join(pcB, "project-desks.json");
   await writeFile(desk, JSON.stringify({ old: true }));
   assert.equal(await cap.setupCapsule({ dir: backups, maxMB: 25, passphrase: "pass B synthetic" }), null);
-  const l = lock(desk); await l.ready;
-  const t0 = Date.now();
+  const files0 = async () => Object.fromEntries(await Promise.all((await readdir(pcB, { recursive: true })).filter((n) => !/time-capsule\.json$/.test(n)).map(async (n) => [n, await readFile(path.join(pcB, n), "utf8").catch(() => "<dir>")])));
+  const before = await files0();
+  // (a) locked with no sharing: the restore can't even read it, so it must stop before changing anything.
+  let l = lock(desk); await l.ready;
+  let t0 = Date.now();
   const first = await cap.restoreCapsule(name, "pass A synthetic").then((r) => ({ ok: true, r }), (e: Error & { code?: string }) => ({ ok: false, e: `${e.code ?? ""} ${e.message}` }));
-  console.log("restore while locked:", JSON.stringify(first), `${Date.now() - t0} ms`);
-  const leftovers = (await readdir(pcB)).filter((n) => n.endsWith(".tmp"));
-  console.log("leftover .tmp files:", leftovers);
-  const safety = (await readdir(backups)).filter((n) => /pre-restore/.test(n));
-  console.log("safety backups:", safety);
+  console.log("(a) restore while locked (no sharing):", JSON.stringify(first), `${Date.now() - t0} ms`);
   await l.release();
+  assert.ok(!first.ok, "the restore failed");
+  assert.match(String((first as { e: string }).e), /EBUSY|EPERM|locked/i, "a clear lock error");
+  assert.deepEqual(await files0(), before, "(a) nothing in the data dir changed, no .tmp left");
+  // (b) locked but readable (an editor that shares reads): originals are read, the write fails, earlier writes must be undone.
+  l = lock(desk, "Read"); await l.ready;
+  t0 = Date.now();
+  const mid = await cap.restoreCapsule(name, "pass A synthetic").then((r) => ({ ok: true, r }), (e: Error) => ({ ok: false, e: e.message }));
+  console.log("(b) restore while locked (reads shared):", JSON.stringify(mid), `${Date.now() - t0} ms`);
+  await l.release();
+  const after = await files0();
+  const changed = Object.keys({ ...before, ...after }).filter((k) => before[k] !== after[k]);
+  console.log("(b) files changed after the failed restore:", changed, "safety backups:", (await readdir(backups)).filter((n) => /pre-restore/.test(n)));
+  assert.ok(!mid.ok, "the restore failed on the write");
+  assert.match(String((mid as { e: string }).e), /Nothing was changed/, "it says nothing was changed");
+  assert.deepEqual(changed, [], "(b) every file written before the failure was put back, nothing created is left");
   assert.ok(Date.now() - t0 < 60_000, "no hang");
-  assert.ok(safety.length >= 1, "a pre-restore safety backup was written");
-  if (!first.ok) {
-    assert.match(String((first as { e: string }).e), /EPERM|EBUSY|EACCES|locked|in use|denied/i, "a clear lock error");
-    assert.equal(await readFile(desk, "utf8"), JSON.stringify({ old: true }), "the locked file was left as it was");
-  }
   const second = await cap.restoreCapsule(name, "pass A synthetic");
   console.log("restore after unlock:", JSON.stringify(second));
   assert.equal(JSON.parse(await readFile(desk, "utf8")).synthetic.files[0].id, idA, "desk link restored with the original id");
