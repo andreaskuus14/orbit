@@ -3,7 +3,7 @@
 // that says the brief aloud (CORE's voice: Kokoro when picked in Settings, sentence by sentence) with one-tap actions per item.
 // Data: /api/brief (brief.ts). MorningBrief.tsx decides when it shows and loads this file then. Approve uses the same routes as NightShift.tsx; emails and spends only open (he approves them there).
 import { useEffect, useState } from "react";
-import { type Brief, type BriefItem } from "@/lib/brief-pure";
+import { type Brief, type BriefItem, type TodayRow } from "@/lib/brief-pure";
 import { speakChunk, speechSettings, stop } from "./voice/speak";
 import { api } from "./AgentMission";
 import { DayPlan } from "./DayPlan";
@@ -12,7 +12,7 @@ import { useT } from "./i18n";
 import { announce } from "./announce";
 import { greetKey } from "@/lib/i18n-pure";
 
-const ICON: Record<BriefItem["kind"], string> = { decision: "✋", night: "🌙", health: "🩺", calendar: "📅", school: "🎓", weather: "🌦", place: "📍", first: "➜", result: "✦", lesson: "💡", question: "❔", study: "🗂" };
+const ICON: Record<BriefItem["kind"], string> = { decision: "✋", deadline: "⏰", night: "🌙", health: "🩺", calendar: "📅", school: "🎓", weather: "🌦", place: "📍", first: "➜", result: "✦", lesson: "💡", question: "❔", study: "🗂" };
 type Got = Brief & { life: boolean };
 
 export default function MorningBriefBody({ home, onOpenTask, onOpenGoal, onClose }: { home: boolean; onOpenTask: (id: string) => void; onOpenGoal: (id: string) => void; onClose: () => void }) {
@@ -46,12 +46,12 @@ export default function MorningBriefBody({ home, onOpenTask, onOpenGoal, onClose
   if (!home) return null;
   function close() { stop(); onClose(); }
   const post = (body: object) => api("/api/brief", { method: "POST", body: JSON.stringify(body) });
-  const go = (i: BriefItem) => {
+  const go = (i: Pick<BriefItem, "open">) => {
     if (!i.open) return;
     close();
     openTarget(i.open, onOpenTask, onOpenGoal);
   };
-  const act = async (i: BriefItem, what: "approve" | "snooze") => {
+  const act = async (i: Pick<BriefItem, "id" | "approve">, what: "approve" | "snooze") => {
     setErr("");
     try {
       const a = i.approve;
@@ -97,6 +97,34 @@ export default function MorningBriefBody({ home, onOpenTask, onOpenGoal, onClose
                 </li>
               ))}
             </ul>
+          )}
+          {b?.today && b.today.length > 0 && (
+            <div className="mt-4 grid gap-3" aria-label="Today">
+              {b.today.map((g) => (
+                <section key={g.key} aria-labelledby={`mb-today-${g.key}`}>
+                  <h3 id={`mb-today-${g.key}`} className="muted text-xs uppercase tracking-wide">{g.label}</h3>
+                  {g.failed ? <p className="error text-xs" role="status">{g.failed}</p> : (
+                    <ul className="mt-1 grid gap-1">
+                      {g.rows.map((r: TodayRow) => (
+                        <li key={r.id} className="mb-item">
+                          <span className="min-w-0 flex-1">
+                            <b className="block truncate">{r.title}</b>
+                            {r.detail && <span className={`block text-xs ${r.urgent ? "error" : "muted"}`}>{r.detail}</span>}
+                          </span>
+                          {marks[r.id] ? <span className="muted text-xs">{marks[r.id]}</span> : (
+                            <span className="flex shrink-0 gap-1">
+                              {r.approve && <button className="chip" onClick={() => void act(r, "approve")} aria-label={`${t("common.approve")}: ${r.title}`}>{t("common.approve")}</button>}
+                              {r.open && <button className="chip" onClick={() => go(r)} aria-label={`${t("common.open")}: ${r.title}`}>{t("common.open")}</button>}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                      {g.more ? <li className="muted text-xs">+{g.more} more</li> : null}
+                    </ul>
+                  )}
+                </section>
+              ))}
+            </div>
           )}
           {planning && <DayPlan onOpen={(open) => go({ open } as BriefItem)} />}
           {b && (
