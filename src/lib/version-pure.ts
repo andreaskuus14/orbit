@@ -38,10 +38,14 @@ const short = (s: string | null) => (s && s !== "unknown" ? s.slice(0, 7) : "unk
 export function versionCheck(r: Refs, env: Record<string, string | undefined>): Check {
   const L = "Running version";
   const flags = EXPERIMENTAL_ENV.filter((k) => (env[k] ?? "").trim()).map((k) => `${k}=${String(env[k]).trim().slice(0, 30)}`);
-  const parts = [`Running ${short(r.running)} (built ${r.builtAt})`, `checked out ${short(r.head)}${r.dirty ? " with uncommitted changes" : ""}`,
-    `origin/main ${short(r.main)} (as of the last fetch)`, flags.length ? `experimental: ${flags.join(", ")}` : "no experimental settings"];
+  const parts = [`Running ${short(r.running)} (built ${r.builtAt})`,
+    `checked out ${short(r.head)}${r.dirty ? " with uncommitted changes" : r.dirty === null && r.head ? " (uncommitted changes unknown)" : ""}`,
+    r.main ? `origin/main ${short(r.main)} (as of the last fetch)${r.running === r.main ? ", the same as running" : ""}` : "origin/main unknown (never fetched here)",
+    flags.length ? `experimental: ${flags.join(", ")}` : "no experimental settings"];
   const detail = parts.join("; ");
   if (r.running === "unknown") return check("version", L, "warn", `${detail}. This build has no commit stamp.`, "Rebuild ORBIT (npm run app:rebuild) so the commit is recorded.");
+  // Missing evidence stays visible (Atlas L02): without the checkout's commit, "running X" can't be compared with anything.
+  if (!r.head) return check("version", L, "warn", `${detail}. The checked-out commit can't be read (git missing, or this folder isn't a repository), so this version can't be proven.`, "Run ORBIT from its git checkout, or install git.");
   if (r.head && r.head !== r.running) return check("version", L, "warn", `${detail}. The checked-out code differs from what is running.`, "Rebuild and restart ORBIT (npm run app:rebuild) to run the checked-out code.");
   return check("version", L, "ok", detail);
 }
