@@ -8,5 +8,7 @@ export function GET() {
     uptimeSec: Math.round(process.uptime()),
     // The build this server was started from (set in instrumentation.ts); launch.ps1 restarts it when .next was rebuilt.
     buildId: (globalThis as { __orbitBuildId?: string | null }).__orbitBuildId ?? null,
+    // The commit stamped into that build (next.config): a release check matches it to the tested SHA without signing in. null = unstamped.
+    commit: process.env.ORBIT_BUILD_COMMIT || null,
   });
 }
