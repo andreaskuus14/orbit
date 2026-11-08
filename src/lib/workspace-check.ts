@@ -18,7 +18,8 @@ const ARGS = ["--disable-background-networking", "--disable-component-update", "
 const KILL_MS = 60_000; // a busy-looping page can't hold the check (or CORE's turn) longer than this
 
 type Browser = import("playwright-core").Browser;
-async function launch(): Promise<Browser | null> {
+/** Headless Chromium with no network (also used by site-qa.ts), or null when none is installed. */
+export async function launch(): Promise<Browser | null> {
   let chromium: typeof import("playwright-core").chromium;
   try { ({ chromium } = await import("playwright-core")); } catch { return null; }
   const tries = [
@@ -34,7 +35,7 @@ async function launch(): Promise<Browser | null> {
 }
 
 // Runs in the page: what summarize() needs at this viewport. Kept as plain DOM code (no closures) for page.evaluate.
-function probePage(): Probe {
+export function probePage(): Probe {
   const de = document.documentElement, body = document.body;
   const visible = (el: Element) => { const r = el.getBoundingClientRect(), cs = getComputedStyle(el); return r.width > 1 && r.height > 1 && cs.visibility !== "hidden" && cs.display !== "none" && cs.opacity !== "0"; };
   const badImgs = [...document.images].filter((i) => getComputedStyle(i).display !== "none" && (!i.complete || !i.naturalWidth || !i.getBoundingClientRect().width || !i.getBoundingClientRect().height)).map((i) => i.getAttribute("src") || "(no src)");
@@ -58,6 +59,13 @@ function probePage(): Probe {
   }
   const clips = (el: Element | null) => !!el && /^(?:hidden|clip)$/.test(getComputedStyle(el).overflowX);
   return { vw: window.innerWidth, clipX: clips(de) || clips(body), scrollWidth: Math.max(de.scrollWidth, body?.scrollWidth ?? 0), textLen: (body?.innerText ?? "").trim().length, media, badImgs, samples };
+}
+
+/** Scroll through once like a visitor so loading="lazy" images load (else they'd count as broken), then back to the top. */
+export async function loadLazy(p: import("playwright-core").Page): Promise<void> {
+  await p.evaluate(async () => { for (let y = 0; y < document.body.scrollHeight; y += innerHeight / 2) { scrollTo({ top: y, behavior: "instant" }); await new Promise((r) => setTimeout(r, 40)); } scrollTo({ top: 0, behavior: "instant" }); });
+  await p.waitForFunction(() => [...document.images].every((i) => i.complete), null, { timeout: 5000 }).catch(() => {});
+  await p.evaluate(() => Promise.all([...document.images].map((i) => i.decode().catch(() => {})))); // decoded, so screenshots paint them
 }
 
 // One check (one browser) at a time.
@@ -100,6 +108,7 @@ async function runCheck(uid: string, slug: string, page: string): Promise<CheckR
         try {
           await p.goto(ORIGIN + BASE + page.split("/").map(encodeURIComponent).join("/"), { waitUntil: "load", timeout: 15_000 });
           await p.waitForLoadState("networkidle", { timeout: 2_000 }).catch(() => {});
+          await loadLazy(p);
           probes[v.name] = await p.evaluate(probePage);
           await p.screenshot({ path: path.join(dir, `${v.name}.png`), timeout: 10_000 });
           shots.push(v.name);
