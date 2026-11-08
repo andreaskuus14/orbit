@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { capsuleName, diffManifests, fmtMB, makeKeyring, manifest, openCapsule, packFiles, parseName, pickFiles, readHeader, rotate, safeRel, seal, unlock, unpackFiles } from "../src/lib/capsule-pure.ts";
+import { capsuleName, diffManifests, fallbackDue, fmtMB, makeKeyring, manifest, openCapsule, packFiles, parseName, pickFiles, readHeader, rotate, safeRel, seal, unlock, unpackFiles } from "../src/lib/capsule-pure.ts";
 
 const PASS = "correct horse battery";
 const ring = makeKeyring(PASS);
@@ -92,9 +92,11 @@ test("capsule.ts: setup, nightly backup, preview, restore with a safety backup (
   assert.equal(await cap.setupCapsule({ dir: out, maxMB: 5, passphrase: PASS }), null);
   assert.ok(!(await readFile(path.join(data, "time-capsule.json"), "utf8")).includes(PASS));
   assert.equal(await cap.backupDue(), true);
+  assert.equal(await cap.fallbackBackupDue(), true, "set up, never backed up: the scheduler's safety net runs one");
   const r = await cap.runBackup();
   assert.equal(r.files, 2);
   assert.equal(await cap.backupDue(), false);
+  assert.equal(await cap.fallbackBackupDue(), false);
   await writeFile(path.join(data, "night.json"), '{"v":2}');
   await writeFile(path.join(data, "new.json"), "{}");
   await assert.rejects(cap.previewRestore(r.name, "nope nope nope"), /Wrong passphrase/);
@@ -106,4 +108,15 @@ test("capsule.ts: setup, nightly backup, preview, restore with a safety backup (
   assert.ok((await readdir(out)).includes(done.safety));
   const view = await cap.capsuleView();
   assert.ok(view.configured && view.backups.length === 2 && view.last?.ok);
+});
+
+test("fallbackDue: the scheduler backs up when the night shift hasn't for 26 h, and retries a failure every 6 h", () => {
+  const h = 3_600_000, now = Date.parse("2026-11-07T12:00:00Z"), at = (hours: number) => new Date(now - hours * h).toISOString();
+  assert.equal(fallbackDue(undefined, now), true, "set up but never backed up");
+  assert.equal(fallbackDue({ at: at(21), ok: true }, now), false, "the night shift (due after 20 h) gets the first chance");
+  assert.equal(fallbackDue({ at: at(26), ok: true }, now), true, "no night shift: back up");
+  assert.equal(fallbackDue({ at: at(5), ok: false }, now), false, "drive unplugged: don't retry every minute");
+  assert.equal(fallbackDue({ at: at(6), ok: false }, now), true, "retry after 6 h");
+  assert.equal(fallbackDue({ at: "garbage", ok: true }, now), true, "unreadable date: back up");
+  assert.equal(fallbackDue({ at: at(-1), ok: true }, now), true, "date in the future (clock moved): back up");
 });
