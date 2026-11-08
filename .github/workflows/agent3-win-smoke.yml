@@ -80,7 +80,8 @@ jobs:
           if ($h -ne $env:PR426_SHA -or $t -ne $env:PR426_TREE) { throw "unexpected checkout" }
       - name: "Enable 8.3 names on C: for new files"
         run: "fsutil 8dot3name set C: 0; fsutil 8dot3name query C:"
-      - run: npm ci --no-audit --no-fund
+      - name: "npm ci without install scripts (GitHub release downloads for ffmpeg-static returned 504; capsule/VAULT need no native binaries)"
+        run: npm ci --no-audit --no-fund --ignore-scripts
         working-directory: orbit
       - name: "Windows checks (LOCALAPPDATA, 8.3 guard, capsule restore with a lock) + #426's own test"
         working-directory: orbit
