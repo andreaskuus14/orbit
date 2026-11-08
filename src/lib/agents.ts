@@ -1,4 +1,5 @@
 import { outboundLeak } from "./outbound-pure";
+import { medianByAgent, taskLine } from "./task-line-pure";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClipStore } from "./clip-store-pure";
 import { isCurrent, scopeTags } from "./memory-types-pure";
@@ -208,7 +209,7 @@ export const TOOLS: Record<string, Tool> = {
       const since = new Date(Date.now() - 30 * 86400_000).toISOString();
       const [m, t, u, b] = await Promise.all([
         sb.from("memories").select("kind, created_at").eq("user_id", userId),
-        sb.from("tasks").select("agent, status").eq("user_id", userId),
+        sb.from("tasks").select("agent, status, started_at, finished_at").eq("user_id", userId),
         sb.from("usage").select("purpose, input_tokens, output_tokens, created_at").eq("user_id", userId).gte("created_at", since),
         sb.from("briefings").select("kind, created_at").eq("user_id", userId).gte("created_at", since),
       ]);
@@ -220,20 +221,21 @@ export const TOOLS: Record<string, Tool> = {
         `Memories (${m.data?.length ?? 0}) by kind: ${count(m.data, "kind")}`,
         `Tasks by status: ${count(t.data, "status")}`,
         `Tasks by agent: ${count(t.data, "agent")}`,
+        `Median run time by agent (finished tasks): ${medianByAgent(t.data ?? [])}`,
         `AI calls last 30 days: ${u.data?.length ?? 0}; tokens by purpose: ${Object.entries(tokens).map(([k, v]) => `${k}: ${v}`).join(", ") || "none"}`,
         `Briefings last 30 days: ${count(b.data, "kind")}`,
       ].join("\n");
     },
   },
   list_tasks: {
-    description: "List the user's recent agent tasks and projects.",
+    description: "List the user's recent agent tasks (with UTC times, run length and errors) and projects.",
     input: "{}",
     run: async ({ sb, userId }) => {
       const [t, p] = await Promise.all([
-        sb.from("tasks").select("title, agent, status, created_at").eq("user_id", userId).is("parent_id", null).order("created_at", { ascending: false }).limit(15),
+        sb.from("tasks").select("title, agent, status, created_at, started_at, finished_at, error").eq("user_id", userId).is("parent_id", null).order("created_at", { ascending: false }).limit(15),
         sb.from("projects").select("name, status, description").eq("user_id", userId).order("created_at", { ascending: false }).limit(15),
       ]);
-      return `PROJECTS:\n${(p.data ?? []).map((x) => `- ${x.name} [${x.status}] ${x.description.slice(0, 120)}`).join("\n") || "none"}\n\nTASKS:\n${(t.data ?? []).map((x) => `- ${x.title} (${x.agent}, ${x.status}, ${x.created_at.slice(0, 10)})`).join("\n") || "none"}`;
+      return `PROJECTS:\n${(p.data ?? []).map((x) => `- ${x.name} [${x.status}] ${x.description.slice(0, 120)}`).join("\n") || "none"}\n\nTASKS (now ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC):\n${(t.data ?? []).map(taskLine).join("\n") || "none"}`;
     },
   },
   delegate: {
