@@ -5,6 +5,7 @@ import { linkToHash } from "@/lib/deeplink-pure";
 import { CORE_NEW_CHAT, CORE_PROJECT_REQUEST_KEY } from "@/lib/core-chats-pure";
 import { NAV_EVENT } from "@/lib/nav-pure";
 import { useT } from "./i18n";
+import { notifyProjectsChanged, watchProjects } from "@/lib/project-list";
 
 type Project = { id: string; name: string; status: string };
 type Task = { id: string; title: string; status: string };
@@ -15,7 +16,7 @@ async function api<T>(url: string, body?: object): Promise<T> {
 }
 
 /** First shared desk: canonical OPERATIONS project, local references/notes, existing task queue. No model calls on open. */
-export function ProjectDesk({ project, onSelect, disabled = false, productions, mode = "arch" }: { project: string; onSelect: (id: string) => void; disabled?: boolean; productions?: ProjectClip[]; mode?: "arch" | "studio" }) {
+export function ProjectDesk({ project, onSelect, disabled = false, productions, mode = "arch", active = true }: { project: string; onSelect: (id: string) => void; disabled?: boolean; productions?: ProjectClip[]; mode?: "arch" | "studio"; active?: boolean }) {
   const { t } = useT();
   const [projects, setProjects] = useState<Project[]>([]), [name, setName] = useState("");
   const [desk, setDesk] = useState<Desk>(emptyDesk), [saved, setSaved] = useState<Desk>(emptyDesk);
@@ -42,11 +43,12 @@ export function ProjectDesk({ project, onSelect, disabled = false, productions, 
     const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
     addEventListener("beforeunload", warn); return () => removeEventListener("beforeunload", warn);
   }, [dirty, request]);
-  useEffect(() => {
+  useEffect(() => { // reload on open (ARCH stays mounted while hidden) and whenever a project is created or changed anywhere
+    if (!active) return;
     let alive = true;
-    api<{ projects: Project[] }>("/api/projects").then((j) => { if (alive) setProjects(j.projects); }, (e) => { if (alive) setError(e.message); });
-    return () => { alive = false; };
-  }, []);
+    const off = watchProjects(() => api<{ projects: Project[] }>("/api/projects").then((j) => { if (alive) setProjects(j.projects); }, (e) => { if (alive) setError(e.message); }));
+    return () => { alive = false; off(); };
+  }, [active]);
   useEffect(() => {
     if (!project) return;
     let alive = true;
@@ -79,7 +81,7 @@ export function ProjectDesk({ project, onSelect, disabled = false, productions, 
   }
   async function create() {
     setBusy(true); setError("");
-    try { const j = await api<{ project: Project }>("/api/projects", { name: name.trim() }); onSelect(j.project.id); }
+    try { const j = await api<{ project: Project }>("/api/projects", { name: name.trim() }); notifyProjectsChanged(); onSelect(j.project.id); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   async function save() {

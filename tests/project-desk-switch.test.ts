@@ -48,6 +48,7 @@ function harness(server: { desks: Record<string, pure.Desk>; hold?: string; fail
       if (name.endsWith("/core-chats-pure")) return chats;
       if (name.endsWith("/deeplink-pure")) return { linkToHash: () => "#" };
       if (name.endsWith("/nav-pure")) return { NAV_EVENT: "orbit:navigate" };
+      if (name.endsWith("/project-list")) return { watchProjects: (load: () => void) => (load(), () => {}), notifyProjectsChanged: () => {} };
       if (name === "./i18n") return { useT: () => ({ t: (key: any, p: any) => translate("en", key, p) }) };
       throw new Error(name);
     } });

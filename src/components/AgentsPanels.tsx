@@ -1,5 +1,6 @@
 "use client";
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { notifyProjectsChanged } from "@/lib/project-list";
 import { ProposalsPanel } from "./ProposalsPanel";
 import { OrbitLog } from "./OrbitLog";
 import { useWorldPaused } from "./world-paused";
@@ -298,11 +299,11 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   async function addProject(e: React.FormEvent) {
     e.preventDefault();
     if (!newProject.trim()) return;
-    try { await api("/api/projects", { method: "POST", body: JSON.stringify({ name: newProject }) }); setNewProject(""); void load(); }
+    try { await api("/api/projects", { method: "POST", body: JSON.stringify({ name: newProject }) }); setNewProject(""); notifyProjectsChanged(); void load(); }
     catch (e2) { setErr(e2 instanceof Error ? e2.message : "Could not create"); }
   }
   async function setProjectStatus(p: Project, status: string) {
-    try { await api("/api/projects", { method: "PATCH", body: JSON.stringify({ id: p.id, status }) }); void load(); }
+    try { await api("/api/projects", { method: "PATCH", body: JSON.stringify({ id: p.id, status }) }); notifyProjectsChanged(); void load(); }
     catch (e) { setErr(e instanceof Error ? e.message : "Could not update"); }
   }
 
