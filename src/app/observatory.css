@@ -181,11 +181,12 @@ summary.core-step::-webkit-details-marker { display: none; }
   .orbit-shell .logo img { width: 28px; height: 28px; }
   .orbit-shell .hud-bar-top > .hud-phone-menu { display: none; }
   .orbit-shell .hud-bar-top > .explore-trigger { flex-shrink: 0; } .orbit-shell .explore-trigger > span { display: none; } /* the ↗ spilled into ⋯ */
+  .orbit-shell .alert-label { display: none; } /* a red alert keeps its 🔴 (and count) on a phone; the label is in aria-label and title */
   .orbit-explore { padding: 1rem; max-height: 82dvh; }
   .explore-grid { column-gap: .75rem; }
   .overview-heading { padding-top: .5rem; }
 }
-@media (min-width: 641px) { .hud-menu .hud-menu-phone { display: none; } }
+@media (min-width: 641px) { .hud-menu .hud-menu-phone { display: none; } .alert-count { display: none; } }
 @media (max-width: 380px) {
   .explore-grid { grid-template-columns: 1fr; }
   .orbit-shell .logo .brand { font-size: .75rem; }

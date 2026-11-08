@@ -20,7 +20,8 @@ const header = (page) => page.evaluate(() => {
     off: ctl.filter((e) => { const r = e.getBoundingClientRect(); return r.left < 0 || r.right > innerWidth + 0.5; }).map((e) => (e.getAttribute("aria-label") || e.textContent).trim().slice(0, 20)),
     covered: ctl.filter((e) => { const r = e.getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !at || !(e === at || e.contains(at)); })
       .map((e) => (e.getAttribute("aria-label") || e.textContent).trim().slice(0, 20)),
-    spills: ctl.filter((e) => e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflowX === "visible").map((e) => (e.getAttribute("aria-label") || e.textContent).trim().slice(0, 20)),
+    // a corner badge (absolutely positioned, like the unread count on 🔔) overhangs on purpose: only in-flow content counts as a spill
+    spills: ctl.filter((e) => e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflowX === "visible" && ![...e.children].some((c) => getComputedStyle(c).position === "absolute")).map((e) => (e.getAttribute("aria-label") || e.textContent).trim().slice(0, 20)),
     small: ctl.filter((e) => { const r = e.getBoundingClientRect(); return r.height < 40 || r.width < 40; }).map((e) => (e.getAttribute("aria-label") || e.textContent).trim().slice(0, 20)),
     bar: ctl.map((e) => (e.getAttribute("aria-label") || e.textContent).trim()),
   };
@@ -45,7 +46,8 @@ const signOutReachable = async (page) => {
     const hd = await header(page);
     await page.screenshot({ path: path.join(SHOTS, `phone-${w}.png`) });
     L.ok(`phone ${tag}: nothing pushes the page sideways`, hd.sideways <= 0, `${hd.sideways}px`);
-    L.ok(`phone ${tag}: every top-bar control is on screen`, !hd.off.length, hd.off.join(", "));
+    const alert = hd.bar.some((b) => b.startsWith("Red alert")); // a red alert pill is the widest thing the bar can hold
+    L.ok(`phone ${tag}: every top-bar control is on screen${alert ? " (with a red alert showing)" : ""}`, !hd.off.length, hd.off.join(", "));
     L.ok(`phone ${tag}: no top-bar control is covered`, !hd.covered.length, hd.covered.join(", "));
     L.ok(`phone ${tag}: no label spills out of its button`, !hd.spills.length, hd.spills.join(", "));
     L.ok(`phone ${tag}: top-bar controls are finger-sized (≥ 40 px)`, !hd.small.length, hd.small.join(", "));
