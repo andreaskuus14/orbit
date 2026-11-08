@@ -4,6 +4,7 @@ import { assetPath, attributionLine, creditsMd, cssContrast, licenseOk, lintSite
 import { fetchImage } from "../src/lib/site-images.ts";
 import { progressLabel } from "../src/lib/long-work-pure.ts";
 import { wsTainted } from "../src/lib/core-workspace.ts";
+import { SITE_GUIDE, SITE_PIPELINE, guideDue } from "../src/lib/site-guide.ts";
 
 test("licenseOk: whitelist CC0 / public domain / CC BY / CC BY-SA; refuses NC, ND and unknown", () => {
   assert.deepEqual(licenseOk("CC0"), { label: "CC0", attribution: false });
@@ -115,4 +116,16 @@ test("fetchImage: falls back to Openverse; refuses oversize, non-images and unsu
   assert.doesNotMatch(out, /footer/);
   assert.match(await fetchImage({ workspace: "w", url: "https://random.site/x.jpg" }, "build a site", m.io), /only when the user gave that exact link/);
   assert.match(await fetchImage({ workspace: "w", query: "nothing" }, "q", io({}).io), /No licensed image found.*inline SVG/);
+});
+
+test("guideDue: the guide reaches a one-shot build that skipped plan.md, as well as the planned path, once", () => {
+  assert.equal(guideDue(["index.html", "css/style.css"], ["css/style.css", "index.html"]), true); // one command, no plan: the live-PC case
+  assert.equal(guideDue(["plan.md"], ["plan.md"]), true); // planned path: right after the plan
+  assert.equal(guideDue(["plan.md", "css/style.css"], ["css/style.css"]), false); // planned, already building
+  assert.equal(guideDue(["plan.md", "css/style.css", "index.html"], ["plan.md"]), false); // plan added late: already shown with the unplanned write
+  assert.equal(guideDue(["index.html", "css/style.css"], ["index.html"]), false); // fix round of an unplanned site: not again
+  assert.equal(guideDue(["index.html", "css/style.css", "about.html"], ["about.html"]), false); // new page, still not again
+  assert.equal(guideDue(["notes.md"], ["notes.md"]), false); // not a site
+  assert.match(SITE_GUIDE, /Subject conventions/); assert.match(SITE_GUIDE, /Looks to avoid/);
+  assert.match(SITE_PIPELINE, /every new site, even a one-page one/);
 });
