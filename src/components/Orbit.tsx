@@ -470,7 +470,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         const back = root.querySelector<HTMLElement>(".kept:not([hidden]) :is(.world-back, .studio-back), :scope > .globe-in .world-back");
         if (!back) return false;
         entry.entered = true;
-        if (document.activeElement === previous || document.activeElement === document.body) back.focus({ preventScroll: true });
+        if (document.activeElement === previous || document.activeElement === document.body) {
+          // Phones hide the world's Back button and use the header logo as the way back.
+          const target = back.getClientRects().length ? back : root.querySelector<HTMLElement>("header .logo");
+          target?.focus({ preventScroll: true });
+        }
         return true;
       };
       if (entry.entered || focusBack()) return;
