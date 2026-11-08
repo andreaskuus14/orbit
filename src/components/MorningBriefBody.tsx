@@ -66,9 +66,9 @@ export default function MorningBriefBody({ home, onOpenTask, onOpenGoal, onClose
   return (
     <section className="morning-brief" role="dialog" aria-modal="false" aria-label={t("brief.aria")}>
       <div className="mb-inner glass hud-panel">
-        <div className="flex items-center justify-between gap-2">
+        <div className="mb-head flex items-center justify-between gap-2">
           <h2 className="mb-hello">{lang === "et" ? `${t(greetKey(new Date().getHours()))}.` : b?.greeting ?? "Good morning."}</h2>
-          <div className="flex gap-1">
+          <div className="mb-actions flex gap-1">
             <button className="chip" aria-pressed={planning} onClick={() => setPlanning((x) => !x)}>{t("brief.plan")}</button>
             {!muted && b && <button className="chip" onClick={() => { stop(); setMuted(true); }} aria-label={t("brief.muteAria")}>{t("brief.mute")}</button>}
             <button className="chip" onClick={close} aria-label={t("brief.skipAria")}>{t("brief.skip")}</button>
@@ -88,7 +88,7 @@ export default function MorningBriefBody({ home, onOpenTask, onOpenGoal, onClose
                     {i.detail && <span className="muted block text-xs">{i.detail}</span>}
                   </span>
                   {marks[i.id] ? <span className="muted text-xs">{marks[i.id]}</span> : (
-                    <span className="flex shrink-0 gap-1">
+                    <span className="mb-actions flex shrink-0 gap-1">
                       {i.approve && <button className="chip" onClick={() => void act(i, "approve")}>{t("common.approve")}</button>}
                       {i.open && <button className="chip" onClick={() => go(i)}>{t("common.open")}</button>}
                       <button className="chip" onClick={() => void act(i, "snooze")} aria-label={t("brief.snoozeAria", { title: i.title })}>{t("brief.snooze")}</button>
@@ -112,7 +112,7 @@ export default function MorningBriefBody({ home, onOpenTask, onOpenGoal, onClose
                             {r.detail && <span className={`block text-xs ${r.urgent ? "error" : "muted"}`}>{r.detail}</span>}
                           </span>
                           {marks[r.id] ? <span className="muted text-xs">{marks[r.id]}</span> : (
-                            <span className="flex shrink-0 gap-1">
+                            <span className="mb-actions flex shrink-0 gap-1">
                               {r.approve && <button className="chip" onClick={() => void act(r, "approve")} aria-label={`${t("common.approve")}: ${r.title}`}>{t("common.approve")}</button>}
                               {r.open && <button className="chip" onClick={() => go(r)} aria-label={`${t("common.open")}: ${r.title}`}>{t("common.open")}</button>}
                             </span>

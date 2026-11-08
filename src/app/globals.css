@@ -859,6 +859,16 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .mb-item { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; padding: 0.6rem 0.75rem; border: 1px solid var(--line); border-radius: 12px; animation: brief-in 0.8s ease-out both; animation-delay: calc(var(--i) * 0.35s + 0.3s); }
 .mb-icon { width: 1.6rem; text-align: center; font-size: 1.1rem; }
 @keyframes brief-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (max-width: 480px) {
+  .morning-brief .mb-head, .morning-brief .mb-actions { flex-wrap: wrap; }
+  .morning-brief .mb-actions { max-width: 100%; }
+  .morning-brief .mb-item .mb-actions { flex-basis: 100%; }
+  .morning-brief .mb-hello, .morning-brief .mb-item { overflow-wrap: anywhere; }
+  .morning-brief .mb-item b { white-space: normal; }
+}
+@media (max-width: 480px), (pointer: coarse) {
+  .morning-brief .mb-actions .chip { min-width: 44px; min-height: 44px; }
+}
 @media (prefers-reduced-motion: reduce) { .morning-brief, .mb-item { animation: none; } }
 
 /* Warp command palette (CommandPalette.tsx): a violet-cyan rim, an alien caption, a short "jump" in. */
