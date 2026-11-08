@@ -3,7 +3,9 @@ const L = require("./lib.cjs");
 const fs = require("node:fs");
 const path = require("node:path");
 const phone = (code) => fetch(`${L.BASE}/api/remote/pair`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, name: "Test phone" }) })
-  .then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }));
+  .then(async (r) => ({ status: r.status, cookie: (r.headers.get("set-cookie") ?? "").split(";")[0], json: await r.json().catch(() => null) }));
+let n = 0;
+const command = (cookie) => fetch(`${L.BASE}/api/remote`, { method: "POST", headers: { "content-type": "application/json", cookie }, body: JSON.stringify({ cmd: JSON.stringify({ type: "navigate", nonce: `j03-check-nonce-${Date.now()}-${n++}`, panel: "core" }) }) }).then((r) => r.status);
 
 (async () => {
   const { browser, page } = await L.session();
@@ -21,6 +23,14 @@ const phone = (code) => fetch(`${L.BASE}/api/remote/pair`, { method: "POST", hea
   L.ok("pair: the same code then pairs", again.json?.ok === true, `${again.status}`);
   const twice = await phone(code);
   L.ok("pair: a used code can't pair a second phone", twice.status === 401, JSON.stringify(twice.json));
+  // J03: the paired phone's token works, then the PC revokes it and the same token can't trigger a command.
+  const before = await command(again.cookie);
+  L.ok("revoke: the paired phone's token reaches the command endpoint", before !== 401, `${before}`);
+  const devices = (await L.api(page, "/api/remote/owner")).json?.devices ?? [];
+  const mine = devices.filter((d) => d.name === "Test phone").pop();
+  await L.api(page, "/api/remote/owner", { action: "revoke", id: mine?.id });
+  const after = await command(again.cookie);
+  L.ok("revoke: the same token is refused right after Revoke", after === 401, `${after}`);
   await browser.close();
   process.exit(L.failures() ? 1 : 0);
 })().catch((e) => { console.error("ERROR", e.message); process.exit(1); });
