@@ -53,11 +53,11 @@ function stop() {
 }
 async function restart() { stop(); await sleep(1500); start(); if (!await up()) throw new Error("the test server didn't come back (see server.log)"); }
 
-async function session() {
+async function session(ctx = { viewport: { width: 1280, height: 900 } }) {
   const req = require("node:module").createRequire(path.join(ROOT, "package.json"));
   const { chromium } = (() => { try { return req("playwright"); } catch { return req("playwright-core"); } })();
   const browser = await chromium.launch();
-  const page = await (await browser.newContext({ viewport: { width: 1280, height: 900 } })).newPage();
+  const page = await (await browser.newContext(ctx)).newPage();
   page.on("dialog", (d) => d.accept()); // Stop-all's confirm()
   const c = conf();
   await page.goto(`${BASE}/login`);

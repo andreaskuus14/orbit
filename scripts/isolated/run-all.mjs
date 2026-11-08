@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
 
 const L = createRequire(import.meta.url)("./lib.cjs");
 if (!existsSync(path.join(L.DIR, "env.json"))) { console.error("run-all: run scripts/isolated/setup.mjs first"); process.exit(1); }
-const all = ["basic", "restart", "pair", "coldstart", "briefing", "studio", "core"];
+const all = ["basic", "restart", "pair", "coldstart", "briefing", "studio", "core", "phone"];
 const pick = process.argv.slice(2).length ? process.argv.slice(2) : all;
 const commit = spawnSync("git", ["rev-parse", "--short", "HEAD"], { cwd: L.ROOT, encoding: "utf8" }).stdout.trim();
 console.log(`isolated checks on ${commit} (built into .next-isolated by setup.mjs; rebuild after changing code)`);
