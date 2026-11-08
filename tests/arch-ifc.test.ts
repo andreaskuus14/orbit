@@ -102,3 +102,18 @@ test("generated two-floor plan: two storeys, stair, slab pieces around the stair
   const elevs = [...e.values()].filter((x) => x.type === "IFCBUILDINGSTOREY").map((x) => Number(x.args[9]));
   assert.deepEqual(elevs, [0, 3]);
 });
+
+test("true north: the context's TrueNorth points at the site's north bearing; none when north is model +Y", () => {
+  const scene = starterScene();
+  const ctxOf = (text: string) => { const e = parseStep(text); const ctx = [...e.values()].find((x) => x.type === "IFCGEOMETRICREPRESENTATIONCONTEXT")!; return { e, tn: ctx.args[5] }; };
+  for (const north of [30, 90, 200, -45]) {
+    const { e, tn } = ctxOf(toIfc(scene, { site: { lat: 59.437, lon: 24.745, north } }));
+    const d = e.get(Number(tn.slice(1)))!;
+    assert.equal(d.type, "IFCDIRECTION");
+    const [x, y] = d.args[0].replace(/[()]/g, "").split(",").map(Number);
+    const bearing = ((Math.atan2(x, y) * 180) / Math.PI + 360) % 360; // clockwise from +Y, the reading #451's import uses
+    assert.ok(Math.abs(bearing - ((north + 360) % 360)) < 1e-4, `north ${north} → ${bearing}`);
+  }
+  assert.equal(ctxOf(toIfc(scene, { site: { lat: 59.437, lon: 24.745 } })).tn, "$");
+  assert.equal(ctxOf(toIfc(scene, { site: { lat: 59.437, lon: 24.745, north: 0 } })).tn, "$");
+});
