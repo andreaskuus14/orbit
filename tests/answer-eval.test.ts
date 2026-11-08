@@ -179,3 +179,21 @@ test("evaluation never changes the question, answer, receipts or rules", () => {
     playbookRules: Object.freeze([Object.freeze({ type: "max_length" as const, length: 100 })]) });
   const before = JSON.stringify(input); assert.equal(evalAnswer(input).pass, true); assert.equal(JSON.stringify(input), before);
 });
+
+test("B12: Estonian 'done' claims need a receipt too, with negations, questions and adjectives left alone", () => {
+  const flags = (answer: string, toolEvidence: { tool: string; ok: boolean; action?: "save" | "send" }[] = []) =>
+    evalAnswer({ question: "x", answer, toolEvidence }).flags.filter((f) => f.startsWith("unsupported_action"));
+  // five counterexamples: claimed, nothing behind them
+  assert.deepEqual(flags("Salvestasin selle mällu."), ["unsupported_action:save"]);
+  assert.deepEqual(flags("Saatsin e-kirja Marile."), ["unsupported_action:send"]);
+  assert.deepEqual(flags("Lõin projekti „Comet”."), ["unsupported_action:create"]);
+  assert.deepEqual(flags("Fail on nüüd salvestatud."), ["unsupported_action:save"]);
+  assert.deepEqual(flags("Valmis: postitasin video."), ["unsupported_action:publish"]);
+  // not claims
+  for (const a of ["Ma ei saatnud e-kirja.", "Kas ma salvestasin selle?", "Sinu salvestatud märkmed ütlevad, et demo on 1.12.", "Võiksin selle salvestada.",
+    "E-kiri ei ole saadetud.", "Seda pole veel salvestatud.", "Lugesin sinu küsimuse läbi ja vastus on jah."]) assert.deepEqual(flags(a), [], a);
+  // a receipt backs only its own action
+  const saved = [{ tool: "save_memory", ok: true, action: "save" as const }];
+  assert.deepEqual(flags("Salvestasin selle mällu.", saved), []);
+  assert.deepEqual(flags("Salvestasin märkme ja saatsin e-kirja.", saved), ["unsupported_action:send"]);
+});
