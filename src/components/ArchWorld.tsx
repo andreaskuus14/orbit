@@ -24,6 +24,9 @@ import { SplatCloud, makeSplatWorker, type ScanData } from "./SplatCloud";
 import { ArchStudio } from "./ArchStudio";
 import { DaylightPanel, DaylightRooms, type Daylight } from "./ArchDaylight";
 import { ArchEnergy } from "./ArchEnergy";
+import { ArchKit } from "./ArchKit";
+import { groupOf } from "@/lib/arch-kit-pure";
+import type { Group } from "@/lib/arch-pure";
 import { buildExports, EXPORT_LIMITS } from "@/lib/arch-export-pure";
 import { openingIssue, parseDim, showDim, snapCentre, snapGrid } from "@/lib/arch-snap-pure";
 import { addVariant, compare, readVariants, type Comparison, type Variant } from "@/lib/arch-variants-pure";
@@ -45,7 +48,7 @@ import { canRetry, pickNewer, saveStep, staleCheck, type Saved } from "@/lib/arc
 import { archBrowserKey, archUrl } from "@/lib/project-desk-pure";
 import { ProjectDesk } from "./ProjectDesk";
 // Architectural-model look: warm whites and stone, thin dark edges, a pale blueprint ground.
-const COLOR: Record<Part["kind"], string> = { foundation: "#a8a29e", slab: "#d6d3d1", wall: "#f5f2ec", roof: "#e7e2d9", window: "#33475b", door: "#6b4f3a", stair: "#b08968" };
+const COLOR: Record<Part["kind"], string> = { foundation: "#a8a29e", slab: "#d6d3d1", wall: "#f5f2ec", roof: "#e7e2d9", window: "#33475b", door: "#6b4f3a", stair: "#b08968", prop: "#9fb4a2" };
 const FACE_ROT = { n: Math.PI, s: 0, e: Math.PI / 2, w: -Math.PI / 2 }; // turns local +Z to face outward
 const GROUND: Record<Scene["plot"]["ground"], string> = { grass: "#c9d3bf", gravel: "#d9d6cf", forest: "#b9c6b0", sand: "#e6dcc6" };
 const BG = "#ebe7e0", GOLD = "#c9a24a", FAIL = "#dc2626"; // FAIL: structure coach says this member is too small
@@ -271,6 +274,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const [preview, setPreview] = useState<Scene | null>(null), view = preview ?? scene; // time machine: a past version shown in 3D
   const [prices, setPrices] = useState<PriceItem[]>(STARTER_PRICES);
   const [past, setPast] = useState<Scene[]>([]);
+  const [hideGroups, setHideGroups] = useState<Set<Group>>(() => new Set()); // view only: hidden parts stay in the model and its saves
   const [sel, setSel] = useState<string | null>(null);
   const [run, setRun] = useState(0), [t0, setT0] = useState(0); // ▶ Build replays the assembly
   const [noRoof, setNoRoof] = useState(false), [spin, setSpin] = useState(false);
@@ -375,7 +379,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   // one straight wall across the middle of the first floor's shell, standing on its floor
   const addInterior = () => { if (shell) { apply([{ op: "add", kind: "wall", name: "Interior wall", x: shell.x, z: shell.z, w: Math.max(0.5, shell.w - 2 * RULES.wallThick), d: 0.2, h: shell.h, y: shell.y }]); } };
   const host = part?.kind === "wall" ? part : undefined;
-  const solid = useMemo(() => [...view.parts].filter((p) => !isOpening(p.kind)).sort((a, b) => a.y - b.y), [view.parts]);
+  const solid = useMemo(() => [...view.parts].filter((p) => !isOpening(p.kind) && !hideGroups.has(groupOf(p))).sort((a, b) => a.y - b.y), [view.parts, hideGroups]);
   const rects = useMemo(() => wallRects(scene.parts), [scene.parts]);
   const coachRows = useMemo(() => (sc.on ? coach(scene.parts, sc.type, sc.s) : []), [scene.parts, sc]);
   const failing = useMemo(() => new Set(coachRows.filter((r) => !r.now.ok).map((r) => r.part.id)), [coachRows]);
@@ -467,7 +471,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
             <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[view.plot.w, view.plot.d]} /><meshStandardMaterial color={bp ? BP.ground : GROUND[view.plot.ground]} roughness={1} /></mesh>
             <gridHelper args={[Math.max(view.plot.w, view.plot.d), Math.max(view.plot.w, view.plot.d), bp ? BP.grid[0] : "#cbbf9f", bp ? BP.grid[1] : "#ddd6c6"]} position={[0, 0.005, 0]} />
             <ContactShadows position={[0, 0.01, 0]} scale={Math.max(view.plot.w, view.plot.d)} opacity={0.35} blur={2.5} far={12} />
-            <Blueprint parts={view.parts} />
+            <Blueprint parts={view.parts.filter((p) => !hideGroups.has(groupOf(p)))} />
             <Trees n={view.plot.trees} w={view.plot.w} d={view.plot.d} />
             {site.on && !lesson && <SiteLayer site={site} set={setSite} parts={scene.parts} />}
           </>}
@@ -475,7 +479,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
           {(() => { const at = (i: number) => t0 + 0.6 + i * STEP_S;
             return <>
               {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel || focus.has(p.id)} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={(noRoof || !!daylight) && p.kind === "roof"} bp={bp} holo={holo} inside={walk} fail={failing.has(p.id)} />)}
-              {view.parts.filter((p) => isOpening(p.kind)).map((p) => <Opening key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
+              {view.parts.filter((p) => isOpening(p.kind) && !hideGroups.has(groupOf(p))).map((p) => <Opening key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
                 appearAt={at(solid.findIndex((w) => w.id === p.host) + 1)} bp={bp} holo={holo} />)}
               {daylight && !holo && <DaylightRooms d={daylight} />}
             </>; })()}
@@ -637,6 +641,8 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         <ArchVariants variants={variants} setVariants={setVariants} scene={scene} rev={save.rev} prices={prices} site={{ lat: sun.lat, lon: sun.lon }} north={site.north}
           onChoose={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); }} />
 
+        <ArchKit scene={scene} sel={sel} onSelect={setSel} hidden={hideGroups} onHidden={setHideGroups} newId={newId}
+          onScene={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); }} />
         <ArchPlans plot={scene.plot} onPick={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setRun((n) => n + 1); }} />
         {ready && <ArchTimeMachine project={project || null} scene={scene} save={!lesson} onPreview={setPreview} onRestore={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); setScene(s); setSel(null); }} />}
 
