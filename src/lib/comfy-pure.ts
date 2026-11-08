@@ -1,11 +1,14 @@
-// Local image generation: ComfyUI on the owner's PC (tools/comfyui, setup.ps1) with SDXL-Lightning 4-step. Pure parts: the fixed
-// txt2img API workflow, sizes per aspect, ComfyUI's /prompt, /history and /system_stats replies, CORE's local_image input.
+// Local image generation through ComfyUI. Pure workflow graphs, image sizes, and response parsing.
 // Server glue: comfy.ts. Tests: tests/comfy.test.ts (also pins tools/comfyui/workflow-txt2img.json to workflow()).
 import { serviceUrl } from "./local-ai-pure.ts";
 
 export const COMFY_URL = "http://127.0.0.1:8188";
 export const COMFY_SETUP = "powershell -ExecutionPolicy Bypass -File tools\\comfyui\\setup.ps1";
-export const COMFY_NOT_RUNNING = `Local image generation isn't installed or couldn't start: run ${COMFY_SETUP} once (ORBIT then starts ComfyUI by itself; log: tools/comfyui/service.log).`;
+export type ComfyModel = "sdxl-lightning" | "nitrofusion2";
+export const comfyModel = (raw: string | undefined): ComfyModel => raw?.trim().toLowerCase() === "nitrofusion2" ? "nitrofusion2" : "sdxl-lightning";
+export const comfyModelName = (model: ComfyModel) => model === "nitrofusion2" ? "NitroFusion2" : "SDXL-Lightning";
+export const comfySetup = (model: ComfyModel) => model === "nitrofusion2" ? `${COMFY_SETUP} -Model nitrofusion2` : COMFY_SETUP;
+export const comfyNotRunning = (model: ComfyModel) => `Local image generation isn't installed or couldn't start: run ${comfySetup(model)} once (ORBIT then starts ComfyUI by itself; log: tools/comfyui/service.log).`;
 /** ORBIT_COMFY_URL → origin, or null unless it is plain http on this PC (prompts never leave the PC). */
 export const comfyUrl = (raw: string | undefined) => serviceUrl(raw, COMFY_URL);
 
@@ -38,16 +41,41 @@ export function workflow(w: WorkflowIn): Record<string, { class_type: string; in
   };
 }
 
+// Upstream NitroFusion2 one-step graph, using the W4A8 GPTQ conversion with stock ComfyUI loaders.
+// https://github.com/ChenDarYen/NitroFusion2/blob/6e9d4d604c9a77aeac3005e30c7b448eff03c16d/workflows/nitrofusion2_1step.json
+export function nitroWorkflow({ prompt, width, height, seed }: WorkflowIn): ReturnType<typeof workflow> {
+  return {
+    "1": { class_type: "UNETLoader", inputs: { unet_name: "nitrofusion2_w4a8_gptq.safetensors", weight_dtype: "default" } },
+    "3": { class_type: "ModelSamplingAuraFlow", inputs: { model: ["1", 0], shift: 3 } },
+    "5": { class_type: "CLIPLoader", inputs: { clip_name: "qwen_3_4b.safetensors", type: "lumina2", device: "default" } },
+    "6": { class_type: "CLIPTextEncode", inputs: { text: prompt, clip: ["5", 0] } },
+    "7": { class_type: "ConditioningZeroOut", inputs: { conditioning: ["6", 0] } },
+    "8": { class_type: "VAELoader", inputs: { vae_name: "ae.safetensors" } },
+    "9": { class_type: "EmptySD3LatentImage", inputs: { width, height, batch_size: 1 } },
+    "10": { class_type: "KSampler", inputs: { seed, steps: 1, cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1,
+      model: ["3", 0], positive: ["6", 0], negative: ["7", 0], latent_image: ["9", 0] } },
+    "12": { class_type: "VAEDecode", inputs: { samples: ["10", 0], vae: ["8", 0] } },
+    "60": { class_type: "SaveImage", inputs: { filename_prefix: "orbit", images: ["12", 0] } },
+  };
+}
+
+export function imageWorkflow(model: ComfyModel, input: WorkflowIn): ReturnType<typeof workflow> {
+  return model === "nitrofusion2" ? nitroWorkflow(input) : workflow({ ...input, prompt: `${input.prompt}. ${PHOTO}` });
+}
+
 /** A stable seed from text (same slot → same picture on a retry), in ComfyUI's accepted range. */
 export const seedOf = (s: string) => { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0; return h; };
 
 /** POST /prompt reply → prompt id, or the error ComfyUI gave (bad graph, missing model). */
-export function parseQueued(j: unknown): { id: string } | { error: string } {
+export function parseQueued(j: unknown, model: ComfyModel = "sdxl-lightning"): { id: string } | { error: string } {
   const o = (j ?? {}) as { prompt_id?: unknown; error?: { message?: unknown; details?: unknown } | string; node_errors?: Record<string, { errors?: { message?: string; details?: string }[] }> };
   if (typeof o.prompt_id === "string" && o.prompt_id && !Object.keys(o.node_errors ?? {}).length) return { id: o.prompt_id };
   const node = Object.values(o.node_errors ?? {}).flatMap((n) => n.errors ?? []).map((e) => [e.message, e.details].filter(Boolean).join(": "))[0];
   const top = typeof o.error === "string" ? o.error : [o.error?.message, o.error?.details].filter((x) => typeof x === "string" && x).join(": ");
   const msg = (node || top || "ComfyUI refused the job").slice(0, 300);
+  if (model === "nitrofusion2") {
+    return { error: /unet_name|clip_name|vae_name|does not exist/i.test(msg) ? `ComfyUI could not load the NitroFusion2 workflow: ${msg}. Check the model files and your ComfyUI version, then run ${comfySetup(model)}.` : msg };
+  }
   return { error: /ckpt_name|not in \[|value_not_in_list/i.test(msg) ? `The model file ${MODEL.file} is missing in ComfyUI: run ${COMFY_SETUP} again.` : msg };
 }
 
