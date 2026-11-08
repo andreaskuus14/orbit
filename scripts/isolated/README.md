@@ -11,6 +11,7 @@ real account:
 | `coldstart` | With `stop-all.json` on, unreadable or damaged at boot, a task queued before boot never starts. A control run with it off does start. |
 | `studio` | One AI Story Short from idea to export through the real STUDIO UI: the fake CLI writes the script, the fake Higgsfield (`ORBIT_HIGGSFIELD_DRY_RUN=1`, no network or credits) prices it, Approve renders it with local Kokoro narration into the review queue, the weekly cap counts exactly the quote, and Download returns a playable MP4. Takes up to ~10 min where the optional Hyperframes effects layer is installed. Set `ORBIT_FFMPEG` if `ffmpeg-static` has no binary. |
 | `briefing` | phonemizer isn't loaded at boot. A PC call speaks through Kokoro in its own process. Two briefings in a row succeed with a broken feed among real ones. The server keeps answering with no fatal stop, and no configured secret appears in `server.log` or `crash.log`. |
+| `core` | A CORE turn that outlasts its time limit (the fake model hangs for its first 290 s) hands off to a background task. The page that keeps its live stream and a freshly opened page (reload, other device) both end on the background answer without a manual reload, and no `/api/core` request fails over the ~6 minutes. Takes about 7 min. |
 
 A cut-off compressed response can't reach a briefing here, because `safeFetch` refuses local addresses. `npm test` reproduces it
 deterministically with the real fetcher and phonemizer, in `tests/briefing-crash-policy.test.ts`, `tests/fetch-gzip-crash.test.ts`
@@ -21,7 +22,7 @@ and `tests/safe-fetch-body.test.ts`. The `briefing` check needs the public feeds
 - **Supabase:** a local stack started with the Supabase CLI (pinned) in Docker, with every migration in `supabase/migrations`. It
   uses only the CLI's public local demo keys and one throwaway user, `orbit-test@example.test`, whose password is generated at setup.
 - **Model:** `fake-claude.mjs` stands in for the Claude Code CLI (`ORBIT_CLAUDE_BIN`). There's no model, account or network. Markers
-  in a task's request steer it (`[slow:N]`, `[fail]`, `[failonce:ID]`, `[propose:create_project]`).
+  in a task's request steer it (`[slow:N]`, `[fail]`, `[failonce:ID]`, `[slowfor:N:ID]`, `[propose:create_project]`).
 - **Server:** a scratch data folder, the build in `.next-isolated`, port 3100. The server gets a clean environment with only these
   values, and every outbound integration (YouTube, ntfy, Voyage, mail, …) is unset.
 - **Real keys:** setup refuses to run where a `.env` or `.env.local` exists, so no real key can be loaded next to the test values.
