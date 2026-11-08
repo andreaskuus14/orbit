@@ -202,6 +202,12 @@ const dueWhen = (days: number) => (days < 0 ? `${-days} day${days === -1 ? "" : 
 const clientLink = (id: string) => linkToHash({ planet: "business", view: "client", kind: "client", id });
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 export const TODAY_ROWS = 6; // per group; the rest is counted in "more"
+export const TOP_DECISIONS = 3; // shown one by one; the rest grouped by kind
+const decisionKind = (id: string) => id.split(":")[0];
+const groupOpen = (k: string, o?: BriefOpen): BriefOpen | undefined => (k === "send" ? { panel: "business" } : o); // several emails: the list, not the first client
+const KIND_LABEL: Record<string, string> = { clip: "clips to review", send: "emails to approve", spend: "credit spends to approve", nego: "replies to approve", task: "tasks waiting for your OK", goal: "goal steps waiting for your OK" };
+const placeOf = (o?: BriefOpen) => !o ? "ORBIT" : "panel" in o ? (o.panel === "studio" ? "STUDIO" : o.panel === "business" ? "BUSINESS" : o.panel === "markets" ? "MARKETS" : o.panel.toUpperCase())
+  : "link" in o && o.link.includes("o=business") ? "BUSINESS" : "OPERATIONS";
 
 /** The card's Today section from what the brief already gathered. A source that couldn't be read says so; it never looks empty. */
 export function todayGroups(x: BriefIn, now: number): TodayGroup[] {
@@ -212,9 +218,17 @@ export function todayGroups(x: BriefIn, now: number): TodayGroup[] {
     else if (rows.length) out.push({ key, label, rows: rows.slice(0, cap), ...(rows.length > cap && { more: rows.length - cap }) });
   };
 
-  // Decisions: every one waiting, not only the two that are spoken. Emails and spends keep "open" only.
-  group("decisions", "Decisions waiting for you", x.decisions.filter((d) => !snoozed.has(`decision:${d.id}`))
-    .map((d) => ({ id: `decision:${d.id}`, title: d.title, detail: "Needs your OK", ...(d.open && { open: d.open }), ...(d.approve && { approve: d.approve }) })));
+  // Decisions: the top few one by one (priority order), the rest one row per kind ("47 clips to review"), so every decision
+  // stays reachable without a 50-row list. Emails and spends keep "open" only; a group row never approves in bulk.
+  const waiting = x.decisions.filter((d) => !snoozed.has(`decision:${d.id}`));
+  const single = (d: Decision): TodayRow => ({ id: `decision:${d.id}`, title: d.title, detail: "Needs your OK", ...(d.open && { open: d.open }), ...(d.approve && { approve: d.approve }) });
+  const rest = new Map<string, Decision[]>();
+  for (const d of waiting.slice(TOP_DECISIONS)) { const k = decisionKind(d.id); rest.set(k, [...(rest.get(k) ?? []), d]); }
+  group("decisions", waiting.length > TOP_DECISIONS ? `Decisions waiting for you (${waiting.length})` : "Decisions waiting for you", [
+    ...waiting.slice(0, TOP_DECISIONS).map(single),
+    ...[...rest].sort((a, b) => b[1].length - a[1].length).map(([k, ds]): TodayRow => ds.length === 1 ? single(ds[0]) : {
+      id: `decisions:${k}`, title: `${ds.length} ${KIND_LABEL[k] ?? "more decisions"}`, detail: `Open ${placeOf(groupOpen(k, ds[0].open))} to go through them`, ...(groupOpen(k, ds[0].open) && { open: groupOpen(k, ds[0].open) }) }),
+  ]);
 
   // Deadlines: goals overdue, due today or tomorrow (later this week is counted), then BUSINESS follow-ups that are due.
   const dl = x.morning.deadlines, fu = x.morning.followups;

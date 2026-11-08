@@ -148,11 +148,34 @@ test("the brief overlay renders Today with labelled Approve/Open per row and the
   assert.doesNotMatch(html, /Dentist/, "calendar titles stay hidden without the LIFE opt-in");
 });
 
-test("every decision is listed, with no '+N more' cap (Agent 6 #1)", () => {
-  const many = briefDecisions([], [], Array.from({ length: 11 }, (_, k) => ({ id: `send:c${k}`, kind: "send" as const, title: `Client ${k}` })));
-  const d = groupOf(todayGroups(base({ decisions: many }), now), "decisions")!;
-  assert.equal(d.rows.length, 11); assert.equal(d.more, undefined);
+test("a long decision list: top 3 one by one, the rest one row per kind; every decision still reachable, nothing bulk-approved", () => {
+  const remote = [
+    ...Array.from({ length: 47 }, (_, k) => ({ id: `clip:c${k}`, kind: "clip" as const, title: `Clip ${k}` })),
+    { id: "send:p1", kind: "send" as const, title: "Kalev Bakery" }, { id: "send:p2", kind: "send" as const, title: "Tartu Cafe" },
+    { id: "spend:s1", kind: "spend" as const, title: "Story", credits: 40 },
+  ];
+  const many = briefDecisions([{ label: "Publish the bakery post", open: { task: "t1" } }], [], remote); // 51 in priority order
+  const g = todayGroups(base({ decisions: many }), now), d = groupOf(g, "decisions")!;
+  assert.equal(d.label, "Decisions waiting for you (51)");
+  assert.deepEqual(d.rows.map((r) => r.title), ["Publish the bakery post", "Clip 0", "Clip 1", "45 clips to review", "2 emails to approve", "Story"]);
+  const clips = d.rows[3];
+  assert.equal(clips.detail, "Open STUDIO to go through them");
+  assert.deepEqual(clips.open, { panel: "studio", view: "review" });
+  assert.equal(clips.approve, undefined, "a group row never approves in bulk");
+  assert.deepEqual(d.rows[4].open, { panel: "business" }, "several emails open the list, not the first client");
+  assert.equal(d.rows[5].approve, undefined); assert.deepEqual(d.rows[5].open, { panel: "studio" }); // a single spend keeps its own row, open-only
+  assert.deepEqual(d.rows[0].approve, { task: "t1" });
+  assert.equal(d.more, undefined);
+  // Every decision is covered by a row: 3 shown + 45 + 2 + 1.
+  assert.equal(3 + 45 + 2 + 1, many.length);
+  // Failed sources stay visible next to a long decision list.
+  assert.match(groupOf(todayGroups(base({ decisions: many, projects: null }, { deadlines: null, followups: null }), now), "deadlines")!.failed!, /unknown, not zero/);
+  assert.ok(groupOf(todayGroups(base({ decisions: many, projects: null }), now), "projects")!.failed);
+  // Three or fewer: no count in the label, no grouping.
+  const few = groupOf(todayGroups(base(), now), "decisions")!;
+  assert.equal(few.label, "Decisions waiting for you"); assert.equal(few.rows.length, 3);
 });
+
 
 test("goal deadlines count days in his time zone, not the server's (Agent 6 #3)", async () => {
   const { dayKey, safeZone } = await import("../src/lib/agent-stats-pure.ts");
