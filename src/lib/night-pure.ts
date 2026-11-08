@@ -263,3 +263,10 @@ export function nightPush(r: { done: number; approvals: number; failed: number }
 /** Why a run stopped, in the owner's words (stored as a code: stop-all / usage / window / budget / lease). */
 export const stoppedText = (why?: string, lang: Lang = "en") =>
   why === "stop-all" || why === "usage" || why === "window" || why === "budget" || why === "lease" ? translate(lang, `night.stop.${why}`) : why ?? "";
+
+/** Last night's follow-up draft for one prospect, if it's still new to him (not the message already on the card). BUSINESS offers it
+ *  instead of a second model call; he still reviews it and approves the exact send (business/route.ts sendDraft). */
+export function nightFollowupDraft(r: Pick<NightReport, "approvals"> | null | undefined, prospectId: string, current: string): string | null {
+  const d = r?.approvals.find((i) => i.kind === "business" && i.ref === prospectId && i.draft?.trim())?.draft?.trim();
+  return d && d !== current.trim() ? d.slice(0, 4000) : null;
+}

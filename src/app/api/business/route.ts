@@ -25,13 +25,16 @@ const COLS = "*";
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
 export async function GET() {
-  const { sb, res } = await requireUser();
+  const { sb, user, res } = await requireUser();
   if (res) return res;
   const { data, error } = await sb.from("prospects").select(COLS).order("updated_at", { ascending: false }).limit(300);
   if (error) return fail(error.code === "42P01" ? "Run supabase/migrations/0011_business.sql first" : error.message, 500);
   const store = await loadCrm().catch(() => ({}));
   const prospects = (data ?? []).map((p) => { const crm = crmOf(store, p); return { ...p, fee: Number(p.fee), crm, touch: touch(crm.events) }; }) as Prospect[];
-  return Response.json({ prospects, funnel: funnel(prospects), canSend: !!(process.env.RESEND_API_KEY && process.env.ORBIT_MAIL_FROM) });
+  const night = await import("@/lib/night").then((n) => n.getNightReport(sb, user.id)).catch(() => null); // a failure just hides the shortcut
+  const { nightFollowupDraft } = await import("@/lib/night-pure");
+  const nightDrafts = prospects.filter((p) => p.stage === "contacted" && nightFollowupDraft(night, p.id, p.draft ?? "")).map((p) => p.id); // ids only; the text stays server-side until used
+  return Response.json({ prospects, funnel: funnel(prospects), nightDrafts, canSend: !!(process.env.RESEND_API_KEY && process.env.ORBIT_MAIL_FROM) });
 }
 
 export async function POST(req: Request) {
@@ -116,12 +119,20 @@ export async function POST(req: Request) {
     case "draft": {
       const followup = b.action === "followup";
       const lang = (LANGS as readonly string[]).includes(b.lang as string) ? (b.lang as Lang) : "English";
-      const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
+      const fromNight = followup && b.use === "night"; // last night's draft: no model call, so no usage hold
+      const held = stopAllOn() ? "Stop-all is on" : fromNight ? null : usageHardHold();
       if (held) return fail(`Not drafting right now: ${held}`, 503);
       const { data: p, error } = await sb.from("prospects").select("name,kind,notes,draft,stage,updated_at").eq("id", b.id as string).maybeSingle();
       if (error) return fail(error.message, 500);
       if (!p) return fail("Not found", 404);
       if (followup && (p.stage !== "contacted" || !p.draft?.trim())) return fail("A contacted business with a first draft is required");
+      if (fromNight) { // the text comes from the night report on this server, never from the request
+        const { nightFollowupDraft } = await import("@/lib/night-pure");
+        const draft = nightFollowupDraft(await import("@/lib/night").then((n) => n.getNightReport(sb, user.id)).catch(() => null), b.id as string, p.draft);
+        if (!draft) return fail("There's no new draft from last night for this client", 404);
+        void logEvent({ id: b.id as string, name: p.name, contact: "" }, "draft", "follow-up");
+        return one(sb.from("prospects").update({ draft, updated_at: new Date().toISOString() }).eq("id", b.id as string).select(COLS).maybeSingle());
+      }
       try {
         const angle = isTemplate(b.angle) ? b.angle : "auto";
         const r = await askClaude(followup ? followupPrompt(p, lang) : outreachPrompt(p, lang, angle), followup ? FOLLOWUP_SYSTEM : OUTREACH_SYSTEM, { lane: "foreground", purpose: followup ? "business.followup" : "business.outreach", timeoutMs: 90_000 });
