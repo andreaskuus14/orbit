@@ -318,7 +318,7 @@ summary.core-step::-webkit-details-marker { display: none; }
 @keyframes warp-burst { from { opacity: .85; transform: scale(.5) rotate(0deg); } 35% { opacity: .75; } to { opacity: 0; transform: scale(2.1) rotate(2deg); } }
 @media (prefers-reduced-motion: reduce) { .warp, .warp-burst { display: none; } }
 /* Through the surface (window planets): the world crossfades in over the galaxy's dive (opacity only, never blocks input). */
-.orbit-shell[data-dive-in] > .kept:not([hidden]), .orbit-shell[data-dive-in="theater"] > [role=region] { animation: dive-in .4s cubic-bezier(.3, 0, .2, 1) both; }
+.orbit-shell[data-dive-in] > .kept:not([hidden]), .orbit-shell[data-dive-in] > .globe-in { animation: dive-in .4s cubic-bezier(.3, 0, .2, 1) both; }
 @keyframes dive-in { from { opacity: 0; } }
 /* Morning briefing as a hook (MorningCard.tsx): next step first, big numbers, the best Short as a picture. */
 .mc-next { display: flex; align-items: center; gap: .6rem; width: 100%; text-align: left; padding: .65rem .8rem; color: #f2fbff;
@@ -411,3 +411,31 @@ summary.core-step::-webkit-details-marker { display: none; }
 .core-ws-proof { font-size: .72rem; margin-bottom: .4rem; padding-left: .5rem; border-left: 2px solid #8da2af; }
 .core-ws-proof.executed { border-color: #a78bfa; }
 .core-ws-proof.verified { border-color: #5eead4; }
+
+/* Galaxy entry stays legible while the camera crosses the surface. The capsule never intercepts another selection. */
+.planet-entry-status {
+  position: absolute;
+  z-index: 25;
+  top: 5rem;
+  left: 50%;
+  max-width: calc(100% - 2rem);
+  transform: translateX(-50%);
+  overflow: hidden;
+  padding: .65rem 1rem;
+  border: 1px solid #a4c7e35c;
+  border-radius: .5rem;
+  background: #08111eeb;
+  color: #eef7ff;
+  font-size: .8rem;
+  letter-spacing: .08em;
+  pointer-events: none;
+}
+.planet-entry-progress {
+  position: absolute;
+  inset: auto 0 0;
+  height: 2px;
+  transform-origin: left;
+  animation: planet-entry-progress 1.2s cubic-bezier(.2, .6, .3, 1) both;
+}
+@keyframes planet-entry-progress { from { transform: scaleX(.08); } to { transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) { .planet-entry-progress { animation: none; } }

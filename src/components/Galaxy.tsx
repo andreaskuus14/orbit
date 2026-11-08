@@ -53,6 +53,8 @@ import { hoverParts, planetLife, toolPlanet, QUIET, WARM, WORK } from "@/lib/liv
 import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
 import { arrivalSecs, arrivalSpread, easeInStop, offscreenEdge } from "@/lib/alien-behaviour-pure";
 
+import type { DiveRequest } from "@/lib/window-pure";
+
 export type GalaxyProps = {
   bloomScale?: number; // ambient night mode softens the glow
   selected: PanelId | null;
@@ -73,9 +75,9 @@ export type GalaxyProps = {
   lifeProgress?: { done: number; total: number } | null; // real: today's scheduled LIFE habits done / total
   universe?: UniverseData | null; // real: the ledger as light (live, or the day picked in Time travel)
   ships?: { tasks: ShipTask[]; onOpen: (id: string) => void }; // real: agent tasks flying as ships; click opens the task
-  dive?: PanelId | null;     // entering this world through its planet's surface (window planets: level > 0, no reduced motion)
-  onDiveCross?: () => void;  // the camera crossed the surface: mount the world now, it crossfades in
-  onDiveCancel?: () => void; // the user grabbed the view mid-dive
+  flight?: DiveRequest | null;     // entering this world through its planet's surface (window planets: level > 0, no reduced motion)
+  onDiveCross?: (request: DiveRequest) => void;  // the camera crossed the surface: mount the world now, it crossfades in
+  onDiveCancel?: (request: DiveRequest) => void; // the user grabbed the view mid-dive
   onIdle?: () => void;       // start-up and background shaders are compiled: a good moment for other idle work
   dilation?: { startAt: number; endAt: number } | null; // time dilation focus block: the galaxy's clock runs slow
 };
@@ -804,7 +806,7 @@ function LabelProjector({ positions, scales, labels, leaders, hover, selected, h
 // Low, oblique view like the reference illustration.
 const HOME = new THREE.Vector3(...HOME_POS); // pulled back to fit the wider outer orbits
 
-function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive }: { selected: PanelId | null; positions: Positions; reduced: boolean; panelOpen: boolean; fast?: boolean; story: RefObject<Story>; arrive: RefObject<Arrive> }) {
+function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive, diving }: { selected: PanelId | null; positions: Positions; reduced: boolean; panelOpen: boolean; fast?: boolean; story: RefObject<Story>; arrive: RefObject<Arrive>; diving: boolean }) {
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void; addEventListener: (t: string, f: () => void) => void; removeEventListener: (t: string, f: () => void) => void } | null;
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const size = useThree((s) => s.size);
@@ -863,7 +865,7 @@ function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive }: {
 
   useFrame((_, scaled) => {
     const dt = realDt(scaled); // camera flights keep real time, even dilated
-    if (!controls) return;
+    if (!controls || diving) return;
     if (story.current.owns) { flight.current = null; return; } // the intro / scroll journey is driving the camera
     const f = flight.current;
     if (f?.arr) {
@@ -1098,16 +1100,16 @@ export default function Galaxy(props: GalaxyProps) {
         </WarmIn>
         {/* a focused world may be approached until it nearly fills the view: its surface keeps resolving finer detail */}
         <OrbitControls makeDefault enabled={!staged} enablePan={false} minDistance={props.selected && props.selected in sizes ? sizes[props.selected] * 1.35 : 4} maxDistance={80} enableDamping />
-        {!props.reduced && <StoryRig story={story} positions={positions} sizes={sizes} selected={props.selected} intro={intro} onIntroEnd={onIntroEnd} onStop={setStop} />}
-        <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} arrive={arrive} />
-        {windows && <WindowDive dive={props.dive ?? null} positions={positions} sizes={sizes} scales={scales} onCross={props.onDiveCross} onCancel={props.onDiveCancel} />}
+        {!props.reduced && <StoryRig story={story} positions={positions} sizes={sizes} selected={props.flight?.id ?? props.selected} intro={intro} onIntroEnd={onIntroEnd} onStop={setStop} />}
+        <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} arrive={arrive} diving={!!props.flight} />
+        {windows && <WindowDive request={props.flight ?? null} positions={positions} sizes={sizes} scales={scales} onCross={props.onDiveCross} onCancel={props.onDiveCancel} />}
         {!props.paused && <ZoomRig home={HOME.length()} reduced={props.reduced} />} {/* zoom commands are for the world on screen */}
-        <CameraFeel motion={motion} reduced={props.reduced} home={props.selected === null} story={story} />
+        <CameraFeel motion={motion} reduced={props.reduced} home={!props.flight && props.selected === null} story={story} />
         <PointerFeel feel={feel} enabled={!props.reduced && !coarse && !staged} />
-        <Parallax feel={feel} on={!props.reduced && !staged} /> {/* after every rig: it offsets the camera they placed */}
+        <Parallax feel={feel} on={!props.flight && !props.reduced && !staged} /> {/* after every rig: it offsets the camera they placed */}
         <AmbientListener positions={positions} /> {/* after every rig: hears from where the camera ended up */}
         <LabelProjector positions={positions} scales={scales} labels={labels} leaders={leaders} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} lang={lang} />
-        {windows && <WindowPlanets hover={hover} dive={props.dive ?? null} positions={positions} sizes={sizes} scales={scales} />}
+        {windows && <WindowPlanets hover={hover} dive={props.flight?.id ?? null} positions={positions} sizes={sizes} scales={scales} />}
         {process.env.NODE_ENV === "development" && <><DevStats /><FrameMark name="galaxy" /></>}
         {/* Shaders compile in parallel before the first frame. No 4 s release here: releasing mid-compile compiled the rest
             synchronously in one 14 s frame (owner's PC); the loader stays up instead. Hidden parts warm after the first frames. */}
