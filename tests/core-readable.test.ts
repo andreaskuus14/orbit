@@ -10,7 +10,9 @@ const tok = /--core-surface:\s*([^;]+);/.exec(css);
 test("CORE chat sits on a near-opaque surface and the scene dims behind it", () => {
   assert.ok(tok && parseColor(tok[1])[3] >= 0.9, "--core-surface alpha < 0.9");
   assert.match(css, /\.orbit-shell \.drawer\.glass:has\(\.core-ws\) \{ background-color: var\(--core-surface\); \}/);
-  assert.match(css, /\.orbit-shell:has\(\.core-ws \.bubble\) div:has\(> canvas\) \{ filter: brightness\(0\.[0-5]/);
+  // the dim is an opacity overlay, not a canvas filter, so it costs no repaint of the scene
+  assert.match(css, /\.galaxy-layer::after \{[^}]*background: rgb\(0 0 4 \/ 0\.[5-9]/);
+  assert.match(css, /\.galaxy-layer\[data-dim\]::after \{ opacity: 1; \}/);
 });
 
 test("HUD serial label is hidden while a conversation is open", () => {
