@@ -13,7 +13,9 @@ const L = require("./lib.cjs");
   page.on("response", (r) => { if (r.url().includes("/api/core") && r.status() >= 400) failed.push(`HTTP ${r.status()} at ${s()} s`); });
 
   await page.emulateMedia({ reducedMotion: "reduce" }); // the 3D galaxy in headless software GL starves typing; CORE doesn't depend on it
-  await page.goto(`${L.BASE}/#o=core`);
+  // Open CORE through its deep link; a hash-only change after sign-in can be missed, so set it again until the chat is there.
+  const openCore = async (p) => { await p.goto(`${L.BASE}/#o=core`); for (let i = 0; i < 3 && !(await p.getByLabel("Message CORE").count()); i++) { await L.sleep(4000); await p.evaluate(() => { location.hash = ""; location.hash = "o=core"; }); } };
+  await openCore(page);
   // time-of-day popups (the evening review) sit over the chat; this check is about CORE, so close them like the owner would
   const clear = (p) => p.evaluate(() => document.querySelectorAll("dialog[open]").forEach((d) => d.close()));
   const box = page.getByLabel("Message CORE").last();
@@ -33,7 +35,7 @@ const L = require("./lib.cjs");
   // Page B: a fresh CORE (reload / phone) on the same chat, while the task still runs
   const b = await page.context().newPage();
   await b.emulateMedia({ reducedMotion: "reduce" });
-  await b.goto(`${L.BASE}/#o=core`);
+  await openCore(b);
   await b.getByLabel("Message CORE").last().waitFor({ timeout: 60000 });
   await L.sleep(3000); await clear(b);
   await L.until(async () => (await b.getByText("Working on it in the background").count()) > 0, 30000);
