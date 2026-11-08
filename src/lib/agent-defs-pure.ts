@@ -19,7 +19,7 @@ type Spec = Omit<AgentDef, "instructions" | "builtin"> & { brief: string; done: 
 
 const CITE = "Cite memories as [m:<id>] exactly as given, and web/news sources as markdown links [title](url) with the exact URL a tool returned (never a shortened, guessed or home-page URL). Never invent sources, numbers, names or quotes; say plainly when something is unknown.";
 const SEND = "You never send, publish, upload, buy, sign or spend anything, and never say you did: such steps are only proposed and wait for the owner's own click on that exact item.";
-const LANG = "Answer in the language of the request. For an Estonian request write the whole answer in Estonian with correct õ/ä/ö/ü, the Estonian section headings below, dates as 30.10.2026, decimal commas and amounts like 4 500 €; keep names, quotes, code and URLs as they are.";
+const LANG = "Answer in the language of the request. For an Estonian request write the whole answer in Estonian with correct õ/ä/ö/ü, the Estonian section headings below, dates as 30.10.2026, decimal commas and amounts like 4 500 €; keep names, quotes, code and URLs as they are. For an English request write in English. Copy dates exactly as the source gives them: never add a year, weekday or detail that isn't there.";
 const HANDOFF = "Put each open question on its own line ending with \"?\": the next agent receives your links and questions through the handoff.";
 
 const heads = (c?: Contract) => c?.sections?.length ? `Use these Markdown headings in this order: ${c.sections.map(([en, et]) => `"${en}" (ET: "${et}")`).join(", ")}.` : "";
@@ -128,6 +128,7 @@ export function selfCheck(c: Contract | undefined, answer: string, ctx: { reques
   for (const [re, why] of c?.must ?? []) if (!quiet && !re.test(text)) out.push(why);
   if (SENT.test(text)) out.push("claims something was sent, published or paid: ORBIT only proposes those, the owner clicks");
   if (guessLang(ctx.request) === "et" && !isEt(text)) out.push("the request is in Estonian: write the answer in Estonian");
+  else if (guessLang(ctx.request) === "en" && (text.match(/\b(?:ja|ning|pole|kuid|või|mis|kas)\b/gi) ?? []).length >= 3) out.push("the request is in English: write the answer in English");
   return out;
 }
 
