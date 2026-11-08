@@ -1,6 +1,6 @@
 // Design-guidance pack for CORE's site builder (owner: "plugins that help CORE"). Loaded into the build step once the site plan
 // is written (core-workspace.ts ws_write result); lint (site-pipeline-pure.ts lintSite) checks the measurable parts.
-export const SITE_GUIDE = `SITE GUIDE (follow while building; lint checks the starred items):
+export const SITE_GUIDE = `SITE GUIDE (follow while building; lint checks the starred items; the owner's own style wishes win over this guide):
 - Typography: system font stack only* (no web fonts/CDNs, the preview is offline); scale 1.25 (16, 20, 25, 31, 39, 49 px); body 16-18px, line-height 1.5-1.7, 60-75 characters per line.
 - Spacing: 4/8 px grid (4, 8, 16, 24, 32, 48, 64, 96); generous section padding; consistent gaps via CSS custom properties.
 - Colour: palette from plan.md as :root custom properties; text/background contrast at least 4.5:1* (3:1 for 24px+ text); don't carry meaning by colour alone.
@@ -8,7 +8,7 @@ export const SITE_GUIDE = `SITE GUIDE (follow while building; lint checks the st
 - Semantic HTML: <html lang>*, one <h1>, header/nav/main/section/footer, ordered headings, real <button>/<a>, labelled form fields; <meta name="viewport">*.
 - Images: alt text on every <img>* (alt="" for decoration), width/height set, loading="lazy" below the fold; each image under 350 KB*; licensed images get the credit from assets/CREDITS.md in the footer*.
 - Subject conventions: show the subject the way its own professionals do, as real content rather than decoration: an architect's work as scaled plans and sections (scale bar, north arrow, sheet number, m²); a restaurant's as a menu with prices; a golf club's as a course map and scorecard; a developer's as code and results. One such detail that only this subject would have beats any amount of generic polish.
-- Looks to avoid (they read as AI-made): cream or beige paper with a serif and a terracotta/rust accent; near-black with one acid-green or orange pop; a purple-to-blue gradient hero; everything centred; identical rounded cards with shadows; emoji as section icons. If the owner asks for one of these, follow him.
+- Looks to avoid (they read as AI-made): cream or beige paper with a serif and a terracotta/rust accent; near-black with one acid-green or orange pop; a purple-to-blue gradient hero; everything centred; identical rounded cards with shadows; emoji as section icons.
 - Type with character from system fonts: pair a display face with a body face, e.g. "Bahnschrift","DIN Alternate","Arial Narrow" (technical, condensed); Georgia, "Iowan Old Style", "Palatino Linotype" (bookish); "Segoe UI Variable", system-ui (neutral); ui-monospace, "Cascadia Mono", Consolas (labels, data). Always end with a generic family.
 - Art direction*: pick ONE distinctive direction from the business itself before writing CSS (a golf club: fairway-green and sand with course-map line art and scorecard-style tables; a bakery: warm flour tones, hand-drawn SVG wheat, a menu board) and name it in plan.md. Never the generic gradient hero + three identical cards: vary section layouts (split hero with a real photo, full-bleed image band, alternating feature rows, a stats strip, a testimonial wall, a map/hours block).
 - Real content*: write the sections the visitor looks for (a portfolio: projects with real facts such as site, year, size and role; an event: programme, venue, tickets). A business site needs the sections a customer looks for, written with specifics (aim for 2,500+ characters of visible text): what it offers (names, prices or packages), how it works / booking steps, proof (reviews with names and details, numbers), team or story, FAQ, location + hours, contact. No lorem ipsum, no "Feature 1".
@@ -26,7 +26,8 @@ export const SITE_PIPELINE = `  SITE PIPELINE (for every new site, even a one-pa
 export function guideDue(paths: string[], wrote: string[]): boolean {
   const planned = paths.includes("plan.md"), css = paths.some((p) => p.endsWith(".css"));
   if (wrote.includes("plan.md")) return !css;
-  return !planned && wrote.some((p) => /\.(?:html|css)$/.test(p));
+  const site = (p: string) => /\.(?:html|css)$/.test(p);
+  return !planned && wrote.some(site) && !paths.some((p) => site(p) && !wrote.includes(p)); // only the first unplanned write, not every fix round
 }
 /** The next step for a site written without a plan: plan it, then redo the look against the guide (counts as a check round). */
 export const UNPLANNED_HINT = "Next site step: this site was written without plan.md, so it has no art direction yet. Write plan.md (audience, sections, the subject's own conventions you will show, the art direction, palette and type), then rewrite css/style.css and the pages to follow it and the SITE GUIDE below, before you deliver.";

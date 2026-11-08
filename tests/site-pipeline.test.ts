@@ -123,6 +123,8 @@ test("guideDue: the guide reaches a one-shot build that skipped plan.md, as well
   assert.equal(guideDue(["plan.md"], ["plan.md"]), true); // planned path: right after the plan
   assert.equal(guideDue(["plan.md", "css/style.css"], ["css/style.css"]), false); // planned, already building
   assert.equal(guideDue(["plan.md", "css/style.css", "index.html"], ["plan.md"]), false); // plan added late: already shown with the unplanned write
+  assert.equal(guideDue(["index.html", "css/style.css"], ["index.html"]), false); // fix round of an unplanned site: not again
+  assert.equal(guideDue(["index.html", "css/style.css", "about.html"], ["about.html"]), false); // new page, still not again
   assert.equal(guideDue(["notes.md"], ["notes.md"]), false); // not a site
   assert.match(SITE_GUIDE, /Subject conventions/); assert.match(SITE_GUIDE, /Looks to avoid/);
   assert.match(SITE_PIPELINE, /every new site, even a one-page one/);
