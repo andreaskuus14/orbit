@@ -1,0 +1,15 @@
+{
+  "scene": "s2",
+  "patch": {
+    "line": "Summer sun can stretch a steel bridge.",
+    "acting": [
+      { "f": 0, "pose": "neutral" },
+      { "f": 10, "pose": "neutral" },
+      { "f": 24, "pose": "arms-in", "set": { "dy": 22 }, "ease": "inOut" },
+      { "f": 36, "pose": "stretch-up", "ease": "back" },
+      { "f": 44, "pose": "stretch-up", "set": { "dy": -4 }, "ease": "out" },
+      { "f": 130, "pose": "stretch-up", "set": { "dy": -4 } },
+      { "f": 156, "pose": "neutral", "ease": "inOut" }
+    ]
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "v": 1,
+  "id": "film-bridge-gaps",
+  "title": "Why bridges have gaps",
+  "fps": 30,
+  "assets": {
+    "pip": { "kind": "character", "name": "Pip", "color": "#1b1b22", "line": 14, "headR": 45 }
+  },
+  "scenes": [
+    {
+      "id": "s1", "version": 1, "beat": "hook: curiosity", "character": "pip", "shot": "medium",
+      "line": "Ever noticed the little gaps in a bridge?",
+      "audio": { "kind": "fake-tts", "voice": "fake:pip", "at": 24 },
+      "frames": 180, "dependsOn": [], "home": 300, "face": 1, "bg": "#dfe9f2",
+      "props": [
+        { "kind": "rect", "x0": -2000, "y0": 900, "x1": 3000, "y1": 2400, "color": "#9aa79a" },
+        { "kind": "rect", "x0": 540, "y0": 600, "x1": 760, "y1": 632, "color": "#6b7480" },
+        { "kind": "rect", "x0": 790, "y0": 600, "x1": 1010, "y1": 632, "color": "#6b7480" },
+        { "kind": "rect", "x0": 620, "y0": 632, "x1": 646, "y1": 900, "color": "#7f8894" },
+        { "kind": "rect", "x0": 900, "y0": 632, "x1": 926, "y1": 900, "color": "#7f8894" }
+      ],
+      "acting": [
+        { "f": 0, "pose": "neutral" },
+        { "f": 12, "pose": "neutral" },
+        { "f": 22, "pose": "wind-up", "ease": "inOut" },
+        { "f": 31, "pose": "point-up", "ease": "back" },
+        { "f": 42, "pose": "point-up", "set": { "uaR": 116 }, "ease": "inOut" },
+        { "f": 96, "pose": "point-up", "set": { "uaR": 116 } },
+        { "f": 106, "pose": "point-up", "set": { "uaR": 116, "head": -4 }, "ease": "inOut" },
+        { "f": 142, "pose": "point-up", "set": { "uaR": 116, "head": -4 } },
+        { "f": 160, "pose": "neutral", "ease": "inOut" }
+      ]
+    },
+    {
+      "id": "s2", "version": 1, "beat": "explain: heat makes steel grow", "character": "pip", "shot": "wide",
+      "line": "On hot days, steel grows a little longer.",
+      "audio": { "kind": "fake-tts", "voice": "fake:pip", "at": 20 },
+      "frames": 195, "dependsOn": [], "home": 420, "face": 1, "bg": "#f6e7c8",
+      "props": [
+        { "kind": "rect", "x0": -2000, "y0": 900, "x1": 3000, "y1": 2400, "color": "#b9a77f" },
+        { "kind": "disk", "cx": 830, "cy": 190, "r": 70, "color": "#f2b631" }
+      ],
+      "acting": [
+        { "f": 0, "pose": "neutral" },
+        { "f": 10, "pose": "neutral" },
+        { "f": 24, "pose": "arms-in", "ease": "inOut" },
+        { "f": 34, "pose": "spread-wide", "ease": "back" },
+        { "f": 42, "pose": "spread-wide", "set": { "dy": 0 }, "ease": "out" },
+        { "f": 132, "pose": "spread-wide", "set": { "dy": 0 } },
+        { "f": 156, "pose": "neutral", "ease": "inOut" }
+      ]
+    },
+    {
+      "id": "s3", "version": 1, "beat": "payoff: the gap gives room", "character": "pip", "shot": "close",
+      "line": "The gap gives it room, so nothing cracks.",
+      "audio": { "kind": "fake-tts", "voice": "fake:pip", "at": 18 },
+      "frames": 180, "dependsOn": [], "home": 420, "face": 1, "bg": "#e3efe1",
+      "props": [
+        { "kind": "rect", "x0": -2000, "y0": 900, "x1": 3000, "y1": 2400, "color": "#93ab8f" },
+        { "kind": "rect", "x0": 640, "y0": 560, "x1": 800, "y1": 592, "color": "#6b7480" },
+        { "kind": "rect", "x0": 836, "y0": 560, "x1": 1000, "y1": 592, "color": "#6b7480" }
+      ],
+      "acting": [
+        { "f": 0, "pose": "neutral" },
+        { "f": 8, "pose": "neutral" },
+        { "f": 16, "pose": "neutral", "set": { "dy": 12, "head": -10, "uaL": -2, "uaR": 2 }, "ease": "inOut" },
+        { "f": 26, "pose": "open-palms", "ease": "back" },
+        { "f": 34, "pose": "open-palms", "set": { "head": -6 }, "ease": "inOut" },
+        { "f": 42, "pose": "open-palms", "set": { "head": 12 }, "ease": "inOut" },
+        { "f": 50, "pose": "open-palms", "ease": "inOut" },
+        { "f": 116, "pose": "open-palms" },
+        { "f": 126, "pose": "open-palms", "set": { "dy": 12, "uaL": -30, "uaR": 30 }, "ease": "inOut" },
+        { "f": 138, "pose": "hands-hips", "ease": "back" }
+      ]
+    }
+  ]
+}
