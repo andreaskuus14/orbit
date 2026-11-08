@@ -31,8 +31,12 @@ function Fetch($url, $out) {
 }
 
 function InstallModel($RelativePath, $Url, $Sha, [long]$Bytes) {
+  if ($Sha -notmatch '^[0-9a-f]{64}$') { throw "Invalid SHA-256 configured for $RelativePath. Update the ORBIT setup script before downloading." }
   $Path = Join-Path $Root "ComfyUI\models\$RelativePath"
-  if ((Test-Path $Path) -and ((Get-Item $Path).Length -eq $Bytes)) { return }
+  if ((Test-Path $Path) -and ((Get-Item $Path).Length -eq $Bytes)) {
+    if ((Get-FileHash -Algorithm SHA256 $Path).Hash -eq $Sha) { return }
+    Warn "$RelativePath failed its SHA-256 check. Downloading a fresh copy."
+  }
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
   Write-Host "Downloading $RelativePath"
   Fetch $Url "$Path.part"
@@ -74,7 +78,7 @@ if ($Model -eq "nitrofusion2") {
   $NitroRepo = "https://huggingface.co/PedroMarinhoDev/NitroFusion2-ComfyUI/resolve/fa0668b0122e78dc81a230f901b6feaca62560f4"
   $ZImageRepo = "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files"
   InstallModel "diffusion_models\nitrofusion2_w4a8_gptq.safetensors" "$NitroRepo/diffusion_models/nitrofusion2_w4a8_gptq.safetensors" "373741d551d0dc768a02f0ef49eeeca7bf29b992b889c413e99bdac60716443b" 3488205928
-  InstallModel "text_encoders\qwen_3_4b.safetensors" "$ZImageRepo/text_encoders/qwen_3_4b.safetensors" "6c671498573ac2f7a5501502ccce8d2b08ea2f661c458e708f36b36edfc5a" 8044982048
+  InstallModel "text_encoders\qwen_3_4b.safetensors" "$ZImageRepo/text_encoders/qwen_3_4b.safetensors" "6c671498573ac2f7a5501502ccce8d2b08ea6ca2f661c458e708f36b36edfc5a" 8044982048
   InstallModel "vae\ae.safetensors" "$ZImageRepo/vae/ae.safetensors" "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38" 335304388
 } else {
   Step "Model: SDXL-Lightning 4-step (6.9 GB)"

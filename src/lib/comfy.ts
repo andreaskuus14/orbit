@@ -30,7 +30,12 @@ function autostart(u: string): Promise<boolean> {
     closeSync(log);
     child.on("error", () => { G.__orbitComfy = null; });
     child.on("exit", () => { G.__orbitComfy = null; });
-    for (let i = 0; i < 60; i++) { await new Promise((r) => setTimeout(r, 1500)); if (await stats(u, 2000)) return true; } // first start ~20-60 s
+    // First launch on Windows can exceed the usual 90 seconds while Python initializes.
+    const deadline = Date.now() + (configuredComfyModel() === "nitrofusion2" ? 180_000 : 90_000);
+    while (Date.now() < deadline && child.exitCode === null && child.pid) {
+      await new Promise((r) => setTimeout(r, 1500));
+      if (await stats(u, 2000)) return true;
+    }
     return false;
   })().finally(() => { setTimeout(() => { if (G.__orbitComfy) G.__orbitComfy = null; }, 60_000); }));
 }
