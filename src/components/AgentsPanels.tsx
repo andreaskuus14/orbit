@@ -5,6 +5,7 @@ import { OrbitLog } from "./OrbitLog";
 import { useWorldPaused } from "./world-paused";
 import { highlight } from "./Highlight";
 import { ActivityView } from "./ActivityView";
+import { TeamStatusView } from "./TeamStatusView";
 import { ResultEvidence } from "./ResultEvidence";
 import { AutomationFields } from "./AutomationFields";
 import { RulesView } from "./RulesView";
@@ -262,7 +263,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   const [form, setForm] = useState({ request: "", agent: "nova", project_id: "" });
   const [newProject, setNewProject] = useState("");
   const [filter, setFilter] = useState<string>("");
-  const [tab, setTab] = useState<"tasks" | "automations" | "plans" | "rules" | "activity" | "localai">("tasks");
+  const [tab, setTab] = useState<"tasks" | "team" | "automations" | "plans" | "rules" | "activity" | "localai">("tasks");
   const [shown, setShown] = useState<Record<string, number>>({});
   const [err, setErr] = useState("");
 
@@ -310,13 +311,14 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
 
   const tabs = (
     <div className="flex gap-1.5" role="tablist">
-      {(["tasks", "automations", "plans", "rules", "activity", "localai"] as const).map((t) => (
+      {(["tasks", "team", "automations", "plans", "rules", "activity", "localai"] as const).map((t) => (
         <button key={t} role="tab" aria-selected={tab === t} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
           {tr(`ops.tab.${t}`)}
         </button>
       ))}
     </div>
   );
+  if (tab === "team") return <div className="space-y-4">{tabs}<TeamStatusView /></div>;
   if (tab === "activity") return <div className="space-y-4">{tabs}<ActivityView onOpenTask={setOpen} /></div>;
   if (tab === "localai") return <div className="space-y-4">{tabs}<LocalAiTools /></div>;
   if (tab === "plans") return <div className="space-y-4">{tabs}<PlanJobsView agents={agents} onOpenTask={setOpen} /></div>;
