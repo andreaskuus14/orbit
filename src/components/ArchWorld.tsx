@@ -283,13 +283,14 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const [sun, setSun] = useState<{ on: boolean; date: string; hour: number; lat: number; lon: number }>(() => ({ ...SITE, on: false, date: new Date().toISOString().slice(0, 10), hour: 12 }));
   const [ifc, setIfc] = useState<OpenIfc | null>(null); // an opened .ifc replaces the model in the view (read-only)
   const north = ifc ? ifc.model.info.north : site.north; // its own true north, never written into his site
+  const at = ifc?.model.info.site ?? { lat: sun.lat, lon: sun.lon }; // same for its site: never written into his sun, so his exports keep his location
   const sunAt = useMemo(() => { const d = new Date(`${sun.date}T00:00`); d.setMinutes(Math.round(sun.hour * 60)); return d; }, [sun.date, sun.hour]);
   const sunInfo = useMemo(() => {
     try {
-      const pos = sunPosition(sun.lat, sun.lon, sunAt), dir = toModel(sunDirection(sun.lat, sun.lon, sunAt), north), arc = dayArc(sun.lat, sun.lon, new Date(`${sun.date}T12:00Z`));
+      const pos = sunPosition(at.lat, at.lon, sunAt), dir = toModel(sunDirection(at.lat, at.lon, sunAt), north), arc = dayArc(at.lat, at.lon, new Date(`${sun.date}T12:00Z`));
       return { pos, dir, arc };
     } catch { return null; }
-  }, [sunAt, sun.date, sun.lat, sun.lon, north]);
+  }, [sunAt, sun.date, at.lat, at.lon, north]);
   const SR = site.on ? 90 : 40; // the light (and its shadow box) reaches further when the neighbours are out
   const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * SR, Math.max(0.5, sunInfo.dir.y * SR), sunInfo.dir.z * SR] : [-14, 22, 12];
   const night = sun.on && !!sunInfo && sunInfo.pos.elevationDeg < 0;
@@ -556,7 +557,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs">
               {(["lat", "lon"] as const).map((k) => <label key={k} className="flex items-center gap-1">{k === "lat" ? "Lat" : "Long"}
-                <input key={`${k}:${ifc?.name ?? ""}`} className="field w-20" type="number" step={0.001} min={k === "lat" ? -90 : -180} max={k === "lat" ? 90 : 180} defaultValue={sun[k]} aria-label={k === "lat" ? "Latitude" : "Longitude (east positive)"}
+                <input key={`${k}:${ifc?.name ?? ""}`} className="field w-20" type="number" step={0.001} min={k === "lat" ? -90 : -180} max={k === "lat" ? 90 : 180} defaultValue={at[k]} disabled={!!ifc?.model.info.site} aria-label={k === "lat" ? "Latitude" : "Longitude (east positive)"}
                   onChange={(e) => { const v = Number(e.target.value); if (e.target.value && Math.abs(v) <= (k === "lat" ? 90 : 180)) setSun((s) => ({ ...s, [k]: v })); }} /></label>)}
             </div>
             <label className="flex items-center gap-2 text-xs"><span className="num w-12">{String(Math.floor(sun.hour)).padStart(2, "0")}:{String(Math.round((sun.hour % 1) * 60)).padStart(2, "0")}</span>
@@ -634,8 +635,8 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
           })}
           <p className="muted text-[11px]">{tr("arch.exportHow")}</p>
         </div>
-        <IfcPanel ifc={ifc} view={() => r3f.current} sun={{ lat: sun.lat, lon: sun.lon, north, year: Number(sun.date.slice(0, 4)) }} onClose={() => setIfc(null)}
-          onOpen={(x) => { setIfc(x); setScan(null); setMeas(null); setWalk(false); setSel(null); setSun((v) => ({ ...v, on: true, ...(x.model.info.site ?? {}) })); }} />
+        <IfcPanel ifc={ifc} view={() => r3f.current} sun={{ lat: at.lat, lon: at.lon, north, year: Number(sun.date.slice(0, 4)) }} onClose={() => setIfc(null)}
+          onOpen={(x) => { setIfc(x); setScan(null); setMeas(null); setWalk(false); setSel(null); setSun((v) => ({ ...v, on: true })); }} />
         <IfcOpen />
         <OpenInBlender />
 
