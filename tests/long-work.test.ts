@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { afterTimeout, callTimeout, chunkPlan, handoffReply, isHeavy, isTimeout, progressLabel, CHAT_MS, GEN_MS } from "../src/lib/long-work-pure.ts";
+import { afterTimeout, callTimeout, chunkPlan, handoffReply, handoffTask, isHeavy, isTimeout, progressLabel, CHAT_MS, GEN_MS } from "../src/lib/long-work-pure.ts";
 import { stepLabel } from "../src/lib/core-ui.ts";
 
 test("timeout by purpose, capped by the turn", () => {
@@ -55,4 +55,16 @@ test("out of steps before the request is done: hand off, then at most 2 extra bu
   const { readFile } = await import("node:fs/promises");
   const core = await readFile(new URL("../src/lib/core.ts", import.meta.url), "utf8");
   assert.match(core, /if \(more === "handoff"\) throw new CoreHandoff/); assert.match(core, /extra: store\.extra/); // the background run keeps the count
+});
+
+test("handoffTask: a chat whose last message is the handoff waits on that task; any later message ends the wait", () => {
+  const id = "00c3f52d-d15a-4e30-a3b7-0cb1c716861b";
+  const user = { role: "user", content: "make me a website about investing" };
+  assert.equal(handoffTask([user, { role: "assistant", content: handoffReply(id, "en") }]), id);
+  assert.equal(handoffTask([user, { role: "assistant", content: handoffReply(id, "et") }]), id);
+  assert.equal(handoffTask([user, { role: "assistant", content: handoffReply(id, "en") }, { role: "assistant", content: "The site is built." }]), null);
+  assert.equal(handoffTask([user, { role: "assistant", content: handoffReply(id, "en") }, { role: "user", content: "and?" }]), null);
+  assert.equal(handoffTask([{ role: "user", content: handoffReply(id, "en") }]), null); // a pasted link isn't a handoff
+  assert.equal(handoffTask([{ role: "assistant", content: `See [this](#o=operations&k=task&id=${id}) for details.` }]), null); // a link mid-text isn't one either
+  assert.equal(handoffTask([]), null);
 });

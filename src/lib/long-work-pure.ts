@@ -59,6 +59,12 @@ export function handoffReply(taskId: string, lang: Lang): string {
     : `Working on it in the background — I'll notify you when it's done. [Open in OPERATIONS](${link})`;
 }
 
+/** The task a chat is still waiting on: its last message is the handoff reply (nothing written after it yet), so reopening can wait for the result. */
+export function handoffTask(msgs: readonly { role: string; content: string }[]): string | null {
+  const last = msgs[msgs.length - 1];
+  return last?.role === "assistant" ? /\]\(#o=operations&k=task&id=([0-9a-f-]{36})\)$/.exec(last.content.trim())?.[1] ?? null : null;
+}
+
 /** Never show the raw CLI timeout as the owner's final answer. */
 export const BG_FAILED = "The background run didn't finish. Ask again, or split the request into smaller parts.";
 
