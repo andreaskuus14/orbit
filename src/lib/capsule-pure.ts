@@ -174,3 +174,12 @@ export function rotate(names: string[]): string[] {
 }
 
 export const fmtMB = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${Math.round(bytes / (1024 * 1024))} MB`);
+
+/** The scheduler's safety net for a host that never runs the night shift (always on, or the night shift is off): back up when
+ *  no backup succeeded for 26 h (the night shift's 20 h rule goes first), and retry a failure (drive unplugged) every 6 h. */
+export function fallbackDue(last: { at: string; ok: boolean } | undefined, now: number): boolean {
+  if (!last) return true;
+  const age = now - Date.parse(last.at);
+  if (!(age >= 0)) return true; // unreadable or future date: back up (that rewrites it) rather than go without
+  return age >= (last.ok ? 26 : 6) * 3_600_000;
+}
