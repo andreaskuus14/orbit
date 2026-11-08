@@ -132,7 +132,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   const openChat = useCallback(async (id: string, fallbackProject: string | null = null) => {
     setSheet(false);
     if (id === convo.current) return;
-    abort.current?.abort(); stopSpeech();
+    // Like newChat: a running turn detaches and finishes in its own chat; only Stop/Esc cancel it.
+    if (abort.current) { view.current++; abort.current = null; setBusy(false); setLive(null); setRows([]); setBgTask(null); }
+    stopSpeech();
     const mine = ++opening.current;
     try {
       const r = await chatsApi<{ messages: Msg[] }>(undefined, `?id=${encodeURIComponent(id)}`);
@@ -186,7 +188,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   }, []);
   useEffect(() => {
     alive.current = true;
-    return () => { alive.current = false; const ac = abort.current; setTimeout(() => { if (!alive.current) { ac?.abort(); if (!flying.current) stopSpeech(); } }, 0); };
+    // Closing the chat leaves a running turn alone: the server finishes it and saves the answer to the conversation (Stop still aborts).
+    // shortcut: a reload or closed tab still drops the request and stops the turn; hand it to the background turn if that bites.
+    return () => { alive.current = false; setTimeout(() => { if (!alive.current && !flying.current) stopSpeech(); }, 0); };
   }, []);
 
   const send = useCallback(async (text: string, fromVoice?: boolean, look?: Preset) => {
