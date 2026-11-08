@@ -15,6 +15,16 @@ const log = (m) => { if (logFile) appendFileSync(logFile, `${new Date().toISOStr
 if (process.argv.includes("--version")) { console.log("2.1.99 (Claude Code) [fake test double]"); process.exit(0); } // Doctor's check
 if (process.argv.includes("--help")) { console.log("Usage: claude [options] --effort <level> (fake test double)"); process.exit(0); }
 
+/** A valid AI Story package for the target length: 5 scenes whose seconds add up to it, narration that fits ~2.5 words/s. */
+const fakeStory = (len) => {
+  const lines = ["The lighthouse went dark at midnight.", "Mara climbed the stairs with a lantern.", "Someone had written on the glass.",
+    "It was her own handwriting, dated tomorrow.", "She lit the lamp anyway, and the ship turned home."];
+  const sec = Math.max(3, Math.floor(len / lines.length));
+  return { title: "The Lighthouse Note", hook: "Dated tomorrow", scenes: lines.map((narration, i) => ({
+    visual: `Moody painted lighthouse at night, keeper Mara in a yellow raincoat, scene ${i + 1}, vertical composition`, narration,
+    sec: i === lines.length - 1 ? len - sec * (lines.length - 1) : sec, camera: ["slow push in", "tilt up", "pan left", "pull out", "slow push in"][i] })) };
+};
+
 let input = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (d) => (input += d));
@@ -34,7 +44,9 @@ process.stdin.on("end", async () => {
     process.exit(1);
   }
   const article = /NEWS EVENTS/.test(prompt) && /\[a:([0-9a-f-]{36})\]/i.exec(prompt);
-  const text = article ? `## Today\n\nThe top story of the day, in one line [a:${article[1]}].`
+  const story = /Target length: (\d+) seconds/.exec(prompt); // AI Story's script request (story.ts writeStory)
+  const text = story ? JSON.stringify(fakeStory(Number(story[1])))
+    : article ? `## Today\n\nThe top story of the day, in one line [a:${article[1]}].`
     : /\[propose:create_project\]/.test(prompt) && first
     ? JSON.stringify({ thought: "propose", tool: "create_project", input: { name: "Isolation test project", description: "proposed by the fake model" } })
     : JSON.stringify({ thought: "done", final: "Finished (fake model answer)." });
