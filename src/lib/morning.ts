@@ -165,12 +165,18 @@ async function gather(sb: SupabaseClient, userId: string, now: number): Promise<
   const [s, i, a, l, r, sn, c, w, ct, bf] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
     within(import("./life").then((m) => m.getLife()).then((st) => lifeSection(st, now, localTz))), within(recall(sb, now, localTz)),
     Promise.resolve(undefined), // since: per request, in getMorning
-    // Same cache entry as the LIFE card. No Google client configured → no calendar section at all.
+    // Same cache entry as the LIFE card. No Google client configured → no calendar section at all. A failed read shows as
+    // failed (never a silently missing section); a grant Google refused shows as expired, not as "not connected".
     within(Promise.all([import("./gcal"), import("./gcal-pure")]).then(async ([g, p]) => {
       if (!g.calEnv()) return undefined;
-      const ev = await g.calendarEvents(7, now);
-      return { connected: !!ev, today: ev ? p.todayEvents(ev, now) : [] };
-    })), within(getContinueWork(sb, userId)), within(contactedToday(sb, now, tz)),
+      try {
+        const ev = await g.calendarEvents(7, now);
+        return ev ? { connected: true, today: p.todayEvents(ev, now) } : { connected: false, today: [], ...((await g.calExpired()) && { expired: true }) };
+      } catch (e) {
+        const f = p.calFailure(e);
+        return f.expired ? { connected: false, today: [], expired: true } : { connected: true, today: [], error: f.text };
+      }
+    })).catch(() => ({ connected: true, today: [], error: "Couldn't reach Google Calendar" })), within(getContinueWork(sb, userId)), within(contactedToday(sb, now, tz)),
     within(Promise.resolve(sb.from("prospects").select("id,name,stage,updated_at,notes").eq("stage", "contacted")).then(({ data, error }) => {
       if (error) throw error;
       return import("./prospect-crm").then((c) => c.withTouch(data ?? [])).then((ps) => dueFollowups(ps, now));

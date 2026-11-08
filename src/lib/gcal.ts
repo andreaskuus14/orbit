@@ -3,7 +3,7 @@ import path from "node:path";
 import { orbitDataDir } from "./data-dir";
 import { OAuthError, oauthEnv, post, revoke, sharedGrant } from "./yt-oauth";
 import { hasScopes } from "./yt-analytics-pure";
-import { CAL_SCOPE, CAL_TTL_MS, calRange, eventsUrl, mapEvents, ttlCache, type CalEvent } from "./gcal-pure";
+import { CAL_SCOPE, CAL_TTL_MS, calRange, eventsUrl, expiredMarker, mapEvents, ttlCache, type CalEvent } from "./gcal-pure";
 
 // LIFE calendar: Google Calendar READ-ONLY with its own grant and token file (gcal-oauth.json in the ORBIT data dir, 0600).
 // Client: GCAL_OAUTH_CLIENT_ID/_SECRET, else STUDIO's YouTube client. While shared, a revoke would also kill the YouTube grant
@@ -28,7 +28,16 @@ export async function readCal(): Promise<Stored | null> {
   } catch { return null; }
 }
 
-async function clear() { await rm(tokenFile(), { force: true }); mem.access = undefined; cache.clear(); }
+/** expired: Google refused the grant. The token goes, but a { expiredAt } marker stays so the brief, LIFE and System health say
+ *  "expired, reconnect" instead of a neutral "not connected" (it survives a restart; a new connect or Disconnect replaces it). */
+async function clear(expired = false) {
+  if (expired) await writeFile(tokenFile(), JSON.stringify({ expiredAt: new Date().toISOString() }), { mode: 0o600 });
+  else await rm(tokenFile(), { force: true });
+  mem.access = undefined; cache.clear();
+}
+
+/** True after Google refused the saved grant and he hasn't reconnected or disconnected since. */
+export const calExpired = async () => expiredMarker(await readFile(tokenFile(), "utf8").catch(() => null));
 
 /** A valid access token; concurrent callers share one refresh. */
 async function accessToken(s: Stored): Promise<string> {
@@ -43,7 +52,7 @@ async function accessToken(s: Stored): Promise<string> {
       mem.access = { token: t.access_token, exp: Date.now() + (t.expires_in ?? 3600) * 1000, rt: s.refresh_token };
       return t.access_token;
     } catch (e) {
-      if (e instanceof OAuthError && e.message === "invalid_grant" && (await readCal())?.refresh_token === s.refresh_token) await clear();
+      if (e instanceof OAuthError && e.message === "invalid_grant" && (await readCal())?.refresh_token === s.refresh_token) await clear(true);
       throw e;
     }
   })().finally(() => { mem.refreshing = undefined; }));

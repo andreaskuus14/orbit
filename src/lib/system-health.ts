@@ -6,6 +6,7 @@ import { orbitDataDir } from "./data-dir";
 import { DEEP_MODEL, FAST_MODEL, LOCAL_MODEL, MODEL, SMART_MODEL } from "./claude";
 import { modelCalls, usageView } from "./usage-meter";
 import { redact } from "./health-pure";
+import { calFailure } from "./gcal-pure";
 import { quietAt } from "./remote-push-pure";
 import { OLLAMA_URL, localStatus } from "./local-model-pure";
 import { ackIncident, budget, failedJobs, mergeServices, modelRows, parseStore, problems, reconcile, sortIncidents, storageRow, type Failure, type Probe } from "./system-health-pure";
@@ -43,11 +44,14 @@ async function free(dir: string): Promise<number | null> {
 
 const within = <T>(p: Promise<T>, ms = 6000) => Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`no answer within ${ms / 1000} s`)), ms).unref?.())]);
 
+const EXPIRED = "expired"; // Google refused the saved grant (gcal-oauth.json holds only the expiry marker)
+const calMsg = (e: unknown) => { const f = calFailure(e); return f.expired ? EXPIRED : redact(f.text); };
+
 async function probes(sb: SupabaseClient, events: { type: string; created_at: string; payload: Record<string, unknown> }[], now: number): Promise<Probe[]> {
   const u = usageView(), calls = modelCalls(), lastClaude = calls.filter((c) => c.ok).at(-1)?.at ?? null, lastCall = calls.at(-1);
   const [db, cal, local, push, stories] = await Promise.all([
     within(Promise.resolve(sb.from("profiles").select("id", { head: true }).limit(1))).then((r) => (r.error ? r.error.message : ""), msg),
-    import("./gcal").then(async (m) => ((await m.readCal()) ? within(m.calendarEvents(1, now), 12_000).then(() => "", msg) : null)).catch(msg),
+    import("./gcal").then(async (m) => ((await m.readCal()) ? within(m.calendarEvents(1, now), 12_000).then(() => "", calMsg) : (await m.calExpired()) ? EXPIRED : null)).catch(calMsg),
     LOCAL_MODEL ? fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(2000) }).then((r) => r.json(), () => null).then((t) => localStatus(LOCAL_MODEL, t)) : null,
     import("./remote-push").then(async (m) => ({ problem: m.pushProblem(), last: m.lastPushOk(), phones: (await (await import("./remote")).listDevices()).filter((d) => d.push).length })).catch(() => null),
     import("./clips/story").then((m) => m.listStories()).catch(() => []),
@@ -74,6 +78,7 @@ async function probes(sb: SupabaseClient, events: { type: string; created_at: st
       : push.problem ? { id: "push", label: "Phone push", state: "off", detail: push.problem }
       : { id: "push", label: "Phone push", state: push.phones ? "ok" : "off", detail: push.phones ? `${push.phones} phone${push.phones > 1 ? "s" : ""} subscribed` : "No phone subscribed (open Remote on the phone and turn notifications on)", okAt: iso(push.last) },
     cal === null ? { id: "calendar", label: "Google Calendar", state: "off", detail: "Not connected" }
+      : cal === EXPIRED ? { id: "calendar", label: "Google Calendar", state: "down", detail: "Google sign-in expired: reconnect it in LIFE → Calendar", okAt: null }
       : { id: "calendar", label: "Google Calendar", state: cal ? "down" : "ok", detail: cal ? `Read failed: ${cal}` : "Read works", okAt: cal ? null : nowIso },
   ];
 }

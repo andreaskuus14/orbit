@@ -89,3 +89,18 @@ export function ttlCache<T>(ttl: number) {
     clear: () => m.clear(),
   };
 }
+
+/** A failed calendar read → whether Google killed the grant (he must reconnect) and one short line to show him. Raw OAuth codes
+ *  ("network", "http_500") never reach the UI as-is. */
+export function calFailure(e: unknown): { expired: boolean; text: string } {
+  const m = e instanceof Error ? e.message : String(e);
+  if (m === "invalid_grant") return { expired: true, text: "Google sign-in expired: reconnect Google Calendar" };
+  if (m === "not_configured") return { expired: false, text: "Google client not set up (GCAL_OAUTH_CLIENT_ID/_SECRET in .env.local)" };
+  if (m === "network" || /^http_\d+$/.test(m) || /timeout|aborted|fetch failed/i.test(m)) return { expired: false, text: "Couldn't reach Google Calendar" };
+  return { expired: false, text: m.slice(0, 160) };
+}
+
+/** gcal-oauth.json left behind after Google refused the grant: { expiredAt } and no refresh token. */
+export function expiredMarker(raw: string | null): boolean {
+  try { const s = JSON.parse(raw ?? ""); return typeof s?.expiredAt === "string" && !s.refresh_token; } catch { return false; }
+}
