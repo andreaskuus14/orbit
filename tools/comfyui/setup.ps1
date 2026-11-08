@@ -1,10 +1,12 @@
 # ORBIT local pictures: one-time setup on Windows (PowerShell). Run from the ORBIT folder:
 #   powershell -ExecutionPolicy Bypass -File tools\comfyui\setup.ps1
 # Installs the official ComfyUI Windows portable build (its own embedded Python + PyTorch CUDA 13.0, so tools\local-ai\.venv and
-# its torch are never touched) into tools\comfyui\ComfyUI_windows_portable, and the SDXL-Lightning 4-step model (6.9 GB,
-# SHA-256 checked). About 9 GB in total. Safe to run again: finished parts are skipped, a cut-off model download resumes.
+# its torch are never touched) into tools\comfyui\ComfyUI_windows_portable, and the selected image model.
+# Downloads are pinned and SHA-256 checked. Finished parts are skipped, a cut-off model download resumes.
 # ORBIT then starts ComfyUI by itself on 127.0.0.1:8188 when it needs a picture (start.ps1 runs it by hand).
 # UNTESTED on Windows/GPU: written in a cloud box. Needs an NVIDIA driver 580 or newer (CUDA 13.0); the RTX 5060 Laptop is fine.
+param([ValidateSet("sdxl-lightning", "nitrofusion2")][string]$Model = "sdxl-lightning")
+
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
 $Root = Join-Path $Here "ComfyUI_windows_portable"
@@ -26,6 +28,18 @@ function Fetch($url, $out) {
     if ($i -lt 4) { Warn "Download stopped (try $i of 4). Continuing in 15 s..."; Start-Sleep 15 }
   }
   throw "Download failed 4 times: $url. Check the internet connection and run setup.ps1 again; it continues where it stopped."
+}
+
+function InstallModel($RelativePath, $Url, $Sha, [long]$Bytes) {
+  $Path = Join-Path $Root "ComfyUI\models\$RelativePath"
+  if ((Test-Path $Path) -and ((Get-Item $Path).Length -eq $Bytes)) { return }
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
+  Write-Host "Downloading $RelativePath"
+  Fetch $Url "$Path.part"
+  Write-Host "Checking the SHA-256 (a minute)..."
+  $actual = (Get-FileHash -Algorithm SHA256 "$Path.part").Hash.ToLowerInvariant()
+  if ($actual -ne $Sha) { Remove-Item -Force "$Path.part"; throw "The download for $RelativePath failed its SHA-256 check. Run setup.ps1 to download it again." }
+  Move-Item -Force "$Path.part" $Path
 }
 
 Step "NVIDIA driver"
@@ -54,17 +68,19 @@ $Py = Join-Path $Root "python_embeded\python.exe"
 & $Py -s -c "import torch; print('torch', torch.__version__, '| CUDA', torch.cuda.is_available(), '|', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no GPU')"
 if ($LASTEXITCODE -ne 0) { Warn "PyTorch check failed: ComfyUI may still start on the CPU. Update the NVIDIA driver if it says CUDA False." }
 
-Step "Model: SDXL-Lightning 4-step (6.9 GB)"
-$Ckpt = Join-Path $Root "ComfyUI\models\checkpoints\$ModelFile"
-$ok = (Test-Path $Ckpt) -and ((Get-Item $Ckpt).Length -eq $ModelBytes)
-if (-not $ok) {
-  Fetch $ModelUrl "$Ckpt.part"
-  Write-Host "Checking the SHA-256 (a minute)..."
-  $sha = (Get-FileHash -Algorithm SHA256 "$Ckpt.part").Hash.ToLower()
-  if ($sha -ne $ModelSha) { Remove-Item -Force "$Ckpt.part"; throw "The model download is damaged (SHA-256 $sha). Run setup.ps1 again to download it fresh." }
-  Move-Item -Force "$Ckpt.part" $Ckpt
+if ($Model -eq "nitrofusion2") {
+  Step "Model: NitroFusion2 W4A8 GPTQ, encoder and VAE (about 12 GB total)"
+  # NitroFusion2's upstream README links this Apache-2.0 conversion for stock ComfyUI.
+  $NitroRepo = "https://huggingface.co/PedroMarinhoDev/NitroFusion2-ComfyUI/resolve/fa0668b0122e78dc81a230f901b6feaca62560f4"
+  $ZImageRepo = "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files"
+  InstallModel "diffusion_models\nitrofusion2_w4a8_gptq.safetensors" "$NitroRepo/diffusion_models/nitrofusion2_w4a8_gptq.safetensors" "373741d551d0dc768a02f0ef49eeeca7bf29b992b889c413e99bdac60716443b" 3488205928
+  InstallModel "text_encoders\qwen_3_4b.safetensors" "$ZImageRepo/text_encoders/qwen_3_4b.safetensors" "6c671498573ac2f7a5501502ccce8d2b08ea2f661c458e708f36b36edfc5a" 8044982048
+  InstallModel "vae\ae.safetensors" "$ZImageRepo/vae/ae.safetensors" "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38" 335304388
+} else {
+  Step "Model: SDXL-Lightning 4-step (6.9 GB)"
+  InstallModel "checkpoints\$ModelFile" $ModelUrl $ModelSha $ModelBytes
+  Copy-Item -Force (Join-Path $Here "workflow-txt2img.json") (Join-Path $Root "ComfyUI\user\orbit-workflow-txt2img.json") -ErrorAction SilentlyContinue
 }
-Copy-Item -Force (Join-Path $Here "workflow-txt2img.json") (Join-Path $Root "ComfyUI\user\orbit-workflow-txt2img.json") -ErrorAction SilentlyContinue
 
 Step "Browser for CORE (browse tool)"
 # ORBIT's browser uses the Chrome or Edge already on this PC (Edge is always there). Nothing to install.
@@ -72,5 +88,6 @@ if (-not ((Test-Path "$env:ProgramFiles\Google\Chrome\Application\chrome.exe") -
   Warn "No Chrome or Edge found: run  npx playwright install chromium  in the ORBIT folder."
 }
 
-Write-Host "`nDone. ORBIT starts ComfyUI by itself when it needs a picture (first picture: about a minute to load the model, then ~5-10 s each)." -ForegroundColor Green
+Write-Host "`nDone. ORBIT starts ComfyUI by itself when it needs a picture." -ForegroundColor Green
+if ($Model -eq "nitrofusion2") { Write-Host "Set ORBIT_COMFY_MODEL=nitrofusion2 in .env.local and restart ORBIT to select NitroFusion2." }
 Write-Host "Check it in OPERATIONS -> Local AI ('Pictures (unlimited)'). To run it by hand: powershell -ExecutionPolicy Bypass -File tools\comfyui\start.ps1"
