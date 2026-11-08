@@ -337,7 +337,17 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     queued.current = null;
     void send(q);
   }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs, busy, live]);
+  // Follow the answer only while the reader is at the bottom: scrolling up to read keeps its place (audit 8 Nov).
+  const atBottom = useRef(true);
+  useEffect(() => {
+    const box = end.current?.parentElement;
+    if (!box) return;
+    const on = () => { atBottom.current = box.scrollHeight - box.scrollTop - box.clientHeight < 80; };
+    box.addEventListener("scroll", on, { passive: true });
+    return () => box.removeEventListener("scroll", on);
+  }, []);
+  useEffect(() => { atBottom.current = true; }, [msgs.length]); // a new message (yours or CORE's) jumps back down
+  useEffect(() => { if (atBottom.current) end.current?.scrollIntoView({ block: "end" }); }, [msgs, busy, live]);
 
   // Memoised so streaming deltas re-render only the live bubble, not the whole history.
   const history = useMemo(() => msgs.map((m, i) => (
