@@ -172,6 +172,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const t0 = Date.now(), ms: Record<string, number> = {};
   const at = <T>(k: string, p: PromiseLike<T>) => Promise.resolve(p).finally(() => { ms[k] = Date.now() - t0; });
   const sendDelta = onDelta && ((d: string) => { ms.first_token ??= Date.now() - t0; onDelta(d); });
+  // ack: the first visible sign of work (a step in the live view), apart from first words and the finished answer (Atlas B01)
+  if (onStep) { const step = onStep; onStep = (...a) => { ms.ack ??= Date.now() - t0; step(...a); }; }
   const logTiming = (tier: string) => { console.info(`[core] ${tier} ${Object.entries({ ...ms, total: Date.now() - t0 }).map(([k, v]) => `${k}=${v}ms`).join(" ")}`); recordCoreTurn(tier, ms, Date.now() - t0, trace); };
 
   // Project chats carry their own instructions, so only plain chats take a reflex.
