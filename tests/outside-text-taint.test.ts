@@ -124,3 +124,13 @@ test("outside text from an earlier turn of the chat: the grant needs his own ask
   assert.equal(decide("create_goal", { title: "train" }, later("set a goal to train 3x a week")).allow, true);
   assert.equal(operatorAllows("automation_create", ctx({ steps: [], question: "ok thanks" })), true); // a clean chat keeps the grant
 });
+
+test("reading back a file this task wrote doesn't block its own fix; other files in that workspace still do", () => {
+  const wrote = 'You called ws_write {"workspace":"investing-site","files":[{"path":"css/style.css","content":"body{}…\nRESULT:\nWorkspace investing-site:\n- plan.md created (1 KB)\n- css/style.css created (6 KB)\nPreview link: /w/x/index.html; Check: ✗ phone';
+  const read = (path: string) => `You called ws_read {"workspace":"investing-site","path":"${path}"}\nRESULT:\nbody{}`;
+  const q = "make me a website about investing";
+  assert.equal(wsTainted([wrote, read("css/style.css")], q), false);
+  assert.equal(wsTainted([wrote, read("./plan.md")], q), false);
+  assert.equal(wsTainted([wrote, read("js/old.js")], q), true); // written before this task: may hold outside text
+  assert.equal(wsTainted([read("css/style.css")], q), true); // nothing written yet
+});

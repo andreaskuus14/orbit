@@ -23,8 +23,8 @@ export const wsTainted = (steps: string[], question = "") => {
   // Only tools that bring outside or untrusted text into context taint (pages, files, agents, feeds); ORBIT's own records,
   // statuses, drafts and saved lessons don't. The owner's explicit build allows the site pipeline's own public research.
   const inbound = explicitBuild(question) ? INBOUND_BUILD : INBOUND;
-  const fresh = freshWorkspaces(steps);
-  return steps.some((s) => { const t = /^You called (\S+)/.exec(s)?.[1]; return !t || (inbound.test(t) && !readsFresh(s, fresh)); });
+  const fresh = freshWorkspaces(steps), own = ownFiles(steps);
+  return steps.some((s) => { const t = /^You called (\S+)/.exec(s)?.[1]; return !t || (inbound.test(t) && !readsFresh(s, fresh, own)); });
 };
 // Every tool in policy-pure UNTRUSTED belongs here too (tests/outside-text-taint.test.ts checks it). plugin__<server>__<tool>: a plugin's result is outside text.
 const OUTSIDE = "read_more|reach_trending|reach_read|vault_search|vault_read|ws_read|rea_read|rea_status|life_journal|ask_agent|calendar_events|git_summary|browse|watch_changes|business_status|ideas_list|wishlist|plan_day|mission_status|run_niche|local_transcribe|read_news|mcp_.*|plugin__.*";
@@ -32,10 +32,18 @@ const INBOUND = new RegExp(`^(?:web_search|fetch_url|ws_fetch_image|ws_inspire_i
 const INBOUND_BUILD = new RegExp(`^(?:${OUTSIDE})$`); // his explicit build: the site pipeline's own public research (search, fetch, images) doesn't taint
 /** Workspaces this task's own ws_create made (empty or ORBIT's template; a taken name becomes a new version), so reading them adds no outside text. */
 const freshWorkspaces = (steps: string[]) => new Set(steps.flatMap((s) => /^You called ws_create [^\n]*\nRESULT:\n(?:Error: template[^\n]*\n)?Done: (?:full-stack )?workspace "([a-z0-9-]+)"/.exec(s)?.[1] ?? []));
-function readsFresh(step: string, fresh: Set<string>): boolean {
-  const m = /^You called ws_(?:read|list) (\{[^\n]*\})\n/.exec(step);
+/** "<slug>/<path>" of files this task's own ws_write saved: reading one back is CORE's own text, not outside text. */
+const ownFiles = (steps: string[]) => new Set(steps.flatMap((s) => {
+  const m = /^You called ws_write [^\n]*\nRESULT:\n(?:Error:[^\n]*\n)?Workspace ([a-z0-9-]+):\n((?:- [^\n]*\n?)*)/.exec(s);
+  return m ? [...m[2].matchAll(/^- (\S+) (?:created|updated) /gm)].map((f) => `${m[1]}/${f[1]}`) : [];
+}));
+function readsFresh(step: string, fresh: Set<string>, own: Set<string>): boolean {
+  const m = /^You called ws_(read|list) (\{[^\n]*\})\n/.exec(step);
   if (!m) return false;
-  try { const slug = wsSlug((JSON.parse(m[1]) as { workspace?: unknown }).workspace); return !!slug && fresh.has(slug); } catch { return false; }
+  try {
+    const i = JSON.parse(m[2]) as { workspace?: unknown; path?: unknown }, slug = wsSlug(i.workspace);
+    return !!slug && (fresh.has(slug) || (m[1] === "read" && typeof i.path === "string" && own.has(`${slug}/${i.path.trim().replace(/^\.?\//, "")}`)));
+  } catch { return false; }
 }
 /** Next free "<name>-vN" for a taken workspace name. */
 export function nextVersion(slug: string, taken: string[]): string {
