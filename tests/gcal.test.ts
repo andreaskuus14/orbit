@@ -68,3 +68,28 @@ test("ttl cache: reuses within ttl, refetches after, never caches failures", asy
   c.clear();
   assert.equal(await c.get("k", fn, 1001), 4);
 });
+
+test("calFailure: dead grant → expired; raw OAuth codes → readable text", async () => {
+  const { calFailure } = await import("../src/lib/gcal-pure.ts");
+  assert.deepEqual(calFailure(new Error("invalid_grant")), { expired: true, text: "Google sign-in expired: reconnect Google Calendar" });
+  for (const m of ["network", "http_503", "The operation was aborted due to timeout", "fetch failed"]) assert.deepEqual(calFailure(new Error(m)), { expired: false, text: "Couldn't reach Google Calendar" }, m);
+  assert.equal(calFailure(new Error("Google Calendar error 500")).text, "Google Calendar error 500");
+  assert.match(calFailure(new Error("not_configured")).text, /GCAL_OAUTH_CLIENT_ID/);
+});
+
+test("expiredMarker: only { expiredAt } without a token counts", async () => {
+  const { expiredMarker } = await import("../src/lib/gcal-pure.ts");
+  assert.equal(expiredMarker(JSON.stringify({ expiredAt: "2026-11-07T00:00:00Z" })), true);
+  assert.equal(expiredMarker(JSON.stringify({ refresh_token: "r", scope: "", connectedAt: "x" })), false);
+  assert.equal(expiredMarker(JSON.stringify({ expiredAt: "x", refresh_token: "r" })), false);
+  assert.equal(expiredMarker(null), false);
+  assert.equal(expiredMarker("{broken"), false);
+});
+
+test("spoken brief says when the calendar failed or expired instead of skipping it", async () => {
+  const { buildMorning } = await import("../src/lib/morning-pure.ts");
+  const now = Date.parse("2026-11-07T06:30:00Z");
+  assert.match(buildMorning({ calendar: { connected: true, today: [], error: "Couldn't reach Google Calendar" } }, now, "Europe/Tallinn").spoken, /couldn't read your calendar/);
+  assert.match(buildMorning({ calendar: { connected: false, today: [], expired: true } }, now, "Europe/Tallinn").spoken, /sign-in expired/);
+  assert.doesNotMatch(buildMorning({ calendar: { connected: true, today: [] } }, now, "Europe/Tallinn").spoken, /calendar/i);
+});

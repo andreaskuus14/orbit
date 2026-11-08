@@ -94,7 +94,9 @@ export default function MorningCardBody({ data, err, recap, notes, speakMorning,
               {s?.scout && <p className="muted text-xs">🛰 {s.scout}</p>}
               {a && a.failed > 0 && <p className="warn text-xs">{tn("morning.failed", a.failed)}</p>}
               {l?.next && <p className="muted text-xs">⏰ {l.next.at} · {l.next.text}</p>}
-              {cal && (cal.connected
+              {cal && (cal.error ? <p className="warn text-xs" role="alert">📅 {t("morning.calFailed")}: {cal.error}</p>
+                : cal.expired ? <a className="warn text-xs underline" href="/api/life/calendar/oauth">📅 {t("morning.calExpired")}</a>
+                : cal.connected
                 ? cal.today.length > 0 && <ul className="muted grid gap-1 text-xs">{cal.today.slice(0, 4).map((e, k) => <li key={k}>📅 <span className="num">{e.time}</span> · {e.title}</li>)}</ul>
                 : <a className="muted text-xs underline" href="/api/life/calendar/oauth">{t("morning.connectCal")}</a>)}
             </div>
