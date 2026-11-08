@@ -13,8 +13,8 @@ env:
   WS_SHA: 4838f042551b4a6fbf8dfa4d9bdf0d528b9d1232
   PR428_SHA: 04ef68ad74502686f169cf04a6e5123f70cd2888
   OLD_SHA: 02b6c8f76542925fce6f55a4fd17cb1f0366810a
-  PR426_SHA: f419f8fa4ffeb8ca71f2bd1aabd48f20df2ae982
-  PR426_TREE: 1589a5c26d72d11008362f3b4d5fc2671e5d6985
+  PR426_SHA: ccd0662950c268bdbdcdddb62142cb9dbbe13ccc
+  PR426_TREE: e170d84bfd02e48b981cc1a8983613cbaf0a21ca
 jobs:
   main-02b6c8f:
     if: false # fix 4838f04 smoke passed in run 42390426913
@@ -64,7 +64,6 @@ jobs:
             *.tap
 
   pr426-on-main:
-    if: false # done in run 42389859760
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -74,7 +73,7 @@ jobs:
         with: { ref: "${{ env.PR426_SHA }}", path: orbit, persist-credentials: false }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - name: "Checkout is #426 head f419f8f (based on main 02b6c8f)"
+      - name: "Checkout is main ccd0662 (release 2), tree e170d84b"
         shell: pwsh
         run: |
           $h = git -C orbit rev-parse HEAD; $t = git -C orbit rev-parse 'HEAD^{tree}'; "tested commit: $h tree: $t"
@@ -131,6 +130,7 @@ jobs:
           if ($e -eq 0) { throw "control passed on the old code: the regression test doesn't catch the bug" } else { "control failed as expected (exit $e)" }
 
   pr428-runner-full:
+    if: false # done in run 42426762131
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
