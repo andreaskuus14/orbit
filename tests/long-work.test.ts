@@ -68,3 +68,11 @@ test("handoffTask: a chat whose last message is the handoff waits on that task; 
   assert.equal(handoffTask([{ role: "assistant", content: `See [this](#o=operations&k=task&id=${id}) for details.` }]), null); // a link mid-text isn't one either
   assert.equal(handoffTask([]), null);
 });
+
+test("dropNote: a lost connection says how long it ran and how long the tab was hidden; other errors stay as they are", async () => {
+  const { dropNote } = await import("../src/lib/long-work-pure.ts");
+  assert.equal(dropNote("network error", 287_400, 140_000, false), "network error (after 287 s; tab hidden 140 s)");
+  assert.equal(dropNote("Connection to CORE was lost", 61_000, 0, true), "Connection to CORE was lost (after 61 s; tab hidden 0 s, hidden now)");
+  assert.equal(dropNote("TypeError: Failed to fetch", 5_000, 0, false), "TypeError: Failed to fetch (after 5 s; tab hidden 0 s)");
+  assert.equal(dropNote("Budget exceeded", 5_000, 0, false), "Budget exceeded");
+});

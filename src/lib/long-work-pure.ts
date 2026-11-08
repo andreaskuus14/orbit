@@ -65,6 +65,14 @@ export function handoffTask(msgs: readonly { role: string; content: string }[]):
   return last?.role === "assistant" ? /\]\(#o=operations&k=task&id=([0-9a-f-]{36})\)$/.exec(last.content.trim())?.[1] ?? null : null;
 }
 
+/** A lost connection gets its timing appended (how long the turn ran, how long the tab was hidden), so the next drop on a real
+ *  PC says whether the browser suspended the tab. Other errors are returned unchanged. */
+export function dropNote(message: string, elapsedMs: number, hiddenMs: number, hiddenNow: boolean): string {
+  if (!/network|failed to fetch|connection to core was lost|load failed|err_/i.test(message)) return message;
+  const s = (ms: number) => `${Math.round(ms / 1000)} s`;
+  return `${message} (after ${s(elapsedMs)}; tab hidden ${s(hiddenMs)}${hiddenNow ? ", hidden now" : ""})`;
+}
+
 /** Never show the raw CLI timeout as the owner's final answer. */
 export const BG_FAILED = "The background run didn't finish. Ask again, or split the request into smaller parts.";
 

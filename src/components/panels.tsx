@@ -8,7 +8,7 @@ import { numberCitations } from "@/lib/pure";
 import { OPEN_SOURCE_EVENT } from "@/lib/week-pure";
 import { takeLines } from "@/lib/streamjson";
 import { followUps } from "@/lib/core-ui";
-import { handoffTask } from "@/lib/long-work-pure";
+import { dropNote, handoffTask } from "@/lib/long-work-pure";
 import { applyLive, type LiveEvent, type LiveRow } from "@/lib/core-live-pure";
 import { CoreActivity } from "./CoreActivity";
 import { CoreWorkspace } from "./CoreWorkspace";
@@ -246,6 +246,11 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     since.current = Date.now();
     let steps: LiveRow[] = []; // mirrors `rows` so "done" can keep them under the answer
     let handedOff = false, bgId = "";
+    // Diagnostics for a dropped stream (seen only on the Windows PC, ~5 min in): how long it ran and how long the tab was hidden
+    const doc = typeof document === "undefined" ? null : document; // tests drive send() without a DOM
+    let hiddenMs = 0, hiddenAt = doc?.hidden ? Date.now() : 0;
+    const onVis = () => { if (doc?.hidden) hiddenAt = Date.now(); else if (hiddenAt) { hiddenMs += Date.now() - hiddenAt; hiddenAt = 0; } };
+    doc?.addEventListener("visibilitychange", onVis);
     const ac = new AbortController();
     abort.current = ac;
     let partial = "";
@@ -322,8 +327,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           : { role: "assistant", content: t.error || `The task ended as ${t.status}.`, error: true }]);
       } else if (!(stopped && handedOff) && here()) setMsgs((m) => [...m, stopped // after a handoff, Stop only stops watching: the work goes on in OPERATIONS
         ? { role: "assistant", content: `${partial}${partial ? "\n\n" : ""}_Stopped._`, live: { rows: steps, ms: Date.now() - since.current } }
-        : { role: "assistant", content: e instanceof Error ? e.message : "CORE failed", error: true }]);
+        : { role: "assistant", content: dropNote(e instanceof Error ? e.message : "CORE failed", Date.now() - since.current, hiddenMs + (hiddenAt ? Date.now() - hiddenAt : 0), !!doc?.hidden), error: true }]);
     } finally {
+      doc?.removeEventListener("visibilitychange", onVis);
       flush();
       if (cid) setRunning((r) => r.filter((x) => x !== cid));
       if (here()) { setLive(null); setRows([]); setBgTask(null); setBusy(false); }
