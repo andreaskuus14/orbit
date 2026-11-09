@@ -97,7 +97,7 @@ export function blenderScript(scene: Scene, o: Opts): string {
     L.push(`obj[${JSON.stringify(p.id)}] = box(${JSON.stringify(p.name)}, ${v(b.c)}, ${v(b.s)}, mat('${key}', ${v(m.rgb)}, ${m.rough}), ${f(p.kind === "prop" ? Math.max(q.bevel, 0.02) : q.bevel)})`);
   }
   // trees: the plot's count, placed on a deterministic ring outside the building (cone crown on a trunk)
-  for (let i = 0, k = 0; k < Math.min(scene.plot.trees, 40) && i < 200; i++) {
+  for (let i = 0, k = 0; !o.assets && k < Math.min(scene.plot.trees, 40) && i < 200; i++) { // with the library, real firs replace these cones
     const a = i * 2.39996, rr = Math.max(scene.plot.w, scene.plot.d) * (0.45 + ((i * 37) % 17) / 50), h = 5 + ((i * 53) % 7) * 0.6;
     if (Math.cos(a) > -0.2 && Math.sin(a) > -0.2) continue; // keep the south-east open: that's where the camera approaches from
     k++;

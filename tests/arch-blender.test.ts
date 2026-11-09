@@ -87,3 +87,11 @@ test("facade: every opening gets an aluminium frame on the wall's outer face; a 
   assert.ok(L.some((l) => l.includes("'deck'")));
   assert.ok(L.filter((l) => l.includes("'frame'")).every((l) => l.includes("-4.5")), "frames sit on the outer face (scene z 4.5 → Blender y -4.5)");
 });
+
+test("with the library the simple cone trees are left out (real firs only)", async () => {
+  const { blenderScript } = await import("../src/lib/arch-blender-pure.ts");
+  const sc = { ...starterScene(), plot: { ...starterScene().plot, trees: 4 } }, o = { site, date: new Date("2026-09-10T16:00:00Z"), quality: "preview" as const };
+  assert.match(blenderScript(sc, o), /primitive_cone_add/);
+  const lib = blenderScript(sc, { ...o, assets: "/lib" });
+  assert.doesNotMatch(lib, /primitive_cone_add/); assert.match(lib, /fir_sapling_medium/);
+});
