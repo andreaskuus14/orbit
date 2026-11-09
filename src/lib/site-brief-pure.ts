@@ -1,7 +1,7 @@
 // W02 site brief (pure): one typed, editor-friendly brief (site.json in the workspace) → a versioned one-page site. Copy, brand,
 // assets and section settings stay separate from rendering; sections keep stable IDs; copy edits never touch assets; the hero
 // crop follows a focal point and keeps a text-safe area. Disk side: site-brief.ts. Tests: tests/site-brief.test.ts.
-import { IMMERSIVE_CSS, IMMERSIVE_JS, SEQUENCE_CSS, SEQUENCE_JS, accentHeading, sequenceSection } from "./site-immersive-pure.ts";
+import { DIRECTIONS, IMMERSIVE_CSS, IMMERSIVE_JS, SEQUENCE_CSS, SEQUENCE_JS, accentHeading, directionOf, sequenceSection } from "./site-immersive-pure.ts";
 
 export type Focal = { x: number; y: number };
 /** An image the site uses. focal = the subject (0-1 of width/height); safe = the side of the image with no subject, where text may sit. */
@@ -11,9 +11,9 @@ export type Link = { label: string; href: string };
 export type Kind = "hero" | "features" | "story" | "specs" | "faq" | "form" | "sequence";
 /** A scroll-scrubbed frame sequence (e.g. an ARCH Blender fly-through): files path with %03d, 1-based. */
 export type Seq = { path: string; count: number; width: number; height: number; alt: string };
-export type Section = { id: string; kind: Kind; heading: string; body: string[]; items: Item[]; image?: string; cta: Link[]; seq?: Seq };
+export type Section = { id: string; kind: Kind; heading: string; body: string[]; items: Item[]; image?: string; cta: Link[]; seq?: Seq; ask?: { label: string; options: string[] } }; // ask: one optional multiple-choice question on a form
 export type Brief = {
-  version: number; style?: "classic" | "immersive"; name: string; offer: string; audience: string; lang: string; description: string; tagline: string;
+  version: number; style?: "classic" | "immersive" | "cinematic" | "warm" | "editorial"; name: string; offer: string; audience: string; lang: string; description: string; tagline: string;
   assets: Asset[]; sections: Section[]; history: { version: number; changed: string[]; undo?: { section: string; image?: string } }[];
 };
 export type Parsed = { brief: Brief; missing: string[] } | { errors: string[] };
@@ -79,7 +79,12 @@ export function parseBrief(input: unknown): Parsed {
       if (!alt) errors.push(`sections[${n}] (${id}): seq.alt is required (what the sequence shows)`);
       seq = { path, count, width: w, height: h, alt };
     }
-    sections.push({ id, kind, ...(seq ? { seq } : {}), heading, body: arr(r.body).map((p) => s(p, 1200)).filter(Boolean).slice(0, 6), items, ...(image ? { image } : {}), cta });
+    let ask: { label: string; options: string[] } | undefined;
+    if (kind === "form" && r.ask !== undefined) {
+      const q = obj(r.ask), label = s(q.label, 80), options = arr(q.options).map((o) => s(o, 60)).filter(Boolean).slice(0, 8);
+      if (!label || options.length < 2) errors.push(`sections[${n}] (${id}): ask needs a label and 2-8 options`); else ask = { label, options };
+    }
+    sections.push({ id, kind, ...(seq ? { seq } : {}), ...(ask ? { ask } : {}), heading, body: arr(r.body).map((p) => s(p, 1200)).filter(Boolean).slice(0, 6), items, ...(image ? { image } : {}), cta });
   }
   const ids = new Set(sections.map((x) => x.id));
   for (const x of sections) for (const c of x.cta) {
@@ -90,7 +95,7 @@ export function parseBrief(input: unknown): Parsed {
   if (sections.filter((x) => x.kind === "form").length > 1) errors.push("one form per page");
   if (errors.length) return { errors };
   const description = s(i.description, 160) || offer.slice(0, 160);
-  return { brief: { version: Math.max(1, Math.floor(Number(i.version) || 1)), ...(i.style === "immersive" ? { style: "immersive" as const } : {}), name, offer, audience, lang: /^[a-z]{2}(?:-[A-Z]{2})?$/.test(s(i.lang, 5)) ? s(i.lang, 5) : "en", description, tagline: s(i.tagline, 80), assets, sections, history: arr(i.history) as Brief["history"] }, missing };
+  return { brief: { version: Math.max(1, Math.floor(Number(i.version) || 1)), ...(directionOf(s(i.style, 20)) ? { style: s(i.style, 20) as Brief["style"] } : {}), name, offer, audience, lang: /^[a-z]{2}(?:-[A-Z]{2})?$/.test(s(i.lang, 5)) ? s(i.lang, 5) : "en", description, tagline: s(i.tagline, 80), assets, sections, history: arr(i.history) as Brief["history"] }, missing };
 }
 
 // ---- Copy edits: text only. A field path is "heading", "body.N", "items.N.title|body|label" or "cta.N.label" on a section, or
@@ -183,8 +188,8 @@ function section(x: Section, b: Brief): string {
     case "hero": {
       const pos = a && heroPositions(a);
       const style = pos ? `--pos-sm:${pct(pos.sm.x)} ${pct(pos.sm.y)};--pos-md:${pct(pos.md.x)} ${pct(pos.md.y)};--pos-lg:${pct(pos.lg.x)} ${pct(pos.lg.y)}` : "";
-      const imm = b.style === "immersive", h1 = imm ? accentHeading(esc(x.heading)) : esc(x.heading);
-      return `<section ${attrs.replace(`class="sec sec-hero"`, `class="hero${a ? ` safe-${a.safe}` : " no-image"}"`)}>${imm ? `<canvas class="aurora" aria-hidden="true"></canvas>` : ""}${a ? `<div class="hero-media">${img(a, "hero-img", true, style)}</div>` : ""}`
+      const dir = directionOf(b.style), d = dir && DIRECTIONS[dir], h1 = dir ? accentHeading(esc(x.heading)) : esc(x.heading);
+      return `<section ${attrs.replace(`class="sec sec-hero"`, `class="hero${a ? ` safe-${a.safe}` : " no-image"}"`)}>${d && d.shader ? `<canvas class="aurora" aria-hidden="true" data-a="${d.shader[0]}" data-b="${d.shader[1]}" data-g="${d.shader[2]}"></canvas>` : ""}${a ? `<div class="hero-media">${img(a, "hero-img", true, style)}</div>` : ""}`
         + `<div class="hero-copy">${b.tagline ? `<p class="eyebrow">${esc(b.tagline)}</p>` : ""}<h1 id="${x.id}-title">${h1}</h1>${paras(x.body)}${buttons(x.cta)}</div></section>`;
     }
     case "features":
@@ -197,19 +202,19 @@ function section(x: Section, b: Brief): string {
     case "faq":
       return `<section ${attrs}><div class="wrap narrow">${head}${paras(x.body)}${x.items.map((it) => `<details><summary>${esc(it.title)}</summary><p>${esc(it.body)}</p></details>`).join("")}</div></section>`;
     case "form":
-      return `<section ${attrs}><div class="wrap split form-split"><div class="form-copy">${head}${paras(x.body)}</div>${leadForm(x)}</div></section>`;
+      return `<section ${attrs}><div class="wrap split form-split"><div class="form-copy">${head}${paras(x.body)}</div>${leadForm(x, b.name)}</div></section>`;
   }
 }
 
-function leadForm(x: Section): string {
+function leadForm(x: Section, name: string): string {
   const label = x.cta[0]?.label || "Send";
   const field = (id: string, lab: string, input: string, hint = "") => `<div class="field"><label for="${id}">${lab}</label>${hint ? `<p class="hint" id="${id}-hint">${hint}</p>` : ""}${input}<p class="err" id="${id}-err" hidden></p></div>`;
   return `<form class="lead" id="lead-form" novalidate data-endpoint="" aria-describedby="lead-status">`
     + `<div class="err-summary" id="lead-errors" role="alert" hidden></div>`
     + field("lead-name", "Your name", `<input id="lead-name" name="name" autocomplete="name" required maxlength="80" aria-describedby="lead-name-err">`)
-    + field("lead-email", "Email", `<input id="lead-email" name="email" type="email" autocomplete="email" required aria-describedby="lead-email-hint lead-email-err">`, "We write twice: when the first run opens and when it ships.")
-    + field("lead-use", "Where will it hang? <span class=\"opt\">(optional)</span>", `<select id="lead-use" name="use"><option value="">Choose one</option><option>On a boat</option><option>Cabin or summer house</option><option>Emergency kit</option><option>Somewhere else</option></select>`)
-    + `<div class="field check"><input type="checkbox" id="lead-consent" name="consent" required aria-describedby="lead-consent-err"><label for="lead-consent">Email me about the first run. Unsubscribe with one click.</label><p class="err" id="lead-consent-err" hidden></p></div>`
+    + field("lead-email", "Email", `<input id="lead-email" name="email" type="email" autocomplete="email" required aria-describedby="lead-email-hint lead-email-err">`, "We only write about this, and never share your address.")
+    + (x.ask ? field("lead-use", `${esc(x.ask.label)} <span class="opt">(optional)</span>`, `<select id="lead-use" name="use"><option value="">Choose one</option>${x.ask.options.map((o) => `<option>${esc(o)}</option>`).join("")}</select>`) : "")
+    + `<div class="field check"><input type="checkbox" id="lead-consent" name="consent" required aria-describedby="lead-consent-err"><label for="lead-consent">Email me about ${esc(name)}. Unsubscribe with one click.</label><p class="err" id="lead-consent-err" hidden></p></div>`
     + `<div class="trap" aria-hidden="true"><label for="lead-company">Company</label><input id="lead-company" name="company" tabindex="-1" autocomplete="off"></div>`
     + `<button type="submit" class="btn">${esc(label)}</button><p class="status" id="lead-status" role="status" aria-live="polite"></p></form>`;
 }
@@ -282,8 +287,8 @@ export function renderHtml(b: Brief): string {
 ${heroImg ? `<meta property="og:image" content="${esc(heroImg.path)}">\n` : ""}<meta name="theme-color" content="#0b212c">
 <link rel="icon" href="${FAVICON}">
 <link rel="stylesheet" href="css/style.css">
-${b.style === "immersive" ? `<link rel="stylesheet" href="css/immersive.css">\n` : ""}</head>
-<body data-version="${b.version}"${b.style === "immersive" ? ` class="immersive"` : ""}>
+${directionOf(b.style) ? `<link rel="stylesheet" href="css/immersive.css">\n` : ""}</head>
+<body data-version="${b.version}"${directionOf(b.style) ? ` class="immersive dir-${directionOf(b.style)}"` : ""}>
 <a class="skip" href="#main">Skip to content</a>
 <header class="top"><div class="wrap bar"><a class="brand" href="#main">${MARK}<span>${esc(b.name)}</span></a>
 <nav aria-label="Sections"><ul>${nav.map((x) => `<li><a href="#${x.id}">${esc(navLabel(x))}</a></li>`).join("")}</ul>${form ? `<a class="btn btn-small" href="#${form.id}">${esc(form.cta[0]?.label || "Contact")}</a>` : ""}</nav></div></header>
@@ -291,7 +296,7 @@ ${b.style === "immersive" ? `<link rel="stylesheet" href="css/immersive.css">\n`
 ${b.sections.map((x) => section(x, b)).join("\n")}
 </main>
 <footer class="foot"><div class="wrap"><p class="brand">${MARK}<span>${esc(b.name)}</span></p><p>${esc(b.offer)}</p><p class="small">Version ${b.version}. <a href="#main">Back to top</a></p></div></footer>
-<script src="js/form.js" defer></script>${b.style === "immersive" ? `\n<script src="js/immersive.js" defer></script>` : ""}
+<script src="js/form.js" defer></script>${directionOf(b.style) ? `\n<script src="js/immersive.js" defer></script>` : ""}
 </body>
 </html>
 `;
@@ -301,7 +306,7 @@ const navLabel = (x: Section) => ({ features: "Features", story: "Story", specs:
 /** Every file the brief renders (text only: the images are the owner's, already in the workspace, and are never written here). */
 export function renderSite(b: Brief): Record<string, string> {
   return { "index.html": renderHtml(b), "css/style.css": SITE_CSS, "js/form.js": FORM_JS,
-    ...(b.style === "immersive" ? { "css/immersive.css": IMMERSIVE_CSS + SEQUENCE_CSS, "js/immersive.js": IMMERSIVE_JS + SEQUENCE_JS } : {}), "site.json": `${JSON.stringify(b, null, 2)}\n`, "EXPORT.md": exportMd(b) };
+    ...(directionOf(b.style) ? { "css/immersive.css": IMMERSIVE_CSS + SEQUENCE_CSS, "js/immersive.js": IMMERSIVE_JS + SEQUENCE_JS } : {}), "site.json": `${JSON.stringify(b, null, 2)}\n`, "EXPORT.md": exportMd(b) };
 }
 
 /** Image refs (src + alt) in rendered HTML, for the "copy edit doesn't touch assets" check. */

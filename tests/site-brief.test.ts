@@ -129,8 +129,8 @@ test("immersive style: same content and form, plus aurora canvas, its CSS/JS, an
   const fc = renderSite(c.brief), fi = renderSite(i.brief);
   assert.ok(!("css/immersive.css" in fc) && !fc["index.html"].includes("aurora"), "classic untouched");
   assert.ok(fi["css/immersive.css"] && fi["js/immersive.js"]);
-  assert.match(fi["index.html"], /<body[^>]*class="immersive"/);
-  assert.match(fi["index.html"], /<canvas class="aurora" aria-hidden="true"><\/canvas>/);
+  assert.match(fi["index.html"], /<body[^>]*class="immersive dir-cinematic"/);
+  assert.match(fi["index.html"], /<canvas class="aurora" aria-hidden="true" data-a=/);
   assert.match(fi["js/immersive.js"], /prefers-reduced-motion/);
   assert.deepEqual(assetRefs(fi["index.html"]), assetRefs(fc["index.html"]), "same images, alt text and crops");
   assert.equal(accentHeading("A light that keeps its watch."), "A light that keeps its <em>watch</em>.");
@@ -148,4 +148,20 @@ test("sequence section: frames validated, canvas + three still key frames + chap
   assert.deepEqual(keyFrames(48), [1, 24, 48]);
   const bad = fx("brief-house.json"); bad.sections[1].seq.path = "../f%03d.jpg"; bad.sections[1].seq.count = 1;
   const e = parseBrief(bad); assert.ok("errors" in e && e.errors.some((x) => x.includes("frame pattern")) && e.errors.some((x) => x.includes("2-240")));
+});
+
+test("design directions: each is its own look over the same content; editorial has no canvas; unknown style falls back to classic", async () => {
+  const { DIRECTIONS } = await import("../src/lib/site-immersive-pure.ts");
+  const raw = fx("brief-house.json"), pages: Record<string, string> = {};
+  for (const style of Object.keys(DIRECTIONS)) {
+    const p = parseBrief({ ...raw, style }); assert.ok("brief" in p);
+    const html = renderSite(p.brief)["index.html"]; pages[style] = html;
+    assert.match(html, new RegExp(`class="immersive dir-${style}"`));
+    assert.equal(html.includes('class="aurora"'), DIRECTIONS[style as keyof typeof DIRECTIONS].effect !== "none", style);
+  }
+  const strip = (h: string) => h.replace(/ class="immersive dir-\w+"/, "").replace(/<canvas class="aurora"[^>]*><\/canvas>/, "");
+  assert.equal(strip(pages.warm), strip(pages.cinematic), "same content and structure; only the look changes");
+  const css = renderSite((parseBrief({ ...raw, style: "warm" }) as { brief: Brief }).brief)["css/immersive.css"];
+  for (const k of Object.keys(DIRECTIONS)) assert.match(css, new RegExp(`body\\.immersive\\.dir-${k} \\{ --bg:`));
+  const odd = parseBrief({ ...raw, style: "neon-unicorn" }); assert.ok("brief" in odd && !odd.brief.style);
 });

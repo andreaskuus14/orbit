@@ -6,33 +6,180 @@
   "description": "Holm No. 1: a rechargeable storm lantern with 72 hours of warm light, IP67 sealing and a USB-C port. Join the first production run.",
   "lang": "en",
   "assets": [
-    { "id": "hero", "path": "assets/hero.jpg", "alt": "A red-banded lighthouse on a dark rock skerry at dusk, its lamp lit and a beam reaching across the sea", "width": 1600, "height": 1600, "focal": { "x": 0.66, "y": 0.48 }, "safe": "left", "origin": "synthetic fixture (tests/fixtures/site-w02/hero.svg)" },
-    { "id": "lantern", "path": "assets/lantern.jpg", "alt": "The Holm No. 1 lantern lit on a wooden table: brass cap and handle, a glass cylinder glowing warm, a dark green base", "width": 1200, "height": 1500, "focal": { "x": 0.5, "y": 0.5 }, "origin": "synthetic fixture (tests/fixtures/site-w02/lantern.svg)" }
+    {
+      "id": "hero",
+      "path": "assets/hero.jpg",
+      "alt": "A red-banded lighthouse on a dark rock skerry at dusk, its lamp lit and a beam reaching across the sea",
+      "width": 1600,
+      "height": 1600,
+      "focal": {
+        "x": 0.66,
+        "y": 0.48
+      },
+      "safe": "left",
+      "origin": "synthetic fixture (tests/fixtures/site-w02/hero.svg)"
+    },
+    {
+      "id": "lantern",
+      "path": "assets/lantern.jpg",
+      "alt": "The Holm No. 1 lantern lit on a wooden table: brass cap and handle, a glass cylinder glowing warm, a dark green base",
+      "width": 1200,
+      "height": 1500,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "origin": "synthetic fixture (tests/fixtures/site-w02/lantern.svg)"
+    }
   ],
   "sections": [
-    { "id": "hero", "kind": "hero", "heading": "A light that keeps its watch.", "body": ["Holm No. 1 is a storm lantern built the way lighthouses are: sealed, simple and steady for days. Charge it once and it is ready for the next blackout, night crossing or long dark evening at the cabin."], "image": "hero", "cta": [{ "label": "Join the first run", "href": "#waitlist" }, { "label": "See the light list", "href": "#specs" }] },
-    { "id": "built", "kind": "features", "heading": "Built like a lighthouse", "body": ["Three numbers we designed around, tested on the water before anything else."], "items": [
-      { "label": "72 h", "title": "Light for three nights", "body": "On its low setting the 10,000 mAh cell gives 72 hours of usable light; on high it reads a chart or a book for 14 hours." },
-      { "label": "IP67", "title": "Sealed against the sea", "body": "Dust-tight and safe at one metre of water for 30 minutes. The port has a captive cap you can't drop overboard." },
-      { "label": "2700 K", "title": "Warm, not blue", "body": "A warm white that keeps your night vision and makes a cabin feel like evening, not a car park." }
-    ] },
-    { "id": "story", "kind": "story", "heading": "Drawn on a skerry, made in small runs", "body": ["Holm started on an island with one lighthouse and no mains power. We wanted a lantern that would hang from the same hook for twenty years, so every part can be unscrewed, replaced or recycled.", "The glass is borosilicate, the cap and handle are solid brass, and the cell is a standard 21700 you can buy anywhere. The first run is 400 lanterns, numbered by hand."], "image": "lantern", "cta": [{ "label": "Reserve a numbered lantern", "href": "#waitlist" }] },
-    { "id": "specs", "kind": "specs", "heading": "The light list", "body": ["Every lighthouse has an entry in the light list. This is ours."], "items": [
-      { "title": "Characteristic", "body": "Fixed W, or Fl W 10s beacon mode" },
-      { "title": "Brightness", "body": "20 to 400 lumens, stepless" },
-      { "title": "Runtime", "body": "72 h low · 14 h high" },
-      { "title": "Cell", "body": "10,000 mAh, replaceable 21700 ×2" },
-      { "title": "Charging", "body": "USB-C, 3.5 h to full" },
-      { "title": "Sealing", "body": "IP67, 1 m for 30 min" },
-      { "title": "Height", "body": "24 cm with handle" },
-      { "title": "Weight", "body": "780 g" }
-    ] },
-    { "id": "faq", "kind": "faq", "heading": "Questions", "items": [
-      { "title": "When does it ship?", "body": "The first run of 400 ships in spring. People on the list choose their number first and pay only when the run is confirmed." },
-      { "title": "Can it charge my phone?", "body": "Yes. The USB-C port works both ways, so in a blackout the lantern can top up a phone or a radio." },
-      { "title": "What does the beacon mode do?", "body": "It flashes white once every ten seconds, the same rhythm as many coastal lights, so you can find a mooring or a cabin in the dark." },
-      { "title": "Is the battery replaceable?", "body": "Yes. Two standard 21700 cells sit under the base. Unscrew it, swap them, and the lantern keeps going." }
-    ] },
-    { "id": "waitlist", "kind": "form", "heading": "Join the first run", "body": ["Leave your name and email and we will write when the 400 numbered lanterns open for reservation. No payment now, and no other mail."], "cta": [{ "label": "Put me on the list", "href": "#waitlist" }] }
+    {
+      "id": "hero",
+      "kind": "hero",
+      "heading": "A light that keeps its watch.",
+      "body": [
+        "Holm No. 1 is a storm lantern built the way lighthouses are: sealed, simple and steady for days. Charge it once and it is ready for the next blackout, night crossing or long dark evening at the cabin."
+      ],
+      "image": "hero",
+      "cta": [
+        {
+          "label": "Join the first run",
+          "href": "#waitlist"
+        },
+        {
+          "label": "See the light list",
+          "href": "#specs"
+        }
+      ]
+    },
+    {
+      "id": "built",
+      "kind": "features",
+      "heading": "Built like a lighthouse",
+      "body": [
+        "Three numbers we designed around, tested on the water before anything else."
+      ],
+      "items": [
+        {
+          "label": "72 h",
+          "title": "Light for three nights",
+          "body": "On its low setting the 10,000 mAh cell gives 72 hours of usable light; on high it reads a chart or a book for 14 hours."
+        },
+        {
+          "label": "IP67",
+          "title": "Sealed against the sea",
+          "body": "Dust-tight and safe at one metre of water for 30 minutes. The port has a captive cap you can't drop overboard."
+        },
+        {
+          "label": "2700 K",
+          "title": "Warm, not blue",
+          "body": "A warm white that keeps your night vision and makes a cabin feel like evening, not a car park."
+        }
+      ]
+    },
+    {
+      "id": "story",
+      "kind": "story",
+      "heading": "Drawn on a skerry, made in small runs",
+      "body": [
+        "Holm started on an island with one lighthouse and no mains power. We wanted a lantern that would hang from the same hook for twenty years, so every part can be unscrewed, replaced or recycled.",
+        "The glass is borosilicate, the cap and handle are solid brass, and the cell is a standard 21700 you can buy anywhere. The first run is 400 lanterns, numbered by hand."
+      ],
+      "image": "lantern",
+      "cta": [
+        {
+          "label": "Reserve a numbered lantern",
+          "href": "#waitlist"
+        }
+      ]
+    },
+    {
+      "id": "specs",
+      "kind": "specs",
+      "heading": "The light list",
+      "body": [
+        "Every lighthouse has an entry in the light list. This is ours."
+      ],
+      "items": [
+        {
+          "title": "Characteristic",
+          "body": "Fixed W, or Fl W 10s beacon mode"
+        },
+        {
+          "title": "Brightness",
+          "body": "20 to 400 lumens, stepless"
+        },
+        {
+          "title": "Runtime",
+          "body": "72 h low · 14 h high"
+        },
+        {
+          "title": "Cell",
+          "body": "10,000 mAh, replaceable 21700 ×2"
+        },
+        {
+          "title": "Charging",
+          "body": "USB-C, 3.5 h to full"
+        },
+        {
+          "title": "Sealing",
+          "body": "IP67, 1 m for 30 min"
+        },
+        {
+          "title": "Height",
+          "body": "24 cm with handle"
+        },
+        {
+          "title": "Weight",
+          "body": "780 g"
+        }
+      ]
+    },
+    {
+      "id": "faq",
+      "kind": "faq",
+      "heading": "Questions",
+      "items": [
+        {
+          "title": "When does it ship?",
+          "body": "The first run of 400 ships in spring. People on the list choose their number first and pay only when the run is confirmed."
+        },
+        {
+          "title": "Can it charge my phone?",
+          "body": "Yes. The USB-C port works both ways, so in a blackout the lantern can top up a phone or a radio."
+        },
+        {
+          "title": "What does the beacon mode do?",
+          "body": "It flashes white once every ten seconds, the same rhythm as many coastal lights, so you can find a mooring or a cabin in the dark."
+        },
+        {
+          "title": "Is the battery replaceable?",
+          "body": "Yes. Two standard 21700 cells sit under the base. Unscrew it, swap them, and the lantern keeps going."
+        }
+      ]
+    },
+    {
+      "id": "waitlist",
+      "kind": "form",
+      "heading": "Join the first run",
+      "body": [
+        "Leave your name and email and we will write when the 400 numbered lanterns open for reservation. No payment now, and no other mail."
+      ],
+      "cta": [
+        {
+          "label": "Put me on the list",
+          "href": "#waitlist"
+        }
+      ],
+      "ask": {
+        "label": "Where will it hang?",
+        "options": [
+          "On a boat",
+          "Cabin or summer house",
+          "Emergency kit",
+          "Something else"
+        ]
+      }
+    }
   ]
 }

@@ -7,15 +7,92 @@
   "description": "Kivi House: a 112 m² single-storey home with full-height south glazing. Take the tour, see the plan, book a visit.",
   "assets": [],
   "sections": [
-    { "kind": "hero", "heading": "Light from the south, all *day*.", "body": ["A single-storey home drawn around one long window. Scroll to walk in."], "cta": [{ "label": "Take the tour", "href": "#tour" }, { "label": "Book a visit", "href": "#visit" }] },
-    { "id": "tour", "kind": "sequence", "heading": "Walk in.", "body": ["From the road to the living room in one take."],
-      "seq": { "path": "seq/f%03d.jpg", "count": 48, "width": 960, "height": 540, "alt": "A camera flies from the road over Kivi House, the roof lifts away to show the plan, and it lands in the living room facing the south glazing" },
+    {
+      "kind": "hero",
+      "heading": "Light from the south, all *day*.",
+      "body": [
+        "A single-storey home drawn around one long window. Scroll to walk in."
+      ],
+      "cta": [
+        {
+          "label": "Take the tour",
+          "href": "#tour"
+        },
+        {
+          "label": "Book a visit",
+          "href": "#visit"
+        }
+      ]
+    },
+    {
+      "id": "tour",
+      "kind": "sequence",
+      "heading": "Walk in.",
+      "body": [
+        "From the road to the living room in one take."
+      ],
+      "seq": {
+        "path": "seq/f%03d.jpg",
+        "count": 48,
+        "width": 960,
+        "height": 540,
+        "alt": "A camera flies from the road over Kivi House, the roof lifts away to show the plan, and it lands in the living room facing the south glazing"
+      },
       "items": [
-        { "label": "01 · Arrive", "title": "A low house among pines", "body": "One storey, one roof line, the entrance on the quiet east side." },
-        { "label": "02 · The plan", "title": "Everything on one level", "body": "Living, dining and kitchen in one 52 m² room; two bedrooms and a bath behind it." },
-        { "label": "03 · Inside", "title": "A 5-metre window", "body": "Full-height glazing faces south, so winter sun reaches the back of the room." }
-      ] },
-    { "kind": "specs", "heading": "The numbers", "items": [{ "title": "Floor area", "body": "112 m²" }, { "title": "Bedrooms", "body": "2 + study" }, { "title": "Glazing", "body": "Triple, south 5.2 m × 2.3 m" }, { "title": "Energy class", "body": "A (designed)" }] },
-    { "id": "visit", "kind": "form", "heading": "Book a visit", "body": ["Leave your email and we will send times for a site visit."] }
+        {
+          "label": "01 · Arrive",
+          "title": "A low house among pines",
+          "body": "One storey, one roof line, the entrance on the quiet east side."
+        },
+        {
+          "label": "02 · The plan",
+          "title": "Everything on one level",
+          "body": "Living, dining and kitchen in one 52 m² room; two bedrooms and a bath behind it."
+        },
+        {
+          "label": "03 · Inside",
+          "title": "A 5-metre window",
+          "body": "Full-height glazing faces south, so winter sun reaches the back of the room."
+        }
+      ]
+    },
+    {
+      "kind": "specs",
+      "heading": "The numbers",
+      "items": [
+        {
+          "title": "Floor area",
+          "body": "112 m²"
+        },
+        {
+          "title": "Bedrooms",
+          "body": "2 + study"
+        },
+        {
+          "title": "Glazing",
+          "body": "Triple, south 5.2 m × 2.3 m"
+        },
+        {
+          "title": "Energy class",
+          "body": "A (designed)"
+        }
+      ]
+    },
+    {
+      "id": "visit",
+      "kind": "form",
+      "heading": "Book a visit",
+      "body": [
+        "Leave your email and we will send times for a site visit."
+      ],
+      "ask": {
+        "label": "When would you like to visit?",
+        "options": [
+          "A weekday",
+          "A weekend",
+          "An evening"
+        ]
+      }
+    }
   ]
 }

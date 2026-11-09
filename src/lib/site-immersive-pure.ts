@@ -3,16 +3,39 @@
 // sans with an italic serif, glowing accent, cards with light edges, and sections that rise in as you scroll. Content stays plain
 // HTML (readable without JS, editable as copy); motion stops for prefers-reduced-motion (one still frame) and when the tab is hidden.
 
-/** Brand tokens for the immersive look; the first lines of css/immersive.css. */
-export const IMMERSIVE_TOKENS = { bg: "#05070a", ink: "#eef2ef", muted: "#9aa59f", accent: "#b8ff5c", accent2: "#2fe6c8", glass: "rgba(14,18,20,.62)" };
+
+/** Design directions: each a complete look (colour, type, effect, motion) over the same engine. The brief picks one with
+ *  "style"; "immersive" means cinematic. Add one here and it gets the same QA. */
+export type Direction = { label: string; bg: string; ink: string; muted: string; accent: string; onAccent: string; glass: string; edge: string; veil: string;
+  cardHi: string; cardLo: string; field: string; glow1: string; glow2: string; effect: "aurora" | "sunlight" | "none"; shader?: [string, string, string]; extra: string };
+export const DIRECTIONS: Record<"cinematic" | "warm" | "editorial", Direction> = {
+  cinematic: { label: "Cinematic dark", bg: "#05070a", ink: "#eef2ef", muted: "#9aa59f", accent: "#b8ff5c", onAccent: "#0b0f0a", glass: "rgba(14,18,20,.62)", edge: "rgba(255,255,255,.09)",
+    veil: "5,7,10", cardHi: "rgba(255,255,255,.05)", cardLo: "rgba(255,255,255,.015)", field: "rgba(255,255,255,.04)", glow1: "rgba(184,255,92,.35)", glow2: "rgba(184,255,92,.6)",
+    effect: "aurora", shader: [".72,1,.36", ".18,.9,.78", ".02,.027,.04"], extra: "" },
+  warm: { label: "Warm minimal", bg: "#f2ece3", ink: "#211c17", muted: "#5f564c", accent: "#9c4421", onAccent: "#fffaf3", glass: "rgba(242,236,227,.78)", edge: "rgba(33,28,23,.12)",
+    veil: "242,236,227", cardHi: "rgba(255,255,255,.65)", cardLo: "rgba(255,255,255,.35)", field: "rgba(255,255,255,.7)", glow1: "rgba(156,68,33,.18)", glow2: "rgba(156,68,33,.28)",
+    effect: "sunlight", shader: [".98,.78,.52", ".95,.6,.42", ".95,.925,.89"],
+    extra: `body.immersive.dir-warm h1, body.immersive.dir-warm h2 { font-family: var(--serif); font-weight: 400; letter-spacing: -.01em; }
+body.immersive.dir-warm .btn { border-radius: 4px; box-shadow: none; } body.immersive.dir-warm .stat { font-family: var(--serif); }
+body.immersive.dir-warm .features > li::before { display: none; } body.immersive.dir-warm .hero-media { box-shadow: 0 30px 80px -40px rgba(60,30,10,.45); transform: translateY(-50%); border-radius: 6px; }` },
+  editorial: { label: "Bold editorial", bg: "#f4f3ef", ink: "#0f0f0f", muted: "#45443f", accent: "#ff4a1c", onAccent: "#0f0f0f", glass: "rgba(244,243,239,.92)", edge: "rgba(15,15,15,.9)",
+    veil: "244,243,239", cardHi: "transparent", cardLo: "transparent", field: "#fff", glow1: "transparent", glow2: "transparent", effect: "none",
+    extra: `body.immersive.dir-editorial h1 { font-size: clamp(2.6rem, 7.2vw, 6.8rem); text-transform: uppercase; letter-spacing: -.04em; line-height: .88; font-weight: 800; }
+body.immersive.dir-editorial h2 { text-transform: uppercase; letter-spacing: -.03em; font-weight: 800; }
+body.immersive.dir-editorial .btn { border-radius: 0; box-shadow: 4px 4px 0 var(--ink-i); } body.immersive.dir-editorial .btn:hover { box-shadow: 6px 6px 0 var(--ink-i); }
+body.immersive.dir-editorial .features > li, body.immersive.dir-editorial .lead { border: 2px solid var(--ink-i); border-radius: 0; }
+body.immersive.dir-editorial .features > li::before { display: none; } body.immersive.dir-editorial .top .bar { border-radius: 0; border: 2px solid var(--ink-i); backdrop-filter: none; }
+body.immersive.dir-editorial .hero { background: var(--accent); padding-top: 6rem; } body.immersive.dir-editorial .hero p:not(.eyebrow) { color: var(--ink-i); } body.immersive.dir-editorial .eyebrow { color: var(--ink-i); }
+body.immersive.dir-editorial .hero .btn-quiet { background: var(--bg); } body.immersive.dir-editorial .hero::after { display: none; }
+body.immersive.dir-editorial .hero-media { border-radius: 0; border: 2px solid var(--ink-i); box-shadow: 10px 10px 0 var(--ink-i); transform: translateY(-50%) rotate(2deg); }` },
+};
+export type DirectionId = keyof typeof DIRECTIONS;
+export const directionOf = (style: string | undefined): DirectionId | null => (style === "immersive" ? "cinematic" : style && style in DIRECTIONS ? (style as DirectionId) : null);
 
 export const IMMERSIVE_CSS = `/* Immersive style: tokens first (change these to rebrand). */
-body.immersive {
-  --bg: ${IMMERSIVE_TOKENS.bg}; --ink-i: ${IMMERSIVE_TOKENS.ink}; --muted-i: ${IMMERSIVE_TOKENS.muted};
-  --accent: ${IMMERSIVE_TOKENS.accent}; --accent-2: ${IMMERSIVE_TOKENS.accent2}; --glass: ${IMMERSIVE_TOKENS.glass};
-  --muted: var(--muted-i); --edge: rgba(255,255,255,.09); --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-  background: var(--bg); color: var(--ink-i);
-}
+body.immersive { --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; background: var(--bg); color: var(--ink-i); }
+${Object.entries(DIRECTIONS).map(([k, d]) => `body.immersive.dir-${k} { --bg: ${d.bg}; --ink-i: ${d.ink}; --muted-i: ${d.muted}; --accent: ${d.accent}; --on-accent: ${d.onAccent}; --glass: ${d.glass}; --edge: ${d.edge}; --veil: ${d.veil}; --card-hi: ${d.cardHi}; --card-lo: ${d.cardLo}; --field: ${d.field}; --glow-1: ${d.glow1}; --glow-2: ${d.glow2}; }`).join("\n")}
+body.immersive { --muted: var(--muted-i); }
 .immersive .sec, .immersive .foot { background: transparent; color: var(--ink-i); }
 .immersive p, .immersive dd, .immersive .lead { color: var(--muted-i); }
 .immersive h1, .immersive h2, .immersive h3 { color: var(--ink-i); letter-spacing: -.02em; }
@@ -20,21 +43,21 @@ body.immersive {
 .immersive h2 { font-size: clamp(2rem, 4.5vw, 3.6rem); line-height: 1.02; font-weight: 600; }
 .immersive h1 em, .immersive h2 em { font-family: var(--serif); font-style: italic; font-weight: 400; color: var(--ink-i); }
 .immersive a { color: var(--accent); }
-.immersive .skip { background: var(--accent); color: #0b0f0a; }
+.immersive .skip { background: var(--accent); color: var(--on-accent); }
 
 /* Glass pill navigation */
 .immersive .top { position: fixed; inset: .9rem .9rem auto; background: none; border: 0; z-index: 20; }
 .immersive .top .bar { background: var(--glass); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%);
   border: 1px solid var(--edge); border-radius: 999px; padding: .45rem .55rem .45rem 1rem; }
 .immersive .top a:not(.btn) { color: var(--ink-i); }
-.immersive .btn, .immersive .top .btn { color: #0b0f0a; }
+.immersive .btn, .immersive .top .btn { color: var(--on-accent); }
 .immersive .btn-quiet { color: var(--ink-i); }
 .immersive .brand { color: var(--ink-i); }
 
 /* Buttons: accent with a soft glow */
-.immersive .btn { background: var(--accent); color: #0b0f0a; border: 0; border-radius: 999px; font-weight: 650;
-  box-shadow: 0 0 0 1px rgba(184,255,92,.35), 0 8px 30px -6px rgba(184,255,92,.55); transition: transform .2s ease, box-shadow .2s ease; }
-.immersive .btn:hover { transform: translateY(-1px); box-shadow: 0 0 0 1px rgba(184,255,92,.6), 0 12px 40px -6px rgba(184,255,92,.75); }
+.immersive .btn { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 999px; font-weight: 650;
+  box-shadow: 0 0 0 1px var(--glow-1), 0 8px 30px -6px var(--glow-2); transition: transform .2s ease, box-shadow .2s ease; }
+.immersive .btn:hover { transform: translateY(-1px); box-shadow: 0 0 0 1px var(--glow-2), 0 12px 40px -6px var(--glow-2); }
 .immersive .btn-quiet { background: transparent; color: var(--ink-i); box-shadow: inset 0 0 0 1px var(--edge); }
 .immersive :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
@@ -43,9 +66,9 @@ body.immersive {
 .immersive .hero::before { content: none; }
 .immersive .aurora { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -2; display: block; }
 .immersive .hero::after { content: ""; position: absolute; inset: 0; z-index: -1;
-  background: linear-gradient(90deg, rgba(5,7,10,.92) 0%, rgba(5,7,10,.7) 38%, rgba(5,7,10,.15) 70%), linear-gradient(0deg, var(--bg) 0%, transparent 30%); }
+  background: linear-gradient(90deg, rgba(var(--veil),.92) 0%, rgba(var(--veil),.7) 38%, rgba(var(--veil),.15) 70%), linear-gradient(0deg, var(--bg) 0%, transparent 30%); }
 .immersive .hero-media { position: absolute; right: 5vw; top: 50%; left: auto; bottom: auto; height: auto; width: min(32vw, 440px); aspect-ratio: 4 / 5; z-index: 0;
-  border-radius: 22px; overflow: hidden; border: 1px solid var(--edge); box-shadow: 0 40px 120px -30px rgba(47,230,200,.35);
+  border-radius: 22px; overflow: hidden; border: 1px solid var(--edge); box-shadow: 0 40px 120px -30px var(--glow-1);
   transform: translateY(-50%) perspective(1200px) rotateY(-14deg) rotateX(4deg); }
 .immersive .hero-media img { width: 100%; height: 100%; object-fit: cover; }
 .immersive .hero-copy { position: relative; z-index: 1; padding: 0 0 12vh; max-width: 44rem; }
@@ -53,7 +76,7 @@ body.immersive {
 
 /* Cards with lit edges */
 .immersive .features { gap: 1rem; }
-.immersive .features > li { background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.015)); border: 1px solid var(--edge);
+.immersive .features > li { background: linear-gradient(180deg, var(--card-hi), var(--card-lo)); border: 1px solid var(--edge);
   border-radius: 20px; padding: 1.6rem; position: relative; overflow: hidden; border-top: 1px solid var(--edge); }
 .immersive .features > li::before { content: ""; position: absolute; inset: 0 0 auto; height: 1px; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: .7; }
 .immersive .stat { color: var(--accent); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: clamp(2.4rem, 5vw, 3.6rem); }
@@ -63,8 +86,8 @@ body.immersive {
 .immersive details { border-color: var(--edge); }
 .immersive summary { color: var(--ink-i); }
 .immersive .story-media img, .immersive .lead-img { border-radius: 22px; border: 1px solid var(--edge); }
-.immersive .lead { background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)); border: 1px solid var(--edge); border-radius: 22px; }
-.immersive input, .immersive textarea, .immersive select { background: rgba(255,255,255,.04); color: var(--ink-i); border: 1px solid var(--edge); border-radius: 12px; }
+.immersive .lead { background: linear-gradient(180deg, var(--card-hi), var(--card-lo)); border: 1px solid var(--edge); border-radius: 22px; }
+.immersive input, .immersive textarea, .immersive select { background: var(--field); color: var(--ink-i); border: 1px solid var(--edge); border-radius: 12px; }
 .immersive label, .immersive .field span { color: var(--ink-i); }
 .immersive .err { color: #ff8a7a; }
 .immersive .foot { border-top: 1px solid var(--edge); }
@@ -72,6 +95,7 @@ body.immersive {
 /* Scroll reveal: only once the script has marked the page (so without JS everything is simply visible) */
 .immersive.js-reveal .sec:not(.hero) > .wrap { opacity: 0; transform: translateY(28px); transition: opacity .9s cubic-bezier(.2,.7,.2,1), transform .9s cubic-bezier(.2,.7,.2,1); }
 .immersive.js-reveal .sec.in > .wrap { opacity: 1; transform: none; }
+${Object.values(DIRECTIONS).map((d) => d.extra).join("\n")}
 @media (prefers-reduced-motion: reduce) {
   .immersive.js-reveal .sec:not(.hero) > .wrap { opacity: 1; transform: none; transition: none; }
   .immersive .hero-media { transform: translateY(-50%); }
@@ -80,7 +104,7 @@ body.immersive {
 @media (max-width: 899px) {
   .immersive .hero-media { position: relative; right: auto; top: auto; width: 100%; aspect-ratio: 16 / 10; transform: none; margin-top: 6rem; }
   .immersive .hero { align-items: start; }
-  .immersive .hero::after { background: linear-gradient(0deg, var(--bg) 8%, rgba(5,7,10,.78) 46%, rgba(5,7,10,.35) 100%); }
+  .immersive .hero::after { background: linear-gradient(0deg, var(--bg) 8%, rgba(var(--veil),.78) 46%, rgba(var(--veil),.35) 100%); }
   .immersive .hero-copy { padding: 1.5rem 0 4rem; }
   .immersive .top .bar nav ul { display: none; }
 }
@@ -88,7 +112,7 @@ body.immersive {
 
 /** Aurora fragment shader: layered value noise drives flowing ribbons of accent light over near-black. */
 export const AURORA_FRAG = `precision mediump float;
-uniform vec2 r; uniform float t;
+uniform vec2 r; uniform float t; uniform vec3 ca, cb, cg;
 float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+1.),f.x),f.y);}
 float fbm(vec2 p){float v=0.,a=.5;for(int k=0;k<5;k++){v+=a*n(p);p=p*2.02+vec2(1.7,9.2);a*=.5;}return v;}
@@ -99,7 +123,7 @@ void main(){
   float glow=exp(-pow(band*4.2,2.))*(.55+.45*fbm(p*3.+t*.1));
   float band2=uv.y-.32-.18*sin(p.x*.9-t*.12+w*2.4);
   float glow2=exp(-pow(band2*6.,2.))*.6;
-  vec3 a=vec3(.72,1.,.36), b=vec3(.18,.9,.78), bg=vec3(.02,.027,.04);
+  vec3 a=ca, b=cb, bg=cg;
   vec3 c=bg+a*glow*.85+b*glow2*.7+vec3(.05,.09,.08)*w;
   c+=vec3(1.)*pow(h(gl_FragCoord.xy+t),12.)*.06; // faint film grain
   gl_FragColor=vec4(c,1.);
@@ -124,6 +148,8 @@ export const IMMERSIVE_JS = `(function () {
   var buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
   var loc = gl.getAttribLocation(pr, "a"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
   var ur = gl.getUniformLocation(pr, "r"), ut = gl.getUniformLocation(pr, "t");
+  // the direction's colours come from the canvas (data-a/-b/-g = "r,g,b" 0-1), so one shader serves every look
+  ["a", "b", "g"].forEach(function (k) { var c = (cv.dataset[k] || "0,0,0").split(",").map(Number); gl.uniform3f(gl.getUniformLocation(pr, "c" + k), c[0], c[1], c[2]); });
   function size() { var d = Math.min(window.devicePixelRatio || 1, 1.5), w = cv.clientWidth * d | 0, h = cv.clientHeight * d | 0; if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; gl.viewport(0, 0, w, h); } }
   var t0 = performance.now(), raf = 0;
   function frame(now) { size(); gl.uniform2f(ur, cv.width, cv.height); gl.uniform1f(ut, reduce ? 12.0 : (now - t0) / 1000); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); if (!reduce) raf = requestAnimationFrame(frame); }
@@ -172,7 +198,7 @@ export const SEQUENCE_CSS = `
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--edge); }
 .immersive .seq-ch p { margin: .3rem 0 0; }
 .immersive .seq-stage::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
-  background: linear-gradient(180deg, rgba(5,7,10,.7) 0%, transparent 32%, transparent 62%, rgba(5,7,10,.75) 100%); }
+  background: linear-gradient(180deg, rgba(var(--veil),.7) 0%, transparent 32%, transparent 62%, rgba(var(--veil),.75) 100%); }
 .immersive .seq-bar { position: absolute; left: 5vw; right: 5vw; bottom: 3vh; height: 2px; background: var(--edge); z-index: 2; }
 .immersive .seq-bar span { display: block; height: 100%; width: calc(var(--p, 0) * 100%); background: var(--accent); box-shadow: 0 0 12px var(--accent); }
 /* live mode (JS on, motion allowed): canvas instead of stills, one chapter at a time */
