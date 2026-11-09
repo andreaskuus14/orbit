@@ -9,7 +9,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { adminClient } from "@/lib/supabase/admin";
 import { orbitDataDir } from "@/lib/data-dir";
 import { emit } from "@/lib/claude";
-import { makePairCode, NonceCache, verifyToken, type PairCode, type RemoteCommand } from "@/lib/remote-pure";
+import { makePairCode, NonceCache, deviceForToken, type PairCode, type RemoteCommand } from "@/lib/remote-pure";
 import { approvalId, clipStamp, ledgerData, REMOTE_COOKIE, secretProblem, takeRate, type Approval } from "@/lib/remote-web-pure";
 import type { Lang } from "@/lib/i18n-pure";
 import { isAllowedEmail } from "@/lib/allow";
@@ -67,9 +67,7 @@ export function rateOk(key: string, r: { limit: number; windowMs: number }) {
 export async function deviceFromCookie(readOnlyOk = false): Promise<Device | null> {
   const token = (await cookies()).get(REMOTE_COOKIE)?.value;
   if (!token) return null;
-  const v = verifyToken(token, remoteSecret(), Date.now());
-  if (!v.ok) return null;
-  const d = (await listDevices()).find((x) => x.id === v.payload.deviceId) ?? null;
+  const d = deviceForToken(token, remoteSecret(), Date.now(), await listDevices());
   if (d) S.seen.set(d.id, new Date().toISOString());
   return d && (readOnlyOk || deviceType(d) === "phone") ? d : null;
 }

@@ -4,6 +4,12 @@
 // requiresOwnerConfirm so the PC-side handler re-checks it against that pending approval before acting.
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+/** The listed device a request token belongs to, or null: bad/expired token, or device revoked (removed from the list). */
+export function deviceForToken<D extends { id: string }>(token: unknown, secret: string, now: number, devices: readonly D[]): D | null {
+  const v = verifyToken(token, secret, now);
+  return v.ok ? devices.find((d) => d.id === v.payload.deviceId) ?? null : null;
+}
+
 // ---- Pairing -------------------------------------------------------------
 
 export const PAIR_TTL_MS = 2 * 60 * 1000;
