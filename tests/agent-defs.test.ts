@@ -73,3 +73,11 @@ test("eval suite: 5-8 tasks per agent, readiness never drops, recorded answers a
   assert.equal(r.pending.length, AGENT_SUITE.length - 2);
   assert.throws(() => scoreRuns(BUILTIN_AGENTS, AGENT_SUITE, [{ id: "x" }]), /string id and answer/);
 });
+
+test("selfCheck: an English request gets an English answer; Estonian place names alone don't trip it", () => {
+  const forge = BUILTIN_AGENTS.find((a) => a.slug === "forge")!;
+  const et = "Kokkuvõte: meeskond otsustas, et demo ilmub 1. detsembril ja Mia vastutab treileri eest, kuid mobiil on lahtine ning eelarve on 300 €.";
+  assert.match(selfCheck(forge.contract, et, { request: "Summarise these notes in 3 bullets.", seen: "" }).join(), /request is in English/);
+  const en = "The studio in Pärnu ships the demo on 1 Dec; Mia owns the trailer and the music budget is capped at €300.";
+  assert.doesNotMatch(selfCheck(forge.contract, en, { request: "Summarise these notes in 3 bullets.", seen: "" }).join(), /request is in English/);
+});
