@@ -24,3 +24,9 @@ test("middleware sets the policy on the request (Next stamps its scripts) and th
   assert.match(mw, /return withCsp\(response\)/);
   assert.match(layout, /export const dynamic = "force-dynamic"/);
 });
+
+test("the configured Supabase origin is allowed even over plain http; junk adds nothing", () => {
+  const p = csp("n", false, "http://127.0.0.1:54321/");
+  assert.match(p, /connect-src [^;]*http:\/\/127\.0\.0\.1:54321 ws:\/\/127\.0\.0\.1:54321/);
+  assert.doesNotMatch(csp("n", false, "nope"), /undefined|nope/);
+});

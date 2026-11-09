@@ -6,7 +6,9 @@
 /** Pages get the policy; API responses, the /w workspace previews and the shop preview (own CSP, framed by ORBIT) don't. */
 export const cspApplies = (path: string) => !path.startsWith("/api/") && !path.startsWith("/w/") && path !== "/w" && !path.startsWith("/_next/");
 
-export function csp(nonce: string, dev = false): string {
+/** `supabase`: the project URL; its origin is allowed for fetch/websocket even over plain http (a local Supabase). */
+export function csp(nonce: string, dev = false, supabase = ""): string {
+  let sb = ""; try { const u = new URL(supabase); sb = ` ${u.origin} ${u.origin.replace(/^http/, "ws")}`; } catch { /* unset */ }
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'wasm-unsafe-eval'${dev ? " 'unsafe-eval'" : ""}`, // dev: React refresh needs eval
@@ -14,7 +16,7 @@ export function csp(nonce: string, dev = false): string {
     "img-src 'self' data: blob: https:",
     "media-src 'self' data: blob: https:",
     "font-src 'self' data:",
-    "connect-src 'self' https: wss:" + (dev ? " ws:" : ""),
+    "connect-src 'self' https: wss:" + sb + (dev ? " ws:" : ""),
     "worker-src 'self' blob:",
     "frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com",
     "object-src 'self'", // VAULT's PDF preview

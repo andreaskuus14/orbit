@@ -19,7 +19,7 @@ export async function middleware(request: NextRequest) {
   if (request.nextUrl.pathname === "/demo") return NextResponse.next();
   // CSP with a fresh nonce per page: Next reads it from the request header and stamps its own inline scripts with it
   const nonce = cspApplies(request.nextUrl.pathname) ? newNonce() : "";
-  const policy = nonce ? csp(nonce, process.env.NODE_ENV === "development") : "";
+  const policy = nonce ? csp(nonce, process.env.NODE_ENV === "development", process.env.NEXT_PUBLIC_SUPABASE_URL ?? "") : "";
   if (policy) request.headers.set("content-security-policy", policy);
   const withCsp = (r: NextResponse) => { if (policy) r.headers.set("Content-Security-Policy", policy); return r; };
   let response = NextResponse.next({ request });
