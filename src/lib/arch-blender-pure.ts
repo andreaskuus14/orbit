@@ -29,7 +29,8 @@ export function partBox(p: Part, host?: Part): { c: V3; s: V3 } {
   if ((p.kind === "window" || p.kind === "door") && host) {
     const ns = p.face === "n" || p.face === "s", t = (ns ? host.d : host.w) + 0.02;
     const [sx, sz] = ns ? [p.w, t] : [t, p.w];
-    return { c: toBlender(p.x, p.y + p.h / 2, p.z), s: [sx, sz, p.h] };
+    // centred on the wall's thickness (p.x/p.z sit on the wall's outer face), so the cut goes all the way through
+    return { c: toBlender(ns ? p.x : host.x, p.y + p.h / 2, ns ? host.z : p.z), s: [sx, sz, p.h] };
   }
   return { c: toBlender(p.x, p.y + p.h / 2, p.z), s: [p.w, p.d, p.h] };
 }
@@ -125,4 +126,48 @@ export function blenderScript(scene: Scene, o: Opts): string {
     "S.render.filepath = out; bpy.ops.render.render(write_still=True)",
   );
   return L.join("\n") + "\n";
+}
+
+// ---- Fly-through: a camera move rendered as a numbered frame sequence, for scroll-scrubbed web pages (W02 "sequence" section).
+// Three beats, the way an architectural film is cut: approach the building at eye level → rise over it while the roof lifts away to an
+// isometric plan → descend into a room and settle at standing eye height facing the windows.
+export type Pose = { cam: V3; look: V3; roof: boolean };
+const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+const mix = (a: V3, b: V3, t: number): V3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+/** n camera poses (Blender space). `room` = a point inside the model (scene metres) the last beat ends in; defaults to the centre. */
+export function flyPath(scene: Scene, n: number, room?: { x: number; z: number }): Pose[] {
+  const walls = scene.parts.filter((p) => p.kind === "wall" || p.kind === "slab");
+  const xs = walls.flatMap((p) => [p.x - p.w / 2, p.x + p.w / 2]), zs = walls.flatMap((p) => [p.z - p.d / 2, p.z + p.d / 2]);
+  const top = Math.max(3, ...scene.parts.filter((p) => p.kind !== "roof").map((p) => p.y + p.h));
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+  const span = Math.max(8, Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
+  const c = toBlender(cx, top / 2, cz), r = room ? toBlender(room.x, 1.5, room.z) : toBlender(cx, 1.5, cz);
+  const keys: { t: number; cam: V3; look: V3 }[] = [
+    { t: 0, cam: toBlender(cx + span * 1.7, 1.6, cz + span * 1.9), look: c },                // far, eye level, south-east
+    { t: 0.3, cam: toBlender(cx + span * 0.9, 3.5, cz + span * 1.0), look: c },              // closer, slightly raised
+    { t: 0.6, cam: toBlender(cx + span * 0.35, top + span * 1.25, cz + span * 0.45), look: toBlender(cx, 0, cz) }, // over it: isometric plan
+    { t: 0.82, cam: toBlender(r[0] + 0.3, 4.5, -r[1] - 2.4), look: toBlender(r[0], 0.8, -r[1] + 3) },             // dropping in from the north side
+    { t: 1, cam: [r[0], r[1] + 2.2, 1.55], look: [r[0], r[1] - 4, 1.35] },                   // in the room, standing, facing south glazing
+  ];
+  return Array.from({ length: n }, (_, i) => {
+    const t = n === 1 ? 0 : i / (n - 1), k = Math.max(1, keys.findIndex((x) => x.t >= t)), a = keys[k - 1], b = keys[k];
+    const u = ease((t - a.t) / (b.t - a.t || 1));
+    return { cam: mix(a.cam, b.cam, u), look: mix(a.look, b.look, u), roof: t < 0.42 };
+  });
+}
+/** A Blender script that builds the scene (blenderScript) and renders each pose to <out>/f001.png …; roof hidden where !roof. */
+export function blenderSequence(scene: Scene, o: Opts, poses: Pose[]): string {
+  const base = blenderScript(scene, o).replace("S.render.filepath = out; bpy.ops.render.render(write_still=True)\n", "");
+  const roofs = scene.parts.filter((p) => p.kind === "roof").map((p) => JSON.stringify(p.id));
+  return base + [
+    "import os; os.makedirs(out, exist_ok=True)",
+    "c.data.shift_y = 0; c.data.lens = 28",
+    `P = ${JSON.stringify(poses.map((p) => [p.cam.map((x) => +x.toFixed(3)), p.look.map((x) => +x.toFixed(3)), p.roof ? 1 : 0]))}`, // 1/0: valid Python
+    `roofs = [obj[k] for k in [${roofs.join(", ")}] if k in obj]`,
+    "for i, (cam, look, roof) in enumerate(P):",
+    "    c.location = cam",
+    "    c.rotation_euler = (Vector(look) - Vector(cam)).to_track_quat('-Z', 'Y').to_euler()",
+    "    for r in roofs: r.hide_render = not roof",
+    "    S.render.filepath = os.path.join(out, 'f%03d.png' % (i + 1)); bpy.ops.render.render(write_still=True)",
+  ].join("\n") + "\n";
 }
