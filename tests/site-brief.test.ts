@@ -136,3 +136,16 @@ test("immersive style: same content and form, plus aurora canvas, its CSS/JS, an
   assert.equal(accentHeading("A light that keeps its watch."), "A light that keeps its <em>watch</em>.");
   assert.equal(accentHeading("The handoffs run *themselves*."), "The handoffs run <em>themselves</em>.");
 });
+
+test("sequence section: frames validated, canvas + three still key frames + chapters rendered; bad patterns refused", async () => {
+  const { framePath, keyFrames } = await import("../src/lib/site-immersive-pure.ts");
+  const p = parseBrief(fx("brief-house.json")); assert.ok("brief" in p, "errors" in p ? p.errors.join("; ") : "");
+  const html = renderSite(p.brief)["index.html"], files = renderSite(p.brief);
+  assert.match(html, /<canvas class="seq-canvas" role="img" aria-label="A camera flies[^"]*" data-path="seq\/f%03d\.jpg" data-count="48"/);
+  for (const k of keyFrames(48)) assert.ok(html.includes(`src="${framePath("seq/f%03d.jpg", k)}"`), `still ${k}`);
+  assert.equal((html.match(/class="seq-ch"/g) ?? []).length, 3);
+  assert.match(files["js/immersive.js"], /seq-live/);
+  assert.deepEqual(keyFrames(48), [1, 24, 48]);
+  const bad = fx("brief-house.json"); bad.sections[1].seq.path = "../f%03d.jpg"; bad.sections[1].seq.count = 1;
+  const e = parseBrief(bad); assert.ok("errors" in e && e.errors.some((x) => x.includes("frame pattern")) && e.errors.some((x) => x.includes("2-240")));
+});

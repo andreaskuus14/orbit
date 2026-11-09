@@ -1,22 +1,25 @@
 // W02 site brief (pure): one typed, editor-friendly brief (site.json in the workspace) → a versioned one-page site. Copy, brand,
 // assets and section settings stay separate from rendering; sections keep stable IDs; copy edits never touch assets; the hero
 // crop follows a focal point and keeps a text-safe area. Disk side: site-brief.ts. Tests: tests/site-brief.test.ts.
-import { IMMERSIVE_CSS, IMMERSIVE_JS, accentHeading } from "./site-immersive-pure.ts";
+import { IMMERSIVE_CSS, IMMERSIVE_JS, SEQUENCE_CSS, SEQUENCE_JS, accentHeading, sequenceSection } from "./site-immersive-pure.ts";
 
 export type Focal = { x: number; y: number };
 /** An image the site uses. focal = the subject (0-1 of width/height); safe = the side of the image with no subject, where text may sit. */
 export type Asset = { id: string; path: string; alt: string; width: number; height: number; focal: Focal; safe: "left" | "right"; origin: string };
 export type Item = { label?: string; title: string; body: string };
 export type Link = { label: string; href: string };
-export type Kind = "hero" | "features" | "story" | "specs" | "faq" | "form";
-export type Section = { id: string; kind: Kind; heading: string; body: string[]; items: Item[]; image?: string; cta: Link[] };
+export type Kind = "hero" | "features" | "story" | "specs" | "faq" | "form" | "sequence";
+/** A scroll-scrubbed frame sequence (e.g. an ARCH Blender fly-through): files path with %03d, 1-based. */
+export type Seq = { path: string; count: number; width: number; height: number; alt: string };
+export type Section = { id: string; kind: Kind; heading: string; body: string[]; items: Item[]; image?: string; cta: Link[]; seq?: Seq };
 export type Brief = {
   version: number; style?: "classic" | "immersive"; name: string; offer: string; audience: string; lang: string; description: string; tagline: string;
   assets: Asset[]; sections: Section[]; history: { version: number; changed: string[]; undo?: { section: string; image?: string } }[];
 };
 export type Parsed = { brief: Brief; missing: string[] } | { errors: string[] };
 
-const KINDS: Kind[] = ["hero", "features", "story", "specs", "faq", "form"];
+const KINDS: Kind[] = ["hero", "features", "story", "specs", "faq", "form", "sequence"];
+const SEQ_PATH = /^(?!.*\.\.)(?:[a-z0-9][a-z0-9_-]*\/){0,3}[a-z0-9_-]*%03d[a-z0-9_-]*\.(?:jpe?g|webp|png)$/;
 const ID = /^[a-z][a-z0-9-]{0,39}$/;
 const ASSET_PATH = /^(?!.*\.\.)(?:[a-z0-9][a-z0-9_-]*\/){0,3}[a-z0-9][a-z0-9_-]*\.(?:jpe?g|png|webp|svg)$/;
 const s = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
@@ -67,7 +70,16 @@ export function parseBrief(input: unknown): Parsed {
     const items = arr(r.items).slice(0, 12).map((x) => { const o = obj(x); return { ...(s(o.label, 24) ? { label: s(o.label, 24) } : {}), title: s(o.title, 120), body: s(o.body, 600) }; });
     if (items.some((x) => !x.title)) errors.push(`sections[${n}] (${id}): every item needs a title`);
     const cta = arr(r.cta).slice(0, 2).map((x) => ({ label: s(obj(x).label, 40), href: s(obj(x).href, 200) }));
-    sections.push({ id, kind, heading, body: arr(r.body).map((p) => s(p, 1200)).filter(Boolean).slice(0, 6), items, ...(image ? { image } : {}), cta });
+    let seq: Seq | undefined;
+    if (kind === "sequence") {
+      const q = obj(r.seq), path = s(q.path, 80).toLowerCase(), count = Math.floor(Number(q.count) || 0), w = Number(q.width) || 0, h = Number(q.height) || 0, alt = s(q.alt, 200);
+      if (!SEQ_PATH.test(path)) errors.push(`sections[${n}] (${id}): seq.path must be a relative frame pattern like "seq/f%03d.jpg"`);
+      if (!(count >= 2 && count <= 240)) errors.push(`sections[${n}] (${id}): seq.count must be 2-240 frames`);
+      if (!(w > 0 && h > 0)) errors.push(`sections[${n}] (${id}): seq.width and seq.height (px) are required`);
+      if (!alt) errors.push(`sections[${n}] (${id}): seq.alt is required (what the sequence shows)`);
+      seq = { path, count, width: w, height: h, alt };
+    }
+    sections.push({ id, kind, ...(seq ? { seq } : {}), heading, body: arr(r.body).map((p) => s(p, 1200)).filter(Boolean).slice(0, 6), items, ...(image ? { image } : {}), cta });
   }
   const ids = new Set(sections.map((x) => x.id));
   for (const x of sections) for (const c of x.cta) {
@@ -181,6 +193,7 @@ function section(x: Section, b: Brief): string {
       return `<section ${attrs}><div class="wrap split">${a ? `<figure class="story-media">${img(a, "story-img")}</figure>` : ""}<div class="story-copy">${head}${paras(x.body)}${buttons(x.cta)}</div></div></section>`;
     case "specs":
       return `<section ${attrs}><div class="wrap">${head}${paras(x.body)}<dl class="specs">${x.items.map((it) => `<div><dt>${esc(it.title)}</dt><dd>${esc(it.body)}</dd></div>`).join("")}</dl></div></section>`;
+    case "sequence": return sequenceSection(x, attrs, esc);
     case "faq":
       return `<section ${attrs}><div class="wrap narrow">${head}${paras(x.body)}${x.items.map((it) => `<details><summary>${esc(it.title)}</summary><p>${esc(it.body)}</p></details>`).join("")}</div></section>`;
     case "form":
@@ -283,12 +296,12 @@ ${b.sections.map((x) => section(x, b)).join("\n")}
 </html>
 `;
 }
-const navLabel = (x: Section) => ({ features: "Features", story: "Story", specs: "Specs", faq: "FAQ", hero: "", form: "" })[x.kind] || x.heading;
+const navLabel = (x: Section) => ({ features: "Features", story: "Story", specs: "Specs", faq: "FAQ", sequence: "Tour", hero: "", form: "" })[x.kind] || x.heading;
 
 /** Every file the brief renders (text only: the images are the owner's, already in the workspace, and are never written here). */
 export function renderSite(b: Brief): Record<string, string> {
   return { "index.html": renderHtml(b), "css/style.css": SITE_CSS, "js/form.js": FORM_JS,
-    ...(b.style === "immersive" ? { "css/immersive.css": IMMERSIVE_CSS, "js/immersive.js": IMMERSIVE_JS } : {}), "site.json": `${JSON.stringify(b, null, 2)}\n`, "EXPORT.md": exportMd(b) };
+    ...(b.style === "immersive" ? { "css/immersive.css": IMMERSIVE_CSS + SEQUENCE_CSS, "js/immersive.js": IMMERSIVE_JS + SEQUENCE_JS } : {}), "site.json": `${JSON.stringify(b, null, 2)}\n`, "EXPORT.md": exportMd(b) };
 }
 
 /** Image refs (src + alt) in rendered HTML, for the "copy edit doesn't touch assets" check. */

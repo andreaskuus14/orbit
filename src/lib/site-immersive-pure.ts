@@ -139,3 +139,85 @@ export function accentHeading(escaped: string): string {
   const m = /^(.*\s)(\S+?)([.!?]?)$/.exec(escaped);
   return m ? `${m[1]}<em>${m[2]}</em>${m[3]}` : escaped;
 }
+
+// ---- Scroll-scrubbed sequence ("sequence" section): a tall section whose stage sticks to the screen while scrolling plays the
+// frames (a Blender fly-through from ARCH, say) on a canvas; chapters (the section's items) fade in at their share of the scroll.
+// Without JS or with reduced motion it is a plain image of the first frame plus three key frames, and the chapters as text.
+type SeqSection = { id: string; heading: string; body: string[]; items: { title: string; body: string; label?: string }[]; seq?: { path: string; count: number; width: number; height: number; alt: string } };
+export const framePath = (pattern: string, i: number) => pattern.replace("%03d", String(i).padStart(3, "0"));
+/** Key frames for the still fallback: start, middle, end (1-based). */
+export const keyFrames = (count: number) => [1, Math.ceil(count / 2), count];
+export function sequenceSection(x: SeqSection, attrs: string, esc: (t: string) => string): string {
+  const q = x.seq!, keys = keyFrames(q.count);
+  const stills = keys.map((k, i) => `<img class="seq-still" src="${esc(framePath(q.path, k))}" alt="${i ? "" : esc(q.alt)}" width="${q.width}" height="${q.height}" loading="lazy" decoding="async">`).join("");
+  const chapters = x.items.map((it, i) => `<li class="seq-ch" data-at="${((i + 0.5) / Math.max(1, x.items.length)).toFixed(3)}">${it.label ? `<span class="eyebrow">${esc(it.label)}</span>` : ""}<h3>${esc(it.title)}</h3><p>${esc(it.body)}</p></li>`).join("");
+  return `<section ${attrs} style="--seq-len:${Math.min(8, 2 + q.count / 16).toFixed(2)}"><div class="seq-stage">`
+    + `<canvas class="seq-canvas" role="img" aria-label="${esc(q.alt)}" data-path="${esc(q.path)}" data-count="${q.count}" width="${q.width}" height="${q.height}"></canvas>`
+    + `<div class="seq-stills">${stills}</div><div class="wrap seq-copy"><h2 id="${x.id}-title">${esc(x.heading)}</h2>${x.body.map((p) => `<p>${esc(p)}</p>`).join("")}</div>`
+    + `<ol class="seq-chapters">${chapters}</ol><div class="seq-bar" aria-hidden="true"><span></span></div></div></section>`;
+}
+
+export const SEQUENCE_CSS = `
+/* Scroll-scrubbed sequence */
+.immersive .sec-sequence { position: relative; height: calc(var(--seq-len, 4) * 100svh); padding: 0; }
+.immersive .sec-sequence > .seq-stage { position: sticky; top: 0; height: 100svh; overflow: hidden; }
+.immersive .seq-canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
+.immersive .seq-stills { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; height: 100%; }
+.immersive .seq-stills img { width: 100%; height: 100%; object-fit: cover; }
+.immersive .seq-copy { position: absolute; inset: 0 0 auto; padding-top: 6.5rem; z-index: 2; pointer-events: none; }
+.immersive .seq-copy h2 { text-shadow: 0 2px 30px rgba(0,0,0,.6); max-width: 18ch; }
+.immersive .seq-copy p { color: var(--ink-i); text-shadow: 0 1px 12px rgba(0,0,0,.7); max-width: 40ch; }
+.immersive .seq-chapters { position: absolute; right: 5vw; bottom: 10vh; width: min(380px, 86vw); z-index: 2; margin: 0; padding: 0; list-style: none; }
+.immersive .seq-ch { position: absolute; inset: auto 0 0; padding: 1.2rem 1.4rem; border-radius: 18px; background: var(--glass);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--edge); }
+.immersive .seq-ch p { margin: .3rem 0 0; }
+.immersive .seq-stage::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(180deg, rgba(5,7,10,.7) 0%, transparent 32%, transparent 62%, rgba(5,7,10,.75) 100%); }
+.immersive .seq-bar { position: absolute; left: 5vw; right: 5vw; bottom: 3vh; height: 2px; background: var(--edge); z-index: 2; }
+.immersive .seq-bar span { display: block; height: 100%; width: calc(var(--p, 0) * 100%); background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+/* live mode (JS on, motion allowed): canvas instead of stills, one chapter at a time */
+.immersive.seq-live .seq-canvas { display: block; }
+.immersive.seq-live .seq-stills { display: none; }
+.immersive.seq-live .seq-ch { opacity: 0; transform: translateY(14px); transition: opacity .5s ease, transform .5s ease; }
+.immersive.seq-live .seq-ch.on { opacity: 1; transform: none; }
+/* stills mode: the section is just one screen tall and the chapters stack as cards */
+.immersive:not(.seq-live) .sec-sequence { height: auto; }
+.immersive:not(.seq-live) .sec-sequence > .seq-stage { position: relative; height: auto; }
+.immersive:not(.seq-live) .seq-stills { height: 60vh; }
+.immersive:not(.seq-live) .seq-chapters { position: static; width: auto; display: grid; gap: .75rem; padding: 1.5rem 5vw 3rem; }
+.immersive:not(.seq-live) .seq-ch { position: static; }
+.immersive:not(.seq-live) .seq-bar { display: none; }
+@media (max-width: 899px) { .immersive.seq-live .seq-chapters { left: 5vw; right: 5vw; width: auto; } }
+`;
+
+export const SEQUENCE_JS = `(function () {
+  var reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var secs = document.querySelectorAll(".sec-sequence"); if (!secs.length || reduce) return;
+  document.body.classList.add("seq-live");
+  secs.forEach(function (sec) {
+    var cv = sec.querySelector(".seq-canvas"), cx = cv.getContext("2d"), n = +cv.dataset.count, pat = cv.dataset.path;
+    var imgs = new Array(n), shown = -1, chs = sec.querySelectorAll(".seq-ch");
+    function src(i) { var s = String(i + 1); return pat.replace("%03d", ("000" + s).slice(-3)); }
+    function load(i) { if (imgs[i]) return imgs[i]; var im = new Image(); im.decoding = "async"; im.src = src(i); im.onload = function () { if (i === want) draw(i); }; return (imgs[i] = im); }
+    // load every 4th frame first (scrubbing works right away), then fill in
+    for (var i = 0; i < n; i += 4) load(i); setTimeout(function () { for (var j = 0; j < n; j++) load(j); }, 600);
+    var want = 0;
+    function near(i) { for (var d = 0; d < n; d++) { var a = imgs[i - d], b = imgs[i + d]; if (a && a.complete && a.naturalWidth) return i - d; if (b && b.complete && b.naturalWidth) return i + d; } return -1; }
+    function size() { var d = Math.min(devicePixelRatio || 1, 2), w = cv.clientWidth * d | 0, h = cv.clientHeight * d | 0; if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; shown = -1; } }
+    function draw(i) {
+      var k = near(i); if (k < 0 || k === shown) return; var im = imgs[k]; size();
+      var s = Math.max(cv.width / im.naturalWidth, cv.height / im.naturalHeight), w = im.naturalWidth * s, h = im.naturalHeight * s;
+      cx.drawImage(im, (cv.width - w) / 2, (cv.height - h) / 2, w, h); shown = k;
+    }
+    var ticking = false;
+    function update() {
+      ticking = false; var r = sec.getBoundingClientRect(), span = r.height - innerHeight, p = span > 0 ? Math.min(1, Math.max(0, -r.top / span)) : 0;
+      want = Math.min(n - 1, Math.round(p * (n - 1))); load(want); draw(want); sec.style.setProperty("--p", p.toFixed(4));
+      var on = Math.min(chs.length - 1, Math.floor(p * chs.length)); chs.forEach(function (c, j) { c.classList.toggle("on", j === on); });
+    }
+    addEventListener("scroll", function () { if (!ticking) { ticking = true; requestAnimationFrame(update); } }, { passive: true });
+    addEventListener("resize", function () { shown = -1; update(); });
+    update();
+  });
+})();
+`;
