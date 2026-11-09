@@ -160,8 +160,19 @@ test("design directions: each is its own look over the same content; editorial h
     assert.equal(html.includes('class="aurora"'), DIRECTIONS[style as keyof typeof DIRECTIONS].effect !== "none", style);
   }
   const strip = (h: string) => h.replace(/ class="immersive dir-\w+"/, "").replace(/<canvas class="aurora"[^>]*><\/canvas>/, "");
-  assert.equal(strip(pages.warm), strip(pages.cinematic), "same content and structure; only the look changes");
-  const css = renderSite((parseBrief({ ...raw, style: "warm" }) as { brief: Brief }).brief)["css/immersive.css"];
+  assert.equal(strip(pages.daylight), strip(pages.cinematic), "same content and structure; only the look changes");
+  const css = renderSite((parseBrief({ ...raw, style: "daylight" }) as { brief: Brief }).brief)["css/immersive.css"];
   for (const k of Object.keys(DIRECTIONS)) assert.match(css, new RegExp(`body\\.immersive\\.dir-${k} \\{ --bg:`));
   const odd = parseBrief({ ...raw, style: "neon-unicorn" }); assert.ok("brief" in odd && !odd.brief.style);
+});
+
+test("art check (cinematic standard): stand-in art and a choppy or small sequence are flagged; a finished brief is clean", async () => {
+  const { artIssues } = await import("../src/lib/site-brief-pure.ts");
+  const house = parseBrief(fx("brief-house.json")); assert.ok("brief" in house);
+  const a = artIssues(house.brief);
+  assert.ok(a.some((x) => x.includes("48 frames")) && a.some((x) => x.includes("960px")), a.join("; "));
+  const fine = fx("brief-house.json"); fine.sections[1].seq.count = 150; fine.sections[1].seq.width = 1920; fine.sections[1].seq.height = 1080;
+  const f = parseBrief(fine); assert.ok("brief" in f); assert.deepEqual(artIssues(f.brief), []);
+  const stand = fx("brief-detailed.json"); stand.assets[0].origin = "fixture SVG (stand-in)";
+  const st = parseBrief(stand); assert.ok("brief" in st); assert.ok(artIssues(st.brief).some((x) => x.startsWith("hero: stand-in art")));
 });

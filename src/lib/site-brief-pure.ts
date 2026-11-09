@@ -13,7 +13,7 @@ export type Kind = "hero" | "features" | "story" | "specs" | "faq" | "form" | "s
 export type Seq = { path: string; count: number; width: number; height: number; alt: string };
 export type Section = { id: string; kind: Kind; heading: string; body: string[]; items: Item[]; image?: string; cta: Link[]; seq?: Seq; ask?: { label: string; options: string[] } }; // ask: one optional multiple-choice question on a form
 export type Brief = {
-  version: number; style?: "classic" | "immersive" | "cinematic" | "warm" | "editorial"; name: string; offer: string; audience: string; lang: string; description: string; tagline: string;
+  version: number; style?: "classic" | "immersive" | "cinematic" | "daylight" | "editorial"; name: string; offer: string; audience: string; lang: string; description: string; tagline: string;
   assets: Asset[]; sections: Section[]; history: { version: number; changed: string[]; undo?: { section: string; image?: string } }[];
 };
 export type Parsed = { brief: Brief; missing: string[] } | { errors: string[] };
@@ -303,6 +303,17 @@ ${b.sections.map((x) => section(x, b)).join("\n")}
 }
 /** Share image: the hero picture, else the middle frame of a sequence (the plan view of a fly-through). */
 const ogImage = (b: Brief, hero?: Asset) => hero?.path ?? (() => { const q = b.sections.find((x) => x.seq)?.seq; return q ? framePath(q.path, keyFrames(q.count)[1]) : undefined; })();
+/** The cinematic standard's measurable part (site-guide.ts): no stand-in art in a finished site, and sequences smooth enough to feel
+ *  like film. Asset origin "fixture", "stand-in" or "placeholder" marks art that still has to be replaced. */
+export function artIssues(b: Brief): string[] {
+  const out: string[] = [];
+  for (const a of b.assets) if (/fixture|stand-?in|placeholder|grey-?box/i.test(a.origin)) out.push(`${a.id}: stand-in art (${a.origin}); replace it before calling the site finished`);
+  for (const x of b.sections) if (x.seq) {
+    if (x.seq.count < 120) out.push(`${x.id}: ${x.seq.count} frames feels steppy; use at least 120`);
+    if (x.seq.width < 1600) out.push(`${x.id}: frames are ${x.seq.width}px wide; use at least 1600 so it stays sharp on a laptop`);
+  }
+  return out;
+}
 const navLabel = (x: Section) => ({ features: "Features", story: "Story", specs: "Specs", faq: "FAQ", sequence: "Tour", hero: "", form: "" })[x.kind] || x.heading;
 
 /** Every file the brief renders (text only: the images are the owner's, already in the workspace, and are never written here). */

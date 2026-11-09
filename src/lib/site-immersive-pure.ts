@@ -8,16 +8,18 @@
  *  "style"; "immersive" means cinematic. Add one here and it gets the same QA. */
 export type Direction = { label: string; bg: string; ink: string; muted: string; accent: string; onAccent: string; glass: string; edge: string; veil: string;
   cardHi: string; cardLo: string; field: string; glow1: string; glow2: string; effect: "aurora" | "sunlight" | "none"; shader?: [string, string, string]; extra: string };
-export const DIRECTIONS: Record<"cinematic" | "warm" | "editorial", Direction> = {
-  cinematic: { label: "Cinematic dark", bg: "#05070a", ink: "#eef2ef", muted: "#9aa59f", accent: "#b8ff5c", onAccent: "#0b0f0a", glass: "rgba(14,18,20,.62)", edge: "rgba(255,255,255,.09)",
-    veil: "5,7,10", cardHi: "rgba(255,255,255,.05)", cardLo: "rgba(255,255,255,.015)", field: "rgba(255,255,255,.04)", glow1: "rgba(184,255,92,.35)", glow2: "rgba(184,255,92,.6)",
-    effect: "aurora", shader: [".72,1,.36", ".18,.9,.78", ".02,.027,.04"], extra: "" },
-  warm: { label: "Warm minimal", bg: "#f2ece3", ink: "#211c17", muted: "#5f564c", accent: "#9c4421", onAccent: "#fffaf3", glass: "rgba(242,236,227,.78)", edge: "rgba(33,28,23,.12)",
-    veil: "242,236,227", cardHi: "rgba(255,255,255,.65)", cardLo: "rgba(255,255,255,.35)", field: "rgba(255,255,255,.7)", glow1: "rgba(156,68,33,.18)", glow2: "rgba(156,68,33,.28)",
-    effect: "sunlight", shader: [".98,.78,.52", ".95,.6,.42", ".95,.925,.89"],
-    extra: `body.immersive.dir-warm h1, body.immersive.dir-warm h2 { font-family: var(--serif); font-weight: 400; letter-spacing: -.01em; }
-body.immersive.dir-warm .btn { border-radius: 4px; box-shadow: none; } body.immersive.dir-warm .stat { font-family: var(--serif); }
-body.immersive.dir-warm .features > li::before { display: none; } body.immersive.dir-warm .hero-media { box-shadow: 0 30px 80px -40px rgba(60,30,10,.45); transform: translateY(-50%); border-radius: 6px; }` },
+export const DIRECTIONS: Record<"cinematic" | "daylight" | "editorial", Direction> = {
+  cinematic: { label: "Cinematic night", bg: "#070b12", ink: "#eef1f5", muted: "#9aa3b2", accent: "#f2b35b", onAccent: "#1a1206", glass: "rgba(12,17,26,.62)", edge: "rgba(255,255,255,.09)",
+    veil: "7,11,18", cardHi: "rgba(255,255,255,.05)", cardLo: "rgba(255,255,255,.015)", field: "rgba(255,255,255,.04)", glow1: "rgba(242,179,91,.3)", glow2: "rgba(242,179,91,.55)",
+    effect: "aurora", shader: [".95,.68,.33", ".22,.42,.78", ".027,.043,.07"], extra: "" },
+  daylight: { label: "Nordic daylight", bg: "#f4f5f3", ink: "#14201b", muted: "#4d5953", accent: "#1f5a44", onAccent: "#f4f5f3", glass: "rgba(244,245,243,.82)", edge: "rgba(20,32,27,.14)",
+    veil: "244,245,243", cardHi: "#ffffff", cardLo: "#fbfbfa", field: "#ffffff", glow1: "rgba(31,90,68,.14)", glow2: "rgba(31,90,68,.24)",
+    effect: "sunlight", shader: [".86,.92,.95", ".74,.86,.8", ".955,.96,.952"],
+    extra: `body.immersive.dir-daylight h1, body.immersive.dir-daylight h2 { font-family: Bahnschrift, "DIN Alternate", "Arial Narrow", system-ui, sans-serif; font-weight: 600; letter-spacing: -.01em; }
+body.immersive.dir-daylight h1 em, body.immersive.dir-daylight h2 em { font-family: inherit; font-style: normal; color: var(--accent); }
+body.immersive.dir-daylight .btn { border-radius: 2px; box-shadow: none; } body.immersive.dir-daylight .stat { font-family: Bahnschrift, "DIN Alternate", "Arial Narrow", sans-serif; color: var(--accent); }
+body.immersive.dir-daylight .features > li { border-radius: 2px; } body.immersive.dir-daylight .features > li::before { background: var(--accent); opacity: 1; }
+body.immersive.dir-daylight .hero-media { box-shadow: 0 30px 80px -40px rgba(10,30,20,.45); transform: translateY(-50%); border-radius: 2px; }` },
   editorial: { label: "Bold editorial", bg: "#f4f3ef", ink: "#0f0f0f", muted: "#45443f", accent: "#ff4a1c", onAccent: "#0f0f0f", glass: "rgba(244,243,239,.92)", edge: "rgba(15,15,15,.9)",
     veil: "244,243,239", cardHi: "transparent", cardLo: "transparent", field: "#fff", glow1: "transparent", glow2: "transparent", effect: "none",
     extra: `body.immersive.dir-editorial h1 { font-size: clamp(2.6rem, 7.2vw, 6.8rem); text-transform: uppercase; letter-spacing: -.04em; line-height: .88; font-weight: 800; }
