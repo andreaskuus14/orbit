@@ -142,6 +142,23 @@ export function fakeVoiceWav(line: string, at: number, frames: number, voice: st
   return b;
 }
 
+/** Real voice (e.g. local Kokoro, 48 kHz mono 16-bit samples) placed at frame `at` in a WAV of the scene's length. */
+export function pcmWav(pcm: Int16Array, at: number, frames: number): Uint8Array {
+  const n = (frames * RATE) / FPS, b = new Uint8Array(44 + n * 2), v = new DataView(b.buffer), o = Math.round((at * RATE) / FPS);
+  b.set(fakeVoiceWav("", 0, 0, "none").subarray(0, 44)); v.setUint32(4, 36 + n * 2, true); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < pcm.length && o + i < n; i++) v.setInt16(44 + (o + i) * 2, pcm[i], true);
+  return b;
+}
+/** Mouth opening 0..1 per frame from the voice's loudness (RMS per frame, scaled to the line's loudest frame). */
+export function mouthFromPcm(pcm: Int16Array, at: number, frames: number): number[] {
+  const per = RATE / FPS, rms = Array.from({ length: frames }, (_, f) => {
+    const a = (f - at) * per; if (a < 0 || a >= pcm.length) return 0;
+    let q = 0, k = 0; for (let i = a; i < Math.min(a + per, pcm.length); i++, k++) q += pcm[i] * pcm[i];
+    return Math.sqrt(q / Math.max(1, k));
+  }), top = Math.max(1, ...rms);
+  return rms.map((r) => Math.min(1, (r / top) ** 0.7 * 1.2));
+}
+
 export type Cue = { scene: string; start: number; end: number; text: string; lines: string[] }; // frames, film timeline
 /** One caption per spoken line: from the voice's first frame to a third of a second after it ends, never past its scene's cut. */
 export function cues(m: Manifest, format: Format): Cue[] {

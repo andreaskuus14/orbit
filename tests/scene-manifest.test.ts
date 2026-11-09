@@ -134,3 +134,14 @@ test("style A: long shadow lies on the ground, stretched away from the low sun",
   const [x, y] = shadowPoint([300, GROUND - 400], 0.9);
   assert.ok(x > 600 && y >= GROUND && y < GROUND + 40);
 });
+
+test("real voice: placed at its frame, mouth follows its loudness", async () => {
+  const { pcmWav, mouthFromPcm, RATE, FPS } = await import("../src/lib/clips/scene-manifest-pure.ts");
+  const pcm = new Int16Array(RATE / 2).map((_, i) => (i < RATE / 4 ? 8000 : 0)); // 0.25 s loud, 0.25 s silent
+  const wav = pcmWav(pcm, 30, 60), v = new DataView(wav.buffer);
+  assert.equal(wav.length, 44 + 2 * RATE * 2);
+  assert.equal(v.getInt16(44 + (RATE - 1) * 2, true), 0); // before frame 30: silence
+  assert.equal(v.getInt16(44 + RATE * 2, true), 8000);
+  const m = mouthFromPcm(pcm, 30, 60);
+  assert.equal(m[29], 0); assert.equal(m[30], 1); assert.equal(m[30 + FPS / 4 + 1], 0);
+});

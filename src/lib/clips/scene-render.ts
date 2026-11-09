@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { assemblyHash, cues, fakeVoiceWav, layout, sceneAss, sceneHashes, envelope, starts, stageToPx, wordSpans, FPS, type Format, type Manifest, type Probe, type Scene } from "./scene-manifest-pure.ts";
+import { assemblyHash, cues, fakeVoiceWav, mouthFromPcm, pcmWav, layout, sceneAss, sceneHashes, envelope, starts, stageToPx, wordSpans, FPS, type Format, type Manifest, type Probe, type Scene } from "./scene-manifest-pure.ts";
 import { capsule, disk, drawRig, drawShadow, hex, image, rect, rig, sample } from "./stickman-pure.ts";
 
 export type Built = { id: string; version: number; inputHash: string; outputHash: string; file: string; reused: boolean; ms: number };
@@ -29,7 +29,8 @@ function run(bin: string, args: string[], cwd: string, feed?: (w: NodeJS.Writabl
 }
 
 /** One scene → MP4 (h264 + AAC), exactly scene.frames frames and frames/FPS seconds of audio. */
-async function renderScene(m: Manifest, s: Scene, i: number, format: Format, scale: number, ff: string, work: string, out: string) {
+export type Voice = (line: string, voice: string) => Promise<Int16Array>; // 48 kHz mono 16-bit
+async function renderScene(m: Manifest, s: Scene, i: number, format: Format, scale: number, ff: string, work: string, out: string, voice?: Voice) {
   const L = layout(format, scale), [w, h] = L.size, ch = m.assets[s.character];
   const { to, k } = stageToPx(s, format, scale), bg = hex(s.bg), ink = hex(ch.color);
   const base = image(w, h, bg);
@@ -43,7 +44,9 @@ async function renderScene(m: Manifest, s: Scene, i: number, format: Format, sca
   }
   const tag = `${s.id}-${format}`, wav = path.join(work, `${tag}.wav`), ass = `${tag}.ass`;
   const cue = cues(m, format).find((c) => c.scene === s.id), at0 = starts(m)[i];
-  await writeFile(wav, s.audio.kind === "fake-tts" ? fakeVoiceWav(s.line, s.audio.at, s.frames, s.audio.voice) : fakeVoiceWav("", 0, s.frames, "none"));
+  const pcm = voice && s.audio.kind === "fake-tts" && s.line.trim() ? await voice(s.line, s.audio.voice) : null;
+  const mouthAt = pcm && s.audio.kind === "fake-tts" ? mouthFromPcm(pcm, s.audio.at, s.frames) : null;
+  await writeFile(wav, pcm && s.audio.kind === "fake-tts" ? pcmWav(pcm, s.audio.at, s.frames) : s.audio.kind === "fake-tts" ? fakeVoiceWav(s.line, s.audio.at, s.frames, s.audio.voice) : fakeVoiceWav("", 0, s.frames, "none"));
   await writeFile(path.join(work, ass), sceneAss(cue, at0, format, scale), "utf8");
   const spans = wordSpans(s.line), at = s.audio.kind === "fake-tts" ? s.audio.at : 0;
   const tmp = `${out}.part.mp4`;
@@ -52,7 +55,7 @@ async function renderScene(m: Manifest, s: Scene, i: number, format: Format, sca
     "-frames:v", String(s.frames), ...X264, ...EXACT, tmp], work, async (stdin) => {
     for (let f = 0; f < s.frames; f++) {
       const img = { w, h, px: base.px.slice() };
-      const mouth = s.audio.kind === "fake-tts" ? envelope(spans, (f - at) / FPS) : 0;
+      const mouth = mouthAt ? mouthAt[f] : s.audio.kind === "fake-tts" ? envelope(spans, (f - at) / FPS) : 0;
       const pose = rig(sample(s.acting, f), s.home, s.face, ch.headR);
       if (s.shadow) drawShadow(img, pose, to, k, ch.line, hex(s.shadow));
       drawRig(img, rig(sample(s.acting, f), s.home, s.face, ch.headR), to, k, ch.line, ink, bg, mouth);
@@ -63,13 +66,14 @@ async function renderScene(m: Manifest, s: Scene, i: number, format: Format, sca
 }
 
 /** Builds one format: reuses cached scenes whose input hash is unchanged, renders the rest, then joins (cached by the scene outputs). */
-export async function buildFilm(m: Manifest, format: Format, o: { ffmpeg: string; cache: string; out: string; scale?: number }): Promise<Film> {
+// shortcut: the voice isn't part of the scene hash, so give a real-voice build its own cache dir; hash the voice id once voices are picked per film.
+export async function buildFilm(m: Manifest, format: Format, o: { ffmpeg: string; cache: string; out: string; scale?: number; voice?: Voice }): Promise<Film> {
   const scale = o.scale ?? 1, dir = path.join(o.cache, format), work = path.join(dir, "work");
   await mkdir(work, { recursive: true }); await mkdir(o.out, { recursive: true });
   const hashes = sceneHashes(m, format, scale), scenes: Built[] = [];
   for (const [i, s] of m.scenes.entries()) {
     const t = Date.now(), file = path.join(dir, `scene-${hashes[s.id]}.mp4`), reused = await exists(file);
-    if (!reused) await renderScene(m, s, i, format, scale, o.ffmpeg, work, file);
+    if (!reused) await renderScene(m, s, i, format, scale, o.ffmpeg, work, file, o.voice);
     scenes.push({ id: s.id, version: s.version, inputHash: hashes[s.id], outputHash: await fileHash(file), file, reused, ms: Date.now() - t });
   }
   const t = Date.now(), inputHash = assemblyHash(format, scenes.map((s) => s.outputHash)), cached = path.join(dir, `final-${inputHash}.mp4`), reused = await exists(cached);
