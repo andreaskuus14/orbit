@@ -151,7 +151,7 @@ export function latencyCheck(turns: { ms: Record<string, number> }[], last = 50)
   const recent = turns.slice(-last);
   const mid = (k: string) => { const s = recent.map((t) => t.ms[k]).filter(Number.isFinite).sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : null; };
   if (!recent.length) return check("latency", L, "ok", "No CORE turns since ORBIT started");
-  const first = mid("first_token"), total = mid("total");
+  const ack = mid("ack"), first = mid("first_token"), total = mid("total");
   const sec = (v: number | null) => (v === null ? "n/a" : `${(v / 1000).toFixed(1)} s`);
-  return check("latency", L, "ok", `Median of last ${recent.length} turns: first words ${sec(first)}, full answer ${sec(total)}`);
+  return check("latency", L, "ok", `Median of last ${recent.length} turns: first sign of work ${sec(ack)}, first words ${sec(first)}, full answer ${sec(total)}`);
 }
