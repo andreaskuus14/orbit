@@ -143,5 +143,5 @@ test("real voice: placed at its frame, mouth follows its loudness", async () => 
   assert.equal(v.getInt16(44 + (RATE - 1) * 2, true), 0); // before frame 30: silence
   assert.equal(v.getInt16(44 + RATE * 2, true), 8000);
   const m = mouthFromPcm(pcm, 30, 60);
-  assert.equal(m[29], 0); assert.equal(m[30], 1); assert.equal(m[30 + FPS / 4 + 1], 0);
+  assert.equal(m[29], 0); assert.equal(m[30], 1); assert.equal(m[30 + Math.ceil(FPS / 4) + 1], 0);
 });
