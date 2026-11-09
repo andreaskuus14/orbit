@@ -53,3 +53,26 @@ test("fly-through: starts outside at eye level, rises over the model with the ro
   const py = blenderSequence(sc, { site, date: new Date("2026-06-21T12:00:00Z"), quality: "preview" }, P);
   assert.match(py, /f%03d\.png/); assert.match(py, /hide_render = not roof/); assert.ok(!/true|false|NaN/.test(py.split("P = ")[1].split("\n")[0]));
 });
+
+test("asset library: props map to real CC0 models by name (coffee table before table); unknown props stay boxes", async () => {
+  const { assetFor, libraryIds } = await import("../src/lib/arch-blender-pure.ts");
+  assert.equal(assetFor("Sofa"), "sofa_03");
+  assert.equal(assetFor("Coffee table"), "modern_coffee_table_01");
+  assert.equal(assetFor("Dining table"), "dining_table");
+  assert.equal(assetFor("Armchair"), "modern_arm_chair_01");
+  assert.equal(assetFor("Rug"), null);
+  assert.ok(libraryIds().includes("fir_sapling_medium") && new Set(libraryIds()).size === libraryIds().length);
+});
+
+test("dressing: with an asset folder, known props become library models (boxes hidden), textures and sky load, lights stay off camera", async () => {
+  const { blenderScript } = await import("../src/lib/arch-blender-pure.ts");
+  const sc = { plot: { w: 30, d: 25, ground: "grass" as const, trees: 3 }, parts: [...starterScene().parts, { id: "s1", kind: "prop" as const, name: "Sofa", x: 0, y: 0.2, z: 1, w: 2.2, d: 0.9, h: 0.8 }, { id: "r1", kind: "prop" as const, name: "Rug", x: 0, y: 0.2, z: 0, w: 2, d: 2, h: 0.02 }] };
+  const py = blenderScript(sc, { site, date: new Date("2026-09-10T16:00:00Z"), quality: "preview", assets: "/lib" });
+  assert.match(py, /obj\["s1"\]\.hide_render = True; place\("sofa_03"/);
+  assert.doesNotMatch(py, /obj\["r1"\]\.hide_render/, "the rug has no model, so its box stays");
+  assert.equal((py.match(/place\('fir_sapling_medium'/g) ?? []).length, 3);
+  assert.match(py, /sky\.hdr/); assert.match(py, /visible_camera = False/);
+  assert.ok(py.trimEnd().endsWith("bpy.ops.render.render(write_still=True)"), "render stays the last line");
+  const plain = blenderScript(sc, { site, date: new Date("2026-09-10T16:00:00Z"), quality: "preview" });
+  assert.doesNotMatch(plain, /sky\.hdr|place\(/, "no folder: unchanged");
+});

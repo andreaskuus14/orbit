@@ -7,7 +7,7 @@ import type { Part, Scene } from "./arch-pure.ts";
 import { sunPosition } from "./sun-pure.ts";
 
 export type Quality = "preview" | "detail";
-export type Opts = { site: { lat: number; lon: number }; date: Date; quality: Quality; size?: [number, number] };
+export type Opts = { site: { lat: number; lon: number }; date: Date; quality: Quality; size?: [number, number]; assets?: string }; // assets: folder from scripts/arch-assets.mjs
 type V3 = [number, number, number];
 
 /** Base colour (linear-ish sRGB), roughness and an optional transmission per part kind / ground. */
@@ -142,8 +142,9 @@ export function blenderScript(scene: Scene, o: Opts): string {
     `S.cycles.samples = ${q.samples}; S.cycles.use_denoising = ${q.denoise ? "True" : "False"}; S.cycles.max_bounces = ${q.bounces}`,
     `S.render.resolution_x = ${W}; S.render.resolution_y = ${H}; S.render.resolution_percentage = 100`,
     "S.view_settings.view_transform = 'AgX'; S.view_settings.look = 'AgX - Medium High Contrast'; S.view_settings.exposure = -0.8",
-    "S.render.filepath = out; bpy.ops.render.render(write_still=True)",
   );
+  if (o.assets) L.push(...dressLines(scene, o.assets));
+  L.push("S.render.filepath = out; bpy.ops.render.render(write_still=True)");
   return L.join("\n") + "\n";
 }
 
@@ -191,4 +192,73 @@ export function blenderSequence(scene: Scene, o: Opts, poses: Pose[]): string {
     "    for r in roofs: r.hide_render = not roof; r.location.z = base[r.name] + lift",
     "    S.render.filepath = os.path.join(out, 'f%03d.png' % (i + 1)); bpy.ops.render.render(write_still=True)",
   ].join("\n") + "\n";
+}
+
+// ---- Real assets (the owner's cinematic standard: grey boxes are never the finished render). Props are swapped for free CC0 Poly
+// Haven models by name when the library is on disk (scripts/arch-assets.mjs downloads it); floor, walls and ground get PBR textures and
+// the sky a real HDRI. Without the library the boxes stay, and the render is labelled a stand-in.
+export const ASSET_LIBRARY: { re: RegExp; id: string }[] = [
+  { re: /sofa|couch/i, id: "sofa_03" }, { re: /arm ?chair|lounge chair/i, id: "modern_arm_chair_01" }, { re: /coffee table/i, id: "modern_coffee_table_01" },
+  { re: /dining table|table/i, id: "dining_table" }, { re: /chair/i, id: "dining_chair_02" }, { re: /side table|nightstand/i, id: "side_table_01" },
+  { re: /cabinet|sideboard|shelf/i, id: "modern_wooden_cabinet" }, { re: /plant|pot/i, id: "potted_plant_01" }, { re: /lamp|light/i, id: "modern_ceiling_lamp_01" },
+];
+export const LIBRARY_EXTRAS = ["fir_sapling_medium", "shrub_01", "potted_plant_02", "potted_plant_04"];
+export const LIBRARY_TEXTURES = ["wood_floor", "plastered_wall_02", "aerial_grass_rock"];
+export const LIBRARY_SKY = "belfast_sunset";
+/** The library model for a prop, or null (it stays a box). Order matters: "coffee table" before "table". */
+export const assetFor = (name: string): string | null => ASSET_LIBRARY.find((a) => a.re.test(name))?.id ?? null;
+/** Every Poly Haven id the library needs, for the downloader. */
+export const libraryIds = () => [...new Set([...ASSET_LIBRARY.map((a) => a.id), ...LIBRARY_EXTRAS])];
+
+/** Blender lines that dress the built scene from the asset library: PBR floor/walls/ground, real models for props it knows, firs
+ *  around the plot, the HDRI sky, and warm interior lights hidden from the camera so the glazing glows. */
+export function dressLines(scene: Scene, dir: string): string[] {
+  const props = scene.parts.filter((p) => p.kind === "prop" && assetFor(p.name));
+  const ceilings = scene.parts.filter((p) => p.kind === "roof"), top = ceilings.length ? Math.min(...ceilings.map((r) => r.y)) - 0.15 : 2.9;
+  const rooms = scene.parts.filter((p) => p.kind === "prop" && /sofa|table|bed|desk/i.test(p.name));
+  return [
+    "import os",
+    `A = ${JSON.stringify(dir)}`,
+    "def tex(name, stem, scale):",
+    "    m = bpy.data.materials.new(name); m.use_nodes = True; nt = m.node_tree; b = nt.nodes['Principled BSDF']",
+    "    co = nt.nodes.new('ShaderNodeTexCoord'); mp = nt.nodes.new('ShaderNodeMapping'); mp.inputs['Scale'].default_value = (scale, scale, scale); nt.links.new(co.outputs['Object'], mp.inputs['Vector'])",
+    "    for suf, inp, col in (('Diffuse', 'Base Color', True), ('Rough', 'Roughness', False)):",
+    "        t = nt.nodes.new('ShaderNodeTexImage'); t.image = bpy.data.images.load(os.path.join(A, stem + '_' + suf + '.jpg'))",
+    "        if not col: t.image.colorspace_settings.name = 'Non-Color'",
+    "        nt.links.new(mp.outputs['Vector'], t.inputs['Vector']); nt.links.new(t.outputs['Color'], b.inputs[inp])",
+    "    t = nt.nodes.new('ShaderNodeTexImage'); t.image = bpy.data.images.load(os.path.join(A, stem + '_nor_gl.jpg')); t.image.colorspace_settings.name = 'Non-Color'",
+    "    n = nt.nodes.new('ShaderNodeNormalMap'); nt.links.new(mp.outputs['Vector'], t.inputs['Vector']); nt.links.new(t.outputs['Color'], n.inputs['Color']); nt.links.new(n.outputs['Normal'], b.inputs['Normal'])",
+    "    return m",
+    "TEX = {'slab': tex('oak', 'wood_floor', 0.45), 'wall': tex('plaster', 'plastered_wall_02', 0.35), 'ground': tex('grass', 'aerial_grass_rock', 0.12)}",
+    `KIND = ${JSON.stringify(Object.fromEntries(scene.parts.filter((p) => p.kind === "slab" || p.kind === "wall").map((p) => [p.id, p.kind])))}`,
+    "for k, kind in KIND.items():",
+    "    if k in obj: obj[k].data.materials.clear(); obj[k].data.materials.append(TEX[kind])",
+    "g.data.materials.clear(); g.data.materials.append(TEX['ground'])",
+    "SRC = {}",
+    "def lib(asset):",
+    "    if asset not in SRC:",
+    "        col = bpy.data.collections.new(asset); before = set(bpy.data.objects)",
+    "        f = [p for p in os.listdir(os.path.join(A, asset)) if p.endswith('.gltf')][0]; bpy.ops.import_scene.gltf(filepath=os.path.join(A, asset, f))",
+    "        for n in [x for x in bpy.data.objects if x not in before]:",
+    "            for uc in list(n.users_collection): uc.objects.unlink(n)",
+    "            col.objects.link(n)",
+    "        SRC[asset] = col",
+    "    return SRC[asset]",
+    "def place(asset, loc, rot=0.0, s=1.0):",
+    "    e = bpy.data.objects.new(asset, None); e.instance_type = 'COLLECTION'; e.instance_collection = lib(asset); S.collection.objects.link(e)",
+    "    e.location = loc; e.rotation_euler = (0, 0, math.radians(rot)); e.scale = (s, s, s); return e",
+    // props: hide the box, place the model on its footprint centre; deeper than wide → turned 90°
+    ...props.map((p) => `obj[${JSON.stringify(p.id)}].hide_render = True; place(${JSON.stringify(assetFor(p.name))}, ${v(toBlender(p.x, p.y, p.z))}, ${p.d > p.w ? 90 : 0})`),
+    // trees: the plot's count on a ring, kept off the south-east (the camera side); shrubs along the south side
+    ...Array.from({ length: Math.min(scene.plot.trees, 24) }, (_, i) => i).flatMap((i) => {
+      const a = Math.PI * (0.55 + (i / Math.max(1, Math.min(scene.plot.trees, 24))) * 1.3), r = Math.max(scene.plot.w, scene.plot.d) * (0.42 + ((i * 37) % 11) / 40);
+      return [`place('fir_sapling_medium', ${v(toBlender(Math.cos(a) * r, 0, -Math.sin(a) * r))}, ${(i * 47) % 360}, ${f(2.6 + ((i * 13) % 7) / 6)})`];
+    }),
+    "w = S.world; nt = w.node_tree",
+    "for n in [n for n in nt.nodes if n.type == 'TEX_SKY']: nt.nodes.remove(n)",
+    "env = nt.nodes.new('ShaderNodeTexEnvironment'); env.image = bpy.data.images.load(os.path.join(A, 'sky.hdr')); nt.links.new(env.outputs['Color'], nt.nodes['Background'].inputs['Color'])",
+    "nt.nodes['Background'].inputs['Strength'].default_value = 0.9; sun.data.color = (1.0, 0.75, 0.5)",
+    ...rooms.map((p) => { const [x, y] = toBlender(p.x, 0, p.z); return `l = bpy.data.lights.new('warm', 'AREA'); l.size = 1.6; l.energy = 320; l.color = (1.0, 0.78, 0.52); lo = bpy.data.objects.new('warm', l); S.collection.objects.link(lo); lo.location = (${f(x)}, ${f(y)}, ${f(top)}); lo.visible_camera = False`; }),
+    "S.view_settings.exposure = -0.3",
+  ];
 }
