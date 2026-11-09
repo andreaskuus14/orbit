@@ -35,7 +35,10 @@ async function renderScene(m: Manifest, s: Scene, i: number, format: Format, sca
   const base = image(w, h, bg);
   for (const p of s.props) {
     if (p.kind === "rect") { const a = to([p.x0, p.y0]), b = to([p.x1, p.y1]); rect(base, a[0], a[1], b[0], b[1], hex(p.color)); }
-    else if (p.kind === "line") capsule(base, to([p.x0, p.y0]), to([p.x1, p.y1]), (p.w * k) / 2, hex(p.color));
+    else if (p.kind === "line") {
+      if (p.ink) capsule(base, to([p.x0, p.y0]), to([p.x1, p.y1]), (p.w * k) / 2 + 3 * k, hex(p.ink)); // style A: ink outline under the fill
+      capsule(base, to([p.x0, p.y0]), to([p.x1, p.y1]), (p.w * k) / 2, hex(p.color));
+    }
     else { const c = to([p.cx, p.cy]); disk(base, c[0], c[1], p.r * k, hex(p.color)); }
   }
   const tag = `${s.id}-${format}`, wav = path.join(work, `${tag}.wav`), ass = `${tag}.ass`;

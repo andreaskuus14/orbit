@@ -13,7 +13,7 @@ export const FPS = 30, RATE = 48000;
 
 export type Character = { kind: "character"; name: string; color: string; line: number; headR: number };
 export type Prop = { kind: "rect"; x0: number; y0: number; x1: number; y1: number; color: string } | { kind: "disk"; cx: number; cy: number; r: number; color: string }
-  | { kind: "line"; x0: number; y0: number; x1: number; y1: number; w: number; color: string };
+  | { kind: "line"; x0: number; y0: number; x1: number; y1: number; w: number; color: string; ink?: string };
 export type Shot = "wide" | "medium" | "close";
 export type Audio = { kind: "fake-tts"; voice: string; at: number } | { kind: "silence" };
 export type Scene = { id: string; version: number; beat: string; character: string; shot: Shot; line: string; audio: Audio; frames: number;
