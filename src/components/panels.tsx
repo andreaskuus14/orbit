@@ -8,7 +8,7 @@ import { numberCitations } from "@/lib/pure";
 import { OPEN_SOURCE_EVENT } from "@/lib/week-pure";
 import { takeLines } from "@/lib/streamjson";
 import { followUps } from "@/lib/core-ui";
-import { dropNote } from "@/lib/long-work-pure";
+import { dropNote, handoffTask } from "@/lib/long-work-pure";
 import { applyLive, type LiveEvent, type LiveRow } from "@/lib/core-live-pure";
 import { CoreActivity } from "./CoreActivity";
 import { CoreWorkspace } from "./CoreWorkspace";
@@ -154,6 +154,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       setMsgs(r.messages.map((m) => ({ role: m.role, content: m.content, citations: m.citations, trace: m.trace })));
       setChatId(id); setNewProject(null);
       lastQ.current = [...r.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+      const pending = handoffTask(r.messages); // reopened (reload, other device) while its background task runs: show the answer when it lands
+      if (pending) void waitTask(pending, () => alive.current && mine === opening.current).then(async (t) => {
+        if (!t || mine !== opening.current || abort.current) return; // moved on, or a new turn is streaming: the answer shows on the next open
+        const again = await chatsApi<{ messages: Msg[] }>(undefined, `?id=${encodeURIComponent(id)}`).catch(() => null); // the server wrote it before closing the task
+        if (again?.messages.length && mine === opening.current && !abort.current) setMsgs(again.messages.map((m) => ({ role: m.role, content: m.content, citations: m.citations, trace: m.trace })));
+      });
     } catch (e) { if (mine === opening.current) { setMsgs([{ role: "assistant", content: e instanceof Error ? e.message : "Couldn't open that chat", error: true }]); setChatId(null); } }
   }, [setChatId, newChat]);
   // Reopen the last chat on mount (the panel remounts each time it opens); palette/voice "new chat" starts fresh.

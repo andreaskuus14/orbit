@@ -67,6 +67,12 @@ export function dropNote(message: string, elapsedMs: number, hiddenMs: number, h
   return `${message} (after ${s(elapsedMs)}; tab hidden ${s(hiddenMs)}${hiddenNow ? ", hidden now" : ""})`;
 }
 
+/** The task a chat is still waiting on: its last message is the handoff reply (nothing written after it yet), so reopening can wait for the result. */
+export function handoffTask(msgs: readonly { role: string; content: string }[]): string | null {
+  const last = msgs[msgs.length - 1];
+  return last?.role === "assistant" ? /\]\(#o=operations&k=task&id=([0-9a-f-]{36})\)$/.exec(last.content.trim())?.[1] ?? null : null;
+}
+
 /** Never show the raw CLI timeout as the owner's final answer. */
 export const BG_FAILED = "The background run didn't finish. Ask again, or split the request into smaller parts.";
 
