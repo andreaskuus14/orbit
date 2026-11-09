@@ -28,7 +28,7 @@ export const wsTainted = (steps: string[], question = "") => {
 };
 // Every tool in policy-pure UNTRUSTED belongs here too (tests/outside-text-taint.test.ts checks it). plugin__<server>__<tool>: a plugin's result is outside text.
 const OUTSIDE = "read_more|reach_trending|reach_read|vault_search|vault_read|ws_read|rea_read|rea_status|life_journal|ask_agent|calendar_events|git_summary|browse|watch_changes|business_status|ideas_list|wishlist|plan_day|mission_status|run_niche|local_transcribe|read_news|mcp_.*|plugin__.*";
-const INBOUND = new RegExp(`^(?:web_search|fetch_url|ws_fetch_image|ws_inspire_image|${OUTSIDE})$`);
+const INBOUND = new RegExp(`^(?:web_search|fetch_url|scrape_page|ws_fetch_image|ws_inspire_image|${OUTSIDE})$`);
 const INBOUND_BUILD = new RegExp(`^(?:${OUTSIDE})$`); // his explicit build: the site pipeline's own public research (search, fetch, images) doesn't taint
 /** Workspaces this task's own ws_create made (empty or ORBIT's template; a taken name becomes a new version), so reading them adds no outside text. */
 const freshWorkspaces = (steps: string[]) => new Set(steps.flatMap((s) => /^You called ws_create [^\n]*\nRESULT:\n(?:Error: template[^\n]*\n)?Done: (?:full-stack )?workspace "([a-z0-9-]+)"/.exec(s)?.[1] ?? []));
