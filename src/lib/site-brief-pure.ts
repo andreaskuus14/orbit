@@ -1,6 +1,7 @@
 // W02 site brief (pure): one typed, editor-friendly brief (site.json in the workspace) → a versioned one-page site. Copy, brand,
 // assets and section settings stay separate from rendering; sections keep stable IDs; copy edits never touch assets; the hero
 // crop follows a focal point and keeps a text-safe area. Disk side: site-brief.ts. Tests: tests/site-brief.test.ts.
+import { IMMERSIVE_CSS, IMMERSIVE_JS, accentHeading } from "./site-immersive-pure.ts";
 
 export type Focal = { x: number; y: number };
 /** An image the site uses. focal = the subject (0-1 of width/height); safe = the side of the image with no subject, where text may sit. */
@@ -10,7 +11,7 @@ export type Link = { label: string; href: string };
 export type Kind = "hero" | "features" | "story" | "specs" | "faq" | "form";
 export type Section = { id: string; kind: Kind; heading: string; body: string[]; items: Item[]; image?: string; cta: Link[] };
 export type Brief = {
-  version: number; name: string; offer: string; audience: string; lang: string; description: string; tagline: string;
+  version: number; style?: "classic" | "immersive"; name: string; offer: string; audience: string; lang: string; description: string; tagline: string;
   assets: Asset[]; sections: Section[]; history: { version: number; changed: string[]; undo?: { section: string; image?: string } }[];
 };
 export type Parsed = { brief: Brief; missing: string[] } | { errors: string[] };
@@ -77,7 +78,7 @@ export function parseBrief(input: unknown): Parsed {
   if (sections.filter((x) => x.kind === "form").length > 1) errors.push("one form per page");
   if (errors.length) return { errors };
   const description = s(i.description, 160) || offer.slice(0, 160);
-  return { brief: { version: Math.max(1, Math.floor(Number(i.version) || 1)), name, offer, audience, lang: /^[a-z]{2}(?:-[A-Z]{2})?$/.test(s(i.lang, 5)) ? s(i.lang, 5) : "en", description, tagline: s(i.tagline, 80), assets, sections, history: arr(i.history) as Brief["history"] }, missing };
+  return { brief: { version: Math.max(1, Math.floor(Number(i.version) || 1)), ...(i.style === "immersive" ? { style: "immersive" as const } : {}), name, offer, audience, lang: /^[a-z]{2}(?:-[A-Z]{2})?$/.test(s(i.lang, 5)) ? s(i.lang, 5) : "en", description, tagline: s(i.tagline, 80), assets, sections, history: arr(i.history) as Brief["history"] }, missing };
 }
 
 // ---- Copy edits: text only. A field path is "heading", "body.N", "items.N.title|body|label" or "cta.N.label" on a section, or
@@ -170,8 +171,9 @@ function section(x: Section, b: Brief): string {
     case "hero": {
       const pos = a && heroPositions(a);
       const style = pos ? `--pos-sm:${pct(pos.sm.x)} ${pct(pos.sm.y)};--pos-md:${pct(pos.md.x)} ${pct(pos.md.y)};--pos-lg:${pct(pos.lg.x)} ${pct(pos.lg.y)}` : "";
-      return `<section ${attrs.replace(`class="sec sec-hero"`, `class="hero${a ? ` safe-${a.safe}` : " no-image"}"`)}>${a ? `<div class="hero-media">${img(a, "hero-img", true, style)}</div>` : ""}`
-        + `<div class="hero-copy">${b.tagline ? `<p class="eyebrow">${esc(b.tagline)}</p>` : ""}<h1 id="${x.id}-title">${esc(x.heading)}</h1>${paras(x.body)}${buttons(x.cta)}</div></section>`;
+      const imm = b.style === "immersive", h1 = imm ? accentHeading(esc(x.heading)) : esc(x.heading);
+      return `<section ${attrs.replace(`class="sec sec-hero"`, `class="hero${a ? ` safe-${a.safe}` : " no-image"}"`)}>${imm ? `<canvas class="aurora" aria-hidden="true"></canvas>` : ""}${a ? `<div class="hero-media">${img(a, "hero-img", true, style)}</div>` : ""}`
+        + `<div class="hero-copy">${b.tagline ? `<p class="eyebrow">${esc(b.tagline)}</p>` : ""}<h1 id="${x.id}-title">${h1}</h1>${paras(x.body)}${buttons(x.cta)}</div></section>`;
     }
     case "features":
       return `<section ${attrs}><div class="wrap">${head}${paras(x.body)}<ol class="features">${x.items.map((it) => `<li>${it.label ? `<span class="stat">${esc(it.label)}</span>` : ""}<h3>${esc(it.title)}</h3><p>${esc(it.body)}</p></li>`).join("")}</ol></div></section>`;
@@ -267,8 +269,8 @@ export function renderHtml(b: Brief): string {
 ${heroImg ? `<meta property="og:image" content="${esc(heroImg.path)}">\n` : ""}<meta name="theme-color" content="#0b212c">
 <link rel="icon" href="${FAVICON}">
 <link rel="stylesheet" href="css/style.css">
-</head>
-<body data-version="${b.version}">
+${b.style === "immersive" ? `<link rel="stylesheet" href="css/immersive.css">\n` : ""}</head>
+<body data-version="${b.version}"${b.style === "immersive" ? ` class="immersive"` : ""}>
 <a class="skip" href="#main">Skip to content</a>
 <header class="top"><div class="wrap bar"><a class="brand" href="#main">${MARK}<span>${esc(b.name)}</span></a>
 <nav aria-label="Sections"><ul>${nav.map((x) => `<li><a href="#${x.id}">${esc(navLabel(x))}</a></li>`).join("")}</ul>${form ? `<a class="btn btn-small" href="#${form.id}">${esc(form.cta[0]?.label || "Contact")}</a>` : ""}</nav></div></header>
@@ -276,7 +278,7 @@ ${heroImg ? `<meta property="og:image" content="${esc(heroImg.path)}">\n` : ""}<
 ${b.sections.map((x) => section(x, b)).join("\n")}
 </main>
 <footer class="foot"><div class="wrap"><p class="brand">${MARK}<span>${esc(b.name)}</span></p><p>${esc(b.offer)}</p><p class="small">Version ${b.version}. <a href="#main">Back to top</a></p></div></footer>
-<script src="js/form.js" defer></script>
+<script src="js/form.js" defer></script>${b.style === "immersive" ? `\n<script src="js/immersive.js" defer></script>` : ""}
 </body>
 </html>
 `;
@@ -285,7 +287,8 @@ const navLabel = (x: Section) => ({ features: "Features", story: "Story", specs:
 
 /** Every file the brief renders (text only: the images are the owner's, already in the workspace, and are never written here). */
 export function renderSite(b: Brief): Record<string, string> {
-  return { "index.html": renderHtml(b), "css/style.css": SITE_CSS, "js/form.js": FORM_JS, "site.json": `${JSON.stringify(b, null, 2)}\n`, "EXPORT.md": exportMd(b) };
+  return { "index.html": renderHtml(b), "css/style.css": SITE_CSS, "js/form.js": FORM_JS,
+    ...(b.style === "immersive" ? { "css/immersive.css": IMMERSIVE_CSS, "js/immersive.js": IMMERSIVE_JS } : {}), "site.json": `${JSON.stringify(b, null, 2)}\n`, "EXPORT.md": exportMd(b) };
 }
 
 /** Image refs (src + alt) in rendered HTML, for the "copy edit doesn't touch assets" check. */

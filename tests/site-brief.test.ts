@@ -121,3 +121,18 @@ test("image swap: picture changes, copy doesn't, and undo puts the old picture b
   assert.ok("error" in swapImage(b0, "hero", "missing"));
   assert.ok("error" in undoImage(u.brief), "nothing left to undo");
 });
+
+test("immersive style: same content and form, plus aurora canvas, its CSS/JS, and an accented headline; classic unchanged", async () => {
+  const { accentHeading } = await import("../src/lib/site-immersive-pure.ts");
+  const raw = fx("brief-detailed.json"), c = parseBrief(raw), i = parseBrief({ ...raw, style: "immersive" });
+  assert.ok("brief" in c && "brief" in i);
+  const fc = renderSite(c.brief), fi = renderSite(i.brief);
+  assert.ok(!("css/immersive.css" in fc) && !fc["index.html"].includes("aurora"), "classic untouched");
+  assert.ok(fi["css/immersive.css"] && fi["js/immersive.js"]);
+  assert.match(fi["index.html"], /<body[^>]*class="immersive"/);
+  assert.match(fi["index.html"], /<canvas class="aurora" aria-hidden="true"><\/canvas>/);
+  assert.match(fi["js/immersive.js"], /prefers-reduced-motion/);
+  assert.deepEqual(assetRefs(fi["index.html"]), assetRefs(fc["index.html"]), "same images, alt text and crops");
+  assert.equal(accentHeading("A light that keeps its watch."), "A light that keeps its <em>watch</em>.");
+  assert.equal(accentHeading("The handoffs run *themselves*."), "The handoffs run <em>themselves</em>.");
+});
