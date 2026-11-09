@@ -32,7 +32,7 @@ test("camera: level, at eye height, outside the model, with lens shift for strai
 test("script: every part is built, real sun from site and date, detail quality settings", () => {
   const sc = starterScene(), py = blenderScript(sc, { site, date: new Date("2026-06-21T10:00:00Z"), quality: "detail" });
   for (const p of sc.parts.filter((p) => p.kind !== "window" && p.kind !== "door")) assert.ok(py.includes(JSON.stringify(p.name)), p.name);
-  assert.match(py, /sky_type = 'NISHITA'/);
+  assert.match(py, /sky_type = 'MULTIPLE_SCATTERING'/);
   assert.match(py, new RegExp(`samples = ${QUALITY.detail.samples}`));
   assert.match(py, /use_denoising = True/);
   assert.match(py, /view_transform = 'AgX'/);

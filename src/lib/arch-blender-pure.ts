@@ -100,7 +100,9 @@ export function blenderScript(scene: Scene, o: Opts): string {
     `sun.data.energy = ${up ? 4 : 0.3}; sun.data.angle = math.radians(0.53)  # the real sun's disc: soft-edged, not razor shadows`,
     `sun.rotation_euler = Vector(${v(d)}).to_track_quat('Z', 'Y').to_euler()`,
     "w = bpy.data.worlds.new('sky'); S.world = w; w.use_nodes = True; nt = w.node_tree",
-    "sky = nt.nodes.new('ShaderNodeTexSky'); sky.sky_type = 'NISHITA'",
+    "sky = nt.nodes.new('ShaderNodeTexSky')",
+    "try: sky.sky_type = 'MULTIPLE_SCATTERING'  # Blender 5 name",
+    "except TypeError: sky.sky_type = 'NISHITA'  # Blender 3.x–4.x",
     `sky.sun_elevation = math.radians(${f(sun.elevationDeg)}); sky.sun_rotation = math.radians(${f(sun.azimuthDeg)}); sky.sun_disc = False`,
     "nt.links.new(sky.outputs['Color'], nt.nodes['Background'].inputs['Color']); nt.nodes['Background'].inputs['Strength'].default_value = 0.35",
     `cd = bpy.data.cameras.new('cam'); cd.lens = ${cam.lens}; cd.sensor_width = 36; cd.shift_y = ${f(cam.shiftY)}`,
@@ -119,7 +121,7 @@ export function blenderScript(scene: Scene, o: Opts): string {
     "except Exception: pass",
     `S.cycles.samples = ${q.samples}; S.cycles.use_denoising = ${q.denoise ? "True" : "False"}; S.cycles.max_bounces = ${q.bounces}`,
     `S.render.resolution_x = ${W}; S.render.resolution_y = ${H}; S.render.resolution_percentage = 100`,
-    "S.view_settings.view_transform = 'AgX'; S.view_settings.look = 'AgX - Medium High Contrast'",
+    "S.view_settings.view_transform = 'AgX'; S.view_settings.look = 'AgX - Medium High Contrast'; S.view_settings.exposure = -0.8",
     "S.render.filepath = out; bpy.ops.render.render(write_still=True)",
   );
   return L.join("\n") + "\n";
