@@ -24,7 +24,7 @@ async function snapshot(rel = ""): Promise<Record<string, string>> {
 }
 
 await cap.setupCapsule({ dir: backups, maxMB: 1, passphrase: P });
-await w("a-first.json", '{"v":"X"}'); await w("b-added.json", '{"v":"X"}'); await w("c-fails.json", '{"v":"X"}'); await w("new/d.json", '{"v":"X"}');
+await w("a-first.json", '{"v":"X"}'); await w("b-added.json", '{"v":"X"}'); await w("c-fails.json", '{"v":"X"}'); await w("new/nested/d.json", '{"v":"X"}');
 const X = (await cap.runBackup()).name;
 // The state before the restore: a-first is oversized (2 MB, limit 1 MB), b-added and new/ don't exist, c-fails differs
 await w("a-first.json", Buffer.alloc(2 * 1024 * 1024, 120));
@@ -67,9 +67,35 @@ test("a rollback that can't finish names what's left and the safety backup", asy
   assert.deepEqual(await snapshot(), before);
 });
 
+test("rollback preserves files added by another writer while removing empty restore directories", async () => {
+  const real = fs.rename;
+  const destination = path.join(data, "new", "nested", "d.json");
+  const concurrent = '{"source":"another writer"}';
+  const m = mock.method(fs, "rename", async (from: string, to: string) => {
+    if (to === destination) {
+      await writeFile(path.join(data, "new", "concurrent.json"), concurrent);
+      throw Object.assign(new Error("EPERM (simulated)"), { code: "EPERM" });
+    }
+    return real(from, to);
+  });
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(cap.restoreCapsule(X, P), /could not undo new\. The data from before the restore/);
+    assert.deepEqual(await snapshot(), {
+      ...before,
+      "new/": "dir",
+      "new/concurrent.json": Buffer.from(concurrent).toString("base64"),
+    });
+  } finally {
+    m.mock.restore();
+    syncBuiltinESMExports();
+    await rm(path.join(data, "new"), { recursive: true, force: true });
+  }
+});
+
 test("a successful restore still writes every file", async () => {
   const r = await cap.restoreCapsule(X, P);
   assert.equal(r.restored, 4);
-  assert.equal(await readFile(path.join(data, "new/d.json"), "utf8"), '{"v":"X"}');
+  assert.equal(await readFile(path.join(data, "new/nested/d.json"), "utf8"), '{"v":"X"}');
   assert.equal(await readFile(path.join(data, "a-first.json"), "utf8"), '{"v":"X"}');
 });
