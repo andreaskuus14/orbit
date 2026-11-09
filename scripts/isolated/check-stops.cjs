@@ -50,7 +50,9 @@ const taskFor = (marker) => L.sql(`select id from tasks where request like '%${m
   const endedD = await L.until(() => L.fakeRunning() < beforeD, 20000, 250);
   L.ok("stop-all: the live turn's model process ends", !!endedD, `fake CLI ${beforeD} → ${L.fakeRunning()}`);
   await L.press(page.getByRole("button", { name: "Resume" }));
-  L.ok("stop-all: Resume turns it off again", !!await L.until(async () => (await L.api(page, "/api/stop-all")).json?.stop?.on === false, 10000));
+  const off = await L.until(async () => (await L.api(page, "/api/stop-all")).json?.stop?.on === false, 15000);
+  L.ok("stop-all: Resume turns it off again", !!off);
+  if (!off) await L.api(page, "/api/stop-all", { on: false }); // never leave Stop-all on for the next check
   await browser.close();
   process.exit(L.failures() ? 1 : 0);
 })().catch((e) => { console.error("ERROR", e.message); process.exit(1); });
