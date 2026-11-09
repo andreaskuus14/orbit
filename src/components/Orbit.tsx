@@ -187,7 +187,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const dive = flight?.id ?? null;
   const divePlanet = dive && planetById(dive);
   const shell = useRef<HTMLElement>(null);
-  const entryFocus = useRef<{ id: PanelId; entered: boolean } | null>(null);
+  const entryFocus = useRef<{ id: PanelId; entered: boolean; fromExplore: boolean } | null>(null);
   perfCtx.dive = dive; // the fps meter buckets dive frames on their own
   const [quiet, setQuiet] = useState<PanelId | null>(null);
   useEffect(() => { if (dive) sfx.whoosh(); }, [dive]);
@@ -433,8 +433,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     setApproach(null);
     changeDive({ id });
   }, [changeDive]);
-  const galaxySelect = (id: PanelId) => {
-    if (isWorld(id) && !covered) entryFocus.current = { id, entered: false };
+  const galaxySelect = (id: PanelId, fromExplore = false) => {
+    if (isWorld(id) && !covered) entryFocus.current = { id, entered: false, fromExplore };
     if (canDive(id)) enterWorld(id);
     else { changeDive(null); select(id); }
   };
@@ -470,7 +470,10 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         const back = root.querySelector<HTMLElement>(".kept:not([hidden]) :is(.world-back, .studio-back), :scope > .globe-in .world-back");
         if (!back) return false;
         entry.entered = true;
-        if (document.activeElement === previous || document.activeElement === document.body) {
+        const active = document.activeElement;
+        // Closing the native Explore popover restores focus to its trigger while the world loads.
+        const restoredExplore = entry.fromExplore && active === root.querySelector(".explore-trigger");
+        if (active === previous || active === document.body || restoredExplore) {
           // Phones hide the world's Back button and use the header logo as the way back.
           const target = back.getClientRects().length ? back : root.querySelector<HTMLElement>("header .logo");
           target?.focus({ preventScroll: true });
@@ -714,7 +717,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <TimeDilation onSpan={setDilation} />
           <NotificationCenter home={!shown && !approach && !gameOpen} />
           <StudioNotifier />
-          <OrbitExplore selected={shown} onSelect={galaxySelect} />
+          <OrbitExplore selected={shown} onSelect={(id) => galaxySelect(id, true)} />
           <button className="chip hud-search hud-phone-menu" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label={t("hud.search")} title={t("hud.searchTitle")}>⌕</button>
           <button className="chip hud-phone-menu" onClick={() => setWorkOpen("work")} aria-keyshortcuts="Alt+W" title={t("hud.workTitle")}>{t("hud.work")}</button>
           <button className="chip hud-phone-menu" onClick={toggleView} title={t("hud.viewTitle")}>{t(view === "3d" ? "hud.index" : "hud.galaxy")}</button>

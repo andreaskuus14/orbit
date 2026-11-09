@@ -174,19 +174,28 @@ summary.core-step::-webkit-details-marker { display: none; }
 }
 @media (max-width: 640px) {
   .orbit-shell .drawer { border-radius: 20px 20px 0 0; }
-  .orbit-shell .hud-bar-top { gap: .25rem; }
-  .orbit-shell .hud-bar-top > .chip { padding-inline: .5rem; letter-spacing: .04em; }
-  /* Phone top bar: logo mark instead of the wordmark, and ⌕ / Work / Galaxy move into ⋯, so every control fits on screen. */
-  .orbit-shell .logo > span:not(.brand) { display: none; } /* the wordmark; the mark (or its fallback "O") stays as the home button */
-  .orbit-shell .logo img { width: 28px; height: 28px; }
-  .orbit-shell .hud-bar-top > .hud-phone-menu { display: none; }
-  .orbit-shell .hud-bar-top > .explore-trigger { flex-shrink: 0; } .orbit-shell .explore-trigger > span { display: none; } /* the ↗ spilled into ⋯ */
-  .orbit-shell .alert-label { display: none; } /* a red alert keeps its 🔴 (and count) on a phone; the label is in aria-label and title */
   .orbit-explore { padding: 1rem; max-height: 82dvh; }
   .explore-grid { column-gap: .75rem; }
   .overview-heading { padding-top: .5rem; }
 }
-@media (min-width: 641px) { .hud-menu .hud-menu-phone { display: none; } .alert-count { display: none; } }
+.hud-menu .hud-menu-phone, .alert-count, .quiet-alert { display: none; }
+@media (max-width: 640px), (max-height: 520px) and (pointer: coarse) {
+  .orbit-shell .hud-bar-top { gap: .25rem; }
+  .orbit-shell .hud-bar-top > .chip { padding-inline: .5rem; letter-spacing: .04em; }
+  /* Keep the home mark and move the wider shortcuts into More on phones in both orientations. */
+  .orbit-shell .logo > span:not(.brand) { display: none; }
+  .orbit-shell .logo img { width: 28px; height: 28px; }
+  .orbit-shell .hud-bar-top > .hud-phone-menu { display: none; }
+  .hud-menu .hud-menu-phone { display: flex; }
+  .orbit-shell .hud-bar-top > .chip:not(.quiet-pill) { flex-shrink: 0; }
+  .orbit-shell .explore-trigger > span, .orbit-shell .alert-label { display: none; }
+  .alert-count { display: inline; }
+}
+@media (max-width: 360px) {
+  /* The status menu already exposes the red alert's action. Fit both behind one visible trigger. */
+  .hud-bar-top:has(> .quiet-pill) > .hud-alert { display: none; }
+  .quiet-alert { display: inline; }
+}
 @media (max-width: 380px) {
   .explore-grid { grid-template-columns: 1fr; }
   .orbit-shell .logo .brand { font-size: .75rem; }
