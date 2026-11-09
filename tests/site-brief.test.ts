@@ -1,0 +1,89 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { VALIDATE_JS, assetRefs, cropPosition, editCopy, focalInBox, heroPositions, parseBrief, renderSite, type Brief } from "../src/lib/site-brief-pure.ts";
+
+const fx = (n: string) => JSON.parse(readFileSync(new URL(`./fixtures/site-w02/${n}`, import.meta.url), "utf8"));
+const ok = (input: unknown) => { const p = parseBrief(input); if ("errors" in p) throw new Error(p.errors.join("; ")); return p; };
+
+test("sparse brief: defaults to hero + form, asks only for the missing essential", () => {
+  const p = ok(fx("brief-sparse.json"));
+  assert.deepEqual(p.missing, ["audience"]);
+  assert.deepEqual(p.brief.sections.map((s) => [s.id, s.kind]), [["hero", "hero"], ["contact", "form"]]);
+  assert.equal(p.brief.assets[0].id, "hero");
+  assert.equal(p.brief.sections[0].image, "hero");
+  assert.equal(p.brief.version, 1);
+});
+
+test("detailed brief: stable IDs, assets with focal points, nothing missing", () => {
+  const p = ok(fx("brief-detailed.json"));
+  assert.deepEqual(p.missing, []);
+  assert.deepEqual(p.brief.sections.map((s) => s.id), ["hero", "built", "story", "specs", "faq", "waitlist"]);
+  assert.deepEqual(p.brief.assets.map((a) => [a.id, a.safe]), [["hero", "left"], ["lantern", "left"]]);
+  // parsing the saved site.json again gives the same brief (round trip)
+  assert.deepEqual(ok(JSON.parse(renderSite(p.brief)["site.json"])).brief, p.brief);
+});
+
+test("derived section IDs are deterministic and unique", () => {
+  const b = ok({ name: "X", offer: "Y", sections: [{ kind: "hero", heading: "H" }, { kind: "faq", heading: "A" }, { kind: "faq", heading: "B" }] }).brief;
+  assert.deepEqual(b.sections.map((s) => s.id), ["hero", "faq", "faq-2"]);
+});
+
+test("validator lists every problem", () => {
+  const p = parseBrief({ assets: [{ path: "../x.jpg" }, { path: "a/b.jpg", width: 10, height: 10, focal: { x: 2 } }],
+    sections: [{ kind: "footer" }, { id: "s", kind: "features", heading: "F", image: "nope", cta: [{ label: "", href: "javascript:alert(1)" }] }] });
+  assert.ok("errors" in p);
+  const all = p.errors.join("\n");
+  for (const want of ["name is required", "offer is required", "relative image", "alt text is required", "focal x and y", "kind must be one of", "not in assets", "needs a label", "must be #<section id>", "hero section is required"]) assert.match(all, new RegExp(want.replace(/[<>#]/g, ".")));
+});
+
+test("copy edit: text changes, assets/CSS/JS identical, version and history move", () => {
+  const b = ok(fx("brief-detailed.json")).brief, before = renderSite(b);
+  const e = editCopy(b, [{ section: "hero", field: "heading", value: "New <headline>" }, { section: "built", field: "items.1.body", value: "Sealed." }, { section: "waitlist", field: "cta.0.label", value: "Reserve" }, { field: "tagline", value: "No. 1" }]);
+  assert.ok(!("error" in e));
+  const after = renderSite(e.brief);
+  assert.deepEqual(assetRefs(after["index.html"]), assetRefs(before["index.html"]));
+  assert.ok(assetRefs(before["index.html"]).length === 2);
+  assert.equal(after["css/style.css"], before["css/style.css"]);
+  assert.equal(after["js/form.js"], before["js/form.js"]);
+  assert.deepEqual(e.brief.assets, b.assets);
+  assert.deepEqual(e.brief.sections.map((s) => [s.id, s.image, s.cta.map((c) => c.href)]), b.sections.map((s) => [s.id, s.image, s.cta.map((c) => c.href)]));
+  assert.match(after["index.html"], /New &lt;headline&gt;/);
+  assert.equal(e.brief.version, 2);
+  assert.deepEqual(e.brief.history.at(-1), { version: 2, changed: ["hero.heading", "built.items.1.body", "waitlist.cta.0.label", "tagline"] });
+  assert.equal(b.sections[0].heading, "A light that keeps its watch.", "the original brief is not mutated");
+});
+
+test("copy edit refuses non-copy fields (image, alt, href, id) and unknown sections", () => {
+  const b = ok(fx("brief-detailed.json")).brief;
+  for (const bad of [{ section: "hero", field: "image", value: "lantern" }, { section: "hero", field: "cta.0.href", value: "https://x.y" }, { section: "hero", field: "id", value: "x" }, { field: "assets.0.alt", value: "x" }, { section: "nope", field: "heading", value: "x" }, { section: "hero", field: "heading", value: "  " }])
+    assert.ok("error" in editCopy(b, [bad]), JSON.stringify(bad));
+});
+
+test("hero crop: focal point lands on target in portrait and landscape crops, clamped at edges", () => {
+  const sq = { width: 1600, height: 1600, focal: { x: 0.66, y: 0.48 } };
+  for (const box of [9 / 16, 1 / 2]) { // portrait: horizontal crop (4:5 clamps for x=.66, covered below)
+    const p = cropPosition(sq, box, { x: 0.5, y: 0.5 });
+    assert.equal(p.y, 0.5);
+    assert.ok(Math.abs(focalInBox(sq, box, p).x - 0.5) < 1e-9);
+  }
+  const land = cropPosition(sq, 16 / 9, { x: 0.72, y: 0.5 }); // landscape: vertical crop, x untouched
+  assert.equal(land.x, 0.5);
+  assert.ok(Math.abs(focalInBox(sq, 16 / 9, land).y - 0.5) < 1e-9);
+  const wide = { width: 1600, height: 900, focal: { x: 0.98, y: 0.5 } }; // subject at the edge: clamps, stays in view
+  const c = cropPosition(wide, 4 / 5);
+  assert.equal(c.x, 1);
+  assert.ok(focalInBox(wide, 4 / 5, c).x <= 1);
+  const a = ok(fx("brief-detailed.json")).brief.assets[0], pos = heroPositions(a);
+  assert.ok(focalInBox(a, 16 / 9, pos.lg).x > 0.6, "desktop subject clear of the left text column");
+});
+
+test("shipped form validator (exact js/form.js text)", () => {
+  const v = new Function(`${VALIDATE_JS}; return validateLead;`)() as (x: Record<string, unknown>) => Record<string, string>;
+  assert.deepEqual(Object.keys(v({})).sort(), ["consent", "email", "name"]);
+  assert.deepEqual(v({ name: "Ann", email: "ann@example.com", consent: true }), {});
+  for (const bad of ["ann", "ann@", "ann@example", "a b@example.com", "ann@example.c"]) assert.ok(v({ name: "Ann", email: bad, consent: true }).email, bad);
+  assert.ok(v({ name: "x".repeat(81), email: "a@b.co", consent: true }).name);
+  const b: Brief = ok(fx("brief-detailed.json")).brief;
+  assert.ok(renderSite(b)["js/form.js"].startsWith(VALIDATE_JS));
+});
