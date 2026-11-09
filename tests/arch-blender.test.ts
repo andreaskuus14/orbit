@@ -56,10 +56,11 @@ test("fly-through: starts outside at eye level, rises over the model with the ro
 
 test("asset library: props map to real CC0 models by name (coffee table before table); unknown props stay boxes", async () => {
   const { assetFor, libraryIds } = await import("../src/lib/arch-blender-pure.ts");
-  assert.equal(assetFor("Sofa"), "sofa_03");
+  assert.equal(assetFor("Sofa"), "proc:sofa");
   assert.equal(assetFor("Coffee table"), "modern_coffee_table_01");
-  assert.equal(assetFor("Dining table"), "dining_table");
-  assert.equal(assetFor("Armchair"), "modern_arm_chair_01");
+  assert.equal(assetFor("Dining table"), "proc:table");
+  assert.equal(assetFor("Armchair"), "mid_century_lounge_chair");
+  assert.ok(!libraryIds().some((id) => id.startsWith("proc:")), "modelled pieces need no download");
   assert.equal(assetFor("Rug"), null);
   assert.ok(libraryIds().includes("fir_sapling_medium") && new Set(libraryIds()).size === libraryIds().length);
 });
@@ -68,11 +69,39 @@ test("dressing: with an asset folder, known props become library models (boxes h
   const { blenderScript } = await import("../src/lib/arch-blender-pure.ts");
   const sc = { plot: { w: 30, d: 25, ground: "grass" as const, trees: 3 }, parts: [...starterScene().parts, { id: "s1", kind: "prop" as const, name: "Sofa", x: 0, y: 0.2, z: 1, w: 2.2, d: 0.9, h: 0.8 }, { id: "r1", kind: "prop" as const, name: "Rug", x: 0, y: 0.2, z: 0, w: 2, d: 2, h: 0.02 }] };
   const py = blenderScript(sc, { site, date: new Date("2026-09-10T16:00:00Z"), quality: "preview", assets: "/lib" });
-  assert.match(py, /obj\["s1"\]\.hide_render = True; place\("sofa_03"/);
+  assert.match(py, /obj\["s1"\]\.hide_render = True; modern\("sofa", \(0, -1, 0\.2\), 0, 2\.2, 0\.9, 0\.8, False\)/);
   assert.doesNotMatch(py, /obj\["r1"\]\.hide_render/, "the rug has no model, so its box stays");
   assert.equal((py.match(/place\('fir_sapling_medium'/g) ?? []).length, 3);
   assert.match(py, /sky\.hdr/); assert.match(py, /visible_camera = False/);
   assert.ok(py.trimEnd().endsWith("bpy.ops.render.render(write_still=True)"), "render stays the last line");
   const plain = blenderScript(sc, { site, date: new Date("2026-09-10T16:00:00Z"), quality: "preview" });
   assert.doesNotMatch(plain, /sky\.hdr|place\(/, "no folder: unchanged");
+});
+
+test("facade: every opening gets an aluminium frame on the wall's outer face; a wide south glazing gets a deck", async () => {
+  const { facadeLines } = await import("../src/lib/arch-blender-pure.ts");
+  const wall = { id: "ws", kind: "wall" as const, name: "South wall", x: 0, y: 0.2, z: 4.35, w: 14, d: 0.3, h: 3 };
+  const win = { id: "g1", kind: "window" as const, name: "Glazing", x: -3, y: 0.45, z: 4.5, w: 5.2, d: 0.2, h: 2.3, host: "ws", face: "s" as const };
+  const L = facadeLines({ plot: { w: 40, d: 30, ground: "grass", trees: 0 }, parts: [wall, win] });
+  assert.equal(L.filter((l) => l.includes("'frame'")).length, 4, "two jambs, head and sill");
+  assert.ok(L.some((l) => l.includes("'deck'")));
+  assert.ok(L.filter((l) => l.includes("'frame'")).every((l) => l.includes("-4.5")), "frames sit on the outer face (scene z 4.5 → Blender y -4.5)");
+});
+
+test("with the library the simple cone trees are left out (real firs only)", async () => {
+  const { blenderScript } = await import("../src/lib/arch-blender-pure.ts");
+  const sc = { ...starterScene(), plot: { ...starterScene().plot, trees: 4 } }, o = { site, date: new Date("2026-09-10T16:00:00Z"), quality: "preview" as const };
+  assert.match(blenderScript(sc, o), /primitive_cone_add/);
+  const lib = blenderScript(sc, { ...o, assets: "/lib" });
+  assert.doesNotMatch(lib, /primitive_cone_add/); assert.match(lib, /fir_sapling_medium/);
+});
+
+test("film: the Kivi House fixture makes a dressed, resumable 150-frame sequence script", async () => {
+  const { blenderSequence, flyPath } = await import("../src/lib/arch-blender-pure.ts");
+  const { readFileSync } = await import("node:fs");
+  const sc = JSON.parse(readFileSync(new URL("./fixtures/arch-kivi-house.json", import.meta.url), "utf8"));
+  const py = blenderSequence(sc, { site, date: new Date("2026-09-10T16:40:00Z"), quality: "detail", size: [1920, 1080], assets: "/lib" }, flyPath(sc, 150));
+  assert.equal(JSON.parse(py.split("\nP = ")[1].split("\n")[0].split("  #")[0]).length, 150);
+  assert.match(py, /if os\.path\.exists\(f\) and os\.path\.getsize\(f\) > 0: continue/);
+  assert.match(py, /modern\("sofa"/); assert.match(py, /resolution_x = 1920/); assert.match(py, /samples = 1024/);
 });
