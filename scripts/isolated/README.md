@@ -16,6 +16,7 @@ real account:
 | `firstfive` | W06 phone first five minutes at 320/390/430 px (touch, reduced motion) and 390 px with text at 130 %: home → briefing (INTELLIGENCE) → the pending decision → its source task with Approve / Reject. Each step: no sideways scroll, next control on screen and tappable (hit-tested). Viewing never approves. Screenshots `shots/first5-*.png`. Browser emulation, not a real iPhone. |
 | `briefing` | phonemizer isn't loaded at boot. A PC call speaks through Kokoro in its own process. Two briefings in a row succeed with a broken feed among real ones. The server keeps answering with no fatal stop, and no configured secret appears in `server.log` or `crash.log`. |
 | `core` | A CORE turn that outlasts its time limit (the fake model hangs for its first 290 s) hands off to a background task. The page that keeps its live stream and a freshly opened page (reload, other device) both end on the background answer without a manual reload, and no `/api/core` request fails over the ~6 minutes. Takes about 7 min. |
+| `receipt` | W04 Copy receipt through the real task view: a finished task whose request holds a planted fake key copies its job id, state and link with neither the request nor the key; a running task copies as running, result not ready. |
 
 A cut-off compressed response can't reach a briefing here, because `safeFetch` refuses local addresses. `npm test` reproduces it
 deterministically with the real fetcher and phonemizer, in `tests/briefing-crash-policy.test.ts`, `tests/fetch-gzip-crash.test.ts`

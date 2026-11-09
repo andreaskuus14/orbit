@@ -94,3 +94,26 @@ test("receipt: the independent verifier's verdict shows on the line and survives
   assert.deepEqual(cleanReceipt({ ...r, check: { ok: "yes", reason: 7 } })!.check, { ok: false, reason: "7" });
   assert.equal(cleanReceipt(r)!.check, undefined);
 });
+
+test("W04 copyReceipt: job state from the row, no prompt, planted secrets redacted", async () => {
+  const { copyReceipt } = await import("../src/lib/receipt-pure.ts");
+  const KEY = "sk-ant-FAKEFAKEFAKE0123456789", O = "https://orbit.test";
+  const job = { id: "11111111-2222-3333-4444-555555555555", agent: "core", started_at: "2026-11-09T10:00:00Z" };
+  // refresh while running: no receipt yet, elapsed time so far
+  const running = copyReceipt({ ...job, status: "running" }, null, O, Date.parse("2026-11-09T10:01:30Z"));
+  assert.match(running, /ORBIT job 11111111 · running · core · 90 s so far/);
+  assert.match(running, /Result: not ready yet/);
+  assert.ok(running.endsWith(`${O}/#o=operations&k=task&id=${job.id}`));
+  // failure after a tool wrote: the write is shown as checked, the failure is shown, the prompt and the key are not
+  const failedTask = { request: `write notes with my key ${KEY} please`, title: "notes", status: "failed", error: `crashed: token=${KEY}`,
+    pending: [{ tool: "ws_write", status: "approved", evidence: [{ kind: "file", id: "f", path: "notes.md", check: "read back" }] }] };
+  const r = taskReceipt(failedTask as never)!;
+  const out = copyReceipt({ ...job, status: "failed", finished_at: "2026-11-09T10:02:00Z" }, r, O);
+  assert.match(out, /failed · core · 120 s\n/);
+  assert.match(out, /✓ ws_write: read back/);
+  assert.ok(!out.includes(KEY), "no planted key");
+  assert.ok(!out.includes("write notes with my key"), "no prompt");
+  // stopped mid-stream
+  const stopped = copyReceipt({ ...job, status: "cancelled", finished_at: "2026-11-09T10:00:05Z" }, taskReceipt({ title: "x", status: "cancelled" }), O);
+  assert.match(stopped, /· stopped · core · 5 s\n/);
+});

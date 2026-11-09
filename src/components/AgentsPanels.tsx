@@ -10,6 +10,7 @@ import { TeamStatusView } from "./TeamStatusView";
 import { ResultEvidence } from "./ResultEvidence";
 import { AutomationFields } from "./AutomationFields";
 import { RulesView } from "./RulesView";
+import { copyReceipt, rowReceipt } from "@/lib/receipt-pure";
 import { automationDraft, automationSpec as toSpec, type AutomationAgent, type AutomationDraft as Draft } from "@/lib/automation-edit-pure";
 import type { AutomationSpec } from "@/lib/pure";
 import type { WriteEvidence } from "@/lib/completion-pure";
@@ -197,6 +198,8 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
       )}
       {(task.status === "queued" || task.status === "running") && <button className="chip" onClick={() => act("cancel")}>{t("task.cancel")}</button>}
       {task.status === "done" && !task.parent_id && !task.title.startsWith("Team: ") && <SaveRecipe task={task} />}
+      {/* W04: job state + receipt, no prompt, redacted, for pasting anywhere */}
+      <button className="chip" onClick={() => navigator.clipboard?.writeText(copyReceipt(task, rowReceipt(task as never), location.origin)).catch(() => {})}>{t("task.copyReceipt")}</button>
 
       <details className="card text-sm"><summary className="cursor-pointer muted">{t("task.request")}</summary><p className="mt-2 whitespace-pre-wrap">{task.request}</p></details>
       {task.pending.some((p) => p.status === "approved") && (
