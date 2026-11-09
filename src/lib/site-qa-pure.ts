@@ -109,13 +109,14 @@ export function formIssues(f: FormRun | null): string[] {
   return out;
 }
 
-export function qaPacket(input: { html: string; page?: string; files: Set<string>; version: string; hero?: Asset; heroText?: Rgba[]; views: ViewRun[]; form: FormRun | null }): QaPacket {
+export function qaPacket(input: { html: string; page?: string; files: Set<string>; version: string; hero?: Asset; heroText?: Rgba[]; views: ViewRun[]; form: FormRun | null; art?: string[] }): QaPacket {
   const page = input.page ?? "index.html", v = input.views;
   const per = (f: (r: ViewRun) => string[]) => [...new Set(v.flatMap(f))];
   const overflow = (r: ViewRun) => (!r.probe.clipX && overflowsX(r.probe.scrollWidth, r.vw) ? [`${r.vw}px: page is ${r.probe.scrollWidth}px wide (sideways scroll)`] : []);
   const contrast = (r: ViewRun) => contrastIssues(r.probe.samples).map((s) => `${r.vw}px: ${s}`);
   const imgs = (r: ViewRun) => r.probe.badImgs.map((s) => `${r.vw}px: image didn't load: ${s}`);
-  const scrim = (input.heroText ?? []).flatMap((c) => { const r = scrimContrast(c, HERO_SCRIM); return r < minContrast(17, false) ? [`hero text over the scrim can fall to ${r.toFixed(1)}:1 on a bright image`] : []; });
+  // only when a hero photo sits under the text (no hero image: the text is on the page's own background, covered by the contrast samples)
+  const scrim = (input.hero ? input.heroText ?? [] : []).flatMap((c) => { const r = scrimContrast(c, HERO_SCRIM); return r < minContrast(17, false) ? [`hero text over the scrim can fall to ${r.toFixed(1)}:1 on a bright image`] : []; });
   const checks: QaCheck[] = [
     { name: "No sideways scroll", ok: false, notes: per(overflow) },
     { name: "Heading order", ok: false, notes: headingIssues(input.html) },
@@ -127,6 +128,8 @@ export function qaPacket(input: { html: string; page?: string; files: Set<string
     { name: "Hero crop", ok: false, notes: per((r) => heroIssues(r.hero, input.hero, r.vw)) },
     { name: "Form", ok: false, notes: formIssues(input.form) },
   ].map((c) => ({ ...c, ok: !c.notes.length }));
+  // Art (the owner's cinematic standard, site-guide.ts): stand-in pictures or a choppy sequence mean "not finished", whatever else passes
+  if (input.art) checks.push({ name: "Art (finished, not demo)", ok: !input.art.length, notes: input.art });
   if (!v.length) checks.push({ name: "Rendered", ok: false, notes: ["no browser ran: viewport, contrast and keyboard checks did not happen"] });
   const viewports = v.map((r) => ({ vw: r.vw, shot: r.shot, ok: !overflow(r).length && !imgs(r).length && !contrast(r).length && !keyboardIssues(r.keyboard).length }));
   return { pass: checks.every((c) => c.ok), version: input.version, checks, viewports };

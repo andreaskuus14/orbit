@@ -117,6 +117,7 @@ Most questions need no tool: answer with "final" straight away. Use at most ${ma
 TOOLS:
 - web_search {"query": string}: search the whole web and get short findings with source links (takes up to a minute or two). For anything current or outside the user's memories: businesses or places in a town, prices, opening hours, people, products, facts. Put only the search words in "query", never private details. Prefer it over fetch_url when you don't have a specific link.
 - fetch_url {"url": string}: read a web page or article in full (works with JavaScript sites too; not logins or paywalls).
+- scrape_page {"url": string, "mode"?: "fast"|"browser"|"stealth", "select"?: string}: read a page fetch_url can't, or only the parts matching a CSS selector (Scrapling); stealth works only on sites the owner enabled.
 - read_news {"query": string, "hours"?: number, "country"?: string}: search the news and read the top articles in full. For "the last hour / today / latest" set hours (1 = last hour) and use a broad query like "world news" or "breaking"; report publication times. For one country's LOCAL news, events or public services set country to its ISO 3166-1 alpha-2 code (Estonia = "EE") or English name: it searches that country's own press in its language (query may be empty for top local headlines, or e.g. "free events Tallinn"); translate and summarise for the user.
 - read_more {"ref": string, "offset": number}: the rest of a clipped tool result. A RESULT ending in "…[N chars omitted; call read_more …]" was cut: read on when the part you need may be there; if your answer relies on a clipped result you did not read in full, say so plainly.
 - ask_agent {"agent": string, "request": string}: give a job to an agent and get its result (takes a minute or more). Agents: ${AGENT_LIST}.
@@ -593,7 +594,7 @@ function navigateTool(input: Record<string, unknown>, onNavigate?: (to: NavTarge
 /** timeLeft: ms this turn can still spend on a slow tool (web_search) and leave room for the answer step. */
 async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, input: Record<string, unknown>, question: string, signal?: AbortSignal, stopped: string[] = [], timeLeft = 150_000, onEvidence?: (e: WriteEvidence) => void, here: { chat?: string; project?: string } = {}): Promise<string> {
   const ctx = { sb, userId, task: { id: "", agent: "core", title: "", request: "", parent_id: null, project_id: null }, depth: 1, pending: [], trace: [], pages: new Map() };
-  if (tool === "fetch_url" || tool === "read_news") return TOOLS[tool].run(ctx, input);
+  if (tool === "fetch_url" || tool === "read_news" || tool === "scrape_page") return TOOLS[tool].run(ctx, input);
   if (tool === "web_search") {
     const q = webSearchQuery(input);
     if ("error" in q) return q.error;

@@ -38,7 +38,7 @@ export async function launch(): Promise<Browser | null> {
 export function probePage(): Probe {
   const de = document.documentElement, body = document.body;
   const visible = (el: Element) => { const r = el.getBoundingClientRect(), cs = getComputedStyle(el); return r.width > 1 && r.height > 1 && cs.visibility !== "hidden" && cs.display !== "none" && cs.opacity !== "0"; };
-  const badImgs = [...document.images].filter((i) => getComputedStyle(i).display !== "none" && (!i.complete || !i.naturalWidth || !i.getBoundingClientRect().width || !i.getBoundingClientRect().height)).map((i) => i.getAttribute("src") || "(no src)");
+  const badImgs = [...document.images].filter((i) => (i.checkVisibility ? i.checkVisibility() : getComputedStyle(i).display !== "none") && (!i.complete || !i.naturalWidth || !i.getBoundingClientRect().width || !i.getBoundingClientRect().height)).map((i) => i.getAttribute("src") || "(no src)");
   const media = [...document.querySelectorAll("img,svg,canvas,video,button,input")].filter(visible).length;
   const samples: Probe["samples"] = [];
   const walker = document.createTreeWalker(body ?? de, NodeFilter.SHOW_TEXT);
@@ -65,7 +65,8 @@ export function probePage(): Probe {
 export async function loadLazy(p: import("playwright-core").Page): Promise<void> {
   await p.evaluate(async () => { for (let y = 0; y < document.body.scrollHeight; y += innerHeight / 2) { scrollTo({ top: y, behavior: "instant" }); await new Promise((r) => setTimeout(r, 40)); } scrollTo({ top: 0, behavior: "instant" }); });
   await p.waitForFunction(() => [...document.images].every((i) => i.complete), null, { timeout: 5000 }).catch(() => {});
-  await p.evaluate(() => Promise.all([...document.images].map((i) => i.decode().catch(() => {})))); // decoded, so screenshots paint them
+  // decoded, so screenshots paint them; capped, because decode() never settles for a lazy image that's hidden (display: none) and so never loads
+  await p.evaluate(() => Promise.all([...document.images].map((i) => Promise.race([i.decode().catch(() => {}), new Promise((r) => setTimeout(r, 3000))]))));
 }
 
 // One check (one browser) at a time.

@@ -59,6 +59,18 @@ console.log(`edited → v${v2.brief.version}: ${v2.changed.join(", ")}; assets u
 await writeFile(path.join(out, "index-v2.html"), (await ws.readWsFile(uid, slug, "index.html"))!.text);
 console.log(`ws_check v2: ${(await checkSite(uid, slug))?.line}`);
 
+// Reversible picture swap (in memory: the export below stays v2): hero → lantern, then undo gives the same page back.
+{
+  const { renderSite, swapImage, undoImage } = await import("../src/lib/site-brief-pure.ts");
+  const sw = swapImage(v2.brief, "hero", "lantern");
+  if ("error" in sw) fail(sw.error);
+  const un = undoImage(sw.brief);
+  if ("error" in un) fail(un.error);
+  const page = (b: typeof v2.brief) => renderSite({ ...b, version: 0 })["index.html"];
+  if (page(un.brief) !== page(v2.brief)) fail("undo didn't restore the page");
+  console.log(`image swap → v${sw.brief.version} (hero shows lantern), undo → v${un.brief.version}: page identical to v${v2.brief.version}`);
+}
+
 // Export: the workspace's own .zip, unzipped somewhere new, QA'd from disk with no network.
 const unz = path.join(out, "export");
 await writeFile(path.join(out, `${slug}.zip`), (await ws.zipWorkspace(uid, slug))!);

@@ -46,7 +46,7 @@ export async function qaExport(dir: string, opts: { version: string; hero?: Asse
           const img = document.querySelector(".hero-img"), copy = document.querySelector(".hero-copy");
           if (!img || !copy) return null;
           const a = img.getBoundingClientRect(), c = copy.getBoundingClientRect(), [x, y] = getComputedStyle(img).objectPosition.split(" ").map((v) => parseFloat(v) / 100);
-          const over = c.top < a.bottom && c.bottom > a.top;
+          const over = c.top < a.bottom && c.bottom > a.top && c.left < a.right && c.right > a.left; // text actually on the picture (not beside a card)
           return { boxW: a.width, boxH: a.height, posX: x, posY: y, copy: over ? [(c.left - a.left) / a.width, (c.right - a.left) / a.width] : null };
         });
         if (vp.width >= 900) heroText = (await p.evaluate(() => [...document.querySelectorAll(".hero-copy h1, .hero-copy p:not(.actions)")].map((e) => getComputedStyle(e).color))).map(parseColor).filter((c): c is Rgba => !!c);

@@ -14,6 +14,7 @@ const lead = { name: str, city: str, website: str, phone: str, email: str, sourc
 export const SCHEMAS: Record<string, Schema> = {
   web_search: S(["query"], { query: str }),
   fetch_url: S(["url"], { url: str }),
+  scrape_page: S(["url"], { url: str, mode: str, select: str }),
   read_news: S(["query"], { query: str, hours: num, country: str }),
   read_more: S(["ref", "offset"], { ref: str, offset: num }),
   ask_agent: S(["agent", "request"], { agent: str, request: str }),
