@@ -10,7 +10,8 @@ const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/api
 
 export async function middleware(request: NextRequest) {
   if (crossSiteBlocked(request.method, request.nextUrl.pathname, { secFetchSite: request.headers.get("sec-fetch-site"), origin: request.headers.get("origin"), host: request.headers.get("host"), forwardedHost: request.headers.get("x-forwarded-host") }))
-    return NextResponse.json({ error: "Cross-site request refused" }, { status: 403 });
+  { console.warn(`[security] cross-site ${request.method} ${request.nextUrl.pathname} refused (origin ${request.headers.get("origin") ?? "none"})`);
+    return NextResponse.json({ error: "Cross-site request refused" }, { status: 403 }); }
   // Launcher / night run poll these; no session work. (busy checks its own Host header and returns only booleans.)
   if (request.nextUrl.pathname === "/api/health" || request.nextUrl.pathname === "/api/studio/busy") return NextResponse.next();
   // Public demo: static fixture page, no session work (it never calls /api; its fetch guard answers from fixtures).
@@ -46,6 +47,7 @@ export async function middleware(request: NextRequest) {
   const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "/"));
 
   if (user && !isAllowedEmail(user.email)) {
+    console.warn(`[security] sign-in by an account that isn't allowed (${user.email?.split("@")[1] ?? "?"}) refused`); // domain only, no full address in logs
     await supabase.auth.signOut();
     return redirectTo("/login", "?error=not_allowed");
   }
