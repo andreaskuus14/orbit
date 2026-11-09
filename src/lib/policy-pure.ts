@@ -47,7 +47,7 @@ export const TIERS: Record<string, Tier> = {
   ws_list: "T0", ws_read: "T0", rea_status: "T0", rea_read: "T0", week_review: "T0", wishlist: "T0",
   load_module: "T1", // returns a module's own instruction text (core-modules-pure loadModule)
   read_more: "T1", // rereads a clipped result already in this turn (clip-store-pure)
-  web_search: "T1", fetch_url: "T1", read_news: "T1", reach_trending: "T1", reach_read: "T1",
+  web_search: "T1", fetch_url: "T1", scrape_page: "T1", read_news: "T1", reach_trending: "T1", reach_read: "T1",
   save_memory: "T2", ask_agent: "T2", create_goal: "T2", start_mission: "T2", plan_task: "T2", run_scout: "T2", run_niche: "T2",
   propose_rule: "T2", // saves a standing rule as proposed; nothing runs until the owner's Confirm click in Agents → Rules
   add_wish: "T2", // adds to his own wishlist; the hunter only reads public pages, and nothing is bought or sent by ORBIT
@@ -97,7 +97,7 @@ export const TOOL_AREA: Record<string, Area> = {
 // Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, REA rea_read, BUSINESS (private: true), WEEK (private: true), ORGANIZE lead_update + life_plan.
 // shortcut: hand-copied because core-modules.ts can't load under node --test; update both when a module's private flag changes.
 export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "rea_read", "business_status", "week_review", "lead_update", "life_plan"];
-const LINK_TOOLS = ["browse", "watch_add", "fetch_url", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft"];
+const LINK_TOOLS = ["browse", "watch_add", "fetch_url", "scrape_page", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft"];
 const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "local_tts", "local_image"]; // local_tts/local_image: journal/LIFE text never goes to a model, local ones included
 
 // Text from outside ORBIT (pages, news, search hits, agent results, prospect mail, attached files) can't start an agent task by itself.
@@ -107,7 +107,7 @@ const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "local_tts", "local_
 // plan_day carries calendar invites; local_transcribe the words in any audio/video file he points it at.
 const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "rea_read", "ws_read", "plan_day", "local_transcribe"];
 // mission_status: agents' results; run_niche: its web research.
-export const UNTRUSTED = ["browse", "fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes", "mission_status", "run_niche", ...STORED_OUTSIDE];
+export const UNTRUSTED = ["browse", "fetch_url", "scrape_page", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes", "mission_status", "run_niche", ...STORED_OUTSIDE];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;
 const AGENT_ASK_ET = et("(?:küsi|lase|palu|saada|anna|kasuta|delegeeri)[^.?!\\n]{0,40}(?:agent|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)|delegeeri");
 /** ask_agent after untrusted content: only when the owner's own message asks for an agent (or names the one being asked). */

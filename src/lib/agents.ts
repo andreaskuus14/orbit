@@ -7,6 +7,8 @@ import { askClaude, recordUsage, emit, reviewDraft, MODEL, SMART_MODEL, FAST_MOD
 import { createMemory, searchMemories, fetchPage, safeFetch, MEMORY_COLUMNS, KINDS, type Kind } from "./memory";
 import { runPulse, topicFeedUrl } from "./pulse";
 import { localNews, readArticle } from "./news";
+import { scrapePage } from "./scrape";
+import { parseMode } from "./scrape-pure";
 import { findCountry } from "./countries-pure";
 import { displayName } from "./geo";
 import { verifyAnswer, type Source } from "./verify";
@@ -123,6 +125,19 @@ export const TOOLS: Record<string, Tool> = {
       const page = await fetchPage(url);
       pages.set(page.url, page);
       return `TITLE: ${page.title}\nURL: ${page.url}\n\n${page.text.slice(0, 40_000)}`;
+    },
+  },
+  scrape_page: {
+    description: "Read a page that fetch_url can't (JS-heavy sites, pages that block plain fetches), optionally only the parts matching a CSS selector. mode: \"fast\" (default), \"browser\" (real Chromium), \"stealth\" (anti-bot browser; only on sites the owner enabled). Respects robots.txt and waits between requests to one site.",
+    input: '{"url": string, "mode"?: "fast"|"browser"|"stealth", "select"?: string}',
+    run: async ({ pages, priv, links, task }, i) => {
+      const url = s(i.url, 2000);
+      const hit = priv && !links?.has(url) ? outboundLeak(url, [task.request ?? ""]) : "";
+      if (hit) return `Error: this URL would send private text from the task out ("${hit.slice(0, 80)}"); open a public URL without it.`;
+      const r = await scrapePage(url, parseMode(i.mode), i.select ? s(i.select, 200) : undefined);
+      if ("error" in r) return `Error: ${r.error}`;
+      pages.set(r.url, { title: r.title, text: r.text, url: r.url });
+      return `TITLE: ${r.title}\nURL: ${r.url}\n\n${r.text.slice(0, 40_000)}`;
     },
   },
   web_search: {

@@ -40,7 +40,7 @@ const SPECS: Spec[] = [
     done: "every part of the request is answered or explicitly marked unfinished with the reason; delegated results are merged, not pasted; anything waiting for approval is named.",
     checks: ["each part of the request is covered or marked unfinished", "claims from sub-agents keep their links", "items waiting for approval are listed"] },
   { slug: "atlas", name: "Atlas", color: "#38bdf8", role: "Research agent: deep research with verified sources", tier: "smart",
-    tools: ["web_search", "read_news", "news_search", "fetch_url", "search_memory"],
+    tools: ["web_search", "read_news", "news_search", "fetch_url", "scrape_page", "search_memory"],
     contract: { sections: [["Summary", "Kokkuvõte"], ["Key findings", "Peamised leiud"], ["Uncertain", "Ebakindel"], ["Sources", "Allikad"]], cite: "web" },
     brief: "Use web_search for documentation, prices, products and facts, read_news for current events, then fetch_url the primary pages (official docs, pricing pages) you rely on. Aim for two independent sources per key claim and check what the user already knows with search_memory. Separate facts from your analysis.",
     done: "each key finding has at least one cited page you actually read; conflicts between sources are reported, not resolved by guessing; inaccessible pages are named as such.",
