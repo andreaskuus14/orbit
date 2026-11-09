@@ -3,12 +3,14 @@
 // network. ORBIT runs it through ORBIT_CLAUDE_BIN and it answers in Claude Code's stream-json format.
 // Markers in the prompt steer it:
 //   [slow:N]                  wait N s before answering (Cancel, Stop-all, restart checks)
+//   [slowfor:N:ID]            hang on every call during the first N s after the first one, then answer at once (a CORE turn
+//                             that outlasts its time limit, hands off, and finishes in the background)
 //   [fail]                    answer with an error
 //   [failonce:ID]             fail the first time, behave normally after (Retry check)
 //   [propose:create_project]  first agent step proposes that approval tool (interrupted-action checks)
 // A Pulse briefing prompt ("NEWS EVENTS") gets a short briefing citing its first article ([a:<id>]), as Pulse requires.
 // Every call is logged to FAKE_CLAUDE_LOG ("start" lines carry the prompt's first 80 characters, so checks can count calls per task).
-import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const logFile = process.env.FAKE_CLAUDE_LOG;
 const log = (m) => { if (logFile) appendFileSync(logFile, `${new Date().toISOString()} ${process.pid} ${m}\n`); };
@@ -35,6 +37,12 @@ process.stdin.on("end", async () => {
   const slow = /\[slow:(\d+)\]/.exec(prompt), first = !/STEP 1:/.test(prompt); // later agent steps answer at once
   log(`start slow=${slow?.[1] ?? 0} first=${first} ${prompt.slice(0, 80).replace(/\n/g, " ")}`);
   if (slow && first && (!once || failedBefore)) await new Promise((r) => setTimeout(r, Number(slow[1]) * 1000));
+  const slowFor = /\[slowfor:(\d+):(\w+)\]/.exec(prompt), firstMark = `${logFile}.slowfor.${slowFor?.[2]}`;
+  if (slowFor) {
+    if (!existsSync(firstMark)) writeFileSync(firstMark, String(Date.now()));
+    const left = Number(readFileSync(firstMark, "utf8")) + Number(slowFor[1]) * 1000 - Date.now();
+    if (left > 0) await new Promise((r) => setTimeout(r, left + 600_000)); // past the window: ORBIT's call timeout ends this call
+  }
   const out = (o) => process.stdout.write(JSON.stringify(o) + "\n");
   out({ type: "system", subtype: "init", model: "fake" });
   if (/\[fail\]/.test(prompt) || (once && !failedBefore)) {

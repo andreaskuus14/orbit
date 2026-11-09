@@ -8,6 +8,7 @@ import { numberCitations } from "@/lib/pure";
 import { OPEN_SOURCE_EVENT } from "@/lib/week-pure";
 import { takeLines } from "@/lib/streamjson";
 import { followUps } from "@/lib/core-ui";
+import { dropNote, handoffTask } from "@/lib/long-work-pure";
 import { applyLive, type LiveEvent, type LiveRow } from "@/lib/core-live-pure";
 import { CoreActivity } from "./CoreActivity";
 import { CoreWorkspace } from "./CoreWorkspace";
@@ -142,7 +143,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   const openChat = useCallback(async (id: string, fallbackProject: string | null = null) => {
     setSheet(false);
     if (id === convo.current) return;
-    abort.current?.abort(); stopSpeech();
+    // Like newChat: a running turn detaches and finishes in its own chat; only Stop/Esc cancel it.
+    if (abort.current) { view.current++; abort.current = null; setBusy(false); setLive(null); setRows([]); setBgTask(null); }
+    stopSpeech();
     const mine = ++opening.current;
     try {
       const r = await chatsApi<{ messages: Msg[] }>(undefined, `?id=${encodeURIComponent(id)}`);
@@ -151,6 +154,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       setMsgs(r.messages.map((m) => ({ role: m.role, content: m.content, citations: m.citations, trace: m.trace })));
       setChatId(id); setNewProject(null);
       lastQ.current = [...r.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+      const pending = handoffTask(r.messages); // reopened (reload, other device) while its background task runs: show the answer when it lands
+      if (pending) void waitTask(pending, () => alive.current && mine === opening.current).then(async (t) => {
+        if (!t || mine !== opening.current || abort.current) return; // moved on, or a new turn is streaming: the answer shows on the next open
+        const again = await chatsApi<{ messages: Msg[] }>(undefined, `?id=${encodeURIComponent(id)}`).catch(() => null); // the server wrote it before closing the task
+        if (again?.messages.length && mine === opening.current && !abort.current) setMsgs(again.messages.map((m) => ({ role: m.role, content: m.content, citations: m.citations, trace: m.trace })));
+      });
     } catch (e) { if (mine === opening.current) { setMsgs([{ role: "assistant", content: e instanceof Error ? e.message : "Couldn't open that chat", error: true }]); setChatId(null); } }
   }, [setChatId, newChat]);
   // Reopen the last chat on mount (the panel remounts each time it opens); palette/voice "new chat" starts fresh.
@@ -196,7 +205,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   }, []);
   useEffect(() => {
     alive.current = true;
-    return () => { alive.current = false; const ac = abort.current; setTimeout(() => { if (!alive.current) { ac?.abort(); if (!flying.current) stopSpeech(); } }, 0); };
+    // Closing the chat leaves a running turn alone: the server finishes it and saves the answer to the conversation (Stop still aborts).
+    // shortcut: a reload or closed tab still drops the request and stops the turn; hand it to the background turn if that bites.
+    return () => { alive.current = false; setTimeout(() => { if (!alive.current && !flying.current) stopSpeech(); }, 0); };
   }, []);
 
   const send = useCallback(async (text: string, fromVoice?: boolean, look?: Preset) => {
@@ -235,6 +246,11 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     since.current = Date.now();
     let steps: LiveRow[] = []; // mirrors `rows` so "done" can keep them under the answer
     let handedOff = false, bgId = "";
+    // Diagnostics for a dropped stream (seen only on the Windows PC, ~5 min in): how long it ran and how long the tab was hidden
+    const doc = typeof document === "undefined" ? null : document; // tests drive send() without a DOM
+    let hiddenMs = 0, hiddenAt = doc?.hidden ? Date.now() : 0;
+    const onVis = () => { if (doc?.hidden) hiddenAt = Date.now(); else if (hiddenAt) { hiddenMs += Date.now() - hiddenAt; hiddenAt = 0; } };
+    doc?.addEventListener("visibilitychange", onVis);
     const ac = new AbortController();
     abort.current = ac;
     let partial = "";
@@ -311,8 +327,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           : { role: "assistant", content: t.error || `The task ended as ${t.status}.`, error: true }]);
       } else if (!(stopped && handedOff) && here()) setMsgs((m) => [...m, stopped // after a handoff, Stop only stops watching: the work goes on in OPERATIONS
         ? { role: "assistant", content: `${partial}${partial ? "\n\n" : ""}_Stopped._`, live: { rows: steps, ms: Date.now() - since.current } }
-        : { role: "assistant", content: e instanceof Error ? e.message : "CORE failed", error: true }]);
+        : { role: "assistant", content: dropNote(e instanceof Error ? e.message : "CORE failed", Date.now() - since.current, hiddenMs + (hiddenAt ? Date.now() - hiddenAt : 0), !!doc?.hidden), error: true }]);
     } finally {
+      doc?.removeEventListener("visibilitychange", onVis);
       flush();
       if (cid) setRunning((r) => r.filter((x) => x !== cid));
       if (here()) { setLive(null); setRows([]); setBgTask(null); setBusy(false); }

@@ -24,7 +24,7 @@ function serverEnv() {
     ORBIT_ALLOWED_EMAILS: c.email, ORBIT_DIST_DIR: ".next-isolated", ORBIT_DATA_DIR: path.join(DIR, "data"),
     ORBIT_STUDIO_DIR: path.join(DIR, "studio"), ORBIT_BACKUP_DIR: path.join(DIR, "backups"), ORBIT_DAILY_DIGEST: "off", ORBIT_EMBED: "local",
     ORBIT_CLAUDE_BIN: path.join(__dirname, "fake-claude.mjs"), FAKE_CLAUDE_LOG: FAKE_LOG, REMOTE_SECRET: c.remoteSecret,
-    ORBIT_HIGGSFIELD_DRY_RUN: "1", ORBIT_FFMPEG: process.env.ORBIT_FFMPEG ?? "", // STUDIO checks: the fake Higgsfield (no network, no credits)
+    ORBIT_HIGGSFIELD_DRY_RUN: "1", ORBIT_HIGGSFIELD_WEEKLY_CAP: "100000", /* fake credits; a second run in a week must not hit the real 10-credit default */ ORBIT_FFMPEG: process.env.ORBIT_FFMPEG ?? "", // STUDIO checks: the fake Higgsfield (no network, no credits)
   };
 }
 
@@ -53,11 +53,11 @@ function stop() {
 }
 async function restart() { stop(); await sleep(1500); start(); if (!await up()) throw new Error("the test server didn't come back (see server.log)"); }
 
-async function session() {
+async function session(ctx = { viewport: { width: 1280, height: 900 } }) {
   const req = require("node:module").createRequire(path.join(ROOT, "package.json"));
   const { chromium } = (() => { try { return req("playwright"); } catch { return req("playwright-core"); } })();
   const browser = await chromium.launch();
-  const page = await (await browser.newContext({ viewport: { width: 1280, height: 900 } })).newPage();
+  const page = await (await browser.newContext(ctx)).newPage();
   page.on("dialog", (d) => d.accept()); // Stop-all's confirm()
   const c = conf();
   await page.goto(`${BASE}/login`);

@@ -1,5 +1,6 @@
 import { outboundLeak } from "./outbound-pure";
 import { medianByAgent, taskLine } from "./task-line-pure";
+import { NO_CALL_FOR_TOOLS, holdAnswerCall, toolAllowed } from "./answer-call-pure";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClipStore } from "./clip-store-pure";
 import { isCurrent, scopeTags } from "./memory-types-pure";
@@ -532,8 +533,10 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
       } else if (tool.approval) {
         pending.push({ tool: reply.tool, input: reply.input ?? {}, status: "pending" });
         out = "Queued for the user's approval. Continue; mention in your final answer what is waiting for approval.";
+      } else if (!toolAllowed(budget)) {
+        out = NO_CALL_FOR_TOOLS;
       } else {
-        try { out = await tool.run(ctx, reply.input ?? {}); }
+        try { out = await holdAnswerCall(budget, () => tool.run(ctx, reply.input ?? {})); }
         catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
         noteToolResult(ctx, reply.tool, out);
         seen += `\n${out}`;

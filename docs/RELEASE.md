@@ -11,6 +11,8 @@ Open DEV → Doctor. Two rows answer it:
 
 ## Making a release
 
+Each PR in a release needs a review that follows [REVIEW.md](REVIEW.md): exact SHA, what ran, what was mocked, what wasn't checked.
+
 1. Merge the PR once CI is green on that exact commit. If CI never started (billing, runner outage), the run shows no logs. Run `npm run gate` locally on the same commit and note that in the PR.
 2. On the PC: `git pull`, then `npm ci` (installs exactly what `package-lock.json` says), then `npm run app:rebuild`.
 3. Tag what you deployed: `git tag release-YYYYMMDD-HHMM && git push origin --tags`.

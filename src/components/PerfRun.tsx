@@ -34,7 +34,7 @@ export default function PerfRun() {
     if (w > 0 && h > 0 && (outerWidth !== w || outerHeight !== h)) try { resizeTo(w, h); } catch { /* not allowed: the report has the real size */ }
 
     const rings = new Map<string, FrameRing>(), snaps = new Map<string, ReturnType<typeof ctxNow>>();
-    let seg = "boot", last = 0, raf = 0, off = false, hidden = false;
+    let seg = "boot", last = 0, raf = 0, off = false, hidden = document.hidden;
     perfCtx.runSeg = seg;
     const tick = (t: number) => {
       raf = requestAnimationFrame(tick);
@@ -51,7 +51,16 @@ export default function PerfRun() {
 
     void (async () => {
       const t0 = performance.now();
-      while (!off && !runMarks?.some((m) => m.mark === "galaxy-drawn") && performance.now() - t0 < 60_000) await wait(100);
+      // The 2D overview is ready without a WebGL draw and never emits galaxy-drawn.
+      const viewReady = () => document.querySelector('.orbit-shell[data-view="2d"]')
+        || runMarks?.some((m) => m.mark === "galaxy-drawn");
+      while (!off && !viewReady() && performance.now() - t0 < 60_000) await wait(100);
+      if (off) return;
+      if (!viewReady()) {
+        cancelAnimationFrame(raf);
+        setStatus("Perf run: the view did not become ready. Reload to retry.");
+        return;
+      }
       for (const s of PERF_RUN_SCRIPT) {
         if (off) return;
         step(s.seg);

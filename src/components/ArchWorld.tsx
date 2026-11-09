@@ -27,6 +27,8 @@ import { ArchEnergy } from "./ArchEnergy";
 import { ArchKit } from "./ArchKit";
 import { groupOf } from "@/lib/arch-kit-pure";
 import type { Group } from "@/lib/arch-pure";
+import { IfcModelView, IfcPanel, type OpenIfc } from "./ArchIfc";
+import { sunSite } from "@/lib/arch-ifc-import-pure";
 import { buildExports, EXPORT_LIMITS } from "@/lib/arch-export-pure";
 import { openingIssue, parseDim, showDim, snapCentre, snapGrid } from "@/lib/arch-snap-pure";
 import { addVariant, compare, readVariants, type Comparison, type Variant } from "@/lib/arch-variants-pure";
@@ -284,13 +286,16 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const [site, setSite] = useState<Site>(defaultSite); // model city (roadmap 3): plot, setbacks, north, neighbours; saved with the model
   const [sc, setSc] = useState<{ on: boolean; type: FloorType; s: number }>({ on: false, type: "timber", s: 0.4 }); // structure coach
   const [sun, setSun] = useState<{ on: boolean; date: string; hour: number; lat: number; lon: number }>(() => ({ ...SITE, on: false, date: new Date().toISOString().slice(0, 10), hour: 12 }));
+  const [ifc, setIfc] = useState<OpenIfc | null>(null); // an opened .ifc replaces the model in the view (read-only)
+  const north = ifc ? ifc.model.info.north : site.north; // its own true north, never written into his site
+  const at = sunSite(ifc?.model.info.site, sun); // same for its location: exports, daylight, energy and variants keep reading sun
   const sunAt = useMemo(() => { const d = new Date(`${sun.date}T00:00`); d.setMinutes(Math.round(sun.hour * 60)); return d; }, [sun.date, sun.hour]);
   const sunInfo = useMemo(() => {
     try {
-      const pos = sunPosition(sun.lat, sun.lon, sunAt), dir = toModel(sunDirection(sun.lat, sun.lon, sunAt), site.north), arc = dayArc(sun.lat, sun.lon, new Date(`${sun.date}T12:00Z`));
+      const pos = sunPosition(at.lat, at.lon, sunAt), dir = toModel(sunDirection(at.lat, at.lon, sunAt), north), arc = dayArc(at.lat, at.lon, new Date(`${sun.date}T12:00Z`));
       return { pos, dir, arc };
     } catch { return null; }
-  }, [sunAt, sun.date, sun.lat, sun.lon, site.north]);
+  }, [sunAt, sun.date, at.lat, at.lon, north]);
   const SR = site.on ? 90 : 40; // the light (and its shadow box) reaches further when the neighbours are out
   const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * SR, Math.max(0.5, sunInfo.dir.y * SR), sunInfo.dir.z * SR] : [-14, 22, 12];
   const night = sun.on && !!sunInfo && sunInfo.pos.elevationDeg < 0;
@@ -419,7 +424,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
       if (!r.ok) throw new Error(j.error || `Failed (${r.status})`);
       const l = j.lesson as Lesson;
       if (!lesson) ownScene.current = sceneRef.current;
-      setLesson(l); setAnswers(l.quiz.map(() => null)); setMode("holo"); setTopic(""); setScan(null);
+      setLesson(l); setAnswers(l.quiz.map(() => null)); setMode("holo"); setTopic(""); setScan(null); setIfc(null);
       goTo(l, 0);
     } catch (e) { setLessonMsg((e as Error).message); } finally { setLessonBusy(false); }
   }
@@ -471,12 +476,12 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
             <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[view.plot.w, view.plot.d]} /><meshStandardMaterial color={bp ? BP.ground : GROUND[view.plot.ground]} roughness={1} /></mesh>
             <gridHelper args={[Math.max(view.plot.w, view.plot.d), Math.max(view.plot.w, view.plot.d), bp ? BP.grid[0] : "#cbbf9f", bp ? BP.grid[1] : "#ddd6c6"]} position={[0, 0.005, 0]} />
             <ContactShadows position={[0, 0.01, 0]} scale={Math.max(view.plot.w, view.plot.d)} opacity={0.35} blur={2.5} far={12} />
-            <Blueprint parts={view.parts.filter((p) => !hideGroups.has(groupOf(p)))} />
-            <Trees n={view.plot.trees} w={view.plot.w} d={view.plot.d} />
-            {site.on && !lesson && <SiteLayer site={site} set={setSite} parts={scene.parts} />}
+            {!ifc && <Blueprint parts={view.parts.filter((p) => !hideGroups.has(groupOf(p)))} />}
+            {!ifc && <Trees n={view.plot.trees} w={view.plot.w} d={view.plot.d} />}
+            {site.on && !lesson && !ifc && <SiteLayer site={site} set={setSite} parts={scene.parts} />}
           </>}
           <BuildClock run={run} onStart={setT0} />
-          {(() => { const at = (i: number) => t0 + 0.6 + i * STEP_S;
+          {ifc ? <IfcModelView model={ifc.model} /> : (() => { const at = (i: number) => t0 + 0.6 + i * STEP_S;
             return <>
               {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel || focus.has(p.id)} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={(noRoof || !!daylight) && p.kind === "roof"} bp={bp} holo={holo} inside={walk} fail={failing.has(p.id)} />)}
               {view.parts.filter((p) => isOpening(p.kind) && !hideGroups.has(groupOf(p))).map((p) => <Opening key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
@@ -484,7 +489,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
               {daylight && !holo && <DaylightRooms d={daylight} />}
             </>; })()}
           </>}
-          {sun.on && sunInfo && !scan && !holo && <SunShadow scene={view} sun={{ ...sunInfo.pos, azimuthDeg: sunInfo.pos.azimuthDeg + site.north }} /* model bearing */ />}
+          {sun.on && sunInfo && !scan && !holo && !ifc && <SunShadow scene={view} sun={{ ...sunInfo.pos, azimuthDeg: sunInfo.pos.azimuthDeg + site.north }} /* model bearing */ />}
           {walk && !paused && <Walker key={scan?.name ?? "model"} rects={scan ? noRects : rects} plot={scanPlot ?? plotWD} onExit={() => setWalk(false)} />}
           <OrbitControls makeDefault enabled={!walk} enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced && !walk} autoRotateSpeed={0.8} />
         </Canvas>
@@ -557,19 +562,19 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs">
               {(["lat", "lon"] as const).map((k) => <label key={k} className="flex items-center gap-1">{k === "lat" ? "Lat" : "Long"}
-                <input className="field w-20" type="number" step={0.001} min={k === "lat" ? -90 : -180} max={k === "lat" ? 90 : 180} defaultValue={sun[k]} aria-label={k === "lat" ? "Latitude" : "Longitude (east positive)"}
+                <input key={`${k}:${ifc?.name ?? ""}`} className="field w-20" type="number" step={0.001} min={k === "lat" ? -90 : -180} max={k === "lat" ? 90 : 180} defaultValue={at[k]} readOnly={at !== sun} title={at !== sun ? tr("arch.ifc3dSiteLocked") : undefined} aria-label={k === "lat" ? "Latitude" : "Longitude (east positive)"}
                   onChange={(e) => { const v = Number(e.target.value); if (e.target.value && Math.abs(v) <= (k === "lat" ? 90 : 180)) setSun((s) => ({ ...s, [k]: v })); }} /></label>)}
             </div>
             <label className="flex items-center gap-2 text-xs"><span className="num w-12">{String(Math.floor(sun.hour)).padStart(2, "0")}:{String(Math.round((sun.hour % 1) * 60)).padStart(2, "0")}</span>
               <input className="flex-1" type="range" min={0} max={24} step={0.25} value={sun.hour} aria-label={tr("arch.timeOfDay")} onChange={(e) => setSun((v) => ({ ...v, hour: Number(e.target.value) }))} /></label>
             {sunInfo && <p className="muted text-xs">
               {sunInfo.pos.elevationDeg < 0 ? "Sun below the horizon" : `Sun ${Math.round(sunInfo.pos.elevationDeg)}° high, from ${Math.round(sunInfo.pos.azimuthDeg)}° (0° = north)`}
-              {" · "}{tr("arch.sunrise")} {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunrise)}, {tr("arch.sunset")} {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunset)}. {site.north ? `True north is ${Math.round(site.north)}° clockwise from the plot's −Z side.` : "The plot's −Z side faces north."}
-              {((s) => s && ` Shadow of the ${Math.round(solid.reduce((m, p) => Math.max(m, p.y + p.h), 0) * 10) / 10} m top: ${s.length.toFixed(1)} m toward ${Math.round(s.towardDeg)}° (orange line).`)(shadowOf(sunInfo.pos, solid.reduce((m, p) => Math.max(m, p.y + p.h), 0), 120))}</p>}
+              {" · "}{tr("arch.sunrise")} {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunrise)}, {tr("arch.sunset")} {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunset)}. {north ? `True north is ${Math.round(north)}° clockwise from the plot's −Z side.` : "The plot's −Z side faces north."}
+              {!ifc && ((s) => s && ` Shadow of the ${Math.round(solid.reduce((m, p) => Math.max(m, p.y + p.h), 0) * 10) / 10} m top: ${s.length.toFixed(1)} m toward ${Math.round(s.towardDeg)}° (orange line).`)(shadowOf(sunInfo.pos, solid.reduce((m, p) => Math.max(m, p.y + p.h), 0), 120))}</p>}
           </div>
         )}
-        {dayOn && <DaylightPanel parts={scene.parts} site={{ lat: sun.lat, lon: sun.lon, name: `${sun.lat.toFixed(2)}°, ${sun.lon.toFixed(2)}°` }} d={daylight} onChange={setDaylight} />}
-        {dayOn && <ArchEnergy parts={scene.parts} site={{ lat: sun.lat, lon: sun.lon, name: `${sun.lat.toFixed(2)}°, ${sun.lon.toFixed(2)}°` }} north={site.north} />}
+        {dayOn && !ifc && <DaylightPanel parts={scene.parts} site={{ lat: sun.lat, lon: sun.lon, name: `${sun.lat.toFixed(2)}°, ${sun.lon.toFixed(2)}°` }} d={daylight} onChange={setDaylight} />}
+        {dayOn && !ifc && <ArchEnergy parts={scene.parts} site={{ lat: sun.lat, lon: sun.lon, name: `${sun.lat.toFixed(2)}°, ${sun.lon.toFixed(2)}°` }} north={site.north} />}
         {site.on && !lesson && !scan && <SitePanel site={site} set={setSite} parts={scene.parts} sun={sun.on && sunInfo ? sunInfo.dir : null} />}
         {sc.on && (
           <div className="card space-y-1.5" aria-label={tr("arch.coach")}>
@@ -635,6 +640,8 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
           })}
           <p className="muted text-[11px]">{tr("arch.exportHow")}</p>
         </div>
+        <IfcPanel ifc={ifc} view={() => r3f.current} sun={{ lat: at.lat, lon: at.lon, north, year: Number(sun.date.slice(0, 4)) }} onClose={() => setIfc(null)}
+          onOpen={(x) => { setIfc(x); setScan(null); setMeas(null); setWalk(false); setSel(null); setSun((v) => ({ ...v, on: true })); }} />
         <IfcOpen />
         <OpenInBlender />
 
@@ -646,7 +653,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         <ArchPlans plot={scene.plot} onPick={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setRun((n) => n + 1); }} />
         {ready && <ArchTimeMachine project={project || null} scene={scene} save={!lesson} onPreview={setPreview} onRestore={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); setScene(s); setSel(null); }} />}
 
-        <ArchStudio worker={worker} bump={bump} onScan={(s) => { setScan(s); setMeas(measureFrom(s)); setWalk(false); }}
+        <ArchStudio worker={worker} bump={bump} onScan={(s) => { setScan(s); setIfc(null); setMeas(measureFrom(s)); setWalk(false); }}
           onScanNote={(id, note) => setMeas((m) => m && { ...m, noteId: id, note })} onTeach={(t) => void teach(t)}
           lesson={lesson ? { building: lesson.building, text: lesson.chapters.map((c) => `${c.title}: ${c.text}`).join("\n") } : null} lessonKey={lesson ? lessonTag(lesson.building) : ""} />
 

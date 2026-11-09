@@ -35,13 +35,20 @@ export async function startAutomation(sb: SupabaseClient, a: Automation, trigger
     if (error) throw error;
     if (had?.length) { await ran(a.run_count); return had[0].id as string; } // re-mark it run so the slot stops being due
   }
-  const { data, error } = await sb.from("tasks").insert({
-    user_id: a.user_id, agent: a.agent, title: `⚙ ${a.name}`.slice(0, 200), request, automation_id: a.id,
-  }).select("id").single();
+  const row: Record<string, string> = { user_id: a.user_id, agent: a.agent, title: `⚙ ${a.name}`.slice(0, 200), request, automation_id: a.id };
+  // The lookup above and this insert aren't atomic: two ORBITs on one database (PC + a host) can both pass the lookup. The slot's
+  // attempt_id (unique per user, migration 0023) lets only one insert win; the loser finds the winner's task. Before 0023: plain insert.
+  const slot = key ? `slot:${a.id}:${key}` : null;
+  let { data, error } = await sb.from("tasks").insert(slot ? { ...row, attempt_id: slot } : row).select("id").single();
+  if (error && slot && (error.code === "42703" || error.code === "PGRST204")) ({ data, error } = await sb.from("tasks").insert(row).select("id").single());
+  if (error?.code === "23505" && slot) {
+    const { data: won } = await sb.from("tasks").select("id").eq("user_id", a.user_id).eq("attempt_id", slot).limit(1);
+    if (won?.length) { await ran(a.run_count); return won[0].id as string; }
+  }
   if (error) throw error;
   await ran(a.run_count + 1);
   void kickQueue(sb, a.user_id);
-  return data.id as string;
+  return data!.id as string;
 }
 
 /** Start every scheduled automation whose time has come. */

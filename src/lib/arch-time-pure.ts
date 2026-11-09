@@ -1,6 +1,14 @@
 // ARCH time machine (pure, tested in tests/arch-time.test.ts): the model's version history (last KEEP saved states, kept in the
 // data dir by arch-time.ts) and the shadow a sun position casts, for the sun study in the 3D view.
 import type { Scene } from "./arch-pure.ts";
+import { wallToUtc } from "./reminders-pure.ts";
+
+/** G05: the instant a site's wall clock shows `date` (YYYY-MM-DD) at `hour` (0–24, fractional) in IANA `timeZone`, DST included.
+ *  Independent of the viewer's own time zone (a `new Date("…T00:00")` would read the hour in the browser's zone instead). */
+export function siteInstant(date: string, hour: number, timeZone: string): Date {
+  const [y, mo, d] = date.split("-").map(Number), m = Math.round(hour * 60);
+  return new Date(wallToUtc(y, mo, d, Math.floor(m / 60), m % 60, timeZone));
+}
 
 export const KEEP = 60;
 export type Snapshot = { at: string; scene: Scene };

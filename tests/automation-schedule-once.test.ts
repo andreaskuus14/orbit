@@ -10,11 +10,11 @@ import * as pure from "../src/lib/pure.ts";
 const code = ts.transpileModule(readFileSync(new URL("../src/lib/automations.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
 const clone = (x: any) => JSON.parse(JSON.stringify(x));
 
-function engine(opts: { loseUpdate?: boolean } = {}) {
+function engine(opts: { loseUpdate?: boolean; tasks?: any[]; autos?: any[] } = {}) {
   const now = new Date("2026-11-07T17:45:00Z");
-  const autos: any[] = [{ id: "a1", user_id: "u1", name: "Hourly digest", enabled: true, trigger: "schedule", schedule: { every: "hour", minute: 40 },
+  const autos: any[] = opts.autos ?? [{ id: "a1", user_id: "u1", name: "Hourly digest", enabled: true, trigger: "schedule", schedule: { every: "hour", minute: 40 },
     event: null, kind_filter: null, agent: "nova", prompt: "Summarise", last_run_at: null, run_count: 0, created_at: "2026-11-01T00:00:00Z" }];
-  const tasks: any[] = [];
+  const tasks: any[] = opts.tasks ?? [];
   class Q {
     filters: [string, string, any][] = []; patch: any = null; row: any = null; table: string;
     constructor(table: string) { this.table = table; }
@@ -24,7 +24,11 @@ function engine(opts: { loseUpdate?: boolean } = {}) {
     insert(r: any) { this.row = r; return this; }
     update(p: any) { this.patch = p; return this; }
     match(r: any) { return this.filters.every(([op, k, v]) => op === "eq" ? r[k] === v : String(r[k]).endsWith(v.replace(/^%/, ""))); }
-    async single() { const r = { id: `t${tasks.length + 1}`, ...this.row }; tasks.push(r); return { data: { id: r.id }, error: null }; }
+    async single() {
+      await Promise.resolve(); // a network round trip: another ORBIT's tick can interleave here
+      if (this.row.attempt_id && tasks.some((t) => t.user_id === this.row.user_id && t.attempt_id === this.row.attempt_id)) return { data: null, error: { code: "23505", message: "duplicate key value violates unique constraint \"tasks_attempt\"" } };
+      const r = { id: `t${tasks.length + 1}`, ...this.row }; tasks.push(r); return { data: { id: r.id }, error: null };
+    }
     then(res: any, rej: any) {
       const rows = this.table === "tasks" ? tasks : autos;
       const hits = rows.filter((r) => this.match(r));
@@ -68,4 +72,13 @@ test("the next hourly slot is a new run", async () => {
   const e = engine({ loseUpdate: true });
   await e.tick(0); await e.tick(60);
   assert.equal(e.tasks.length, 2);
+});
+
+test("two ORBITs on one database tick the same slot at once: one task, the other finds it (unique attempt_id)", async () => {
+  const shared: any[] = [], a = engine({ tasks: shared }), b = engine({ tasks: shared, autos: a.autos });
+  await Promise.all([a.tick(), b.tick()]);
+  assert.equal(shared.length, 1, JSON.stringify(shared.map((t) => t.attempt_id)));
+  assert.match(shared[0].attempt_id, /^slot:a1:/);
+  await Promise.all([a.tick(1), b.tick(1)]); // same slot again a minute later: still one
+  assert.equal(shared.length, 1);
 });
