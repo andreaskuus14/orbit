@@ -18,7 +18,7 @@ export type ReportInput = {
 };
 
 /** Not tools: bookkeeping steps the runners add around the tool calls. */
-const META = new Set(["search_memory", "think", "review", "fallback", "reflex", "local", "verify", "error", "budget", "cancelled", "answer_eval"]);
+const META = new Set(["search_memory", "think", "review", "fallback", "reflex", "local", "verify", "error", "budget", "cancelled", "answer_eval", "sources"]);
 const MAX_STEPS = 200; // bounded: a runaway trace can't make an unbounded package
 
 export const CATEGORIES = ["policy", "cancelled", "budget", "timeout", "rate_limit", "auth", "network", "model", "tool", "unknown"] as const;
