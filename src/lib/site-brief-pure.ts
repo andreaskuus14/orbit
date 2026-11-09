@@ -183,7 +183,7 @@ const buttons = (c: Link[]) => (c.length ? `<p class="actions">${c.map((l, i) =>
 
 function section(x: Section, b: Brief): string {
   const a = x.image ? b.assets.find((y) => y.id === x.image) : undefined;
-  const head = `<h2 id="${x.id}-title">${esc(x.heading)}</h2>`, attrs = `id="${x.id}" class="sec sec-${x.kind}" data-section="${x.id}" aria-labelledby="${x.id}-title"`;
+  const head = `<h2 id="${x.id}-title">${directionOf(b.style) ? accentHeading(esc(x.heading), true) : esc(x.heading).replace(/\*([^*]+)\*/, "$1")}</h2>`, attrs = `id="${x.id}" class="sec sec-${x.kind}" data-section="${x.id}" aria-labelledby="${x.id}-title"`;
   switch (x.kind) {
     case "hero": {
       const pos = a && heroPositions(a);
@@ -291,7 +291,7 @@ ${directionOf(b.style) ? `<link rel="stylesheet" href="css/immersive.css">\n` : 
 <body data-version="${b.version}"${directionOf(b.style) ? ` class="immersive dir-${directionOf(b.style)}"` : ""}>
 <a class="skip" href="#main">Skip to content</a>
 <header class="top"><div class="wrap bar"><a class="brand" href="#main">${MARK}<span>${esc(b.name)}</span></a>
-<nav aria-label="Sections"><ul>${nav.map((x) => `<li><a href="#${x.id}">${esc(navLabel(x))}</a></li>`).join("")}</ul>${form ? `<a class="btn btn-small" href="#${form.id}">${esc(form.cta[0]?.label || "Contact")}</a>` : ""}</nav></div></header>
+<nav aria-label="Sections"><ul>${nav.map((x) => `<li><a href="#${x.id}">${esc(navLabel(x, b.sections))}</a></li>`).join("")}</ul>${form ? `<a class="btn btn-small" href="#${form.id}">${esc(form.cta[0]?.label || "Contact")}</a>` : ""}</nav></div></header>
 <main id="main">
 ${b.sections.map((x) => section(x, b)).join("\n")}
 </main>
@@ -314,7 +314,9 @@ export function artIssues(b: Brief): string[] {
   }
   return out;
 }
-const navLabel = (x: Section) => ({ features: "Features", story: "Story", specs: "Specs", faq: "FAQ", sequence: "Tour", hero: "", form: "" })[x.kind] || x.heading;
+const NAV: Partial<Record<Kind, string>> = { features: "Features", story: "Story", specs: "Specs", faq: "FAQ", sequence: "Tour" };
+/** Menu label: the kind's word, or the heading's first phrase when two sections share a kind (no "Story Story"). */
+const navLabel = (x: Section, all: Section[] = []) => (all.filter((y) => y.kind === x.kind).length > 1 ? x.heading.replace(/\*/g, "").split(/[.,]/)[0].slice(0, 22) : NAV[x.kind] || x.heading);
 
 /** Every file the brief renders (text only: the images are the owner's, already in the workspace, and are never written here). */
 export function renderSite(b: Brief): Record<string, string> {

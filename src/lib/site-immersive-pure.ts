@@ -89,6 +89,8 @@ body.immersive { --muted: var(--muted-i); }
 .immersive details { border-color: var(--edge); }
 .immersive summary { color: var(--ink-i); }
 .immersive .story-media img, .immersive .lead-img { border-radius: 22px; border: 1px solid var(--edge); }
+.immersive .story-media img { aspect-ratio: 16 / 10; width: 100%; height: auto; object-fit: cover; }
+@media (min-width: 900px) { .immersive .split { grid-template-columns: 1.35fr 1fr; align-items: center; } }
 .immersive .lead { background: linear-gradient(180deg, var(--card-hi), var(--card-lo)); border: 1px solid var(--edge); border-radius: 22px; }
 .immersive input, .immersive textarea, .immersive select { background: var(--field); color: var(--ink-i); border: 1px solid var(--edge); border-radius: 12px; }
 .immersive label, .immersive .field span { color: var(--ink-i); }
@@ -163,8 +165,9 @@ export const IMMERSIVE_JS = `(function () {
 `;
 
 /** Headline accent: the last word (or a word wrapped in *stars* in the brief) set in the italic serif, like "Steady light *forever*." */
-export function accentHeading(escaped: string): string {
+export function accentHeading(escaped: string, onlyMarked = false): string {
   if (/\*[^*]+\*/.test(escaped)) return escaped.replace(/\*([^*]+)\*/, "<em>$1</em>");
+  if (onlyMarked) return escaped; // section headings: accent only where the brief asks for it
   const m = /^(.*\s)(\S+?)([.!?]?)$/.exec(escaped);
   return m ? `${m[1]}<em>${m[2]}</em>${m[3]}` : escaped;
 }
