@@ -115,7 +115,8 @@ export function qaPacket(input: { html: string; page?: string; files: Set<string
   const overflow = (r: ViewRun) => (!r.probe.clipX && overflowsX(r.probe.scrollWidth, r.vw) ? [`${r.vw}px: page is ${r.probe.scrollWidth}px wide (sideways scroll)`] : []);
   const contrast = (r: ViewRun) => contrastIssues(r.probe.samples).map((s) => `${r.vw}px: ${s}`);
   const imgs = (r: ViewRun) => r.probe.badImgs.map((s) => `${r.vw}px: image didn't load: ${s}`);
-  const scrim = (input.heroText ?? []).flatMap((c) => { const r = scrimContrast(c, HERO_SCRIM); return r < minContrast(17, false) ? [`hero text over the scrim can fall to ${r.toFixed(1)}:1 on a bright image`] : []; });
+  // only when a hero photo sits under the text (no hero image: the text is on the page's own background, covered by the contrast samples)
+  const scrim = (input.hero ? input.heroText ?? [] : []).flatMap((c) => { const r = scrimContrast(c, HERO_SCRIM); return r < minContrast(17, false) ? [`hero text over the scrim can fall to ${r.toFixed(1)}:1 on a bright image`] : []; });
   const checks: QaCheck[] = [
     { name: "No sideways scroll", ok: false, notes: per(overflow) },
     { name: "Heading order", ok: false, notes: headingIssues(input.html) },

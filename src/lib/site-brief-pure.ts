@@ -1,7 +1,7 @@
 // W02 site brief (pure): one typed, editor-friendly brief (site.json in the workspace) → a versioned one-page site. Copy, brand,
 // assets and section settings stay separate from rendering; sections keep stable IDs; copy edits never touch assets; the hero
 // crop follows a focal point and keeps a text-safe area. Disk side: site-brief.ts. Tests: tests/site-brief.test.ts.
-import { DIRECTIONS, IMMERSIVE_CSS, IMMERSIVE_JS, SEQUENCE_CSS, SEQUENCE_JS, accentHeading, directionOf, sequenceSection } from "./site-immersive-pure.ts";
+import { DIRECTIONS, IMMERSIVE_CSS, IMMERSIVE_JS, SEQUENCE_CSS, SEQUENCE_JS, accentHeading, directionOf, framePath, keyFrames, sequenceSection } from "./site-immersive-pure.ts";
 
 export type Focal = { x: number; y: number };
 /** An image the site uses. focal = the subject (0-1 of width/height); safe = the side of the image with no subject, where text may sit. */
@@ -284,7 +284,7 @@ export function renderHtml(b: Brief): string {
 <meta name="generator" content="ORBIT site brief v${b.version}">
 <meta property="og:title" content="${esc(b.name)}">
 <meta property="og:description" content="${esc(b.description)}">
-${heroImg ? `<meta property="og:image" content="${esc(heroImg.path)}">\n` : ""}<meta name="theme-color" content="#0b212c">
+${ogImage(b, heroImg) ? `<meta property="og:image" content="${esc(ogImage(b, heroImg)!)}">\n` : ""}<meta name="theme-color" content="#0b212c">
 <link rel="icon" href="${FAVICON}">
 <link rel="stylesheet" href="css/style.css">
 ${directionOf(b.style) ? `<link rel="stylesheet" href="css/immersive.css">\n` : ""}</head>
@@ -301,6 +301,8 @@ ${b.sections.map((x) => section(x, b)).join("\n")}
 </html>
 `;
 }
+/** Share image: the hero picture, else the middle frame of a sequence (the plan view of a fly-through). */
+const ogImage = (b: Brief, hero?: Asset) => hero?.path ?? (() => { const q = b.sections.find((x) => x.seq)?.seq; return q ? framePath(q.path, keyFrames(q.count)[1]) : undefined; })();
 const navLabel = (x: Section) => ({ features: "Features", story: "Story", specs: "Specs", faq: "FAQ", sequence: "Tour", hero: "", form: "" })[x.kind] || x.heading;
 
 /** Every file the brief renders (text only: the images are the owner's, already in the workspace, and are never written here). */

@@ -21,6 +21,7 @@ body.immersive.dir-warm .features > li::before { display: none; } body.immersive
   editorial: { label: "Bold editorial", bg: "#f4f3ef", ink: "#0f0f0f", muted: "#45443f", accent: "#ff4a1c", onAccent: "#0f0f0f", glass: "rgba(244,243,239,.92)", edge: "rgba(15,15,15,.9)",
     veil: "244,243,239", cardHi: "transparent", cardLo: "transparent", field: "#fff", glow1: "transparent", glow2: "transparent", effect: "none",
     extra: `body.immersive.dir-editorial h1 { font-size: clamp(2.6rem, 7.2vw, 6.8rem); text-transform: uppercase; letter-spacing: -.04em; line-height: .88; font-weight: 800; }
+body.immersive.dir-editorial a:not(.btn) { color: var(--ink-i); text-decoration-color: var(--accent); text-decoration-thickness: 2px; }
 body.immersive.dir-editorial h2 { text-transform: uppercase; letter-spacing: -.03em; font-weight: 800; }
 body.immersive.dir-editorial .btn { border-radius: 0; box-shadow: 4px 4px 0 var(--ink-i); } body.immersive.dir-editorial .btn:hover { box-shadow: 6px 6px 0 var(--ink-i); }
 body.immersive.dir-editorial .features > li, body.immersive.dir-editorial .lead { border: 2px solid var(--ink-i); border-radius: 0; }
@@ -175,7 +176,7 @@ export const framePath = (pattern: string, i: number) => pattern.replace("%03d",
 export const keyFrames = (count: number) => [1, Math.ceil(count / 2), count];
 export function sequenceSection(x: SeqSection, attrs: string, esc: (t: string) => string): string {
   const q = x.seq!, keys = keyFrames(q.count);
-  const stills = keys.map((k, i) => `<img class="seq-still" src="${esc(framePath(q.path, k))}" alt="${i ? "" : esc(q.alt)}" width="${q.width}" height="${q.height}" loading="lazy" decoding="async">`).join("");
+  const stills = keys.map((k, i) => `<img class="seq-still" src="${esc(framePath(q.path, k))}" alt="${i ? "" : esc(q.alt)}" width="${q.width}" height="${q.height}" decoding="async">`).join(""); // not lazy: 3 small files, and the fallback must be ready
   const chapters = x.items.map((it, i) => `<li class="seq-ch" data-at="${((i + 0.5) / Math.max(1, x.items.length)).toFixed(3)}">${it.label ? `<span class="eyebrow">${esc(it.label)}</span>` : ""}<h3>${esc(it.title)}</h3><p>${esc(it.body)}</p></li>`).join("");
   return `<section ${attrs} style="--seq-len:${Math.min(8, 2 + q.count / 16).toFixed(2)}"><div class="seq-stage">`
     + `<canvas class="seq-canvas" role="img" aria-label="${esc(q.alt)}" data-path="${esc(q.path)}" data-count="${q.count}" width="${q.width}" height="${q.height}"></canvas>`
