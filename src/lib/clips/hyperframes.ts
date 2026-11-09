@@ -74,8 +74,12 @@ export async function renderEffects(dir: string, id: string, o: Omit<FxIn, "play
   try {
     await mkdir(proj, { recursive: true });
     await writeFile(path.join(proj, "index.html"), html, "utf8");
-    await runCli(bin, hfRenderArgs(proj, layer), proj, signal, timeoutFor(o.duration)); // cwd = the throwaway project: stray CLI files go with it
-    if (!(await exists(layer))) return skip("the render made no file");
+    // rendered inside the throwaway project: the CLI keeps its work folder (captured frames, a raw .mov) beside the output, and a
+    // killed render (timeout, cancel) can't clean it up, so it goes with the project in finally
+    const out = path.join(proj, "layer.mov");
+    await runCli(bin, hfRenderArgs(proj, out), proj, signal, timeoutFor(o.duration));
+    if (!(await exists(out))) return skip("the render made no file");
+    await move(out, layer);
     return { layer };
   } catch (e) {
     // also on cancel: a partial ProRes 4444 layer can be GBs; retries because Windows may hold it briefly after the tree kill

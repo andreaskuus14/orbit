@@ -11,7 +11,7 @@ import { PAUSED_MSG } from "./stop-all-pure.ts";
 import { UNTRUSTED } from "./policy-pure.ts";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { CLIP } from "./clip-store-pure.ts";
-import { checkArgs, claimPending, cleanTool, gates, toolId, outsideIn, parsePending, parsePlugins, parseToolId, pluginAct, pluginPrompt, pluginSchemas, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
+import { checkArgs, claimPending, cleanTool, connectError, gates, toolId, outsideIn, parsePending, parsePlugins, parseToolId, pluginAct, pluginPrompt, pluginSchemas, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
 
 // MCP plugins: <ORBIT data dir>/plugins.json (his servers + trust settings + the tool list from the last Test connection) and
 // plugin-pending.json (calls CORE queued for his Run click). CORE calls tools in-process through @modelcontextprotocol/sdk's client,
@@ -63,8 +63,8 @@ async function withClient<T>(p: Plugin, fn: (c: Client, timeout: number) => Prom
   const transport = p.command
     // stderr ignored: an unread pipe could fill up and stall the server (uvx prints install progress there)
     ? new (await import("@modelcontextprotocol/sdk/client/stdio.js")).StdioClientTransport({ command: p.command, args: p.args, env: p.env, stderr: "ignore" })
-    // shortcut: http servers get no auth headers or OAuth; add them if he needs a remote server that requires a login token
-    : new (await import("@modelcontextprotocol/sdk/client/streamableHttp.js")).StreamableHTTPClientTransport(new URL(p.url!));
+    // shortcut: a static token in headers only; OAuth sign-in (servers like vidIQ that hand out tokens via a browser login) is next
+    : new (await import("@modelcontextprotocol/sdk/client/streamableHttp.js")).StreamableHTTPClientTransport(new URL(p.url!), p.headers ? { requestInit: { headers: p.headers } } : undefined);
   const c = new Client({ name: "orbit", version: "1.0.0" });
   const handle = { close: () => c.close().catch(() => {}) };
   live.add(handle);
@@ -101,7 +101,7 @@ export async function testPlugin(name: string): Promise<{ ok: boolean; tools: nu
       }
       return out.flatMap((t) => cleanTool(t) ?? []).slice(0, 80);
     });
-  } catch (e) { error = msg(e); }
+  } catch (e) { error = connectError(e, p); }
   await updatePlugins((l) => l.map((x) => (x.name === name ? { ...x, cache: { at: new Date().toISOString(), tools: error ? x.cache?.tools ?? [] : tools, ...(error ? { error } : {}) } } : x)));
   logActivity({ area: "system", title: `Plugin ${name}: test ${error ? "failed" : `ok, ${tools.length} tools`}`, ...(error ? { detail: error } : {}) });
   return error ? { ok: false, tools: 0, error } : { ok: true, tools: tools.length };
@@ -132,7 +132,7 @@ async function callTool(p: Plugin, tool: string, args: Record<string, unknown>, 
     // the request went out is not: it may have run
     const code = e instanceof McpError ? e.code : null;
     unknown = sent && (code === null || code === ErrorCode.RequestTimeout || code === ErrorCode.ConnectionClosed);
-    out = unknown ? `Error: plugin ${p.name} ${tool}: outcome unknown (${msg(e)}). It may or may not have run; check ${p.name} before trying again.` : `Error: plugin ${p.name} ${tool} failed: ${msg(e)}`;
+    out = unknown ? `Error: plugin ${p.name} ${tool}: outcome unknown (${connectError(e, p)}). It may or may not have run; check ${p.name} before trying again.` : `Error: plugin ${p.name} ${tool} failed: ${connectError(e, p)}`;
   }
   const failed = out.startsWith("Error:");
   logActivity({ area: by === "owner" ? "system" : "core", title: `Plugin ${p.name} → ${tool}${by === "owner" ? " (your Run click)" : ""}: ${unknown ? "outcome unknown" : failed ? "failed" : "done"} in ${((Date.now() - t0) / 1000).toFixed(1)} s`, ...(failed ? { detail: out.slice(0, 300) } : {}) });

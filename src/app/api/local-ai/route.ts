@@ -56,7 +56,11 @@ export async function POST(req: Request) {
         if (typeof slots === "string" || !isSlug(ws)) return Response.json({ error: typeof slots === "string" ? slots : "Unknown workspace" }, { status: 400 });
         const made: string[] = [], failed: string[] = [];
         for (const s of slots) ((await freeSlot(user!.id, ws, s, true)) ? made : failed).push(s.path);
-        if (!made.length) return Response.json({ error: (await (await import("@/lib/comfy")).comfyReady()) ? "ComfyUI couldn't make the pictures (see tools/comfyui/service.log)." : (await import("@/lib/comfy-pure")).COMFY_NOT_RUNNING }, { status: 502 });
+        if (!made.length) {
+          const { comfyReady, configuredComfyModel } = await import("@/lib/comfy");
+          const { comfyNotRunning } = await import("@/lib/comfy-pure");
+          return Response.json({ error: (await comfyReady()) ? "ComfyUI couldn't make the pictures (see tools/comfyui/service.log)." : comfyNotRunning(configuredComfyModel()) }, { status: 502 });
+        }
         logActivity({ area: "system", title: `Local AI made ${made.length} site photo${made.length > 1 ? "s" : ""} for ${ws}`, detail: made.join(", ") });
         return Response.json({ made, failed });
       }

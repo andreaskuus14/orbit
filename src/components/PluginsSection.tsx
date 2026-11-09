@@ -5,7 +5,7 @@ import { usePoll } from "./use-poll";
 import type { Gate, Mode, Pending, SUGGESTED } from "@/lib/plugins-pure";
 
 type Tool = Gate & { id: string; name: string; description: string; check: "checked" | "partial" | "unchecked" | "refused"; schemaError?: string };
-type P = { name: string; command?: string; args: string[]; url?: string; env: Record<string, string>; enabled: boolean; local: boolean; others?: Mode; timeoutSec: number; note?: string;
+type P = { name: string; command?: string; args: string[]; url?: string; env: Record<string, string>; headers?: Record<string, string>; enabled: boolean; local: boolean; others?: Mode; timeoutSec: number; note?: string;
   cache?: { at: string; error?: string }; tools: Tool[]; settings: Record<string, Mode> };
 export type PluginsView = { plugins: P[]; pending: Pending[]; suggested: typeof SUGGESTED; vault: string; stopAll: boolean; out?: string; tested?: number };
 
@@ -69,7 +69,7 @@ export function PluginsSection() {
           <li key={p.name} className="rounded border border-white/10 p-2 text-sm">
             <div className="flex flex-wrap items-center gap-2">
               <b>{p.name}</b>
-              <span className="muted text-xs">{p.command ? `${p.command} ${p.args.join(" ")}` : p.url}{Object.keys(p.env).length ? ` · env ${Object.keys(p.env).join(", ")}` : ""}</span>
+              <span className="muted text-xs">{p.command ? `${p.command} ${p.args.join(" ")}` : p.url}{Object.keys(p.env).length ? ` · env ${Object.keys(p.env).join(", ")}` : ""}{p.headers ? ` · headers ${Object.keys(p.headers).join(", ")}` : ""}</span>
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-3 text-xs">
               <label><input type="checkbox" checked={p.enabled} onChange={(e) => void call({ action: "update", name: p.name, enabled: e.target.checked })} /> enabled</label>
@@ -110,7 +110,7 @@ export function PluginsSection() {
       </details>
       <details className="text-sm" open={!!draft}>
         <summary className="cursor-pointer">Add a plugin</summary>
-        <p className="muted mt-1 text-xs">JSON: name, command + args (a program on this PC) or url (https), env, local, tools {"{"}"tool": "auto"|"ask"|"off"{"}"}, others (default for unlisted tools). Saved only on this PC (plugins.json in ORBIT&apos;s data folder), never in git.</p>
+        <p className="muted mt-1 text-xs">JSON: name, command + args (a program on this PC) or url (https) + headers (e.g. a sign-in token), env, local, tools {"{"}"tool": "auto"|"ask"|"off"{"}"}, others (default for unlisted tools). Saved only on this PC (plugins.json in ORBIT&apos;s data folder), never in git.</p>
         <textarea className="field mt-1 h-40 w-full font-mono text-xs" value={draft} onChange={(e) => setDraft(e.target.value)} aria-label="Plugin JSON" placeholder='{"name": "files", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\\\path"]}' />
         <button className="chip" disabled={!draft.trim() || !!busy} onClick={() => void add()}>Add</button>
       </details>

@@ -905,10 +905,12 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 
 /* CORE chat (tests/core-readable): a solid reading surface, the scene dims behind a conversation, decorative serials stay off the text. */
 .orbit-shell .drawer.glass:has(.core-ws) { background-color: var(--core-surface); }
-.orbit-shell:has(.core-ws .bubble) div:has(> canvas) { filter: brightness(0.4) saturate(0.6); transition: filter 0.4s; }
+/* The scene dims behind CORE with an overlay that only fades (a CSS filter on the canvas re-filtered every WebGL frame). */
+.galaxy-layer::after { content: ""; position: absolute; inset: 0; background: rgb(0 0 4 / 0.62); opacity: 0; pointer-events: none; transition: opacity 0.4s; }
+.galaxy-layer[data-dim]::after { opacity: 1; }
 .orbit-shell .drawer:has(.core-ws .bubble)::after { display: none; }
 .core-ws .bubble { font-size: 15px; line-height: 1.5; color: #e6edf5; }
 .orbit-shell .core-ws .bubble.user { background: #123a52; border-color: #5cc8f0; color: #f2f9ff; }
 .orbit-shell .core-ws .bubble.core { background: #191530; border-color: #6f5fb8; border-left: 3px solid #a78bfa; }
 .core-ws form { border-top: 1px solid #b4d9e030; padding-top: 0.75rem; }
-@media (prefers-reduced-motion: reduce) { .orbit-shell:has(.core-ws .bubble) div:has(> canvas) { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .galaxy-layer::after { transition: none; } }

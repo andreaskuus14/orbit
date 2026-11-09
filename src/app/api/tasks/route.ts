@@ -14,6 +14,7 @@ export async function GET(req: Request) {
   // (kickQueue → reclaimInterrupted, keyed on this process's boot time), whether or not this screen is ever opened.
   const p = new URL(req.url).searchParams;
   let q = sb.from("tasks").select(COLS).is("parent_id", null).order("created_at", { ascending: false }).limit(60);
+  if (p.get("id")) q = q.eq("id", p.get("id")!);
   if (p.get("agent")) q = q.eq("agent", p.get("agent")!);
   if (p.get("project")) q = q.eq("project_id", p.get("project")!);
   const { data, error } = await q;
