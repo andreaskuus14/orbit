@@ -198,8 +198,11 @@ export function blenderSequence(scene: Scene, o: Opts, poses: Pose[]): string {
 // Haven models by name when the library is on disk (scripts/arch-assets.mjs downloads it); floor, walls and ground get PBR textures and
 // the sky a real HDRI. Without the library the boxes stay, and the render is labelled a stand-in.
 export const ASSET_LIBRARY: { re: RegExp; id: string }[] = [
-  { re: /sofa|couch/i, id: "sofa_03" }, { re: /arm ?chair|lounge chair/i, id: "modern_arm_chair_01" }, { re: /coffee table/i, id: "modern_coffee_table_01" },
-  { re: /dining table|table/i, id: "dining_table" }, { re: /chair/i, id: "dining_chair_02" }, { re: /side table|nightstand/i, id: "side_table_01" },
+  // "proc:" pieces are modelled by ORBIT to the prop's own footprint in a clean modern style (the free library's sofas, tables and
+  // dining chairs are all antique, which reads wrong in a modern house); the rest are CC0 models.
+  { re: /sofa|couch/i, id: "proc:sofa" }, { re: /arm ?chair|lounge chair/i, id: "mid_century_lounge_chair" }, { re: /coffee table/i, id: "modern_coffee_table_01" },
+  { re: /side table|nightstand/i, id: "side_table_01" }, { re: /desk|dining table|table|island/i, id: "proc:table" }, { re: /chair|stool/i, id: "proc:chair" },
+  { re: /bed\b/i, id: "proc:bed" }, { re: /bench/i, id: "proc:bench" },
   { re: /cabinet|sideboard|shelf/i, id: "modern_wooden_cabinet" }, { re: /plant|pot/i, id: "potted_plant_01" }, { re: /lamp|light/i, id: "modern_ceiling_lamp_01" },
 ];
 export const LIBRARY_EXTRAS = ["fir_sapling_medium", "shrub_01", "potted_plant_02", "potted_plant_04"];
@@ -208,7 +211,7 @@ export const LIBRARY_SKY = "belfast_sunset";
 /** The library model for a prop, or null (it stays a box). Order matters: "coffee table" before "table". */
 export const assetFor = (name: string): string | null => ASSET_LIBRARY.find((a) => a.re.test(name))?.id ?? null;
 /** Every Poly Haven id the library needs, for the downloader. */
-export const libraryIds = () => [...new Set([...ASSET_LIBRARY.map((a) => a.id), ...LIBRARY_EXTRAS])];
+export const libraryIds = () => [...new Set([...ASSET_LIBRARY.map((a) => a.id).filter((id) => !id.startsWith("proc:")), ...LIBRARY_EXTRAS])];
 
 /** Blender lines that dress the built scene from the asset library: PBR floor/walls/ground, real models for props it knows, firs
  *  around the plot, the HDRI sky, and warm interior lights hidden from the camera so the glazing glows. */
@@ -248,7 +251,14 @@ export function dressLines(scene: Scene, dir: string): string[] {
     "    e = bpy.data.objects.new(asset, None); e.instance_type = 'COLLECTION'; e.instance_collection = lib(asset); S.collection.objects.link(e)",
     "    e.location = loc; e.rotation_euler = (0, 0, math.radians(rot)); e.scale = (s, s, s); return e",
     // props: hide the box, place the model on its footprint centre; deeper than wide → turned 90°
-    ...props.map((p) => `obj[${JSON.stringify(p.id)}].hide_render = True; place(${JSON.stringify(assetFor(p.name))}, ${v(toBlender(p.x, p.y, p.z))}, ${p.d > p.w ? 90 : 0})`),
+    ...MODERN_PY,
+    ...props.map((p) => {
+      const id = assetFor(p.name)!, rot = p.d > p.w ? 90 : 0, at = v(toBlender(p.x, p.y, p.z)), hide = `obj[${JSON.stringify(p.id)}].hide_render = True; `;
+      // procedural pieces take the footprint (wide side along local x) and seat 4 chairs round a dining table
+      if (id.startsWith("proc:")) return hide + `modern(${JSON.stringify(id.slice(5))}, ${at}, ${rot}, ${f(Math.max(p.w, p.d))}, ${f(Math.min(p.w, p.d))}, ${f(p.h)}, ${/dining/i.test(p.name) ? "True" : "False"})`;
+      return hide + `place(${JSON.stringify(id)}, ${at}, ${rot})`;
+    }),
+    ...facadeLines(scene),
     // trees: the plot's count on a ring, kept off the south-east (the camera side); shrubs along the south side
     ...Array.from({ length: Math.min(scene.plot.trees, 24) }, (_, i) => i).flatMap((i) => {
       const a = Math.PI * (0.55 + (i / Math.max(1, Math.min(scene.plot.trees, 24))) * 1.3), r = Math.max(scene.plot.w, scene.plot.d) * (0.42 + ((i * 37) % 11) / 40);
@@ -261,4 +271,79 @@ export function dressLines(scene: Scene, dir: string): string[] {
     ...rooms.map((p) => { const [x, y] = toBlender(p.x, 0, p.z); return `l = bpy.data.lights.new('warm', 'AREA'); l.size = 1.6; l.energy = 320; l.color = (1.0, 0.78, 0.52); lo = bpy.data.objects.new('warm', l); S.collection.objects.link(lo); lo.location = (${f(x)}, ${f(y)}, ${f(top)}); lo.visible_camera = False`; }),
     "S.view_settings.exposure = -0.3",
   ];
+}
+
+/** Blender helpers for ORBIT's own modern furniture: soft bevelled boxes (cushions read as upholstered, not as blocks), slim black
+ *  legs, oak from the floor texture, a warm boucle-like fabric. modern(kind, loc, rot, w, d, h, chairs). */
+export const MODERN_PY = [
+  "def _m(name, rgb, rough, bump=0.0):",
+  "    m = bpy.data.materials.new(name); m.use_nodes = True; nt = m.node_tree; b = nt.nodes['Principled BSDF']",
+  "    b.inputs['Base Color'].default_value = (*rgb, 1); b.inputs['Roughness'].default_value = rough",
+  "    if bump:",
+  "        n = nt.nodes.new('ShaderNodeTexNoise'); n.inputs['Scale'].default_value = 180; bm = nt.nodes.new('ShaderNodeBump'); bm.inputs['Strength'].default_value = bump",
+  "        nt.links.new(n.outputs['Fac'], bm.inputs['Height']); nt.links.new(bm.outputs['Normal'], b.inputs['Normal'])",
+  "    return m",
+  "FABRIC = _m('boucle', (0.42, 0.39, 0.35), 1.0, 0.25); LINEN = _m('linen', (0.86, 0.84, 0.8), 0.95, 0.15); METAL = _m('black metal', (0.03, 0.03, 0.03), 0.35)",
+  "OAK = TEX['slab'] if 'TEX' in globals() else _m('oak', (0.55, 0.38, 0.22), 0.45)",
+  "def _blk(parent, name, loc, size, mat, bev=0.0):",
+  "    bpy.ops.mesh.primitive_cube_add(size=1, location=loc); o = bpy.context.object; o.name = name; o.scale = size; bpy.ops.object.transform_apply(scale=True)",
+  "    o.data.materials.append(mat); o.parent = parent",
+  "    if bev: b = o.modifiers.new('soft', 'BEVEL'); b.width = bev; b.segments = 4; bpy.ops.object.shade_smooth()",
+  "    return o",
+  "def modern(kind, loc, rot, w, d, h, chairs=False):",
+  "    e = bpy.data.objects.new('modern-' + kind, None); S.collection.objects.link(e); e.location = loc; e.rotation_euler = (0, 0, math.radians(rot))",
+  "    leg = lambda x, y, hh, t=0.025: _blk(e, 'leg', (x, y, hh / 2), (t, t, hh), METAL)",
+  "    if kind == 'sofa':  # low modular sofa: plinth, seat cushions, back cushions, arms; back on the local +y side",
+  "        n = max(2, round(w / 0.85)); cw = (w - 0.3) / n",
+  "        for x in (-w/2 + 0.12, w/2 - 0.12): leg(x, -d/2 + 0.1, 0.12); leg(x, d/2 - 0.1, 0.12)",
+  "        _blk(e, 'plinth', (0, 0, 0.2), (w, d, 0.16), FABRIC, 0.03)",
+  "        for i in range(n):",
+  "            x = -w/2 + 0.15 + cw * (i + 0.5)",
+  "            _blk(e, 'seat', (x, -0.05, 0.37), (cw - 0.02, d - 0.3, 0.2), FABRIC, 0.06)",
+  "            _blk(e, 'back', (x, d/2 - 0.14, 0.6), (cw - 0.02, 0.22, 0.42), FABRIC, 0.08)",
+  "        for x in (-w/2 + 0.075, w/2 - 0.075): _blk(e, 'arm', (x, 0, 0.42), (0.15, d, 0.32), FABRIC, 0.05)",
+  "    elif kind in ('table', 'bench'):  # solid oak top on slim black legs",
+  "        top = h if kind == 'table' else 0.45",
+  "        _blk(e, 'top', (0, 0, top - 0.02), (w, d, 0.04), OAK, 0.006)",
+  "        for sx in (-1, 1):",
+  "            for sy in (-1, 1): leg(sx * (w/2 - 0.08), sy * (d/2 - 0.08), top - 0.04, 0.035)",
+  "        if chairs:",
+  "            for sx in (-0.45, 0.45):",
+  "                for sy, r in ((-d/2 - 0.35, 0), (d/2 + 0.35, 180)): chair(e, sx * w / 1.6, sy, r)",
+  "    elif kind == 'chair': chair(e, 0, 0, 0)",
+  "    elif kind == 'bed':",
+  "        _blk(e, 'frame', (0, 0, 0.15), (w, d, 0.22), OAK, 0.01); _blk(e, 'mattress', (0, 0, 0.36), (w - 0.06, d - 0.06, 0.2), LINEN, 0.05)",
+  "        _blk(e, 'headboard', (0, d/2 + 0.04, 0.55), (w + 0.1, 0.08, 0.8), FABRIC, 0.03); _blk(e, 'throw', (0, -d/4, 0.47), (w - 0.02, d/2.4, 0.03), FABRIC, 0.01)",
+  "        for x in (-w/4, w/4): _blk(e, 'pillow', (x, d/2 - 0.3, 0.52), (w/2.4, 0.4, 0.13), LINEN, 0.05)",
+  "    return e",
+  "def chair(parent, x, y, r):",
+  "    c = bpy.data.objects.new('chair', None); S.collection.objects.link(c); c.parent = parent; c.location = (x, y, 0); c.rotation_euler = (0, 0, math.radians(r))",
+  "    _blk(c, 'seat', (0, 0, 0.45), (0.44, 0.42, 0.04), OAK, 0.006); _blk(c, 'back', (0, 0.2, 0.68), (0.42, 0.03, 0.26), OAK, 0.006)",
+  "    for sx in (-1, 1):",
+  "        for sy in (-1, 1): _blk(c, 'leg', (sx * 0.19, sy * 0.18, 0.215), (0.025, 0.025, 0.43), METAL)",
+  "    return c",
+];
+
+/** Facade details that stop a render reading as a model: dark aluminium frames round every opening, and a timber deck outside a
+ *  large south glazing (3 m or wider). */
+export function facadeLines(scene: Scene): string[] {
+  const byId = new Map(scene.parts.map((p) => [p.id, p]));
+  const out = ["FRAME = _m('aluminium', (0.06, 0.065, 0.07), 0.4)"];
+  for (const o of scene.parts.filter((p) => (p.kind === "window" || p.kind === "door") && p.host)) {
+    const host = byId.get(o.host!); if (!host) continue;
+    const ns = o.face === "n" || o.face === "s", sign = o.face === "s" || o.face === "e" ? 1 : -1, t = 0.06, depth = 0.12;
+    const out0 = ns ? host.z + sign * host.d / 2 : host.x + sign * host.w / 2; // the wall's outer face
+    const along = (u: number) => (ns ? [o.x + u, out0] : [out0, o.z + u]);
+    const bar = (u: number, y: number, len: number, vertical: boolean) => {
+      const [x, z] = along(u), c = toBlender(x, y, z), size: V3 = vertical ? (ns ? [t, depth, len] : [depth, t, len]) : (ns ? [len, depth, t] : [depth, len, t]);
+      return `_blk(None, 'frame', ${v(c)}, ${v(size)}, FRAME)`;
+    };
+    out.push(bar(-o.w / 2, o.y + o.h / 2, o.h + t, true), bar(o.w / 2, o.y + o.h / 2, o.h + t, true), bar(0, o.y + o.h, o.w + t, false));
+    if (o.kind === "window") out.push(bar(0, o.y, o.w + t, false));
+    if (o.kind === "window" && o.face === "s" && o.w >= 3) {
+      const [x, z] = [o.x, out0 + 1.4], c = toBlender(x, 0.1, z);
+      out.push(`_blk(None, 'deck', ${v(c)}, ${v([o.w + 2, 2.8, 0.2])}, OAK, 0.004)`);
+    }
+  }
+  return out;
 }
