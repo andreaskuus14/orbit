@@ -1,24 +1,26 @@
 // W02 site brief (pure): one typed, editor-friendly brief (site.json in the workspace) → a versioned one-page site. Copy, brand,
 // assets and section settings stay separate from rendering; sections keep stable IDs; copy edits never touch assets; the hero
 // crop follows a focal point and keeps a text-safe area. Disk side: site-brief.ts. Tests: tests/site-brief.test.ts.
-import { DIRECTIONS, IMMERSIVE_CSS, IMMERSIVE_JS, SEQUENCE_CSS, SEQUENCE_JS, accentHeading, directionOf, framePath, keyFrames, sequenceSection } from "./site-immersive-pure.ts";
+import { DIRECTIONS, IMMERSIVE_CSS, IMMERSIVE_JS, SCENE_CSS, SCENE_JS, SEQUENCE_CSS, SEQUENCE_JS, accentHeading, directionOf, framePath, keyFrames, sceneSection, sequenceSection } from "./site-immersive-pure.ts";
 
 export type Focal = { x: number; y: number };
 /** An image the site uses. focal = the subject (0-1 of width/height); safe = the side of the image with no subject, where text may sit. */
 export type Asset = { id: string; path: string; alt: string; width: number; height: number; focal: Focal; safe: "left" | "right"; origin: string };
 export type Item = { label?: string; title: string; body: string };
 export type Link = { label: string; href: string };
-export type Kind = "hero" | "features" | "story" | "specs" | "faq" | "form" | "sequence";
+export type Kind = "hero" | "features" | "story" | "specs" | "faq" | "form" | "sequence" | "scene";
+/** A layered parallax scene: images back to front with a depth (0 = far, 1 = near), a giant word set between two of them. */
+export type Scene3 = { layers: { path: string; depth: number }[]; word: string; wordAt: number; alt: string; poster?: string }; // poster: the flattened scene, for sharing
 /** A scroll-scrubbed frame sequence (e.g. an ARCH Blender fly-through): files path with %03d, 1-based. */
 export type Seq = { path: string; count: number; width: number; height: number; alt: string };
-export type Section = { id: string; kind: Kind; heading: string; body: string[]; items: Item[]; image?: string; cta: Link[]; seq?: Seq; ask?: { label: string; options: string[] } }; // ask: one optional multiple-choice question on a form
+export type Section = { id: string; kind: Kind; heading: string; body: string[]; items: Item[]; image?: string; cta: Link[]; seq?: Seq; scene?: Scene3; ask?: { label: string; options: string[] } }; // ask: one optional multiple-choice question on a form
 export type Brief = {
   version: number; style?: "classic" | "immersive" | "cinematic" | "daylight" | "editorial"; name: string; offer: string; audience: string; lang: string; description: string; tagline: string;
   assets: Asset[]; sections: Section[]; history: { version: number; changed: string[]; undo?: { section: string; image?: string } }[];
 };
 export type Parsed = { brief: Brief; missing: string[] } | { errors: string[] };
 
-const KINDS: Kind[] = ["hero", "features", "story", "specs", "faq", "form", "sequence"];
+const KINDS: Kind[] = ["hero", "features", "story", "specs", "faq", "form", "sequence", "scene"];
 const SEQ_PATH = /^(?!.*\.\.)(?:[a-z0-9][a-z0-9_-]*\/){0,3}[a-z0-9_-]*%03d[a-z0-9_-]*\.(?:jpe?g|webp|png)$/;
 const ID = /^[a-z][a-z0-9-]{0,39}$/;
 const ASSET_PATH = /^(?!.*\.\.)(?:[a-z0-9][a-z0-9_-]*\/){0,3}[a-z0-9][a-z0-9_-]*\.(?:jpe?g|png|webp|svg)$/;
@@ -70,6 +72,17 @@ export function parseBrief(input: unknown): Parsed {
     const items = arr(r.items).slice(0, 12).map((x) => { const o = obj(x); return { ...(s(o.label, 24) ? { label: s(o.label, 24) } : {}), title: s(o.title, 120), body: s(o.body, 600) }; });
     if (items.some((x) => !x.title)) errors.push(`sections[${n}] (${id}): every item needs a title`);
     const cta = arr(r.cta).slice(0, 2).map((x) => ({ label: s(obj(x).label, 40), href: s(obj(x).href, 200) }));
+    let scene: Scene3 | undefined;
+    if (kind === "scene") {
+      const q = obj(r.scene), layers = arr(q.layers).slice(0, 8).map((l) => { const o = obj(l); return { path: s(o.path, 80).toLowerCase(), depth: Number(o.depth) }; });
+      if (layers.length < 2) errors.push(`sections[${n}] (${id}): scene needs 2-8 layers`);
+      for (const l of layers) if (!ASSET_PATH.test(l.path) || !(l.depth >= 0 && l.depth <= 1)) errors.push(`sections[${n}] (${id}): layer "${l.path}" needs a relative image path and a depth 0-1`);
+      const word = s(q.word, 24), wordAt = Math.floor(Number(q.wordAt ?? 1)), alt = s(q.alt, 200);
+      if (!alt) errors.push(`sections[${n}] (${id}): scene.alt is required (what the scene shows)`);
+      const poster = s(q.poster, 80).toLowerCase();
+      if (poster && !ASSET_PATH.test(poster)) errors.push(`sections[${n}] (${id}): scene.poster must be a relative image path`);
+      scene = { layers, word, wordAt: Math.min(Math.max(wordAt, 0), layers.length), alt, ...(poster ? { poster } : {}) };
+    }
     let seq: Seq | undefined;
     if (kind === "sequence") {
       const q = obj(r.seq), path = s(q.path, 80).toLowerCase(), count = Math.floor(Number(q.count) || 0), w = Number(q.width) || 0, h = Number(q.height) || 0, alt = s(q.alt, 200);
@@ -84,7 +97,7 @@ export function parseBrief(input: unknown): Parsed {
       const q = obj(r.ask), label = s(q.label, 80), options = arr(q.options).map((o) => s(o, 60)).filter(Boolean).slice(0, 8);
       if (!label || options.length < 2) errors.push(`sections[${n}] (${id}): ask needs a label and 2-8 options`); else ask = { label, options };
     }
-    sections.push({ id, kind, ...(seq ? { seq } : {}), ...(ask ? { ask } : {}), heading, body: arr(r.body).map((p) => s(p, 1200)).filter(Boolean).slice(0, 6), items, ...(image ? { image } : {}), cta });
+    sections.push({ id, kind, ...(seq ? { seq } : {}), ...(scene ? { scene } : {}), ...(ask ? { ask } : {}), heading, body: arr(r.body).map((p) => s(p, 1200)).filter(Boolean).slice(0, 6), items, ...(image ? { image } : {}), cta });
   }
   const ids = new Set(sections.map((x) => x.id));
   for (const x of sections) for (const c of x.cta) {
@@ -199,6 +212,7 @@ function section(x: Section, b: Brief): string {
     case "specs":
       return `<section ${attrs}><div class="wrap">${head}${paras(x.body)}<dl class="specs">${x.items.map((it) => `<div><dt>${esc(it.title)}</dt><dd>${esc(it.body)}</dd></div>`).join("")}</dl></div></section>`;
     case "sequence": return sequenceSection(x, attrs, esc);
+    case "scene": return sceneSection(x, attrs, esc);
     case "faq":
       return `<section ${attrs}><div class="wrap narrow">${head}${paras(x.body)}${x.items.map((it) => `<details><summary>${esc(it.title)}</summary><p>${esc(it.body)}</p></details>`).join("")}</div></section>`;
     case "form":
@@ -302,7 +316,7 @@ ${b.sections.map((x) => section(x, b)).join("\n")}
 `;
 }
 /** Share image: the hero picture, else the middle frame of a sequence (the plan view of a fly-through). */
-const ogImage = (b: Brief, hero?: Asset) => hero?.path ?? (() => { const q = b.sections.find((x) => x.seq)?.seq; return q ? framePath(q.path, keyFrames(q.count)[1]) : undefined; })();
+const ogImage = (b: Brief, hero?: Asset) => hero?.path ?? (() => { const q = b.sections.find((x) => x.seq)?.seq; if (q) return framePath(q.path, keyFrames(q.count)[1]); const sc = b.sections.find((x) => x.scene)?.scene; return sc ? sc.poster ?? sc.layers[0]?.path : undefined; })();
 /** The cinematic standard's measurable part (site-guide.ts): no stand-in art in a finished site, and sequences smooth enough to feel
  *  like film. Asset origin "fixture", "stand-in" or "placeholder" marks art that still has to be replaced. */
 export function artIssues(b: Brief): string[] {
@@ -314,14 +328,14 @@ export function artIssues(b: Brief): string[] {
   }
   return out;
 }
-const NAV: Partial<Record<Kind, string>> = { features: "Features", story: "Story", specs: "Specs", faq: "FAQ", sequence: "Tour" };
+const NAV: Partial<Record<Kind, string>> = { features: "Features", story: "Story", specs: "Specs", faq: "FAQ", sequence: "Tour", scene: "Scene" };
 /** Menu label: the kind's word, or the heading's first phrase when two sections share a kind (no "Story Story"). */
 const navLabel = (x: Section, all: Section[] = []) => (all.filter((y) => y.kind === x.kind).length > 1 ? x.heading.replace(/\*/g, "").split(/[.,]/)[0].slice(0, 22) : NAV[x.kind] || x.heading);
 
 /** Every file the brief renders (text only: the images are the owner's, already in the workspace, and are never written here). */
 export function renderSite(b: Brief): Record<string, string> {
   return { "index.html": renderHtml(b), "css/style.css": SITE_CSS, "js/form.js": FORM_JS,
-    ...(directionOf(b.style) ? { "css/immersive.css": IMMERSIVE_CSS + SEQUENCE_CSS, "js/immersive.js": IMMERSIVE_JS + SEQUENCE_JS } : {}), "site.json": `${JSON.stringify(b, null, 2)}\n`, "EXPORT.md": exportMd(b) };
+    ...(directionOf(b.style) ? { "css/immersive.css": IMMERSIVE_CSS + SEQUENCE_CSS + SCENE_CSS, "js/immersive.js": IMMERSIVE_JS + SEQUENCE_JS + SCENE_JS } : {}), "site.json": `${JSON.stringify(b, null, 2)}\n`, "EXPORT.md": exportMd(b) };
 }
 
 /** Image refs (src + alt) in rendered HTML, for the "copy edit doesn't touch assets" check. */

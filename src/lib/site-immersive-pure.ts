@@ -253,3 +253,70 @@ export const SEQUENCE_JS = `(function () {
   });
 })();
 `;
+
+// ---- Layered parallax scene ("scene" section): image layers back to front, each moving with the scroll by its depth, with a giant
+// word set between two layers so the scene wraps round the type. Chapters (the section's items) switch with the scroll, with
+// numbered dots (01-04) you can also click. Reduced motion or no JS: a still stack, the word, and the chapters as text.
+type SceneSection = { id: string; heading: string; body: string[]; items: { title: string; body: string; label?: string }[];
+  scene?: { layers: { path: string; depth: number }[]; word: string; wordAt: number; alt: string } };
+export function sceneSection(x: SceneSection, attrs: string, esc: (t: string) => string): string {
+  const q = x.scene!, layers = q.layers.map((l, i) => `<img class="scene-layer" src="${esc(l.path)}" alt="${i ? "" : esc(q.alt)}" data-depth="${l.depth}" style="--z:${i}" decoding="async">`);
+  const word = q.word ? `<span class="scene-word" aria-hidden="true" style="--z:${q.wordAt}">${esc(q.word)}</span>` : "";
+  layers.splice(q.wordAt, 0, word);
+  const ch = x.items.map((it, i) => `<li class="scene-ch" id="${x.id}-ch${i + 1}"><span class="scene-no">${String(i + 1).padStart(2, "0")}</span>${it.label ? `<span class="eyebrow">${esc(it.label)}</span>` : ""}<h3>${esc(it.title)}</h3><p>${esc(it.body)}</p></li>`).join("");
+  const dots = x.items.map((_, i) => `<a href="#${x.id}-ch${i + 1}" class="scene-dot">${String(i + 1).padStart(2, "0")}</a>`).join("");
+  return `<section ${attrs} style="--chapters:${Math.max(1, x.items.length)}"><div class="scene-stage">${layers.join("")}`
+    + `<div class="wrap scene-copy"><h2 id="${x.id}-title">${esc(x.heading)}</h2>${x.body.map((p) => `<p>${esc(p)}</p>`).join("")}</div>`
+    + `<nav class="scene-dots" aria-label="${esc(x.heading.replace(/\*/g, ""))} chapters">${dots}</nav><ol class="scene-chapters">${ch}</ol></div></section>`;
+}
+
+export const SCENE_CSS = `
+/* Layered parallax scene */
+.immersive .sec-scene { position: relative; height: calc((var(--chapters) + 1) * 100svh); padding: 0; }
+.immersive .scene-stage { position: sticky; top: 0; height: 100svh; overflow: hidden; isolation: isolate; }
+.immersive .scene-layer { position: absolute; left: -4%; width: 108%; height: 112%; top: -6%; object-fit: cover; z-index: var(--z); will-change: transform; }
+.immersive .scene-word { position: absolute; left: 0; right: 0; top: 50%; z-index: var(--z); text-align: center; font-weight: 800; letter-spacing: .12em;
+  font-size: clamp(4rem, 19vw, 17rem); line-height: 1; color: var(--ink-i); text-transform: uppercase; mix-blend-mode: normal; will-change: transform;
+  text-shadow: 0 10px 60px rgba(var(--veil), .45); }
+.immersive .scene-copy { position: absolute; inset: 0 0 auto; padding-top: 6.5rem; z-index: 20; pointer-events: none; }
+.immersive .scene-copy h2 { max-width: 16ch; text-shadow: 0 2px 30px rgba(0,0,0,.6); }
+.immersive .scene-copy p { color: var(--ink-i); max-width: 38ch; text-shadow: 0 1px 12px rgba(0,0,0,.7); }
+.immersive .scene-chapters { position: absolute; right: 5vw; bottom: 9vh; width: min(380px, 86vw); z-index: 20; list-style: none; margin: 0; padding: 0; }
+.immersive .scene-ch { position: absolute; inset: auto 0 0; padding: 1.2rem 1.4rem; border-radius: 18px; background: var(--glass); border: 1px solid var(--edge);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.immersive .scene-no { float: right; font: 600 .8rem/1 ui-monospace, Menlo, monospace; color: var(--accent); }
+.immersive .scene-dots { position: absolute; left: 5vw; bottom: 9vh; z-index: 20; display: flex; gap: .4rem; }
+.immersive .scene-dot { font: 600 .78rem/1 ui-monospace, Menlo, monospace; color: var(--ink-i); text-decoration: none; padding: .6rem .5rem; min-width: 44px; min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center; border-bottom: 2px solid var(--edge); }
+.immersive .scene-dot.on { border-color: var(--accent); color: var(--accent); }
+.immersive.scene-live .scene-ch { opacity: 0; transform: translateY(14px); transition: opacity .5s ease, transform .5s ease; pointer-events: none; }
+.immersive.scene-live .scene-ch.on { opacity: 1; transform: none; pointer-events: auto; }
+.immersive:not(.scene-live) .sec-scene { height: auto; }
+.immersive:not(.scene-live) .scene-stage { position: relative; height: 80svh; }
+.immersive:not(.scene-live) .scene-chapters { position: static; width: auto; display: grid; gap: .75rem; padding: 1.5rem 5vw 3rem; }
+.immersive:not(.scene-live) .scene-ch { position: static; }
+.immersive:not(.scene-live) .scene-dots { display: none; }
+@media (max-width: 899px) { .immersive.scene-live .scene-chapters { left: 5vw; right: 5vw; width: auto; bottom: 13vh; } .immersive .scene-dots { bottom: 3vh; } }
+`;
+
+export const SCENE_JS = `(function () {
+  var reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var secs = document.querySelectorAll(".sec-scene"); if (!secs.length || reduce) return;
+  document.body.classList.add("scene-live");
+  secs.forEach(function (sec) {
+    var layers = sec.querySelectorAll(".scene-layer"), word = sec.querySelector(".scene-word"), chs = sec.querySelectorAll(".scene-ch"), dots = sec.querySelectorAll(".scene-dot");
+    var ticking = false;
+    function update() {
+      ticking = false; var r = sec.getBoundingClientRect(), span = r.height - innerHeight, p = span > 0 ? Math.min(1, Math.max(0, -r.top / span)) : 0;
+      // near layers rise faster and grow a little: depth without a 3D engine
+      layers.forEach(function (l) { var d = +l.dataset.depth || 0; l.style.transform = "translate3d(0," + (-p * d * 18).toFixed(2) + "%,0) scale(" + (1 + p * d * 0.08).toFixed(4) + ")"; });
+      if (word) word.style.transform = "translate3d(0," + (-p * 18).toFixed(1) + "vh,0)"; // rises behind the trees, never into the heading
+      var on = Math.min(chs.length - 1, Math.floor(p * chs.length));
+      chs.forEach(function (c, j) { c.classList.toggle("on", j === on); }); dots.forEach(function (d, j) { d.classList.toggle("on", j === on); });
+    }
+    dots.forEach(function (d, j) { d.addEventListener("click", function (e) { e.preventDefault(); var span = sec.offsetHeight - innerHeight; scrollTo({ top: sec.offsetTop + span * (j + 0.5) / dots.length, behavior: "smooth" }); }); });
+    addEventListener("scroll", function () { if (!ticking) { ticking = true; requestAnimationFrame(update); } }, { passive: true });
+    addEventListener("resize", update); update();
+  });
+})();
+`;
