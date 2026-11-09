@@ -1,0 +1,41 @@
+{
+  "v": 1, "id": "film-style-a-test", "title": "Style A motion test", "fps": 30,
+  "assets": { "pip": { "kind": "character", "name": "Pip", "color": "#26231f", "line": 13, "headR": 52 } },
+  "scenes": [
+    {
+      "id": "t1", "version": 1, "beat": "notice the gap, point, land it", "character": "pip", "shot": "medium",
+      "line": "See that orange line? That gap is there on purpose.",
+      "audio": { "kind": "fake-tts", "voice": "fake:pip", "at": 66 },
+      "frames": 210, "dependsOn": [], "home": 250, "face": 1, "bg": "#f6e6cc", "shadow": "#8f8270",
+      "props": [
+        { "kind": "disk", "cx": -60, "cy": 560, "r": 120, "color": "#f2a541" },
+        { "kind": "rect", "x0": -2000, "y0": 640, "x1": 3000, "y1": 700, "color": "#e7cfa8" },
+        { "kind": "line", "x0": -400, "y0": 120, "x1": 2200, "y1": 520, "w": 46, "color": "#5d5852" },
+        { "kind": "line", "x0": -200, "y0": 900, "x1": 60, "y1": 150, "w": 40, "color": "#5d5852" },
+        { "kind": "line", "x0": 60, "y0": 150, "x1": 420, "y1": 900, "w": 30, "color": "#6c6760" },
+        { "kind": "line", "x0": 520, "y0": 260, "x1": 520, "y1": 900, "w": 28, "color": "#5d5852" },
+        { "kind": "line", "x0": 520, "y0": 260, "x1": 860, "y1": 900, "w": 22, "color": "#6c6760" },
+        { "kind": "line", "x0": 980, "y0": 330, "x1": 980, "y1": 900, "w": 22, "color": "#5d5852" },
+        { "kind": "line", "x0": 980, "y0": 330, "x1": 1260, "y1": 900, "w": 18, "color": "#6c6760" },
+        { "kind": "line", "x0": -400, "y0": 760, "x1": 2200, "y1": 760, "w": 16, "color": "#5d5852" },
+        { "kind": "line", "x0": -400, "y0": 820, "x1": 2200, "y1": 820, "w": 12, "color": "#6c6760" },
+        { "kind": "rect", "x0": -2000, "y0": 900, "x1": 3000, "y1": 2400, "color": "#a99c8b" },
+        { "kind": "line", "x0": -2000, "y0": 902, "x1": 3000, "y1": 902, "w": 8, "color": "#26231f" },
+        { "kind": "line", "x0": 400, "y0": 990, "x1": 450, "y1": 910, "w": 18, "color": "#f26a1b" }
+      ],
+      "acting": [
+        { "f": 0, "pose": "neutral" },
+        { "f": 14, "pose": "neutral", "set": { "head": 4 } },
+        { "f": 22, "pose": "neutral", "set": { "head": 22, "lean": 6 }, "ease": "back" },
+        { "f": 40, "pose": "neutral", "set": { "head": 22, "lean": 6 } },
+        { "f": 50, "pose": "wind-up", "set": { "head": 10 }, "ease": "inOut" },
+        { "f": 60, "pose": "hands-hips", "set": { "lean": 22, "head": 30, "dy": 22, "uaR": 38, "faR": -14, "faL": 112 }, "ease": "back" },
+        { "f": 120, "pose": "hands-hips", "set": { "lean": 20, "head": 28, "dy": 20, "uaR": 38, "faR": -14 } },
+        { "f": 132, "pose": "neutral", "set": { "head": -6, "lean": -2 }, "ease": "inOut" },
+        { "f": 144, "pose": "open-palms", "ease": "back" },
+        { "f": 186, "pose": "open-palms" },
+        { "f": 200, "pose": "neutral", "ease": "inOut" }
+      ]
+    }
+  ]
+}

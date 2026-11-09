@@ -12,11 +12,12 @@ export const RENDERER = "stick-1"; // bump when the renderer's output changes, s
 export const FPS = 30, RATE = 48000;
 
 export type Character = { kind: "character"; name: string; color: string; line: number; headR: number };
-export type Prop = { kind: "rect"; x0: number; y0: number; x1: number; y1: number; color: string } | { kind: "disk"; cx: number; cy: number; r: number; color: string };
+export type Prop = { kind: "rect"; x0: number; y0: number; x1: number; y1: number; color: string } | { kind: "disk"; cx: number; cy: number; r: number; color: string }
+  | { kind: "line"; x0: number; y0: number; x1: number; y1: number; w: number; color: string };
 export type Shot = "wide" | "medium" | "close";
 export type Audio = { kind: "fake-tts"; voice: string; at: number } | { kind: "silence" };
 export type Scene = { id: string; version: number; beat: string; character: string; shot: Shot; line: string; audio: Audio; frames: number;
-  dependsOn: string[]; home: number; face: 1 | -1; bg: string; props: Prop[]; acting: Key[] };
+  dependsOn: string[]; home: number; face: 1 | -1; bg: string; props: Prop[]; acting: Key[]; shadow?: string };
 export type Manifest = { v: 1; id: string; title: string; fps: number; assets: Record<string, Character>; scenes: Scene[] };
 export type Format = "vertical" | "landscape";
 

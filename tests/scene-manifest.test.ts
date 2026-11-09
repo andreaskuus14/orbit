@@ -127,3 +127,10 @@ test("preflight failing controls: an extra frame, wrong fps/size, no audio, clip
   const slide = clone(m); slide.scenes[2].acting = [{ f: 0, pose: "neutral" }, { f: 30, pose: "hands-hips", ease: "linear" }];
   assert.ok(failed(preflight(slide, "vertical", good(slide))).includes("acting"));
 });
+
+test("style A: long shadow lies on the ground, stretched away from the low sun", async () => {
+  const { shadowPoint, GROUND } = await import("../src/lib/clips/stickman-pure.ts");
+  assert.deepEqual(shadowPoint([300, GROUND], 0.9), [300, GROUND]); // feet stay put
+  const [x, y] = shadowPoint([300, GROUND - 400], 0.9);
+  assert.ok(x > 600 && y >= GROUND && y < GROUND + 40);
+});

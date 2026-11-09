@@ -145,6 +145,14 @@ export function drawRig(img: Img, r: Rig, to: (q: P) => P, scale: number, line: 
   ring(img, h[0], h[1], r.headR * scale, w, c);
   for (const e of r.eyes) { const q = to(e); disk(img, q[0], q[1], 4.5 * scale, c); }
   const m = to(r.mouth), open = Math.max(0, Math.min(1, mouth)) * 9 * scale;
-  capsule(img, [m[0] - 7 * scale, m[1]], [m[0] + 7 * scale, m[1]], (2.5 + open * 0.15) * scale, c);
-  if (open > 0.5) disk(img, m[0], m[1] + 1, open, c);
+  // smile: a shallow arc of short capsules; talking opens it into a filled mouth
+  for (let i = -3; i < 3; i++) { const x = (i: number): P => [m[0] + i * 3.2 * scale, m[1] + (9 - i * i) * 0.45 * scale - 2 * scale]; capsule(img, x(i), x(i + 1), 2.6 * scale, c); }
+  if (open > 0.5) disk(img, m[0], m[1] + 2 * scale, open, c);
+}
+/** Long low-sun shadow: each point is laid on the ground, stretched toward +x by its height (`len` per unit height). */
+export const shadowPoint = (q: P, len: number): P => [q[0] + (GROUND - q[1]) * len, GROUND + (GROUND - q[1]) * 0.06];
+export function drawShadow(img: Img, r: Rig, to: (q: P) => P, scale: number, line: number, c: RGB, len = 0.9) {
+  const s = (q: P) => to(shadowPoint(q, len));
+  for (const [a, b] of r.segs) capsule(img, s(a), s(b), line * scale * 0.7, c);
+  const h = s(r.head); disk(img, h[0], h[1], r.headR * scale * 0.8, c);
 }

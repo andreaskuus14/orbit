@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { assemblyHash, cues, fakeVoiceWav, layout, sceneAss, sceneHashes, envelope, starts, stageToPx, wordSpans, FPS, type Format, type Manifest, type Probe, type Scene } from "./scene-manifest-pure.ts";
-import { disk, drawRig, hex, image, rect, rig, sample } from "./stickman-pure.ts";
+import { capsule, disk, drawRig, drawShadow, hex, image, rect, rig, sample } from "./stickman-pure.ts";
 
 export type Built = { id: string; version: number; inputHash: string; outputHash: string; file: string; reused: boolean; ms: number };
 export type Film = { format: Format; scenes: Built[]; final: { file: string; inputHash: string; outputHash: string; reused: boolean; ms: number } };
@@ -35,6 +35,7 @@ async function renderScene(m: Manifest, s: Scene, i: number, format: Format, sca
   const base = image(w, h, bg);
   for (const p of s.props) {
     if (p.kind === "rect") { const a = to([p.x0, p.y0]), b = to([p.x1, p.y1]); rect(base, a[0], a[1], b[0], b[1], hex(p.color)); }
+    else if (p.kind === "line") capsule(base, to([p.x0, p.y0]), to([p.x1, p.y1]), (p.w * k) / 2, hex(p.color));
     else { const c = to([p.cx, p.cy]); disk(base, c[0], c[1], p.r * k, hex(p.color)); }
   }
   const tag = `${s.id}-${format}`, wav = path.join(work, `${tag}.wav`), ass = `${tag}.ass`;
@@ -49,6 +50,8 @@ async function renderScene(m: Manifest, s: Scene, i: number, format: Format, sca
     for (let f = 0; f < s.frames; f++) {
       const img = { w, h, px: base.px.slice() };
       const mouth = s.audio.kind === "fake-tts" ? envelope(spans, (f - at) / FPS) : 0;
+      const pose = rig(sample(s.acting, f), s.home, s.face, ch.headR);
+      if (s.shadow) drawShadow(img, pose, to, k, ch.line, hex(s.shadow));
       drawRig(img, rig(sample(s.acting, f), s.home, s.face, ch.headR), to, k, ch.line, ink, bg, mouth);
       if (!stdin.write(img.px)) await new Promise((r) => stdin.once("drain", r));
     }
