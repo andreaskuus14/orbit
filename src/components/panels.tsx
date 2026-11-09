@@ -719,7 +719,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   return (
     <WorkspaceFrame planet="memory" title={tr("mem.title")} views={views} view={view} onView={setView}
       context={tr("memws.context", { n: items.length, r: suggested.length })}
-      action={<span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>{tr("mem.beliefs")}</button><a className="link text-xs" href="/api/export">{tr("mem.export")}</a></span>}>
+      action={<span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>{tr("mem.beliefs")}</button><a className="link text-xs" href="/api/export">{tr("mem.export")}</a><a className="link text-xs" href="/api/export/obsidian">{tr("mem.exportObsidian")}</a></span>}>
       {err && view !== "recent" && <p className="error" role="alert">{err}</p>}
       {view === "search" && (episodesOnly ? <><div className="flex gap-2">{chips}</div><EpisodesList onOpen={setFocus} /></>
         : <MemorySearch recent={learned(items)} hits={learned(hits)} searched={q} mode={mode} onSearch={(x) => (x ? void load(x) : setQ(""))} row={row}>{chips}</MemorySearch>)}
