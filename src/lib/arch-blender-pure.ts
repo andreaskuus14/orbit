@@ -12,11 +12,20 @@ type V3 = [number, number, number];
 
 /** Base colour (linear-ish sRGB), roughness and an optional transmission per part kind / ground. */
 const MAT: Record<string, { rgb: V3; rough: number; glass?: true }> = {
-  foundation: { rgb: [0.42, 0.41, 0.39], rough: 0.85 }, slab: { rgb: [0.55, 0.54, 0.52], rough: 0.8 }, wall: { rgb: [0.82, 0.8, 0.76], rough: 0.7 },
-  roof: { rgb: [0.12, 0.12, 0.13], rough: 0.45 }, window: { rgb: [0.9, 0.95, 1], rough: 0.02, glass: true }, door: { rgb: [0.36, 0.24, 0.15], rough: 0.55 },
-  stair: { rgb: [0.5, 0.49, 0.47], rough: 0.8 }, prop: { rgb: [0.45, 0.32, 0.2], rough: 0.6 },
-  grass: { rgb: [0.16, 0.28, 0.09], rough: 0.95 }, gravel: { rgb: [0.45, 0.43, 0.4], rough: 1 }, forest: { rgb: [0.1, 0.18, 0.07], rough: 1 }, sand: { rgb: [0.7, 0.62, 0.45], rough: 1 },
+  foundation: { rgb: [0.42, 0.41, 0.39], rough: 0.85 }, slab: { rgb: [0.62, 0.46, 0.3], rough: 0.42 }, wall: { rgb: [0.86, 0.84, 0.8], rough: 0.75 }, // slab: light oak floor
+  roof: { rgb: [0.16, 0.16, 0.17], rough: 0.5 }, window: { rgb: [0.9, 0.95, 1], rough: 0.02, glass: true }, door: { rgb: [0.36, 0.24, 0.15], rough: 0.55 },
+  stair: { rgb: [0.5, 0.49, 0.47], rough: 0.8 }, prop: { rgb: [0.45, 0.32, 0.2], rough: 0.6 }, tree: { rgb: [0.07, 0.16, 0.06], rough: 0.9 }, trunk: { rgb: [0.25, 0.17, 0.11], rough: 0.9 },
+  grass: { rgb: [0.11, 0.2, 0.06], rough: 0.95 }, gravel: { rgb: [0.45, 0.43, 0.4], rough: 1 }, forest: { rgb: [0.1, 0.18, 0.07], rough: 1 }, sand: { rgb: [0.7, 0.62, 0.45], rough: 1 },
 };
+/** Props get believable, varied finishes picked from their name (stable per name). */
+const PROP_FINISH: { re: RegExp; rgb: V3; rough: number }[] = [
+  { re: /sofa|chair|armchair|bed/i, rgb: [0.58, 0.55, 0.5], rough: 0.95 },  // linen / boucle
+  { re: /table|desk|shelf|bench/i, rgb: [0.3, 0.19, 0.12], rough: 0.5 },    // walnut
+  { re: /kitchen|counter|island/i, rgb: [0.9, 0.89, 0.86], rough: 0.25 },   // matte lacquer
+  { re: /rug|carpet/i, rgb: [0.72, 0.66, 0.56], rough: 1 },                 // wool
+];
+export const propFinish = (name: string) => PROP_FINISH.find((f) => f.re.test(name)) ?? { rgb: MAT.prop.rgb, rough: MAT.prop.rough };
+
 export const QUALITY: Record<Quality, { samples: number; bevel: number; denoise: boolean; bounces: number }> = {
   preview: { samples: 32, bevel: 0, denoise: false, bounces: 4 },
   detail: { samples: 1024, bevel: 0.01, denoise: true, bounces: 12 },
@@ -83,8 +92,18 @@ export function blenderScript(scene: Scene, o: Opts): string {
     "obj = {}",
   ];
   for (const p of solids) {
-    const b = partBox(p), m = MAT[p.kind];
-    L.push(`obj[${JSON.stringify(p.id)}] = box(${JSON.stringify(p.name)}, ${v(b.c)}, ${v(b.s)}, mat('${p.kind}', ${v(m.rgb)}, ${m.rough}), ${f(q.bevel)})`);
+    const b = partBox(p), m = p.kind === "prop" ? propFinish(p.name) : MAT[p.kind], key = p.kind === "prop" ? `prop-${m.rgb.join("-")}` : p.kind;
+    // props get a soft 2 cm round-over even in previews (furniture reads as boxes otherwise)
+    L.push(`obj[${JSON.stringify(p.id)}] = box(${JSON.stringify(p.name)}, ${v(b.c)}, ${v(b.s)}, mat('${key}', ${v(m.rgb)}, ${m.rough}), ${f(p.kind === "prop" ? Math.max(q.bevel, 0.02) : q.bevel)})`);
+  }
+  // trees: the plot's count, placed on a deterministic ring outside the building (cone crown on a trunk)
+  for (let i = 0, k = 0; k < Math.min(scene.plot.trees, 40) && i < 200; i++) {
+    const a = i * 2.39996, rr = Math.max(scene.plot.w, scene.plot.d) * (0.45 + ((i * 37) % 17) / 50), h = 5 + ((i * 53) % 7) * 0.6;
+    if (Math.cos(a) > -0.2 && Math.sin(a) > -0.2) continue; // keep the south-east open: that's where the camera approaches from
+    k++;
+    const [tx, ty] = toBlender(Math.cos(a) * rr, 0, Math.sin(a) * rr);
+    L.push(`box('trunk-${i}', ${v([tx, ty, 0.9])}, (0.25, 0.25, 1.8), mat('trunk', ${v(MAT.trunk.rgb)}, ${MAT.trunk.rough}), 0)`,
+      `bpy.ops.mesh.primitive_cone_add(vertices=10, radius1=${f(h * 0.22)}, depth=${f(h)}, location=${v([tx, ty, 1.2 + h / 2])}); bpy.context.object.data.materials.append(mat('tree', ${v(MAT.tree.rgb)}, ${MAT.tree.rough}))`);
   }
   for (const p of openings) {
     const host = byId.get(p.host!)!, b = partBox(p, host), m = MAT[p.kind];
@@ -131,7 +150,7 @@ export function blenderScript(scene: Scene, o: Opts): string {
 // ---- Fly-through: a camera move rendered as a numbered frame sequence, for scroll-scrubbed web pages (W02 "sequence" section).
 // Three beats, the way an architectural film is cut: approach the building at eye level → rise over it while the roof lifts away to an
 // isometric plan → descend into a room and settle at standing eye height facing the windows.
-export type Pose = { cam: V3; look: V3; roof: boolean };
+export type Pose = { cam: V3; look: V3; roof: boolean; lift: number }; // lift: metres the roof has risen (it floats away, then hides)
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 const mix = (a: V3, b: V3, t: number): V3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 /** n camera poses (Blender space). `room` = a point inside the model (scene metres) the last beat ends in; defaults to the centre. */
@@ -152,7 +171,8 @@ export function flyPath(scene: Scene, n: number, room?: { x: number; z: number }
   return Array.from({ length: n }, (_, i) => {
     const t = n === 1 ? 0 : i / (n - 1), k = Math.max(1, keys.findIndex((x) => x.t >= t)), a = keys[k - 1], b = keys[k];
     const u = ease((t - a.t) / (b.t - a.t || 1));
-    return { cam: mix(a.cam, b.cam, u), look: mix(a.look, b.look, u), roof: t < 0.42 };
+    const lift = t < 0.32 ? 0 : t < 0.5 ? ease((t - 0.32) / 0.18) * 14 : 14;
+    return { cam: mix(a.cam, b.cam, u), look: mix(a.look, b.look, u), roof: t < 0.5, lift };
   });
 }
 /** A Blender script that builds the scene (blenderScript) and renders each pose to <out>/f001.png …; roof hidden where !roof. */
@@ -162,12 +182,13 @@ export function blenderSequence(scene: Scene, o: Opts, poses: Pose[]): string {
   return base + [
     "import os; os.makedirs(out, exist_ok=True)",
     "c.data.shift_y = 0; c.data.lens = 28",
-    `P = ${JSON.stringify(poses.map((p) => [p.cam.map((x) => +x.toFixed(3)), p.look.map((x) => +x.toFixed(3)), p.roof ? 1 : 0]))}`, // 1/0: valid Python
+    `P = ${JSON.stringify(poses.map((p) => [p.cam.map((x) => +x.toFixed(3)), p.look.map((x) => +x.toFixed(3)), p.roof ? 1 : 0, +p.lift.toFixed(3)]))}`, // 1/0: valid Python
     `roofs = [obj[k] for k in [${roofs.join(", ")}] if k in obj]`,
-    "for i, (cam, look, roof) in enumerate(P):",
+    "base = {r.name: r.location.z for r in roofs}",
+    "for i, (cam, look, roof, lift) in enumerate(P):",
     "    c.location = cam",
     "    c.rotation_euler = (Vector(look) - Vector(cam)).to_track_quat('-Z', 'Y').to_euler()",
-    "    for r in roofs: r.hide_render = not roof",
+    "    for r in roofs: r.hide_render = not roof; r.location.z = base[r.name] + lift",
     "    S.render.filepath = os.path.join(out, 'f%03d.png' % (i + 1)); bpy.ops.render.render(write_still=True)",
   ].join("\n") + "\n";
 }
