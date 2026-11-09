@@ -55,6 +55,12 @@ export default function PerfRun() {
       const viewReady = () => document.querySelector('.orbit-shell[data-view="2d"]')
         || runMarks?.some((m) => m.mark === "galaxy-drawn");
       while (!off && !viewReady() && performance.now() - t0 < 60_000) await wait(100);
+      if (off) return;
+      if (!viewReady()) {
+        cancelAnimationFrame(raf);
+        setStatus("Perf run: the view did not become ready. Reload to retry.");
+        return;
+      }
       for (const s of PERF_RUN_SCRIPT) {
         if (off) return;
         step(s.seg);

@@ -20,7 +20,12 @@ createRoot(document.getElementById("root")).render(<PerfRun />);`,
 
 const browser = await chromium.launch({ executablePath: process.env.ORBIT_CHROMIUM });
 try {
-  for (const { view, hidden } of [{ view: "2d", hidden: false }, { view: "3d", hidden: false }, { view: "2d", hidden: true }]) {
+  for (const { view, hidden, timeout } of [
+    { view: "3d", hidden: false, timeout: true },
+    { view: "2d", hidden: false },
+    { view: "3d", hidden: false },
+    { view: "2d", hidden: true },
+  ]) {
     const page = await browser.newPage({ viewport: { width: 390, height: 760 } });
     await page.clock.install();
     await page.addInitScript((hidden) => {
@@ -44,6 +49,16 @@ try {
     const status = page.getByRole("status");
     await status.waitFor();
     await page.clock.runFor(500);
+    if (timeout) {
+      await page.clock.fastForward(60_500);
+      assert.match(await status.textContent(), /view did not become ready/i);
+      await page.clock.fastForward(70_000);
+      assert.equal(posts.length, 0, "an unready view never posts a benchmark");
+      assert.deepEqual(errors, []);
+      await page.close();
+      console.log("PASS timed-out 3d · no sample posted");
+      continue;
+    }
     if (view === "3d") {
       assert.match(await status.textContent(), /waiting for the galaxy/);
       await page.evaluate(() => window.drawFixtureGalaxy());
