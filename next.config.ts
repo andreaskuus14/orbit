@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
   // Another package-lock.json in the home folder confuses Next; pin the project root.
   outputFileTracingRoot: __dirname,
   env: { ORBIT_BUILD_COMMIT: gitHead, ORBIT_BUILD_TIME: new Date().toISOString() },
+  poweredByHeader: false, // don't advertise the framework (X-Powered-By)
   devIndicators: false, // the dev "N" badge covered the System panel
   // Document parsers, ffmpeg binary and Whisper (native onnxruntime) run server-side only; keep them out of the bundler.
   serverExternalPackages: ["unpdf", "mammoth", "playwright-core", "ffmpeg-static", "@huggingface/transformers", "kokoro-js", "@anthropic-ai/claude-agent-sdk"], // kokoro-js: AI Story narration on the server; the SDK spawns its bundled native CLI
@@ -24,6 +25,10 @@ const nextConfig: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "camera=(), geolocation=()" },
+          // Only what can't break the app: no <base> hijack, forms post only to ORBIT. (Framing: X-Frame-Options above; object-src stays
+          // open for VAULT's PDF preview.) shortcut: no script-src yet; R3F workers, blob: textures and Next's inline bootstrap need a
+          // nonce-based policy first, tested in the browser suite.
+          { key: "Content-Security-Policy", value: "base-uri 'self'; form-action 'self'" },
         ],
       },
       { source: "/api/business/shop/:id", headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }, { key: "Permissions-Policy", value: "camera=(), geolocation=()" }] },
