@@ -175,12 +175,16 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
     // A deduped retry gets only the final done/error line.
     const ac = new AbortController();
     req.signal.addEventListener("abort", () => ac.abort(), { once: true }); // client went away: kill the CLI (a background turn keeps going)
+    liveTurns().add(ac); // Stop-all reaches a live answer too (stop-all-run.ts → abortCoreTurns)
     const stream = ndjsonStream(async (send) => {
+      try { await follow(send); } finally { liveTurns().delete(ac); }
+    }, () => ac.abort());
+    async function follow(send: (ev: Record<string, unknown>) => void) {
       const o = await once(send, ac.signal);
       send({ type: o.status === 200 ? "done" : "error", ...o.body });
       const bg = background && !ac.signal.aborted ? await background : null;
       if (bg) send({ type: "bg_done", ...bg });
-    }, () => ac.abort());
+    }
     return new Response(stream, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" } });
   }
 
@@ -202,6 +206,12 @@ async function inBackground(sb: SupabaseClient, userId: string, cid: string, mes
 
 /** The end of a background turn (fresh or resumed after a restart): answer or failure into the chat, task row, one notice. */
 /** trace: the turn's shared trace (a fresh handoff's carry), so a cancel can say which steps had already run. */
+/** Abort controllers of CORE answers streaming right now (global: one registry even if the module loads twice). */
+// (not __orbitCoreTurns: perf-log.ts keeps its timing array under that name)
+const liveTurns = () => ((globalThis as { __orbitLiveCoreTurns?: Set<AbortController> }).__orbitLiveCoreTurns ??= new Set());
+/** Stop-all: abort every live CORE answer (its CLI ends). A handed-off background turn is a task and is cancelled by Stop-all itself. */
+export function abortCoreTurns(): number { const n = liveTurns().size; for (const ac of liveTurns()) ac.abort(); return n; }
+
 export function finishBackground(sb: SupabaseClient, userId: string, cid: string, taskId: string, title: string, run: (signal: AbortSignal) => ReturnType<typeof runCore>, stop?: (() => Promise<void>) & { lost?: AbortSignal; confirm?: () => Promise<boolean> }, trace: { step: string; ok?: boolean }[] = []): Promise<{ answer: string } | null> {
   return (async () => {
     let status = "done", result: string | null = null, err: string | null = null, rc: Receipt | undefined;
