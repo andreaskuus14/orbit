@@ -9,6 +9,7 @@ const L = require("./lib.cjs");
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: L.BASE });
   const t = L.tag(), KEY = "sk-ant-FAKEFAKEFAKE0123456789";
   const copied = async (id) => {
+    await page.goto("about:blank"); // a hash-only change on an open task view can be missed: load fresh
     await page.goto(`${L.BASE}/#o=operations&k=task&id=${id}`); // the deep link a CORE answer or Needs you uses
     await page.getByRole("button", { name: "← All tasks" }).waitFor({ timeout: 60000 });
     await L.sleep(1000);
