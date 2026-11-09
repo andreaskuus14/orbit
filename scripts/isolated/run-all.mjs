@@ -2,6 +2,7 @@
 // `node scripts/isolated/run-all.mjs basic pair` runs only those (basic, restart, pair, coldstart, briefing, studio, phone).
 // `node scripts/isolated/run-all.mjs basic pair` runs only those (basic, restart, pair, coldstart, briefing, studio, stopall-wait).
 // `node scripts/isolated/run-all.mjs basic pair` runs only those (basic, restart, pair, coldstart, briefing, studio, rls).
+// `node scripts/isolated/run-all.mjs basic pair` runs only those (basic, restart, pair, coldstart, briefing, studio, firstfive).
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -12,6 +13,7 @@ if (!existsSync(path.join(L.DIR, "env.json"))) { console.error("run-all: run scr
 const all = ["basic", "restart", "pair", "coldstart", "briefing", "studio", "phone"];
 const all = ["basic", "restart", "pair", "coldstart", "briefing", "studio", "stopall-wait"];
 const all = ["basic", "restart", "pair", "coldstart", "briefing", "studio", "rls"];
+const all = ["basic", "restart", "pair", "coldstart", "briefing", "studio", "firstfive"];
 const pick = process.argv.slice(2).length ? process.argv.slice(2) : all;
 const commit = spawnSync("git", ["rev-parse", "--short", "HEAD"], { cwd: L.ROOT, encoding: "utf8" }).stdout.trim();
 console.log(`isolated checks on ${commit} (built into .next-isolated by setup.mjs; rebuild after changing code)`);
