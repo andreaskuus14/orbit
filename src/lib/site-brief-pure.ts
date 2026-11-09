@@ -11,7 +11,7 @@ export type Kind = "hero" | "features" | "story" | "specs" | "faq" | "form";
 export type Section = { id: string; kind: Kind; heading: string; body: string[]; items: Item[]; image?: string; cta: Link[] };
 export type Brief = {
   version: number; name: string; offer: string; audience: string; lang: string; description: string; tagline: string;
-  assets: Asset[]; sections: Section[]; history: { version: number; changed: string[] }[];
+  assets: Asset[]; sections: Section[]; history: { version: number; changed: string[]; undo?: { section: string; image?: string } }[];
 };
 export type Parsed = { brief: Brief; missing: string[] } | { errors: string[] };
 
@@ -105,6 +105,31 @@ export function editCopy(b: Brief, edits: CopyEdit[]): { brief: Brief; changed: 
   next.version = b.version + 1;
   next.history = [...b.history, { version: next.version, changed }].slice(-50);
   return { brief: next, changed };
+}
+
+// ---- Image swap: a section's picture changes to another asset already in the brief (copy untouched), as its own version that
+// remembers the previous picture, so undoImage() can put it back. Reversible without regenerating anything.
+export function swapImage(b: Brief, section: string, asset: string): { brief: Brief } | { error: string } {
+  const sec = b.sections.find((x) => x.id === section);
+  if (!sec) return { error: `no section "${section}"` };
+  if (!b.assets.some((a) => a.id === asset)) return { error: `asset "${asset}" is not in the brief (add it to assets first)` };
+  if (sec.image === asset) return { error: `${section} already shows "${asset}"` };
+  const next: Brief = JSON.parse(JSON.stringify(b)), version = b.version + 1;
+  next.sections.find((x) => x.id === section)!.image = asset;
+  next.version = version;
+  next.history = [...b.history, { version, changed: [`${section}.image`], undo: { section, ...(sec.image ? { image: sec.image } : {}) } }].slice(-50);
+  return { brief: next };
+}
+/** Puts back the picture the last swap replaced, as a new version (history only moves forward). */
+export function undoImage(b: Brief): { brief: Brief } | { error: string } {
+  const last = [...b.history].reverse().find((h) => h.undo);
+  if (!last?.undo || b.history.at(-1) !== last) return { error: "the last change wasn't an image swap" };
+  const next: Brief = JSON.parse(JSON.stringify(b)), sec = next.sections.find((x) => x.id === last.undo!.section);
+  if (!sec) return { error: `no section "${last.undo.section}"` };
+  if (last.undo.image) sec.image = last.undo.image; else delete sec.image;
+  next.version = b.version + 1;
+  next.history = [...b.history, { version: next.version, changed: [`${sec.id}.image (undo)`] }].slice(-50);
+  return { brief: next };
 }
 
 // ---- Hero art direction: object-position that puts the focal point at `target` (0-1 across the box) for a cover crop.

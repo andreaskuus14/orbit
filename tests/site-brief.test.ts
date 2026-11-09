@@ -87,3 +87,37 @@ test("shipped form validator (exact js/form.js text)", () => {
   const b: Brief = ok(fx("brief-detailed.json")).brief;
   assert.ok(renderSite(b)["js/form.js"].startsWith(VALIDATE_JS));
 });
+
+test("three briefs, sparse → medium → detailed: all parse, render, and pass the static QA", async () => {
+  const { altIssues, headingIssues, linkIssues } = await import("../src/lib/site-qa-pure.ts");
+  const fx = (f: string) => JSON.parse(readFileSync(new URL(`./fixtures/site-w02/${f}`, import.meta.url), "utf8"));
+  const sizes: number[] = [];
+  for (const f of ["brief-sparse.json", "brief-medium.json", "brief-detailed.json"]) {
+    const p = parseBrief(fx(f));
+    assert.ok("brief" in p, `${f}: ${"errors" in p ? p.errors.join("; ") : ""}`);
+    const files = renderSite(p.brief), html = files["index.html"];
+    assert.deepEqual([...headingIssues(html), ...altIssues(html)], [], f);
+    const all = new Set([...Object.keys(files), ...p.brief.assets.map((a) => a.path)]);
+    assert.deepEqual(linkIssues(html, "index.html", all), [], f);
+    sizes.push(p.brief.sections.length);
+  }
+  assert.ok(sizes[0] < sizes[1] && sizes[1] < sizes[2], `more detail, more sections: ${sizes}`);
+});
+
+test("image swap: picture changes, copy doesn't, and undo puts the old picture back", async () => {
+  const { swapImage, undoImage } = await import("../src/lib/site-brief-pure.ts");
+  const fx = JSON.parse(readFileSync(new URL("./fixtures/site-w02/brief-detailed.json", import.meta.url), "utf8"));
+  const p = parseBrief(fx); assert.ok("brief" in p);
+  const b0 = p.brief, s = swapImage(b0, "hero", "lantern"); assert.ok("brief" in s);
+  const b1 = s.brief;
+  assert.equal(b1.sections.find((x) => x.id === "hero")!.image, "lantern");
+  assert.equal(b1.version, b0.version + 1);
+  assert.deepEqual(b1.sections.map((x) => [x.heading, x.body]), b0.sections.map((x) => [x.heading, x.body]), "copy untouched");
+  const u = undoImage(b1); assert.ok("brief" in u);
+  assert.equal(u.brief.sections.find((x) => x.id === "hero")!.image, "hero");
+  assert.equal(u.brief.version, b0.version + 2);
+  const page = (b: typeof b0) => renderSite({ ...b, version: 0 })["index.html"]; // the version stamp moves forward by design
+  assert.equal(page(u.brief), page(b0), "the page is back to exactly how it was");
+  assert.ok("error" in swapImage(b0, "hero", "missing"));
+  assert.ok("error" in undoImage(u.brief), "nothing left to undo");
+});
