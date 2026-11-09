@@ -95,3 +95,13 @@ test("with the library the simple cone trees are left out (real firs only)", asy
   const lib = blenderScript(sc, { ...o, assets: "/lib" });
   assert.doesNotMatch(lib, /primitive_cone_add/); assert.match(lib, /fir_sapling_medium/);
 });
+
+test("film: the Kivi House fixture makes a dressed, resumable 150-frame sequence script", async () => {
+  const { blenderSequence, flyPath } = await import("../src/lib/arch-blender-pure.ts");
+  const { readFileSync } = await import("node:fs");
+  const sc = JSON.parse(readFileSync(new URL("./fixtures/arch-kivi-house.json", import.meta.url), "utf8"));
+  const py = blenderSequence(sc, { site, date: new Date("2026-09-10T16:40:00Z"), quality: "detail", size: [1920, 1080], assets: "/lib" }, flyPath(sc, 150));
+  assert.equal(JSON.parse(py.split("\nP = ")[1].split("\n")[0].split("  #")[0]).length, 150);
+  assert.match(py, /if os\.path\.exists\(f\) and os\.path\.getsize\(f\) > 0: continue/);
+  assert.match(py, /modern\("sofa"/); assert.match(py, /resolution_x = 1920/); assert.match(py, /samples = 1024/);
+});

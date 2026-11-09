@@ -190,7 +190,9 @@ export function blenderSequence(scene: Scene, o: Opts, poses: Pose[]): string {
     "    c.location = cam",
     "    c.rotation_euler = (Vector(look) - Vector(cam)).to_track_quat('-Z', 'Y').to_euler()",
     "    for r in roofs: r.hide_render = not roof; r.location.z = base[r.name] + lift",
-    "    S.render.filepath = os.path.join(out, 'f%03d.png' % (i + 1)); bpy.ops.render.render(write_still=True)",
+    "    f = os.path.join(out, 'f%03d.png' % (i + 1))",
+    "    if os.path.exists(f) and os.path.getsize(f) > 0: continue  # resume: a stopped render picks up where it left off",
+    "    S.render.filepath = f; bpy.ops.render.render(write_still=True); print('FRAME', i + 1, 'of', len(P), flush=True)",
   ].join("\n") + "\n";
 }
 
