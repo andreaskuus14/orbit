@@ -1,3 +1,5 @@
+import type { PanelId } from "./planets";
+
 // Window planets and the through-the-surface entry (impossible-research #3, #4): which ONE planet is a window, how its
 // portal blends in and out, the screen box its interior is rendered for, and the dive's distance and FOV over time.
 // No allocations; every output is finite.
@@ -48,17 +50,20 @@ export function windowCrop(cx: number, cy: number, dz: number, r: number, p0: nu
 
 /** The dive: the surface is crossed at DIVE_CROSS s, the camera settles inside at DIVE_SECS. The world then crossfades in
  *  over DIVE_FADE s: ~1.1 s in all, as long as the old warp. */
+/** A fresh object identifies each request, even when a rapid A → B → A retarget ends on the same planet. */
+export type DiveRequest = { id: PanelId };
+
 export const DIVE_CROSS = 0.7, DIVE_SECS = 0.95, DIVE_FADE = 0.4;
 const INSIDE = 0.35; // where the camera comes to rest, in radii from the centre
 
 /** Camera distance from the centre, in radii, `t` s into a dive that started `r0` radii out. Outside it closes the gap
  *  geometrically (the planet grows at a steady rate on screen) and speeds up; it reaches 1 exactly at DIVE_CROSS. */
 export function diveRadii(t: number, r0: number): number {
-  const a = Number.isFinite(r0) ? Math.max(1.05, r0) : 1.05;
+  const a = Number.isFinite(r0) ? Math.max(0, r0) : 1.05;
   const tt = Number.isFinite(t) ? Math.max(0, t) : 0;
   if (tt < DIVE_CROSS) {
     const x = tt / DIVE_CROSS, u = x * (0.35 + 0.65 * x); // ease-in: speed only grows toward the surface
-    return a * Math.pow(1 / a, u);
+    return a < 1 ? a + (1 - a) * u : Math.pow(a, 1 - u);
   }
   const x = clamp01((tt - DIVE_CROSS) / (DIVE_SECS - DIVE_CROSS)), u = 1 - (1 - x) * (1 - x); // inside: settle
   return Math.pow(INSIDE, u);

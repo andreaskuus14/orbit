@@ -45,6 +45,7 @@ import { HoloToggle } from "./holo-toggle";
 import { sfx } from "./sfx";
 import { BootSequence } from "./BootSequence";
 import { ShortcutsOverlay, SHORTCUTS_EVENT } from "./ShortcutsOverlay";
+import { DIVE_FADE, type DiveRequest } from "@/lib/window-pure";
 import { parseQualityMode, type QualityMode } from "@/lib/quality-pure";
 import { runFollowCommand } from "./follow-command";
 import { runWatchCommand } from "./watch-store";
@@ -177,7 +178,16 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   useEffect(() => { if (approach) sfx.whoosh(); }, [approach]);
   // Bigger on the inside: from the galaxy a world is entered through its planet's surface (window planets on), the world
   // crossfading in as the camera crosses it. `quiet`: that world came in through the surface, so no warp burst on top.
-  const [dive, setDive] = useState<PanelId | null>(null);
+  const [flight, setFlight] = useState<DiveRequest | null>(null);
+  const pendingDive = useRef<DiveRequest | null>(null);
+  const changeDive = useCallback((request: DiveRequest | null) => {
+    pendingDive.current = request;
+    setFlight(request);
+  }, []);
+  const dive = flight?.id ?? null;
+  const divePlanet = dive && planetById(dive);
+  const shell = useRef<HTMLElement>(null);
+  const entryFocus = useRef<{ id: PanelId; entered: boolean } | null>(null);
   perfCtx.dive = dive; // the fps meter buckets dive frames on their own
   const [quiet, setQuiet] = useState<PanelId | null>(null);
   useEffect(() => { if (dive) sfx.whoosh(); }, [dive]);
@@ -185,7 +195,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [behind, setBehind] = useState<PanelId | null>(null);
   // The world (or panel) actually on screen. Also while panel is briefly null after closing CORE, so the world isn't remounted.
   const shown = behind && (panel === "core" || panel === null) ? behind : panel;
-  const closeWorld = useCallback(() => { setBehind(null); setPanel(null); setFocusGoal(null); setFocusMemory(null); }, []); // "← Back to galaxy" really leaves, even with CORE open over it
+  const closeWorld = useCallback(() => { changeDive(null); setBehind(null); setPanel(null); setFocusGoal(null); setFocusMemory(null); }, [changeDive]); // "← Back to galaxy" really leaves, even with CORE open over it
   const isWorld = (p: PanelId | null) => p === "intelligence" || (p !== null && WORLDS.includes(p));
   // A second question keeps the world; a running game is full-screen above everything, so CORE replaces it as before.
   const openCore = useCallback(() => { if (panel !== "core") setBehind(isWorld(panel) && !gameOpen ? panel : null); setPanel("core"); }, [panel, gameOpen]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -399,8 +409,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       const inWorld = !!el?.closest?.(".studio, [role=region]"); // arrows inside a world's panels are for its controls
       // Fast path (roadmap 37): Alt+W opens Work without the galaxy. Plain W is taken (ARCH walk, review keys); e.code so macOS Option still works.
       if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyW") { e.preventDefault(); setWorkOpen("work"); return; }
-      if (e.key === "Escape" && !typing) { setPanel(null); setApproach(null); setDive(null); }
+      if (e.key === "Escape" && !typing) { setPanel(null); setApproach(null); changeDive(null); }
       if (!typing && !inWorld && !e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
+        changeDive(null);
         setPanel((cur) => {
           const i = cur ? ORDER.indexOf(cur) : -1;
           const next = e.key === "ArrowRight" ? (i + 1) % ORDER.length : (i <= 0 ? ORDER.length : i) - 1;
@@ -410,24 +421,73 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
-  }, []);
+  }, [changeDive]);
 
   const select = useCallback((id: PanelId) => { warmWorld(id); setPanel(id); if (id !== "memory") setFocusMemory(null); if (id !== "operations") setFocusTask(null); if (id !== "agents") setFocusGoal(null); }, []);
   // A dive needs the galaxy's window planets: 3D view, no reduced motion (that keeps today's direct entry), quality > 0.
   const canDive = (id: PanelId | null) => isWorld(id) && view === "3d" && !reduced && !covered && Number(perfCtx.level) > 0;
-  const enterWorld = useCallback((id: PanelId) => { warmWorld(id); setPanel(null); setApproach(null); setDive(id); }, []);
-  const galaxySelect = useCallback((id: PanelId) => { if (canDive(id)) enterWorld(id); else select(id); }, [view, reduced, covered, enterWorld, select]); // eslint-disable-line react-hooks/exhaustive-deps
-  const diveRef = useRef(dive);
-  diveRef.current = dive;
-  const onDiveCross = useCallback(() => { const d = diveRef.current; if (d) { setQuiet(d); select(d); } }, [select]);
-  const onDiveCancel = useCallback(() => setDive(null), []);
+  const enterWorld = useCallback((id: PanelId) => {
+    if (pendingDive.current?.id === id) return;
+    warmWorld(id);
+    setPanel(null);
+    setApproach(null);
+    changeDive({ id });
+  }, [changeDive]);
+  const galaxySelect = (id: PanelId) => {
+    if (isWorld(id) && !covered) entryFocus.current = { id, entered: false };
+    if (canDive(id)) enterWorld(id);
+    else { changeDive(null); select(id); }
+  };
+  const landDive = useCallback((request: DiveRequest, crossfade: boolean) => {
+    if (pendingDive.current !== request) return;
+    pendingDive.current = null;
+    if (crossfade) setQuiet(request.id);
+    else changeDive(null);
+    select(request.id);
+  }, [changeDive, select]);
+  const onDiveCross = useCallback((request: DiveRequest) => landDive(request, true), [landDive]);
+  const onDiveCancel = useCallback((request: DiveRequest) => {
+    if (pendingDive.current === request) changeDive(null);
+  }, [changeDive]);
   useEffect(() => {
-    if (!dive) return;
-    if (panel === dive) { const t = setTimeout(() => setDive(null), 420); return () => clearTimeout(t); } // crossfade done: the galaxy may pause
-    if (panel) { setDive(null); return; } // a click or key during the dive wins
-    const t = setTimeout(onDiveCross, 1200); // the galaxy never drew the crossing (hidden tab, lost context): land anyway
-    return () => clearTimeout(t);
-  }, [dive, panel, onDiveCross]);
+    if (!flight) return;
+    if (panel === flight.id) { // retain the camera until the world has faded in
+      const timer = setTimeout(() => changeDive(null), DIVE_FADE * 1000 + 20);
+      return () => clearTimeout(timer);
+    }
+    if (panel) { changeDive(null); return; }
+    if (reduced || view !== "3d" || quality === "low") { landDive(flight, false); return; }
+    const timer = setTimeout(() => landDive(flight, true), 1200); // hidden tab, context loss or a slow frame
+    return () => clearTimeout(timer);
+  }, [flight, panel, reduced, view, quality, changeDive, landDive]);
+  useEffect(() => {
+    const entry = entryFocus.current;
+    const root = shell.current;
+    if (!entry || !root) return;
+    if (shown === entry.id && panel !== "core") {
+      const previous = document.activeElement;
+      const focusBack = () => {
+        const back = root.querySelector<HTMLElement>(".kept:not([hidden]) :is(.world-back, .studio-back), :scope > .globe-in .world-back");
+        if (!back) return false;
+        entry.entered = true;
+        if (document.activeElement === previous || document.activeElement === document.body) {
+          // Phones hide the world's Back button and use the header logo as the way back.
+          const target = back.getClientRects().length ? back : root.querySelector<HTMLElement>("header .logo");
+          target?.focus({ preventScroll: true });
+        }
+        return true;
+      };
+      if (entry.entered || focusBack()) return;
+      const observer = new MutationObserver(() => { if (focusBack()) observer.disconnect(); });
+      observer.observe(root, { childList: true, subtree: true }); // the world chunk can mount after the dive ends
+      return () => observer.disconnect();
+    }
+    if (shown === entry.id || dive) return;
+    entryFocus.current = null;
+    if (shown || !entry.entered) return;
+    const origin = root.querySelector<HTMLElement>(view === "2d" ? `[data-overview-planet="${entry.id}"]` : ".explore-trigger");
+    origin?.focus();
+  }, [shown, panel, dive, view]);
   useEffect(() => { if (quiet && shown !== quiet) setQuiet(null); }, [shown, quiet]);
   const openTask = useCallback((id: string) => { setWorkOpen(false); setFocusTask(id); setFocusGoal(null); setPanel("operations"); }, []);
   const ships = useMemo(() => ({ tasks: shipTasks, onOpen: openTask }), [shipTasks, openTask]);
@@ -476,7 +536,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   // Deep links (G02/G20): the open planet, its view and the selected record live in the URL hash (deeplink-pure.ts),
   // so refresh restores them and Back steps out of a record before it leaves the world.
   const applyLink = useCallback((l: DeepLink | null) => {
-    setWorkOpen(false); setApproach(null); setDive(null);
+    setWorkOpen(false); setApproach(null); changeDive(null);
     if (!l) { closeWorld(); return; }
     // shortcut: a view only applies when the workspace mounts (useWorkspaceView reads it then); Back between tabs of an open workspace doesn't switch them.
     if (l.view) try { localStorage.setItem(viewKey(l.planet), l.view); } catch { /* storage off: first view */ }
@@ -529,12 +589,12 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       const inWorld = isWorld(shown);
       if (world && canDive(t.panel)) { enterWorld(t.panel!); return; }
       if (world && !inWorld && view === "3d" && !reduced) { warmWorld(t.panel!); setPanel(null); setApproach(t.panel); return; }
-      setApproach(null); setDive(null);
+      setApproach(null); changeDive(null);
       if (t.panel === "core") openCore(); else if (t.panel) select(t.panel); else closeWorld(); // "galaxy"/"home" really leaves the world
     };
     addEventListener(NAV_EVENT, onNav);
     return () => removeEventListener(NAV_EVENT, onNav);
-  }, [panel, shown, approach, dive, view, reduced, select, openCore, closeWorld, enterWorld, applyLink]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [panel, shown, approach, dive, view, reduced, select, openCore, closeWorld, enterWorld, applyLink, changeDive]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!approach) return;
     const t = setTimeout(() => { setPanel(approach); setApproach(null); }, 1200); // the galaxy's longest fast flight
@@ -597,7 +657,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const title = drawer === "core" ? "CORE" : drawer === "profile" ? t("hud.profile") : drawer && planetById(drawer) ? t(`planet.${planetById(drawer)!.id}`) : "";
 
   return (
-    <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view} data-dive-in={quiet ?? undefined} data-diving={dive ? "" : undefined}>
+    <main ref={shell} className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view} data-dive-in={quiet ?? undefined} data-diving={dive ? "" : undefined}>
       {view === "3d" && !shown && <HudFrame />}
       {boot >= 2 && view === "3d" && !shown && !approach && <Ticker />}
       {view === "3d" && <WarpOverlay target={approach} landed={panel} reduced={reduced} />}
@@ -608,9 +668,13 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {view === "3d" && (
         <div className="galaxy-layer absolute inset-0" data-dim={(panel === "core" && !dive) || undefined} style={galaxyGone && !staged ? { visibility: "hidden" } : undefined} inert={(galaxyGone && !staged) || undefined}>
           <Galaxy selected={approach ?? panel} onSelect={galaxySelect} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel && !dive} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={galaxyGone} universe={living.universe} ships={ships} dilation={dilation}
-            dive={dive} onDiveCross={onDiveCross} onDiveCancel={onDiveCancel} onIdle={onGalaxyIdle} />
+            flight={flight} onDiveCross={onDiveCross} onDiveCancel={onDiveCancel} onIdle={onGalaxyIdle} />
         </div>
       )}
+      {divePlanet && !shown && <div key={divePlanet.id} className="planet-entry-status" role="status">
+        <span>{t("explore.entering", { world: t(`planet.${divePlanet.id}`) })}</span>
+        <span className="planet-entry-progress" aria-hidden="true" style={{ background: divePlanet.color }} />
+      </div>}
       {/* Worlds stay mounted after their first visit (hidden + paused): re-entering skips the rebuild, shader compile and texture upload. */}
       {has("intelligence") && <Kept on={at("intelligence")}><NewsGlobe reduced={reduced} quality={quality} onClose={closeWorld} focus={newsFocus} paused={!at("intelligence")} /></Kept>}
       {has("studio") && <Kept on={at("studio")}><StudioWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} open={studioOpen} paused={!at("studio")} review={focusReview} onReview={setFocusReview} /></Kept>}
@@ -623,14 +687,14 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       ) : isPlanetWorld(shown) ? (
         <PlanetWorld key={shown} id={shown} flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld}>{panelBody(shown)}</PlanetWorld>
       ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
-        <nav aria-label={t("overview.aria")} className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
+        <nav aria-label={t("overview.aria")} inert={covered || undefined} className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <div className="overview-heading"><p>{t("overview.kicker")}</p><h1>{t("overview.title1")}<br />{t("overview.title2")}</h1><span>{t("overview.lede")}</span></div>
           {!shown && <ContinueWork onOpenTask={openTask} onOpenGoal={openGoal} />}
           <ul className="overview-worlds">
             <li><button className={`planet-card${warning ? " warn" : ""}`} onClick={() => select("core")} style={{ borderColor: "#7dd3fc" }}>
               <b>CORE</b><span className="muted text-sm">{busy ? t("overview.thinking") : warning ? t("overview.lastFailed") : t("overview.core")}</span></button></li>
             {PLANETS.map((p) => (
-              <li key={p.id}><button className="planet-card" onPointerEnter={() => warmWorld(p.id)} onFocus={() => warmWorld(p.id)} onClick={() => select(p.id)} style={{ borderColor: p.color }}>
+              <li key={p.id}><button className="planet-card" onPointerEnter={() => warmWorld(p.id)} onFocus={() => warmWorld(p.id)} data-overview-planet={p.id} onClick={() => galaxySelect(p.id)} style={{ borderColor: p.color }}>
                 <b style={{ color: p.color }}>{t(`planet.${p.id}`)}</b>
                 <span className="muted text-sm">{p.id === "memory" ? tn("overview.memories", memoryCount) : p.id === "intelligence" && pulseBusy ? t("overview.pulseBusy") : p.id === "intelligence" && pulseFailed ? t("overview.pulseFailed") : p.id === "operations" && automationFailing ? t("overview.autoFailed") : p.id === "life" && lifeLine ? lifeLine : p.id === "agents" && runningTasks.length ? tn("overview.running", runningTasks.length) : t(`planet.${p.id}.blurb`)}</span></button></li>
             ))}
@@ -650,7 +714,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <TimeDilation onSpan={setDilation} />
           <NotificationCenter home={!shown && !approach && !gameOpen} />
           <StudioNotifier />
-          <OrbitExplore selected={shown} onSelect={select} />
+          <OrbitExplore selected={shown} onSelect={galaxySelect} />
           <button className="chip hud-search hud-phone-menu" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label={t("hud.search")} title={t("hud.searchTitle")}>⌕</button>
           <button className="chip hud-phone-menu" onClick={() => setWorkOpen("work")} aria-keyshortcuts="Alt+W" title={t("hud.workTitle")}>{t("hud.work")}</button>
           <button className="chip hud-phone-menu" onClick={toggleView} title={t("hud.viewTitle")}>{t(view === "3d" ? "hud.index" : "hud.galaxy")}</button>
