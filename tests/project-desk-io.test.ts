@@ -9,6 +9,7 @@ import ts from "typescript";
 import * as pure from "../src/lib/project-desk-pure.ts";
 import { translate } from "../src/lib/i18n-pure.ts";
 import * as chats from "../src/lib/core-chats-pure.ts";
+import * as links from "../src/lib/deeplink-pure.ts";
 
 const require = createRequire(import.meta.url), project = "11111111-1111-4111-8111-111111111111";
 const compile = (file: string) => ts.transpileModule(readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
@@ -192,6 +193,7 @@ test("sign-out and the login page clear desk drafts and the pending CORE project
     if (name === "react/jsx-runtime") return require(name);
     if (name.endsWith("/supabase/client")) return { createClient: () => ({ auth: {} }) };
     if (name.endsWith("/BrandMark")) return { BrandMark: () => null };
+    if (name.endsWith("/deeplink-pure")) return links;
     if (name.endsWith("/project-desk-pure")) return pure;
     throw new Error(name);
   } });

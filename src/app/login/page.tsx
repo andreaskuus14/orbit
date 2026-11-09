@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { BrandMark } from "@/components/BrandMark";
+import { linkFromHash, linkToHash } from "@/lib/deeplink-pure";
 import { clearProjectSession } from "@/lib/project-desk-pure";
 
 const ERRORS: Record<string, string> = {
@@ -29,7 +30,7 @@ export default function Login() {
       // No sign-up here: a password only works once it was set in Profile. The middleware still enforces the allowlist.
       const { error } = await createClient().auth.signInWithPassword({ email: email.trim(), password });
       if (error) { setErr(error.message === "Invalid login credentials" ? "Wrong email or password, or no password set yet (set one in Profile after an email sign-in)." : error.message); setState("idle"); }
-      else location.replace("/");
+      else location.replace("/" + linkToHash(linkFromHash(location.hash)));
       return;
     }
     const { error } = await createClient().auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: `${location.origin}/auth/callback`, shouldCreateUser: false /* existing accounts only: no sign-ups from the login page */ } });
