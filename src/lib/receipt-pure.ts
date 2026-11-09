@@ -5,6 +5,7 @@
 // needs-you-pure doneDigest, DeliverableCards ReceiptChip.
 import { EFFECTS } from "./approval-pure.ts";
 import type { ActionResult, WriteEvidence } from "./completion-pure.ts";
+import { redact } from "./health-pure.ts";
 import type { Lang } from "./i18n-pure.ts";
 
 /** Never "done" without a passed check: verified = the acceptance check passed; partly = some of it; unverified = ran, not checked. */
@@ -123,4 +124,21 @@ export function cleanReceipt(x: unknown): Receipt | null {
 /** A task row's receipt: the one a background CORE turn stored in its trace, else derived from its actions. */
 export function rowReceipt(t: TaskIn & { trace?: { step: string; receipt?: unknown }[] | null }): Receipt | null {
   return t.status === "done" || t.status === "failed" ? cleanReceipt(t.trace?.find((s) => s?.step === "receipt")?.receipt) ?? taskReceipt(t) : taskReceipt(t);
+}
+
+export type Job = { id: string; agent?: string | null; status: string; created_at?: string | null; started_at?: string | null; finished_at?: string | null };
+const JOB_STATE: Record<string, string> = { queued: "queued", running: "running", awaiting_approval: "waiting for approval", done: "finished", failed: "failed", cancelled: "stopped" };
+/** W04: a receipt the owner can copy and paste anywhere. Job state comes from the task row; the receipt's lines are redacted;
+ *  the prompt (`asked`), the answer and tool inputs are never included. A running job copies as "running", with no receipt yet. */
+export function copyReceipt(job: Job, r: Receipt | null, origin: string, now = Date.now()): string {
+  const t = (s?: string | null) => (s ? Date.parse(s) : NaN), start = t(job.started_at ?? job.created_at), end = t(job.finished_at);
+  const secs = Number.isFinite(start) ? Math.max(0, Math.round(((Number.isFinite(end) ? end : now) - start) / 1000)) : null;
+  const lines = [
+    `ORBIT job ${job.id.slice(0, 8)} · ${JOB_STATE[job.status] ?? redact(job.status).slice(0, 20)}${job.agent ? ` · ${redact(job.agent).slice(0, 40)}` : ""}${secs === null ? "" : ` · ${secs} s${Number.isFinite(end) ? "" : " so far"}`}`,
+    r ? `Result: ${redact(receiptLine(r))}` : "Result: not ready yet",
+    ...(r ? ([["✓", r.verified], ["?", r.claimed], ["✗", r.failed]] as const).flatMap(([m, xs]) => xs.map((x) => `${m} ${redact(x).slice(0, 200)}`)) : []),
+    ...(r?.links ?? []).map((l) => origin + l),
+    `${origin}/#o=operations&k=task&id=${encodeURIComponent(job.id)}`,
+  ];
+  return lines.join("\n");
 }
