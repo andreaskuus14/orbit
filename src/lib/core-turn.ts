@@ -207,7 +207,8 @@ async function inBackground(sb: SupabaseClient, userId: string, cid: string, mes
 /** The end of a background turn (fresh or resumed after a restart): answer or failure into the chat, task row, one notice. */
 /** trace: the turn's shared trace (a fresh handoff's carry), so a cancel can say which steps had already run. */
 /** Abort controllers of CORE answers streaming right now (global: one registry even if the module loads twice). */
-const liveTurns = () => ((globalThis as { __orbitCoreTurns?: Set<AbortController> }).__orbitCoreTurns ??= new Set());
+// (not __orbitCoreTurns: perf-log.ts keeps its timing array under that name)
+const liveTurns = () => ((globalThis as { __orbitLiveCoreTurns?: Set<AbortController> }).__orbitLiveCoreTurns ??= new Set());
 /** Stop-all: abort every live CORE answer (its CLI ends). A handed-off background turn is a task and is cancelled by Stop-all itself. */
 export function abortCoreTurns(): number { const n = liveTurns().size; for (const ac of liveTurns()) ac.abort(); return n; }
 
