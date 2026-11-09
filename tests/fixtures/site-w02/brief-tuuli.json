@@ -1,0 +1,23 @@
+{
+  "style": "cinematic",
+  "name": "Tuuli",
+  "tagline": "Lake sauna · Lahemaa",
+  "offer": "A wood-fired lake sauna on a pine shore in Lahemaa, booked by the evening for up to six people.",
+  "audience": "Friends and couples from Tallinn who want a quiet evening of heat, cold water and dark sky.",
+  "description": "Tuuli: a wood-fired lake sauna in Lahemaa. Heat, the cold lake, and a sky with no city light. Book an evening for up to six.",
+  "assets": [],
+  "sections": [
+    { "kind": "hero", "heading": "Heat, cold water, and a *dark* sky.", "body": ["A wood-fired sauna on a pine shore, an hour from Tallinn. Scroll down to the water."], "cta": [{ "label": "Book an evening", "href": "#book" }, { "label": "How an evening goes", "href": "#evening" }] },
+    { "id": "evening", "kind": "scene", "heading": "An evening at Tuuli.", "body": ["Four parts, at your own pace."],
+      "scene": { "word": "Tuuli", "wordAt": 3, "poster": "scene/poster.jpg", "alt": "Night over a lake in a pine forest: a full moon and its path of light on the water, a small sauna with a glowing window and chimney smoke on the far shore",
+        "layers": [{ "path": "scene/sky.webp", "depth": 0.05 }, { "path": "scene/hills.webp", "depth": 0.15 }, { "path": "scene/lake.webp", "depth": 0.3 }, { "path": "scene/shore.webp", "depth": 0.45 }, { "path": "scene/near.webp", "depth": 0.8 }, { "path": "scene/front.webp", "depth": 1 }] },
+      "items": [
+        { "label": "Arrive", "title": "The fire is already lit", "body": "We light the stove two hours before you come, so the sauna is at 80-90 °C when you step in." },
+        { "label": "Heat", "title": "Rounds of löyly", "body": "Water on the stones, birch whisks if you like, and as long as you want between rounds." },
+        { "label": "Cold", "title": "Down the jetty", "body": "The lake is 4 °C in winter and 20 °C in July. A ladder and a lit path, always." },
+        { "label": "Dark", "title": "No city light", "body": "Lahemaa has some of the darkest skies near Tallinn. On clear nights you see the Milky Way from the jetty." }
+      ] },
+    { "kind": "specs", "heading": "The practical part", "items": [{ "title": "Group", "body": "up to 6 people" }, { "title": "Evening", "body": "4 hours, from 17:00 or 19:00" }, { "title": "Price", "body": "240 € per evening" }, { "title": "Drive", "body": "about 1 h from Tallinn" }] },
+    { "id": "book", "kind": "form", "heading": "Book an evening", "body": ["Leave your email and we will send the free dates for the next month."], "ask": { "label": "Which evening suits you?", "options": ["A weekday", "Friday", "Saturday", "Sunday"] } }
+  ]
+}

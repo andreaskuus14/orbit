@@ -176,3 +176,17 @@ test("art check (cinematic standard): stand-in art and a choppy or small sequenc
   const stand = fx("brief-detailed.json"); stand.assets[0].origin = "fixture SVG (stand-in)";
   const st = parseBrief(stand); assert.ok("brief" in st); assert.ok(artIssues(st.brief).some((x) => x.startsWith("hero: stand-in art")));
 });
+
+test("scene section: layers back to front with depths, the giant word between the right two, numbered chapters and dots; bad layers refused", async () => {
+  const p = parseBrief(fx("brief-tuuli.json")); assert.ok("brief" in p, "errors" in p ? p.errors.join("; ") : "");
+  const files = renderSite(p.brief), html = files["index.html"];
+  const order = [...html.matchAll(/<(?:img|span) class="scene-(?:layer|word)"[^>]*>/g)].map((m) => /src="([^"]+)"/.exec(m[0])?.[1] ?? "WORD");
+  assert.deepEqual(order, ["scene/sky.webp", "scene/hills.webp", "scene/lake.webp", "WORD", "scene/shore.webp", "scene/near.webp", "scene/front.webp"]);
+  assert.match(html, /alt="Night over a lake/); // the first layer carries the description; the rest are decorative
+  assert.equal((html.match(/class="scene-ch"/g) ?? []).length, 4);
+  assert.match(html, /<a href="#evening-ch4" class="scene-dot">04<\/a>/);
+  assert.match(html, /<meta property="og:image" content="scene\/poster\.jpg">/);
+  assert.match(files["js/immersive.js"], /scene-live/);
+  const bad = fx("brief-tuuli.json"); bad.sections[1].scene.layers = [{ path: "../x.webp", depth: 3 }];
+  const e = parseBrief(bad); assert.ok("errors" in e && e.errors.some((x) => x.includes("2-8 layers")) && e.errors.some((x) => x.includes("depth 0-1")));
+});
