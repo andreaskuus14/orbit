@@ -1,6 +1,6 @@
 import { lookup } from "node:dns/promises";
-import { isPrivateIp } from "./pure";
-import type { Act, El } from "./browse-pure";
+import { isPrivateIp } from "./pure.ts";
+import type { Act, El } from "./browse-pure.ts";
 
 // Hidden real browser for pages that only show content after JavaScript runs. Uses the Chrome (or Edge)
 // already installed on this PC via playwright-core: nothing extra is downloaded. Every session is a fresh,
@@ -55,6 +55,21 @@ function getBrowser() {
   return g.__orbitBrowser;
 }
 
+/** Send an allowed request without letting Chromium follow redirects on its own: ORBIT fetches it with redirects off, refuses a
+ *  3xx whose Location is a refused host, and hands any other 3xx back to the page, so the next hop comes through route() and is
+ *  checked again. Chromium's own redirect following never passes through route(), so without this a public page could make it
+ *  contact this PC or the home network before the final-URL check (S01). */
+async function pass(route: import("playwright-core").Route, hostOk: (h: string) => Promise<boolean>) {
+  const res = await route.fetch({ maxRedirects: 0 }).catch(() => null);
+  if (!res) return route.abort();
+  const loc = res.status() >= 300 && res.status() < 400 ? res.headers()["location"] : undefined;
+  if (loc) {
+    let next: URL; try { next = new URL(loc, route.request().url()); } catch { return route.abort(); }
+    if (!/^https?:$/.test(next.protocol) || !(await hostOk(next.hostname))) return route.abort();
+  }
+  return route.fulfill({ response: res });
+}
+
 /** Load a public page in the hidden browser and return its final URL and HTML (null if unavailable or blocked). */
 export async function renderPage(url: string, userAgent: string): Promise<{ url: string; html: string; text: string } | null> {
   const u = new URL(url);
@@ -71,13 +86,12 @@ export async function renderPage(url: string, userAgent: string): Promise<{ url:
       if (["image", "media", "font"].includes(req.resourceType())) return route.abort();
       let host = "";
       try { host = new URL(req.url()).hostname; } catch { return route.abort(); }
-      return (await allowedHost(host)) ? route.continue() : route.abort();
+      return (await allowedHost(host)) ? pass(route, allowedHost) : route.abort();
     });
     const page = await ctx.newPage();
     await page.goto(u.toString(), { waitUntil: "domcontentloaded", timeout: 20_000 });
     await page.waitForLoadState("networkidle", { timeout: 6_000 }).catch(() => {}); // good enough if it never idles
-    // Redirect hops may bypass route(): never hand back a page that ended up on a private address.
-    // shortcut: route() never sees redirect hops, so Chrome may already have requested a private hop; this only stops its content coming back. Pin DNS in Chrome (--host-resolver-rules) if pages ever run untrusted.
+    // Second line of defence after pass(): never hand back a page that ended up on a private address.
     if (!(await allowedHost(new URL(page.url()).hostname))) return null;
     return { url: page.url(), html: await page.content(), text: (await page.innerText("body").catch(() => "")).slice(0, 200_000) };
   } catch {
@@ -104,7 +118,7 @@ export type BrowseOut = { url: string; title: string; text: string; notes: strin
 /** Opens a public page in the hidden browser and runs the checked steps. Read-only: every non-GET request the page makes is
  *  blocked (no form posts, likes or tracking beacons), clicks and typing pass browse-pure's checks first. null = no browser/blocked. */
 export async function browsePage(url: string, actions: Act[], screenshot: boolean, stop: () => boolean, hostOk = allowedHost): Promise<BrowseOut> { // hostOk: tests serve a local page
-  const { clickRefusal, isSearchBox, searchForm } = await import("./browse-pure");
+  const { clickRefusal, isSearchBox, searchForm } = await import("./browse-pure.ts");
   const u = new URL(url);
   if (!(await hostOk(u.hostname))) return null;
   let browser = await getBrowser();
@@ -119,7 +133,7 @@ export async function browsePage(url: string, actions: Act[], screenshot: boolea
       if (["media", "font"].includes(req.resourceType()) || (!screenshot && req.resourceType() === "image")) return route.abort();
       let host = "";
       try { host = new URL(req.url()).hostname; } catch { return route.abort(); }
-      return (await hostOk(host)) ? route.continue() : route.abort();
+      return (await hostOk(host)) ? pass(route, hostOk) : route.abort();
     });
     const page = await ctx.newPage();
     page.setDefaultTimeout(5_000);
@@ -162,7 +176,7 @@ export async function browsePage(url: string, actions: Act[], screenshot: boolea
 /** CORE tool browse {url, actions?, screenshot?}. robots.txt and polite per-host gaps/day caps as page watch; Stop-all stops it. */
 export async function runBrowseTool(i: Record<string, unknown>): Promise<string> {
   const [{ browseReport, checkBrowse, needsClickText }, { robots }, { robotsGate }, { polite }, { stopAllOn }] = await Promise.all([
-    import("./browse-pure"), import("./pagewatch"), import("./pagewatch-pure"), import("./reach/net"), import("./stop-all")]);
+    import("./browse-pure.ts"), import("./pagewatch"), import("./pagewatch-pure"), import("./reach/net"), import("./stop-all")]);
   const c = checkBrowse(i);
   const ask = async (what: string) => { (await import("./activity")).logActivity({ area: "core", title: `Needs your click: ${what.slice(0, 160)}`, detail: "ORBIT's browser only reads pages; do this yourself in your own browser if you want it" }); return needsClickText(what); };
   if ("error" in c) return `Error: ${c.error}`;
