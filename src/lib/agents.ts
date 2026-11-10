@@ -23,6 +23,7 @@ import { registerSource, taskExecution as execOf, track } from "./execution";
 import { claimFilter, missingOwnerColumn } from "./task-claim-pure";
 import { MigrationBlocked, refuse, requireMigration } from "./migration-guard";
 import { verifyRow } from "./completion";
+import { pickFair } from "./agent-queue-pure";
 import { BUILTIN_AGENTS, BUILTIN_ONLY_TOOLS, delegateProblem, selfCheck, fixPrompt, type AgentDef, type Tier } from "./agent-defs-pure";
 import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
 import { noteToolResult, newsHours, parseAgentReply, parseFeed, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
@@ -44,6 +45,7 @@ type Ctx = { sb: SupabaseClient; userId: string; task: Task; depth: number; pend
 const MAX_STEPS = 7;
 const MAX_DEPTH = 2;
 const MAX_RUNNING = 2;
+const runningAgent = new Map<string, string>(); // task id → agent, for the fair queue (agent-queue-pure.ts)
 
 /* ---------------- tools ---------------- */
 
@@ -728,10 +730,11 @@ export const taskExecution = (id: string, startedAt: string | null | undefined) 
 export async function kickQueue(sb: SupabaseClient, userId: string) {
   await reclaimInterrupted(sb, userId).catch((e) => { reclaimed.delete(userId); console.error("[orbit] interrupted-task sweep failed:", e instanceof Error ? e.message : e); });
   while (running.size < MAX_RUNNING && !stopAllOn()) { // Stop-all: queued tasks wait (they start on Resume)
-    const { data } = await sb.from("tasks").select("id").eq("user_id", userId).eq("status", "queued").is("parent_id", null)
-      .order("created_at").limit(1);
-    const next = data?.[0];
-    if (!next || running.has(next.id)) return;
+    const { data } = await sb.from("tasks").select("id, agent").eq("user_id", userId).eq("status", "queued").is("parent_id", null)
+      .order("created_at").limit(30);
+    const pick = pickFair((data ?? []).filter((t) => !running.has(t.id)), [...runningAgent.values()]); // fair across departments
+    const next = (data ?? []).find((t) => t.id === pick);
+    if (!next) return;
     running.add(next.id);
     // One atomic claim: zero rows means another kick or another worker took it first.
     let claimed = false;
@@ -743,9 +746,9 @@ export async function kickQueue(sb: SupabaseClient, userId: string) {
       running.delete(next.id);
       return;
     }
-    handoff.add(next.id);
+    handoff.add(next.id); runningAgent.set(next.id, next.agent as string);
     void runTask(sb, userId, next.id)
       .catch((e) => console.error("[orbit] task crashed", next.id, e))
-      .finally(() => { handoff.delete(next.id); running.delete(next.id); void kickQueue(sb, userId); });
+      .finally(() => { handoff.delete(next.id); running.delete(next.id); runningAgent.delete(next.id); void kickQueue(sb, userId); });
   }
 }
