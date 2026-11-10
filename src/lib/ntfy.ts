@@ -1,6 +1,7 @@
 // ntfy phone notifications, IO side (rules + privacy: ntfy-pure.ts). Two feeds: every Web Push label (remote-push.ts deliver → ntfyPush),
 // and top-level agent tasks reaching done / failed / awaiting approval (tickNtfy, a durable events consumer: crash-safe, at most one
 // repeat). Stop-all drops everything but the Stop-all notice; quiet hours (ORBIT_QUIET_HOURS) hold back all but failures.
+import { pendingSeen } from "./approval-bind-pure";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ackEvent, claimEvents } from "./durable";
 import { stopAllOn } from "./stop-all";
@@ -43,7 +44,7 @@ export async function tickNtfy(sb: SupabaseClient) {
       if (typeof id === "string" && !stopAllOn()) {
         const { data: t } = await sb.from("tasks").select("status, parent_id, title, request, error, pending, trace").eq("id", id).maybeSingle();
         // A single reversible waiting action also gets Approve / Reject buttons (signed, 24 h, one use: ntfy-action-pure.ts).
-        const token = t?.status === "awaiting_approval" && c.open && phoneActionable(t.pending) ? await import("./ntfy-action").then((a) => a.actToken(id, e.user_id), () => undefined) : undefined;
+        const token = t?.status === "awaiting_approval" && c.open && phoneActionable(t.pending) ? await import("./ntfy-action").then((a) => a.actToken(id, e.user_id, pendingSeen(t.pending ?? [])), () => undefined) : undefined;
         const m = t && !t.parent_id ? taskMsg(t.status, rowReceipt(t)?.status ?? null, c.open, token) : null;
         if (m) await ntfySend(m);
       }
