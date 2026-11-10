@@ -37,9 +37,11 @@ const command = (action: Omit<NavTarget, "panel">, names: string) => names.split
 command({ stopAll: true }, "stop everything, stop all, peata kõik");
 command({ voice: false }, "mute, vaigista");
 command({ voice: true }, "unmute, lülita heli sisse");
-command({ morning: true }, "status report, olukord");
+command({ morning: true }, "status report, olukord, open my morning brief, show me my morning brief, morning intel brief, hommikune ülevaade, ava hommikune ülevaade, näita hommikust ülevaadet");
 command({ weekly: true }, "weekly review, my week, how was my week, nädala ülevaade");
 command({ mission: true }, "mission control, bridge, the bridge, open mission control, open the bridge, missioonijuhtimine");
+// Mission Control already shows pending approvals and links to their review surfaces.
+command({ mission: true }, "pending approvals, show pending approvals, show my pending approvals, open pending approvals, ootel kinnitused, näita ootel kinnitusi, ava ootel kinnitused");
 command({ evening: true }, "today in a minute, evening capture, log my day, log today, päev minutiga");
 command({ continueWork: true }, "show my work, continue my work, näita minu tööd, jätka minu tööd");
 for (const w of WORK_TABS) command({ continueWork: true, workTab: w.id }, `${w.say}, ${w.sayEt}`);

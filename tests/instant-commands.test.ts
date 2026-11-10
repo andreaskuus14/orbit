@@ -13,6 +13,8 @@ const commands: [string, nav.NavTarget][] = [
   ["mute", { panel: null, voice: false }], ["vaigista", { panel: null, voice: false }],
   ["unmute", { panel: null, voice: true }], ["lülita heli sisse", { panel: null, voice: true }],
   ["status report", { panel: null, morning: true }], ["olukord", { panel: null, morning: true }],
+  ["show me my morning brief", { panel: null, morning: true }], ["ava hommikune ülevaade", { panel: null, morning: true }],
+  ["show pending approvals", { panel: null, mission: true }], ["näita ootel kinnitusi", { panel: null, mission: true }],
   ["show my work", { panel: null, continueWork: true }], ["continue my work", { panel: null, continueWork: true }],
   ["näita minu tööd", { panel: null, continueWork: true }], ["jätka minu tööd", { panel: null, continueWork: true }],
   ["mission control", { panel: null, mission: true }], ["bridge", { panel: null, mission: true }], ["missioonijuhtimine", { panel: null, mission: true }],
@@ -33,6 +35,8 @@ for (const [text, want] of commands) test(`instant command: ${text}`, () => {
 
 for (const text of [
   "how do I stop procrastinating", "explain how to mute a video", "write a status report for my project",
+  "show pending approvals and approve them", "how do pending approvals work",
+  "ava hommikune ülevaade ja koosta plaan", "näita ootel kinnitusi ja kinnita need",
   "show my work and help me plan tomorrow", "how far back does the galaxy extend",
   "kuidas peata nupp töötab", "selgita mida vaigista tähendab", "milline on olukord maailmas",
   "näita minu tööd ja koosta plaan", "kuidas ma tagasi kooli lähen",
