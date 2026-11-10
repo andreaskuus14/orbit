@@ -18,7 +18,7 @@ function load(ffmpeg: string | null) {
   const stubs: Record<string, unknown> = {
     "../authority": { authorizeApproval: async () => "" },
     "../approval-pure": { spendContent: (f: string, c: number) => ({ f, c }) },
-    "./kokoro": { kokoroTts: async () => ({}) },
+    "./kokoro": { kokoroTts: async () => ({}) }, "./music": { pickMusic: async () => null },
     "../claude": { MODEL: "m", askClaude: async () => ({ text: "" }), emitAsOwner: async () => {} },
     "./factory": { ffmpegPath: async () => ffmpeg, clipsDir: () => "/x/clips", studioRoot: () => "/x", readState: async () => null, runFfmpeg: async () => "", saveJob: async () => {}, transcribe: async () => [],
       saveState: async (_id: string, _f: string, j: storyPure.StoryJob) => { saved.push(structuredClone(j)); } },
