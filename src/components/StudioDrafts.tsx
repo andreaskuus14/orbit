@@ -29,6 +29,8 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [err, setErr] = useState("");
   const [working, setWorking] = useState("");
+  const [idea, setIdea] = useState("");
+  const [made, setMade] = useState<{ name: string; preview: string; fill: string[] } | null>(null);
   const [bump, setBump] = useState(0); // new local photos at the same paths: refetch the previews
   const load = useCallback(async () => {
     try {
@@ -89,6 +91,20 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
           : "Pictures and videos CORE drafted that belong to neither a site nor YouTube. Nothing is generated before your Approve click."}</p>
         {err && <p className="error mt-1 text-xs" role="alert">{err}</p>}
       </header>
+      {section === "websites" && (
+        <form className="space-y-1" onSubmit={async (e) => {
+          e.preventDefault(); setErr(""); setMade(null); setWorking("idea");
+          try { setMade(await call<{ name: string; preview: string; fill: string[] }>("/api/sites/idea", { idea })); setIdea(""); }
+          catch (x) { setErr(String((x as Error).message ?? x)); } finally { setWorking(""); }
+        }}>
+          <label className="muted block text-xs" htmlFor="site-idea">New site from one sentence</label>
+          <div className="flex gap-2">
+            <input id="site-idea" className="input flex-1 text-xs" value={idea} onChange={(e) => setIdea(e.target.value)} placeholder="A site for my lake sauna in Lahemaa, for couples booking an evening" maxLength={600} />
+            <button className="btn text-xs" disabled={idea.trim().length < 8 || working === "idea"}>{working === "idea" ? "Building…" : "Build"}</button>
+          </div>
+          {made && <p className="text-xs"><a className="underline" href={made.preview} target="_blank" rel="noreferrer">Open {made.name}</a>{made.fill.length ? ` · fill in: ${made.fill.join(", ")}` : ""}</p>}
+        </form>
+      )}
       {!jobs && !err && <p className="muted text-xs">Loading…</p>}
       {jobs && !jobs.length && <p className="muted text-xs">{section === "websites" ? "No site pictures yet. Ask CORE for realistic photos on a site and they show up here." : "Nothing here yet."}</p>}
 
