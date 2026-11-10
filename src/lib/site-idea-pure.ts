@@ -16,6 +16,7 @@ export const IDEA_SYSTEM = `You write a one-page website brief as JSON for ORBIT
 Schema:
 {"name": string (brand, max 60), "tagline": string (max 80, short eyebrow), "offer": string (one sentence: what, for whom), "audience": string,
  "description": string (max 160, for search results), "lang": "en" or "et",
+ "assumptions": [string x2-6] (each thing you assumed beyond the owner's words, e.g. "Assumed bookings are per evening, not per hour"),
  "sections": [
   {"kind":"hero","heading": string (put ONE word in *stars* for the accent),"body":[string],"cta":[{"label":string,"href":"#<section id>"}]},
   {"kind":"features","heading":string,"body":[string],"items":[{"label": short stat like "72 h","title":string,"body":string} x3]},
@@ -42,3 +43,8 @@ export function firstJson(text: string): unknown {
 export const placeholders = (brief: unknown) => [...new Set(JSON.stringify(brief ?? "").match(/\[[^\]"]{2,40}\]/g) ?? [])].slice(0, 12);
 /** A workspace name from the brand: "Tuuli Sauna" → "tuuli-sauna-site". */
 export const siteSlugName = (name: string) => `${name.toLowerCase().normalize("NFKD").replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 30) || "site"}-site`;
+/** What the model says it assumed beyond the owner's sentence (shown next to the placeholders, never put on the site). */
+export const assumptions = (brief: unknown): string[] => {
+  const a = (brief as { assumptions?: unknown } | null)?.assumptions;
+  return Array.isArray(a) ? a.filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim().slice(0, 160)).slice(0, 6) : [];
+};

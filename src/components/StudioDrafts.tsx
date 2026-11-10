@@ -30,7 +30,7 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
   const [err, setErr] = useState("");
   const [working, setWorking] = useState("");
   const [idea, setIdea] = useState("");
-  const [made, setMade] = useState<{ name: string; preview: string; fill: string[] } | null>(null);
+  const [made, setMade] = useState<{ name: string; preview: string; fill: string[]; assumed: string[] } | null>(null);
   const [bump, setBump] = useState(0); // new local photos at the same paths: refetch the previews
   const load = useCallback(async () => {
     try {
@@ -94,7 +94,7 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
       {section === "websites" && (
         <form className="space-y-1" onSubmit={async (e) => {
           e.preventDefault(); setErr(""); setMade(null); setWorking("idea");
-          try { setMade(await call<{ name: string; preview: string; fill: string[] }>("/api/sites/idea", { idea })); setIdea(""); }
+          try { setMade(await call<{ name: string; preview: string; fill: string[]; assumed: string[] }>("/api/sites/idea", { idea })); setIdea(""); }
           catch (x) { setErr(String((x as Error).message ?? x)); } finally { setWorking(""); }
         }}>
           <label className="muted block text-xs" htmlFor="site-idea">New site from one sentence</label>
@@ -103,6 +103,7 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
             <button className="btn text-xs" disabled={idea.trim().length < 8 || working === "idea"}>{working === "idea" ? "Building…" : "Build"}</button>
           </div>
           {made && <p className="text-xs"><a className="underline" href={made.preview} target="_blank" rel="noreferrer">Open {made.name}</a>{made.fill.length ? ` · fill in: ${made.fill.join(", ")}` : ""}</p>}
+          {made && made.assumed.length > 0 && <div className="muted text-xs"><p>ORBIT assumed (check these):</p><ul className="list-disc pl-4">{made.assumed.map((a) => <li key={a}>{a}</li>)}</ul></div>}
         </form>
       )}
       {!jobs && !err && <p className="muted text-xs">Loading…</p>}

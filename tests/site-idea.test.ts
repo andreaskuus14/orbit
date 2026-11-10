@@ -18,3 +18,13 @@ test("placeholders are listed once; slugs are clean", () => {
   assert.equal(siteSlugName("!!!"), "site-site");
 });
 test("the prompt forbids invented facts", () => assert.match(IDEA_SYSTEM, /square brackets/));
+
+test("assumptions: strings only, trimmed, at most 6; the brief validator still accepts a brief that carries them", async () => {
+  const { assumptions } = await import("../src/lib/site-idea-pure.ts");
+  assert.deepEqual(assumptions({ assumptions: [" Per evening ", 3, "", "x".repeat(200), "a", "b", "c", "d", "e"] }).length, 6);
+  assert.equal(assumptions({ assumptions: [" Per evening "] })[0], "Per evening");
+  assert.deepEqual(assumptions(null), []);
+  const { parseBrief } = await import("../src/lib/site-brief-pure.ts");
+  const fx = JSON.parse((await import("node:fs")).readFileSync(new URL("./fixtures/site-w02/brief-house.json", import.meta.url), "utf8"));
+  assert.ok(!("errors" in parseBrief({ ...fx, assumptions: ["Assumed couples book one evening"] })));
+});
