@@ -189,6 +189,7 @@ const BASE = {
   "task.trace": "Execution trace ({n} steps)", "task.saveRecipe": "📋 Save as recipe", "task.recipeName": "Recipe name",
 
   "doc.title": "ORBIT doctor", "doc.closeAria": "Close ORBIT doctor", "doc.checking": "Checking…", "doc.again": "Check again",
+  "doc.copyReport": "Copy support snapshot", "doc.copyReportError": "Couldn’t copy. Check browser clipboard permissions and try again.",
   "doc.loading": "Checking everything (takes up to 10 seconds)…", "doc.whatToDo": "What to do:", "doc.retry": "Retry", "doc.ok": "OK", "doc.warn": "CHECK", "doc.fail": "PROBLEM",
   "doc.selfTest": "Last self-test", "doc.afterRestart": "After the restart at {at}: {headline}", "doc.crashes": "Crashes since the boot before{exits}:",
   "doc.unknownCause": "Cause not recognised. Ask Claude Code to look at orbit-server.log.", "doc.noCrashes": "No crashes since the boot before.",
@@ -1072,6 +1073,7 @@ export const ET: Partial<Record<Key, string>> = {
   "task.trace": "Täitmise logi ({n} sammu)", "task.saveRecipe": "📋 Salvesta retseptina", "task.recipeName": "Retsepti nimi",
 
   "doc.title": "ORBITi arst", "doc.closeAria": "Sulge ORBITi arst", "doc.checking": "Kontrollin…", "doc.again": "Kontrolli uuesti",
+  "doc.copyReport": "Kopeeri toe ülevaade", "doc.copyReportError": "Kopeerimine ebaõnnestus. Kontrolli brauseri lõikelaua õigusi ja proovi uuesti.",
   "doc.loading": "Kontrollin kõike (võtab kuni 10 sekundit)…", "doc.whatToDo": "Mida teha:", "doc.retry": "Proovi uuesti", "doc.ok": "KORRAS", "doc.warn": "KONTROLLI", "doc.fail": "PROBLEEM",
   "doc.selfTest": "Viimane enesekontroll", "doc.afterRestart": "Pärast taaskäivitust {at}: {headline}", "doc.crashes": "Krahhid alates eelmisest käivitusest{exits}:",
   "doc.unknownCause": "Põhjust ei tuvastatud. Palu Claude Code'il vaadata faili orbit-server.log.", "doc.noCrashes": "Alates eelmisest käivitusest krahhe pole.",

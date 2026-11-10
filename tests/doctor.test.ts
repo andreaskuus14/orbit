@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  buildCheck, check, diskCheck, envCheck, factsCheck, launcherCheck, lifeCheck, modelCheck, nightCheck, quotaCheck, summarize, validModel, vaultCheck, ytdlpCheck,
+  buildCheck, check, diskCheck, doctorShareText, envCheck, factsCheck, launcherCheck, lifeCheck, modelCheck, nightCheck, quotaCheck, summarize, validModel, vaultCheck, ytdlpCheck,
 } from "../src/lib/doctor-pure.ts";
 
 const GB = 1024 ** 3, DAY = 86_400_000;
@@ -17,6 +17,40 @@ test("summary: all ok, worst first, spoken top problems", () => {
   assert.deepEqual(r.checks.map((c) => c.id), ["f", "w", "a"]);
   assert.equal(r.speech, "I found 1 problem and 1 warning. Claude: Won't start. Install it. Disk: Low. Empty the bin.");
   assert.equal(summarize([check("w", "W", "warn", "x"), check("v", "V", "warn", "y")], 1).headline, "2 warnings out of 2 checks.");
+});
+
+test("support snapshot includes diagnostic states and drops private text and unknown IDs", () => {
+  const privateText = "synthetic-token /home/private user@example.invalid";
+  const report = {
+    ...summarize([
+      { ...check("version", privateText, "warn", `Running abc1234 (built yesterday); experimental: ${privateText}`, privateText),
+        retry: [{ key: privateText, label: privateText }] },
+      check(privateText, privateText, "fail", privateText),
+    ], 10, "2026-11-10T08:00:00Z"),
+    system: {
+      services: [{ id: "supabase", state: "down" as const, detail: privateText, label: privateText, lastOk: null }],
+      models: [{ role: "fast", state: "limited" as const, model: privateText, lastOk: null, calls7d: 1 }],
+      failed: [{ kind: "task" as const, count: 2, recent: [{ kind: "task" as const, label: privateText, at: privateText }] }],
+    },
+    cantDo: [{ id: "calendar" as const, deps: ["calendar" as const] }],
+  };
+  const text = doctorShareText(report);
+  assert.match(text, /Checked at: 2026-11-10T08:00:00.000Z/);
+  assert.match(text, /Running commit: abc1234/);
+  assert.match(text, /Overall: fail/);
+  assert.match(text, /Checks: version=warn/);
+  assert.match(text, /Services: supabase=down/);
+  assert.match(text, /fast=limited/);
+  assert.match(text, /Failed jobs \(7 days\): task=2/);
+  assert.match(text, /Missing capabilities: calendar/);
+  assert.doesNotMatch(text, /synthetic-token|private|@|experimental/);
+});
+
+test("support snapshot separates missing diagnostic evidence from a healthy result", () => {
+  const text = doctorShareText(summarize([check("version", "Version", "warn", "Running unknown")], 10, "invalid"));
+  assert.match(text, /Running commit: unknown/);
+  assert.match(text, /Services, models and failed jobs: unavailable/);
+  assert.match(text, /Missing capabilities: unavailable/);
 });
 
 test("model names", () => {
