@@ -9,8 +9,6 @@ test("security headers: no X-Powered-By; pages send nosniff, no framing, a safe 
   assert.match(src, /poweredByHeader: false/);
   assert.match(src, /"X-Frame-Options", value: "DENY"/);
   assert.match(src, /"X-Content-Type-Options", value: "nosniff"/);
-  const csp = /"Content-Security-Policy", value: "([^"]+)"/.exec(src)?.[1] ?? "";
-  assert.match(csp, /base-uri 'self'/);
-  assert.match(csp, /form-action 'self'/);
-  assert.doesNotMatch(csp, /object-src 'none'|frame-ancestors/, "VAULT PDFs and the shop preview keep working");
+  // the CSP itself now comes per request from middleware.ts (nonce): tests/csp.test.ts
+  assert.doesNotMatch(src, /"Content-Security-Policy"/, "one CSP only (two would both have to pass)");
 });
