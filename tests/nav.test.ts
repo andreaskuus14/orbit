@@ -243,3 +243,9 @@ test("ambiguous country names need a news word or the globe; every other country
   assert.deepEqual(parseNavCommand("show me Malta"), { panel: "intelligence", country: "Malta" });
   assert.deepEqual(parseNavCommand("show me news from Singapore"), { panel: "intelligence", country: "Singapore" });
 });
+
+test("C05: approvals and the morning brief open instantly in English and Estonian; mixed requests stay with CORE", () => {
+  for (const t of ["pending approvals", "Approvals", "what needs me?", "ootel kinnitused", "Mis vajab mind"]) assert.equal(parseNavCommand(t)?.mission, true, t);
+  for (const t of ["tere hommikust", "Hommikune ülevaade", "good morning"]) assert.equal(parseNavCommand(t)?.morning, true, t);
+  for (const t of ["approve the invoice", "pending approvals for the Rannakivi project and email them", "tere hommikust, kirjuta Marile"]) assert.equal(parseNavCommand(t), null, t);
+});
