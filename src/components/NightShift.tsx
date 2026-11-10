@@ -26,7 +26,7 @@ export function WhileYouSlept({ report, onOpenTask, onOpenGoal, nav }: { report:
     setErr("");
     const o = i.open;
     try {
-      if (o && "task" in o) await api(`/api/tasks/${o.task}`, { method: "POST", body: JSON.stringify({ action: approve ? "approve" : "reject" }) });
+      if (o && "task" in o) await api(`/api/tasks/${o.task}`, { method: "POST", body: JSON.stringify({ action: approve ? "approve" : "reject", ...(approve && i.seen ? { seen: i.seen } : {}) }) });
       else if (o && "goal" in o && o.stepId) await api("/api/goals", { method: "POST", body: JSON.stringify({ action: "ok", id: o.goal, step: o.step, stepId: o.stepId }) });
       setGone((g) => ({ ...g, [key(i)]: t(approve ? "common.approved" : "common.rejected") }));
     } catch (e) { setErr(e instanceof Error ? e.message : t("common.failed")); }
