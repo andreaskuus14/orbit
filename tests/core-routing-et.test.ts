@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MODULE_ABOUT, MODULE_HINTS, loadModule, routedPrompt, selectModules } from "../src/lib/core-modules-pure.ts";
 
-const mods = [...Object.keys(MODULE_HINTS), "REA", "MISSIONS", "LOAD"].map((name) => ({ name, prompt: `- ${name} tools`, tools: [`${name.toLowerCase()}_x`] }));
+const mods = [...Object.keys(MODULE_HINTS), "NOHINT", "MISSIONS", "LOAD"].map((name) => ({ name, prompt: `- ${name} tools`, tools: [`${name.toLowerCase()}_x`] }));
 const picked = (text: string) => selectModules(mods, text).filter((m) => MODULE_HINTS[m.name]).map((m) => m.name).sort();
 
 // [module, English, Estonian]
@@ -90,7 +90,7 @@ test("EN and ET requests select the same module set, which includes the intended
 
 test("no gated match → capability index naming load_module; a match → no index", () => {
   const miss = routedPrompt(mods, "Tere, kuidas läheb?");
-  assert.match(miss, /- REA tools\n- MISSIONS tools\n- LOAD tools\nOTHER ORBIT MODULES[^\n]*load_module/);
+  assert.match(miss, /- NOHINT tools\n- MISSIONS tools\n- LOAD tools\nOTHER ORBIT MODULES[^\n]*load_module/);
   for (const name of Object.keys(MODULE_HINTS)) assert.match(miss, new RegExp(`\\n- ${name}: ${MODULE_ABOUT[name].slice(0, 20).replace(/[()/]/g, ".")}`));
   assert.doesNotMatch(routedPrompt(mods, "Näita minu eesmärke"), /OTHER ORBIT MODULES/);
   assert.match(routedPrompt(mods, "Näita minu eesmärke"), /- GOALS tools/);
