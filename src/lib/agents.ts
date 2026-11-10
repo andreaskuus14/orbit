@@ -23,8 +23,7 @@ import { registerSource, taskExecution as execOf, track } from "./execution";
 import { claimFilter, missingOwnerColumn } from "./task-claim-pure";
 import { MigrationBlocked, refuse, requireMigration } from "./migration-guard";
 import { verifyRow } from "./completion";
-import { pickFair } from "./agent-queue-pure";
-import { BUILTIN_AGENTS, BUILTIN_ONLY_TOOLS, delegateProblem, selfCheck, fixPrompt, type AgentDef, type Tier } from "./agent-defs-pure";
+import { BUILTIN_AGENTS, BUILTIN_ONLY_TOOLS, delegateProblem, pickFair, selfCheck, fixPrompt, type AgentDef, type Tier } from "./agent-defs-pure";
 import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
 import { noteToolResult, newsHours, parseAgentReply, parseFeed, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
 
