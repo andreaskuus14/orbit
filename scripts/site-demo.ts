@@ -1,14 +1,14 @@
 // W02 demo: one finished website from a synthetic brief and fixture images, through the real workspace path, in a throwaway data
 // dir (no Supabase, no generation, nothing sent). Build v1 → ws_check → copy edit v2 (assets byte-identical) → .zip export →
 // unzip → QA the unzipped folder offline at 4 widths → QA packet into the export → broken page as the failing control.
-// Run: node --no-warnings --experimental-strip-types scripts/site-demo.ts [out-dir]
+// Run: node --no-warnings --experimental-strip-types scripts/site-demo.ts [out-dir] [--art]   (--art: add the art-director review)
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-const out = path.resolve(process.argv[2] ?? path.join(os.tmpdir(), "orbit-site-demo"));
+const out = path.resolve(process.argv.slice(2).find((a) => !a.startsWith("--")) ?? path.join(os.tmpdir(), "orbit-site-demo"));
 const fx = path.resolve("tests/fixtures/site-w02");
 process.env.ORBIT_DATA_DIR = await mkdtemp(path.join(os.tmpdir(), "orbit-w02-"));
 const ws = await import("../src/lib/workspace.ts");
@@ -85,6 +85,14 @@ await ws.writeWsFile(uid, slug, "qa/report.md", md);
 await ws.writeWsFile(uid, slug, "qa/report.json", JSON.stringify(packet, null, 2));
 await writeFile(path.join(out, `${slug}.zip`), (await ws.zipWorkspace(uid, slug))!);
 await writeFile(path.join(unz, "qa/report.md"), md);
+// Optional art-director pass (--art): the QA screenshots judged against the cinematic standard by the vision model on the local CLI.
+if (process.argv.includes("--art")) {
+  const { artReview } = await import("../src/lib/art-director.ts");
+  const { artMarkdown } = await import("../src/lib/art-director-pure.ts");
+  const art = await artReview(packet.viewports.map((v) => path.join(unz, v.shot)), "site", { context: `${v2.brief.name}: ${v2.brief.offer}` });
+  if ("error" in art) console.log(`art review skipped: ${art.error}`);
+  else { await writeFile(path.join(unz, "qa/art.md"), artMarkdown(art)); console.log(`art review ${art.verdict} ${art.score}/100 → qa/art.md`); }
+}
 for (const v of packet.viewports) await cp(path.join(unz, v.shot), path.join(out, `w02-${v.vw}.jpg`));
 console.log(md);
 
