@@ -23,7 +23,7 @@ import { registerSource, taskExecution as execOf, track } from "./execution";
 import { claimFilter, missingOwnerColumn } from "./task-claim-pure";
 import { MigrationBlocked, refuse, requireMigration } from "./migration-guard";
 import { verifyRow } from "./completion";
-import { BUILTIN_AGENTS, BUILTIN_ONLY_TOOLS, selfCheck, fixPrompt, type AgentDef, type Tier } from "./agent-defs-pure";
+import { BUILTIN_AGENTS, BUILTIN_ONLY_TOOLS, delegateProblem, selfCheck, fixPrompt, type AgentDef, type Tier } from "./agent-defs-pure";
 import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
 import { noteToolResult, newsHours, parseAgentReply, parseFeed, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
 
@@ -255,12 +255,14 @@ export const TOOLS: Record<string, Tool> = {
     },
   },
   delegate: {
-    description: "Hand a sub-task to another agent and get its result back. Agents: atlas, pulse, echo, forge, vector, sentinel, flow, qa (or a custom agent's id).",
+    description: "Hand a sub-task to an agent on your team and get its result back. Nova: department leads atlas (research), pulse (news, watching), closer (business), echo (memory, documents), flow (recurring, stats), qa, or a custom agent's id. A lead: its own specialists or qa.",
     input: '{"agent": string, "title": string, "request": string}',
     run: async (ctx, i) => {
       if (ctx.depth >= MAX_DEPTH) return "Error: delegation depth limit reached; finish the work yourself.";
       const agent = s(i.agent, 40).toLowerCase();
       if (agent === ctx.task.agent) return "Error: you can't delegate to yourself.";
+      const why = delegateProblem(ctx.task.agent, agent);
+      if (why) return `Error: ${why}.`;
       if (!(await getAgent(ctx.sb, agent, ctx.userId))) return `Error: unknown agent "${agent}".`;
       const { data: child, error } = await ctx.sb.from("tasks").insert({
         user_id: ctx.userId, parent_id: ctx.task.id, project_id: ctx.task.project_id, agent,
