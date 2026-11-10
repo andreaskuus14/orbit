@@ -232,7 +232,7 @@ export function dressLines(scene: Scene, dir: string): string[] {
     "        if not col: t.image.colorspace_settings.name = 'Non-Color'",
     "        nt.links.new(mp.outputs['Vector'], t.inputs['Vector']); nt.links.new(t.outputs['Color'], b.inputs[inp])",
     "    t = nt.nodes.new('ShaderNodeTexImage'); t.image = bpy.data.images.load(os.path.join(A, stem + '_nor_gl.jpg')); t.image.colorspace_settings.name = 'Non-Color'",
-    "    n = nt.nodes.new('ShaderNodeNormalMap'); nt.links.new(mp.outputs['Vector'], t.inputs['Vector']); nt.links.new(t.outputs['Color'], n.inputs['Color']); nt.links.new(n.outputs['Normal'], b.inputs['Normal'])",
+    "    n = nt.nodes.new('ShaderNodeNormalMap'); n.inputs['Strength'].default_value = 0.35 if stem.startswith('plaster') else 1.0; nt.links.new(mp.outputs['Vector'], t.inputs['Vector']); nt.links.new(t.outputs['Color'], n.inputs['Color']); nt.links.new(n.outputs['Normal'], b.inputs['Normal'])",
     "    return m",
     "TEX = {'slab': tex('oak', 'wood_floor', 0.45), 'wall': tex('plaster', 'plastered_wall_02', 0.35), 'ground': tex('grass', 'aerial_grass_rock', 0.12)}",
     `KIND = ${JSON.stringify(Object.fromEntries(scene.parts.filter((p) => p.kind === "slab" || p.kind === "wall").map((p) => [p.id, p.kind])))}`,
@@ -271,6 +271,8 @@ export function dressLines(scene: Scene, dir: string): string[] {
     "env = nt.nodes.new('ShaderNodeTexEnvironment'); env.image = bpy.data.images.load(os.path.join(A, 'sky.hdr')); nt.links.new(env.outputs['Color'], nt.nodes['Background'].inputs['Color'])",
     "nt.nodes['Background'].inputs['Strength'].default_value = 0.9; sun.data.color = (1.0, 0.75, 0.5)",
     ...rooms.map((p) => { const [x, y] = toBlender(p.x, 0, p.z); return `l = bpy.data.lights.new('warm', 'AREA'); l.size = 1.6; l.energy = 320; l.color = (1.0, 0.78, 0.52); lo = bpy.data.objects.new('warm', l); S.collection.objects.link(lo); lo.location = (${f(x)}, ${f(y)}, ${f(top)}); lo.visible_camera = False`; }),
+    ...rooms.map((p) => { const [x, y] = toBlender(p.x, 0, p.z); return `pendant(${f(x)}, ${f(y)}, ${f(top)})`; }),
+    ...landscape(scene),
     "S.view_settings.exposure = -0.3",
   ];
 }
@@ -286,6 +288,12 @@ export const MODERN_PY = [
   "        nt.links.new(n.outputs['Fac'], bm.inputs['Height']); nt.links.new(bm.outputs['Normal'], b.inputs['Normal'])",
   "    return m",
   "FABRIC = _m('boucle', (0.42, 0.39, 0.35), 1.0, 0.25); LINEN = _m('linen', (0.86, 0.84, 0.8), 0.95, 0.15); METAL = _m('black metal', (0.03, 0.03, 0.03), 0.35)",
+  "RUST = _m('rust linen', (0.45, 0.2, 0.1), 0.95, 0.15); WOOL = _m('wool rug', (0.7, 0.66, 0.6), 1.0, 0.4); STONE = _m('granite', (0.33, 0.33, 0.32), 0.8, 0.6)",
+  "GLOW = bpy.data.materials.new('warm shade'); GLOW.use_nodes = True; _g = GLOW.node_tree.nodes['Principled BSDF']; _g.inputs['Base Color'].default_value = (0.9, 0.85, 0.75, 1); _g.inputs['Emission Color'].default_value = (1.0, 0.78, 0.52, 1); _g.inputs['Emission Strength'].default_value = 6",
+  "def pendant(x, y, ceiling):  # visible fixture under each room light: cord + opal shade",
+  "    _blk(None, 'cord', (x, y, ceiling - 0.35), (0.008, 0.008, 0.7), METAL); _blk(None, 'shade', (x, y, ceiling - 0.78), (0.34, 0.34, 0.16), GLOW, 0.07)",
+  "def boulder(x, y, s, r):",
+  "    o = _blk(None, 'boulder', (x, y, s * 0.3), (s * 1.3, s, s * 0.7), STONE, s * 0.3); o.rotation_euler = (0, 0, math.radians(r)); return o",
   "OAK = TEX['slab'] if 'TEX' in globals() else _m('oak', (0.55, 0.38, 0.22), 0.45)",
   "def _blk(parent, name, loc, size, mat, bev=0.0):",
   "    bpy.ops.mesh.primitive_cube_add(size=1, location=loc); o = bpy.context.object; o.name = name; o.scale = size; bpy.ops.object.transform_apply(scale=True)",
@@ -304,6 +312,8 @@ export const MODERN_PY = [
   "            _blk(e, 'seat', (x, -0.05, 0.37), (cw - 0.02, d - 0.3, 0.2), FABRIC, 0.06)",
   "            _blk(e, 'back', (x, d/2 - 0.14, 0.6), (cw - 0.02, 0.22, 0.42), FABRIC, 0.08)",
   "        for x in (-w/2 + 0.075, w/2 - 0.075): _blk(e, 'arm', (x, 0, 0.42), (0.15, d, 0.32), FABRIC, 0.05)",
+  "        for x, m in ((-w/2 + 0.45, LINEN), (w/2 - 0.45, RUST)): c = _blk(e, 'cushion', (x, d/2 - 0.3, 0.6), (0.42, 0.14, 0.4), m, 0.06); c.rotation_euler = (math.radians(-12), 0, 0)",
+  "        _blk(e, 'rug', (0, -d/2 - 0.4, 0.006), (w + 0.8, d + 1.6, 0.012), WOOL, 0.004)",
   "    elif kind in ('table', 'bench'):  # solid oak top on slim black legs",
   "        top = h if kind == 'table' else 0.45",
   "        _blk(e, 'top', (0, 0, top - 0.02), (w, d, 0.04), OAK, 0.006)",
@@ -325,6 +335,20 @@ export const MODERN_PY = [
   "        for sy in (-1, 1): _blk(c, 'leg', (sx * 0.19, sy * 0.18, 0.215), (0.025, 0.025, 0.43), METAL)",
   "    return c",
 ];
+
+/** Landscaping so the house sits on a site, not a lawn: stepping stones from each south door to the plot edge, and granite boulders
+ *  in two clusters off the camera side. Deterministic (no random), so reruns match. */
+export function landscape(scene: Scene): string[] {
+  const out: string[] = [], edge = scene.plot.d / 2;
+  for (const d of scene.parts.filter((p) => p.kind === "door" && p.face === "s")) {
+    const host = scene.parts.find((p) => p.id === d.host); if (!host) continue;
+    for (let z = host.z + host.d / 2 + 0.6, i = 0; z < edge - 0.4 && i < 12; z += 0.75, i++) out.push(`_blk(None, 'step', ${v(toBlender(d.x + (i % 2 ? 0.08 : -0.08), 0.02, z))}, (0.7, 0.45, 0.05), STONE, 0.02)`);
+  }
+  const w = scene.plot.w / 2;
+  for (const [cx, cz] of [[-w * 0.7, -edge * 0.6], [w * 0.65, -edge * 0.75]]) for (let i = 0; i < 3; i++)
+    { const [x, y] = toBlender(cx + i * 0.9, 0, cz + (i % 2) * 0.7); out.push(`boulder(${f(x)}, ${f(y)}, ${f(0.9 - i * 0.22)}, ${i * 61})`); }
+  return out;
+}
 
 /** Facade details that stop a render reading as a model: dark aluminium frames round every opening, and a timber deck outside a
  *  large south glazing (3 m or wider). */

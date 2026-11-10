@@ -105,3 +105,14 @@ test("film: the Kivi House fixture makes a dressed, resumable 150-frame sequence
   assert.match(py, /if os\.path\.exists\(f\) and os\.path\.getsize\(f\) > 0: continue/);
   assert.match(py, /modern\("sofa"/); assert.match(py, /resolution_x = 1920/); assert.match(py, /samples = 1024/);
 });
+
+test("polish: dressed renders get a visible pendant per room light, sofa textiles, stepping stones and boulders", async () => {
+  const { blenderScript, landscape } = await import("../src/lib/arch-blender-pure.ts");
+  const sc = { plot: { w: 30, d: 25, ground: "grass" as const, trees: 0 }, parts: [...starterScene().parts, { id: "s1", kind: "prop" as const, name: "Sofa", x: 0, y: 0.2, z: 1, w: 2.2, d: 0.9, h: 0.8 }] };
+  const py = blenderScript(sc, { site, date: new Date("2026-09-10T16:00:00Z"), quality: "preview", assets: "/lib" });
+  assert.equal((py.match(/^pendant\(/gm) ?? []).length, (py.match(/'warm', 'AREA'/g) ?? []).length);
+  assert.match(py, /'rug'/); assert.match(py, /'cushion'/);
+  assert.equal((landscape(sc).join("\n").match(/boulder\(/g) ?? []).length, 6);
+  assert.ok(!/NaN|undefined/.test(py));
+  assert.ok(py.trimEnd().endsWith("bpy.ops.render.render(write_still=True)"));
+});
