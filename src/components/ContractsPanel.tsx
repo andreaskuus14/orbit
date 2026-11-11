@@ -246,6 +246,7 @@ function ShareLinks({ id }: { id: string }) {
   const [err, setErr] = useState("");
   const [days, setDays] = useState(14);
   const [notify, setNotify] = useState(true);
+  const { t } = useT();
   const call = async (body?: object) => {
     setErr("");
     const r = await fetch(body ? "/api/business/links" : `/api/business/links?contract=${encodeURIComponent(id)}`, { method: body ? "POST" : "GET", cache: "no-store", ...(body && { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
@@ -258,28 +259,28 @@ function ShareLinks({ id }: { id: string }) {
   const fmt = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
   return (
     <details className="text-xs" onToggle={(e) => { if ((e.target as HTMLDetailsElement).open && !links) void call(); }}>
-      <summary className="cursor-pointer">Share as a tracked link</summary>
+      <summary className="cursor-pointer">{t("pl.title")}</summary>
       <div className="mt-1.5 space-y-1.5">
-        <p className="muted">A read-only page of the current version. ORBIT sends nothing: copy the link and send it yourself.</p>
+        <p className="muted">{t("pl.hint")}</p>
         <div className="flex flex-wrap items-center gap-1.5">
-          <label className="flex items-center gap-1">Expires in <input className="field w-14" type="number" min={1} max={90} value={days} onChange={(e) => setDays(Number(e.target.value))} /> days</label>
-          <label className="flex items-center gap-1"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Push me on the first view</label>
-          <button className="chip" onClick={() => void call({ action: "create", contractId: id, days, notify })}>Make link</button>
+          <label className="flex items-center gap-1">{t("pl.expires")} <input className="field w-14" type="number" min={1} max={90} value={days} onChange={(e) => setDays(Number(e.target.value))} /></label>
+          <label className="flex items-center gap-1"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> {t("pl.notify")}</label>
+          <button className="chip" onClick={() => void call({ action: "create", contractId: id, days, notify })}>{t("pl.make")}</button>
         </div>
         {err && <p className="error">{err}</p>}
-        {links?.length === 0 && <p className="muted">No links yet.</p>}
+        {links?.length === 0 && <p className="muted">{t("pl.none")}</p>}
         {links?.map((l) => {
-          const dead = l.revoked ? "revoked" : l.exp * 1000 <= Date.now() ? "expired" : "";
+          const dead = l.revoked ? t("pl.revoked") : l.exp * 1000 <= Date.now() ? t("pl.expired") : "";
           return (
             <div key={l.id} className="space-y-1 rounded border border-white/10 p-1.5">
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="chip">v{l.n}</span>
                 {dead ? <span className="muted">{dead}</span> : <>
-                  <input className="field min-w-0 flex-1" readOnly aria-label="Link" value={url(l)} onFocus={(e) => e.target.select()} />
-                  <button className="chip" onClick={() => void navigator.clipboard?.writeText(url(l))}>Copy</button>
-                  <button className="chip" onClick={() => void call({ action: "revoke", id: l.id })}>Revoke</button></>}
+                  <input className="field min-w-0 flex-1" readOnly aria-label={t("pl.link")} value={url(l)} onFocus={(e) => e.target.select()} />
+                  <button className="chip" onClick={() => void navigator.clipboard?.writeText(url(l))}>{t("pl.copy")}</button>
+                  <button className="chip" onClick={() => void call({ action: "revoke", id: l.id })}>{t("pl.revoke")}</button></>}
               </div>
-              <p className="muted">{l.views} view{l.views === 1 ? "" : "s"} · {fmt(l.secs)} on page{l.last && ` · last ${l.last.slice(0, 16).replace("T", " ")} UTC`} · until {new Date(l.exp * 1000).toISOString().slice(0, 10)}</p>
+              <p className="muted">{t("pl.stats", { n: l.views, s: fmt(l.secs), d: new Date(l.exp * 1000).toISOString().slice(0, 10) })}{l.last && ` · ${t("pl.last", { d: l.last.slice(0, 16).replace("T", " ") })}`}</p>
               {l.recent.length > 0 && <ul className="muted">{l.recent.map((v) => <li key={v.at}>{v.at.slice(0, 16).replace("T", " ")} · {fmt(v.secs)} · {v.ua}</li>)}</ul>}
             </div>);
         })}
