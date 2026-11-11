@@ -34,7 +34,8 @@ export const AREAS = Object.keys(AREA_INFO) as Area[];
 export type Idea = { id: string; video: string; videoTitle: string; title: string; summary: string; area: Area; score: number; next: string; at?: string; sourceAt?: string; dismissed?: boolean;
   // Comment-to-idea (comment-ideas-pure.ts): recurring viewer questions, linked to the source comments.
   origin?: "comments" | "devsession" | "transcript" | "outliers"; commentKey?: string; askers?: number; comments?: { id: string; videoId: string; text: string }[];
-  sessionId?: string; transcriptKey?: string }; // non-video sources have video=""; transcriptKey deduplicates repeated public transcripts
+  sessionId?: string; transcriptKey?: string;
+  untrusted?: true }; // videoTitle/summary carry third-party text (YouTube titles, channel names): model prompts must fence it (pipeline-pure ideaSeed) // non-video sources have video=""; transcriptKey deduplicates repeated public transcripts
 export const SHOW_AT = 60; // below this an idea is saved but hidden from the board
 export const TRANSCRIPT_MAX = 60_000;
 export type PublicTranscript = { title: string; transcript: string; publicSource: true };

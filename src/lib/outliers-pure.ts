@@ -87,7 +87,7 @@ export function mergeOutlierIdeas(ideas: Idea[], found: { query: string; list: O
   for (const { query, list } of found) for (const v of list) {
     if (v.score < OUTLIER_MIN_SCORE || v.lowConfidence) continue;
     const i = out.findIndex((x) => x.origin === "outliers" && x.video === v.id);
-    const idea: Idea = { id: i >= 0 ? out[i].id : makeId(), origin: "outliers", video: v.id, videoTitle: v.title.slice(0, 120),
+    const idea: Idea = { id: i >= 0 ? out[i].id : makeId(), origin: "outliers", untrusted: true, video: v.id, videoTitle: v.title.slice(0, 120),
       title: `Outlier on "${query.slice(0, 60)}": ${v.score.toFixed(1)}x its channel's normal`.slice(0, 120),
       summary: `${v.channel} got ${Math.round(v.views).toLocaleString("en-US")} views, ${v.score.toFixed(1)}x the channel's median of ${Math.round(v.median).toLocaleString("en-US")}.`,
       area: "studio", score: Math.min(95, Math.round(50 + 10 * Math.log2(v.score))), next: "Watch why it worked (title, hook, topic) and test your own angle on it.",
