@@ -49,7 +49,7 @@ test("followup API uses CORE and the chosen language, saves the draft, keeps con
   assert.equal((await res.json()).draft, a.row.draft);
   assert.equal(a.row.stage, "contacted");
   assert.equal(a.writes.length, 1);
-  assert.deepEqual(Object.keys(a.writes[0]).sort(), ["draft", "updated_at"]);
+  assert.deepEqual(Object.keys(a.writes[0]).sort(), ["draft", "drafted_at", "updated_at"]);
   assert.equal(a.asks.length, 1);
   assert.match(a.asks[0][0], /^Write it in Russian/);
   assert.ok(a.asks[0][0].includes(first));
