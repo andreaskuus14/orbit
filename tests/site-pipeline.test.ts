@@ -149,6 +149,19 @@ test("craft lint: invented proof, AI-look tells and CSS discipline are flagged; 
   assert.deepEqual(page("<h1>Hi</h1>", GOOD_CSS + " .js .reveal{opacity:0} .reveal.in{opacity:1}"), [], "hidden only under a script class is fine");
 });
 
+test("craft lint false positives: ©®™, table cells, owner stars, max/line-height, url(#id), owner-supplied long text", async () => {
+  const { wordIssues } = await import("../src/lib/site-pipeline-pure.ts");
+  const page = (body: string, css = GOOD_CSS) => lintSite({ html: [{ path: "index.html", text: `<html lang="en"><meta name="viewport" content="width=device-width"><body>${body}</body></html>` }], css: [{ path: "css/style.css", text: css }], images: [] });
+  assert.deepEqual(page("<h1>Hi</h1><footer>© 2026 Cafe® Brew™</footer>"), [], "© ® ™ aren't emoji");
+  assert.deepEqual(page("<h1>Hours</h1><table><tr><td>09</td><td>17</td></tr></table>"), [], "a table cell isn't a section number");
+  assert.deepEqual(page('<h1>Hi</h1><blockquote data-proof="owner">★★★★★ Great</blockquote>'), [], "owner-marked stars pass");
+  assert.deepEqual(page("<h1>Hi</h1>", GOOD_CSS + " .acc{transition:max-height .2s} p{transition:line-height .2s}"), [], "max-height/line-height aren't layout animation");
+  assert.deepEqual(page("<h1>Hi</h1>", GOOD_CSS + " .m{mask:url(#fade)} .n{fill:url('#abc')}"), [], "url(#id) isn't a colour");
+  const long = Array.from({ length: 600 }, (_, i) => `word${i}`).join(" ");
+  assert.deepEqual(wordIssues({ html: [{ path: "menu.html", text: `<h1>Menu</h1><div data-owner>${long}</div>` }], css: [], images: [] }), [], "owner text is never asked to be cut");
+  assert.match(wordIssues({ html: [{ path: "a.html", text: `<p>${long}</p>` }], css: [], images: [] }).join(), /your own copy; never cut text the owner gave/);
+});
+
 test("guide: no invented proof, word budget and one reveal moment replace the old lines", () => {
   assert.doesNotMatch(SITE_GUIDE, /reviews with names|2,500|reveal-on-scroll with IntersectionObserver|chapter numbers \(01/);
   for (const re of [/never invent reviews/, /80 visible words per screen/, /450 per page/, /7 words or fewer/, /one authored moment/, /SVG only for icons and diagrams/, /Shaders\/WebGL only for tech/]) assert.match(SITE_GUIDE, re);

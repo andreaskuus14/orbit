@@ -135,8 +135,10 @@ export function lintSite(f: SiteFiles): string[] {
 
 // ---- Craft lint (owner's website rules): invented proof, AI-look tells, CSS discipline. Each issue says what to do instead.
 const rules = (css: string) => [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim(), decl: m[2] }));
-const COLOR_LIT = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb)\(/i;
-const EMOJI = /\p{Extended_Pictographic}/u;
+const COLOR_LIT = /(?<!url\(\s*["']?)#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb)\(/i;
+const EMOJI = /\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F/u; // not text-style symbols such as © ® ™
+/** Owner-marked blocks (data-proof="owner", data-slot, data-owner) removed: his own text and proof aren't linted as invented or too long. */
+const unowned = (h: string) => h.replace(/<([a-z][a-z0-9]*)\b[^>]*\bdata-(?:proof\s*=\s*["']?owner|slot\s*=|owner\b)[^>]*>[\s\S]*?<\/\1>/gi, " ");
 export function lintCraft(f: SiteFiles): string[] {
   const out: string[] = [];
   const css = [...f.css.map((c) => c.text), ...f.html.flatMap((h) => [...h.text.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map((m) => m[1]))].join("\n");
@@ -144,10 +146,10 @@ export function lintCraft(f: SiteFiles): string[] {
   for (const { path, text: h } of f.html) {
     const body = h.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ");
     const quotes = [...body.matchAll(/<(blockquote|q)\b[^>]*>|<[a-z]+\b[^>]*\b(?:class|id)\s*=\s*["'][^"']*\b(?:reviews?|testimonials?|ratings?|stars)\b[^>]*>/gi)];
-    if (quotes.some((m) => !/data-proof\s*=\s*["']?owner|data-slot\s*=/i.test(m[0])) || /★|⭐/.test(body))
+    if (quotes.some((m) => !/data-proof\s*=\s*["']?owner|data-slot\s*=/i.test(m[0])) || /★|⭐/.test(unowned(body)))
       out.push(`${path}: a review/quote block not marked as the owner's: never invent reviews, names or numbers; use proof the owner gave (data-proof="owner") or a marked slot (data-slot="proof")`);
     if (/\b(?:class|id)\s*=\s*["'][^"']*\b(?:eyebrow|kicker|overline|pretitle)\b/i.test(body)) out.push(`${path}: eyebrow/kicker label above a heading; let the heading stand alone`);
-    if (/>\s*0[1-9]\s*[.:/—–-]?\s*</.test(body)) out.push(`${path}: 01/02/03-style section numbers; drop them`);
+    if (/>\s*0[1-9]\s*[.:/—–-]?\s*<\/[a-z0-9]+>\s*<h[1-6]\b|<h[1-6]\b[^>]*>\s*(?:<[a-z]+\b[^>]*>\s*)?0[1-9]\b/i.test(body)) out.push(`${path}: 01/02/03-style section numbers; drop them`); // next to a heading only: not a table cell or a time
     if (EMOJI.test(visible(h))) out.push(`${path}: emoji used as icons or decoration; draw a small inline SVG icon instead`);
     const reveals = (body.match(/<[a-z]+\b[^>]*(?:\bclass\s*=\s*["'][^"']*\b(?:reveal|fade-?in|fade-?up|animate-on-scroll)\b|\bdata-(?:reveal|aos)\b)/gi) ?? []).length;
     if (reveals > 1) out.push(`${path}: ${reveals} reveal-on-scroll elements; keep one authored moment and leave the rest visible`);
@@ -162,7 +164,7 @@ export function lintCraft(f: SiteFiles): string[] {
   const font = outside.find((r) => /(?:^|;)\s*font-family\s*:\s*(?!\s*(?:var\(|inherit\b|initial\b|unset\b))/i.test(r.decl));
   if (font) out.push(`"${font.sel.slice(0, 60)}" sets a font stack directly; define fonts as :root custom properties and use var(--…)`);
   if (/transition(?:-property)?\s*:\s*all\b/i.test(css)) out.push("transition: all; name the properties (transform, opacity)");
-  const layoutAnim = /transition(?:-property)?\s*:[^;}]*\b(?:width|height|top|left)\b/i.test(css) || [...css.matchAll(/@keyframes[^{]*\{((?:[^{}]*\{[^{}]*\})*)/gi)].some((m) => /(?:^|[;{\s])(?:width|height|top|left)\s*:/i.test(m[1]));
+  const layoutAnim = /transition(?:-property)?\s*:[^;}]*(?<![\w-])(?:width|height|top|left)\b/i.test(css) || [...css.matchAll(/@keyframes[^{]*\{((?:[^{}]*\{[^{}]*\})*)/gi)].some((m) => /(?:^|[;{\s])(?:width|height|top|left)\s*:/i.test(m[1]));
   if (layoutAnim) out.push("animates width/height/top/left (janky layout work); animate transform and opacity instead");
   const clip = (el: string) => rs.some((r) => r.sel.split(",").some((x) => x.trim() === el) && /overflow-x\s*:\s*clip/i.test(r.decl));
   if (!clip("html") || !clip("body")) out.push("set overflow-x: clip on html and body (no sideways scroll)");
@@ -228,9 +230,9 @@ const words = (t: string) => (t.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? [])
 export function wordIssues(f: Depth): string[] {
   const out: string[] = [];
   for (const { path, text: h } of f.html) {
-    const n = words(visible(h));
-    if (n > WORDS_PER_PAGE * 1.1) out.push(`${path}: ${n} visible words (aim for at most about ${WORDS_PER_PAGE} per page): cut to what a visitor needs`);
-    const long = [...h.matchAll(/<(section|header)\b[^>]*>([\s\S]*?)<\/\1>/gi)].map((m) => words(visible(m[2]))).filter((w) => w > WORDS_PER_SCREEN * 1.25);
+    const n = words(visible(unowned(h))); // text the owner supplied (data-owner) is never counted, so it's never asked to be cut
+    if (n > WORDS_PER_PAGE * 1.1) out.push(`${path}: ${n} visible words you wrote (aim for at most about ${WORDS_PER_PAGE} per page): tighten your own copy; never cut text the owner gave (mark it data-owner)`);
+    const long = [...unowned(h).matchAll(/<(section|header)\b[^>]*>([\s\S]*?)<\/\1>/gi)].map((m) => words(visible(m[2]))).filter((w) => w > WORDS_PER_SCREEN * 1.25);
     if (long.length) out.push(`${path}: ${long.length} section${long.length > 1 ? "s" : ""} over about ${WORDS_PER_SCREEN} words (${long.join(", ")}): one screen, one idea`);
     const h1 = /<h1\b[^>]*>([\s\S]*?)<\/h1>/i.exec(h)?.[1];
     if (h1 && words(visible(h1)) > HERO_WORDS) out.push(`${path}: hero headline has ${words(visible(h1))} words (at most ${HERO_WORDS})`);
