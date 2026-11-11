@@ -13,7 +13,7 @@ import { linkToHash } from "./deeplink-pure.ts";
 
 export type BriefKind = "decision" | "deadline" | "night" | "health" | "calendar" | "school" | "weather" | "place" | "first" | "result" | "lesson" | "question" | "study";
 // approve: what one tap approves (the same routes NightShift.tsx uses). Emails and spends only ever "open": he approves the exact message there.
-export type BriefApprove = { task: string } | { goal: string; step?: number; stepId: string };
+export type BriefApprove = { task: string; seen?: string } | { goal: string; step?: number; stepId: string };
 export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" } | { doctor: true } | { panel: "memory"; study: true } | { mission: true } | { href: string } | { link: string }; // href: a checked result file (needs-you-pure receiptOpen) or a watched public page; link: a deep-link hash (deeplink-pure)
 export type BriefItem = { id: string; kind: BriefKind; say: string; title: string; detail?: string; open?: BriefOpen; approve?: BriefApprove };
 export type Brief = { day: string; greeting: string; items: BriefItem[]; spoken: string; polished?: boolean; today?: TodayGroup[] };
