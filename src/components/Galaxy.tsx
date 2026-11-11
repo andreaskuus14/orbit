@@ -27,6 +27,7 @@ import { Lensing } from "./alien/Lensing";
 import { HoloRing, planetStandIn, ThoughtShell, useLiquidMetal, type SurfaceLook } from "./alien/LiquidPlanet";
 import { MicroWorld, Ringworld } from "./alien/MicroWorld";
 import { Landmarks } from "./alien/Landmarks";
+import { SurfaceProps } from "./alien/SurfaceProps";
 import { hasLandmark } from "@/lib/landmarks-pure";
 import { WindowDive, WindowPlanets } from "./alien/WindowPlanet";
 import { lensRadius } from "./alien/micro-pure";
@@ -511,6 +512,7 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
         >
           {level > 0 && micro && <MicroWorld size={size} u={liquid.u} level={level} orbital={!!look.orbital} body={look.surf?.pal[0] ?? p.color} seed={index + 1} />}
           {hasLandmark(p.id) && <Landmarks id={p.id} size={size} seed={index + 7} level={level} />}
+          <SurfaceProps id={p.id} size={size} seed={index + 7} level={level} />
         </mesh>
         <sprite ref={halo} scale={size * 4.2} visible={false} renderOrder={-1}>
           <spriteMaterial map={aura()} transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
