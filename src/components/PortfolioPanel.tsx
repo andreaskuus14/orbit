@@ -3,6 +3,7 @@
 // static HTML page, both downloaded for him to send or upload himself. Saved locally via /api/portfolio; ORBIT publishes nothing.
 import { useEffect, useRef, useState } from "react";
 import { KIND_LABEL, PMAX, PROJECT_KINDS, draftInput, emptyPortfolio, portfolioHtml, portfolioPdf, type Portfolio, type Project, type ProjectKind, type Shot } from "@/lib/portfolio-pure";
+import { localDay } from "@/lib/morning-pure";
 
 const MAX_PX = 1800; // long side: sharp in print at A4, small enough to keep the saved file sane
 /** Any drawable (the WebGL canvas, an uploaded picture) → a JPEG data URL no bigger than MAX_PX. */
@@ -57,7 +58,7 @@ export function PortfolioPanel({ grab, caption }: { grab: () => HTMLCanvasElemen
   const addShot = (img: { src: string; w: number; h: number }, cap: string) => {
     const id = project?.id ?? newProject("arch", "ARCH model");
     if (project && project.shots.length >= PMAX.shots) return setMsg(`A project holds ${PMAX.shots} pictures; start a new one or remove some.`);
-    const s: Shot = { id: uid(), ...img, caption: cap.slice(0, PMAX.caption), at: new Date().toISOString().slice(0, 10) };
+    const s: Shot = { id: uid(), ...img, caption: cap.slice(0, PMAX.caption), at: localDay(new Date()) };
     editProject(id, (pr) => ({ ...pr, shots: [...pr.shots, s] }));
     setMsg(`Added to ${project?.title ?? "a new ARCH project"}.`);
   };

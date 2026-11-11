@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { euro } from "@/lib/invoices-pure";
 import { CATEGORIES, FORMS, SOURCES, VAT_RATES, type Deadline, type Expense, type Pnl, type Settings } from "@/lib/money-pure";
+import { localDay } from "@/lib/morning-pure";
 
 // Money view (roadmap 3) inside BUSINESS: profit & loss by month/quarter/year from paid invoices, his expenses (receipts kept on
 // this PC) and ORBIT's own spend; VAT owed vs paid per month; Estonian deadlines; CSV for the accountant. Nothing is filed or paid.
@@ -45,7 +46,7 @@ export default function MoneyPanel() {
   return (
     <section className="space-y-2 rounded-md border border-white/10 p-2 text-xs" aria-label="Money">
       <div className="flex flex-wrap items-center justify-between gap-2"><b>💶 Money</b><span className="flex flex-wrap gap-1">
-        {(Object.keys(KINDS) as (keyof typeof KINDS)[]).map((k) => <button key={k} className="chip" aria-pressed={kind === k} onClick={() => { setKind(k); setPeriod(periodOf(k, st?.today ?? new Date().toISOString().slice(0, 10))); }}>{KINDS[k]}</button>)}
+        {(Object.keys(KINDS) as (keyof typeof KINDS)[]).map((k) => <button key={k} className="chip" aria-pressed={kind === k} onClick={() => { setKind(k); setPeriod(periodOf(k, st?.today ?? localDay(new Date()))); }}>{KINDS[k]}</button>)}
         <input className="field w-24" aria-label="Period (2026-10, 2026-Q4 or 2026)" key={shown} defaultValue={shown} onBlur={(e) => setPeriod(e.target.value.trim())} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
         <a className="chip" href={`${API}?csv=${encodeURIComponent(shown)}`} download>CSV for accountant</a>
         <button className="chip" onClick={() => setShowSet(!showSet)}>Settings</button>

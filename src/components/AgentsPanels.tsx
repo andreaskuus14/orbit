@@ -21,7 +21,7 @@ import { FailureReport } from "./FailureReport";
 import { OpsStatus } from "./OpsStatus";
 import { lastProgress } from "@/lib/ops-status-pure";
 import { blockedBy, recoveryOptions } from "@/lib/tasks-recovery-pure";
-import { groupTasks } from "@/lib/ops-tasks-pure";
+import { INITIAL_INBOX, OperationsInbox } from "./OperationsInbox";
 import { PREVIEW_TZ, graceMinutes, lastWith, nextOccurrences } from "@/lib/automation-preview-pure";
 import { LocalAiTools } from "./LocalAi";
 import { PlanJobsView } from "./PlanJobsView";
@@ -271,27 +271,36 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   const [filter, setFilter] = useState<string>("");
   const [tab, setTab] = useState<"tasks" | "team" | "automations" | "plans" | "rules" | "activity" | "localai">("tasks");
   const [shown, setShown] = useState<Record<string, number>>({});
+  const [inbox, setInbox] = useState(INITIAL_INBOX);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const loadSequence = useRef(0);
   const [err, setErr] = useState("");
 
   const load = useCallback(async () => {
-    // Each list loads on its own: a failing projects/agents call must not hide the tasks.
-    const fail = (e: unknown) => setErr(e instanceof Error ? e.message : "Could not load");
+    const sequence = ++loadSequence.current;
+    setLoading(true);
+    const failures: string[] = [];
+    // Independent lists, with a sequence guard so a slow previous project cannot overwrite the selected inbox.
+    const current = () => sequence === loadSequence.current;
+    const fail = (e: unknown) => { if (current()) { failures.push(e instanceof Error ? e.message : "Could not load"); setLoadError(failures.join(" · ")); } };
     await Promise.all([
-      api<{ tasks: Task[] }>(`/api/tasks${filter ? `?project=${filter}` : ""}`).then((r) => setTasks(r.tasks ?? []), fail),
-      api<{ projects: Project[] }>("/api/projects").then((r) => setProjects(r.projects ?? []), fail),
-      api<{ agents: Agent[] }>("/api/agents").then((r) => setAgents(r.agents ?? []), fail),
+      api<{ tasks: Task[] }>(`/api/tasks${filter ? `?project=${encodeURIComponent(filter)}` : ""}`).then((r) => { if (current()) setTasks(r.tasks ?? []); }, fail),
+      api<{ projects: Project[] }>("/api/projects").then((r) => { if (current()) setProjects(r.projects ?? []); }, fail),
+      api<{ agents: Agent[] }>("/api/agents").then((r) => { if (current()) setAgents(r.agents ?? []); }, fail),
     ]);
+    if (current()) { if (!failures.length) setLoadError(""); setLoading(false); }
   }, [filter]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setTasks([]); void load(); return () => { loadSequence.current++; }; }, [load]);
   useEffect(() => { setOpen(focusTask); }, [focusTask]); // Back to a link without the task closes it
   useEffect(() => { onOpen?.(open); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- the open task is the URL's record
-  const active = tasks.some((t) => t.status === "running" || t.status === "queued");
+  const active = tasks.some((t) => t.status === "running" || t.status === "queued" || t.status === "awaiting_approval");
   const paused = useWorldPaused();
   useEffect(() => {
-    if (!active || open || paused) return;
+    if (!active || open || paused || loading) return;
     const h = setInterval(() => { if (!document.hidden) void load(); }, 3000);
     return () => clearInterval(h);
-  }, [active, open, paused, load]);
+  }, [active, open, paused, loading, load]);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -312,7 +321,6 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
     catch (e) { setErr(e instanceof Error ? e.message : "Could not update"); }
   }
 
-  const groups = groupTasks(tasks);
   if (open) return <TaskView id={open} onBack={() => { setOpen(null); void load(); }} openMemory={openMemory} />;
 
   const tabs = (
@@ -334,25 +342,29 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   return (
     <div className="space-y-5">
       {tabs}
-      <form onSubmit={create} className="space-y-2">
-        <h3 className="h3">{tr("ops.newTask")}</h3>
-        <textarea className="field h-20 w-full" value={form.request} onChange={(e) => setForm({ ...form, request: e.target.value })}
-          placeholder={tr("ops.taskPh")} aria-label={tr("ops.task")} maxLength={8000} />
-        <div className="flex flex-wrap gap-2">
-          <select className="field" value={form.agent} onChange={(e) => setForm({ ...form, agent: e.target.value })} aria-label={tr("ops.agent")}>
-            {agents.map((a) => <option key={a.slug} value={a.slug}>{a.name}{a.slug === "nova" ? tr("ops.novaHint") : ""}</option>)}
-          </select>
-          <select className="field" value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })} aria-label={tr("ops.project")}>
-            <option value="">{tr("ops.noProject")}</option>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <button className="btn" disabled={!form.request.trim()}>{tr("life.start")}</button>
-        </div>
-        {err && <p className="error">{err}</p>}
-      </form>
+      {err && <p className="error" role="alert">{err}</p>}
+      <OperationsInbox tasks={tasks} agents={agents} projects={projects} project={filter} onProject={setFilter}
+        state={inbox} onChange={setInbox} loading={loading} error={loadError} onRefresh={() => void load()} onOpen={setOpen} />
+      <details className="card">
+        <summary className="cursor-pointer font-medium">{tr("ops.newTask")}</summary>
+        <form onSubmit={create} className="mt-3 space-y-2">
+          <textarea className="field h-20 w-full" value={form.request} onChange={(e) => setForm({ ...form, request: e.target.value })}
+            placeholder={tr("ops.taskPh")} aria-label={tr("ops.task")} maxLength={8000} />
+          <div className="flex flex-wrap gap-2">
+            <select className="field" value={form.agent} onChange={(e) => setForm({ ...form, agent: e.target.value })} aria-label={tr("ops.agent")}>
+              {agents.map((a) => <option key={a.slug} value={a.slug}>{a.name}{a.slug === "nova" ? tr("ops.novaHint") : ""}</option>)}
+            </select>
+            <select className="field" value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })} aria-label={tr("ops.project")}>
+              <option value="">{tr("ops.noProject")}</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <button className="btn" disabled={!form.request.trim()}>{tr("life.start")}</button>
+          </div>
+        </form>
+      </details>
 
-      <div>
-        <div className="flex items-center justify-between"><h3 className="h3">{tr("ops.projects")}</h3></div>
+      <details className="card">
+        <summary className="cursor-pointer font-medium">{tr("ops.projects")}</summary>
         <ul className="mt-2 space-y-1.5 text-sm">
           {projects.map((p) => (
             <li key={p.id} className="flex items-center justify-between gap-2">
@@ -367,28 +379,8 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
           <input className="field flex-1" value={newProject} onChange={(e) => setNewProject(e.target.value)} placeholder={tr("ops.newProjectPh")} aria-label={tr("ops.newProject")} maxLength={120} />
           <button className="chip">{tr("common.add")}</button>
         </form>
-      </div>
+      </details>
 
-      <div>
-        <h3 className="h3">{tr(filter ? "ops.tasksIn" : "ops.tasks")}</h3>
-        {(["attention", "active", "done"] as const).map((k) => groups[k].length > 0 && (
-          <div key={k} className="mt-3">
-            <h4 className="muted text-xs uppercase">{tr(`ops.group.${k}`)} · {groups[k].length}</h4>
-            <ul className="mt-1.5 space-y-2">
-              {groups[k].slice(0, shown[k] ?? 10).map((t) => (
-                <li key={t.id}>
-                  <button className="card w-full text-left" onClick={() => setOpen(t.id)}>
-                    <div className="font-medium">{t.title}</div>
-                    <div className="text-xs"><TaskStatus t={t} /><span className="muted"> · {t.agent} · {when(t.created_at)}</span></div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            {groups[k].length > (shown[k] ?? 10) && <button className="chip mt-1.5" onClick={() => setShown({ ...shown, [k]: (shown[k] ?? 10) + 20 })}>{tr("ops.showMore")}</button>}
-          </div>
-        ))}
-        {!tasks.length && <p className="muted mt-2 text-sm">{tr("ops.noTasks")}</p>}
-      </div>
     </div>
   );
 }

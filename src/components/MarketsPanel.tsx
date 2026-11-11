@@ -9,6 +9,7 @@ import DealCards from "./DealCards";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { useT } from "./i18n";
 import type { Key } from "@/lib/i18n-pure";
+import { localDay } from "@/lib/morning-pure";
 
 // MARKETS drawer: watchlist, tracked portfolio, research, price alerts, PAPER simulation + rule-based paper bot; deals apart.
 // Tracking, education and simulation only — no broker, no real money. All data via /api/markets.
@@ -227,7 +228,7 @@ function Journal({ st, act }: { st: State; act: Act }) {
   const { t: tr } = useT();
   const blank = { ticker: "", decision: "buy", thesis: "", invalidation: "", reviewOn: "" };
   const [f, setF] = useState(blank);
-  const today = new Date().toISOString().slice(0, 10), tally = journalTally(st.journal);
+  const today = localDay(new Date()), tally = journalTally(st.journal);
   return (
     <>
       <p className="muted text-xs">{tr("mk.j.hint")}</p>
