@@ -92,8 +92,8 @@ const MAX_BYTES = 300 * 1024 * 1024;
 /** Downloads a result URL (https only, size-capped, media types only) to base + extension. */
 export async function fetchTo(url: string, base: string, signal: AbortSignal): Promise<string> {
   if (!/^https:\/\//.test(url)) throw new Error("result URL must be https");
-  const res = await fetch(url, { signal, redirect: "follow" });
-  if (!res.ok) throw new Error(`download failed (${res.status})`);
+  // SSRF guard: DNS-pinned, private addresses refused, redirects re-checked hop by hop (memory.ts). +1 byte so oversize shows below.
+  const { res } = await (await import("../memory")).safeFetch(url, "*/*", "ORBIT/0.2", MAX_BYTES + 1, 10 * 60_000, signal);
   const type = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
   const ext = EXT[type] ?? path.extname(new URL(url).pathname).toLowerCase();
   if (!Object.values(EXT).includes(ext)) throw new Error(`unexpected download type ${type || ext || "unknown"}`);

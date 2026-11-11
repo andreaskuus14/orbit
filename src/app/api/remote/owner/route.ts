@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 // {action:"shortcut", kind, name} makes a one-action token (returned once, as `token`); {action:"revokeShortcut", id} deletes it.
 const view = async () => {
   const p = S.pair;
-  const live = p && !p.used && p.fails < 5 && Date.now() < p.expiresAt;
+  const live = p && !p.used && Date.now() < p.expiresAt;
   const devices = (await listDevices()).map(({ id, name, createdAt, type }) => ({ id, name: type === "screen" ? `${name} (read-only screen)` : name, createdAt, lastSeen: S.seen.get(id) ?? null }));
   const shortcuts = (await listShortcuts()).map(({ id, name, action, createdAt }) => ({ id, name, action, createdAt, lastSeen: S.seen.get(`sc:${id}`) ?? null }));
   return { problem: remoteProblem(), pair: live ? { code: p.code, expiresAt: p.expiresAt } : null, devices, shortcuts };

@@ -8,7 +8,7 @@ import { noAmounts } from "./screen-pure.ts";
 export const REMOTE_COOKIE = "orbit_remote";
 export const REMOTE_TOKEN_DAYS = 30;
 export const MAX_REMOTE_BODY = 9 * 1024; // the 8 KB command string plus its JSON envelope and echo
-export const RATE = { cmd: { limit: 30, windowMs: 60_000 }, ask: { limit: 6, windowMs: 60_000 }, pair: { limit: 10, windowMs: 60_000 }, thumb: { limit: 120, windowMs: 60_000 } } as const;
+export const RATE = { cmd: { limit: 30, windowMs: 60_000 }, ask: { limit: 6, windowMs: 60_000 }, pair: { limit: 10, windowMs: 60_000 }, pairAll: { limit: 30, windowMs: 60_000 }, thumb: { limit: 120, windowMs: 60_000 } } as const;
 /** What the phone sees when something fails on the PC; the detail goes to the server log only. */
 export const GENERIC_ERROR = "Something went wrong on the PC: check ORBIT there";
 
@@ -134,3 +134,11 @@ export const ledgerData = (cmd: { type: string } | null, ok: boolean, device: st
 
 /** A device name the owner sees in the paired list. */
 export const deviceName = (v: unknown) => (typeof v === "string" ? v.replace(/[^\p{L}\p{N} '._-]/gu, "").trim().slice(0, 40) : "") || "iPhone";
+
+/** The rate-limit / lockout key of a pairing request: the client IP from the proxy headers (Next sets x-forwarded-for from the
+ *  socket when none came in). shortcut: a client can send its own x-forwarded-for, so per-IP keys alone don't bound guessing;
+ *  the pair route's global pairAll limit does. Upgrade to the socket address if the server ever exposes it to routes. */
+export function pairClientKey(h: Headers): string {
+  const ip = (h.get("x-forwarded-for") ?? "").split(",")[0].trim() || (h.get("x-real-ip") ?? "").trim();
+  return `pair:${ip.slice(0, 64) || "unknown"}`;
+}

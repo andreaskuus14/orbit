@@ -190,3 +190,10 @@ test("NonceCache keeps only the last 500", () => {
   small.add("a"); small.add("b"); small.add("a"); small.add("c"); // re-adding "a" makes it newest
   assert.deepEqual([small.has("a"), small.has("b"), small.has("c")], [true, false, true]);
 });
+
+test("verifyPair: a guesser's wrong codes lock only that client, never the owner's real code", () => {
+  let p = makePairCode(() => 333333, T0);
+  for (let i = 0; i < 20; i++) p = verifyPair(p, String(100000 + i), T0, "pair:10.0.0.9").pair;
+  assert.equal((verifyPair(p, "333333", T0, "pair:10.0.0.9") as { reason: string }).reason, "locked");
+  assert.equal(verifyPair(p, "333333", T0, "pair:100.64.0.2").ok, true);
+});

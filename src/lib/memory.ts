@@ -155,12 +155,12 @@ export function pinnedGet(url: URL, ip: Pinned, headers: Record<string, string>,
 /** GET a public http(s) URL, following up to 5 redirects manually and refusing private/internal addresses
  *  (SSRF guard). Every hop is re-resolved, checked and connected to the checked IP. The body is capped at
  *  maxBytes while downloading and returned as an in-memory Response. */
-export async function safeFetch(rawUrl: string, accept: string, userAgent = "ORBIT/0.2 (personal knowledge assistant)", maxBytes = 3_000_000): Promise<{ res: Response; url: URL }> {
+export async function safeFetch(rawUrl: string, accept: string, userAgent = "ORBIT/0.2 (personal knowledge assistant)", maxBytes = 3_000_000, timeoutMs = 10_000, signal?: AbortSignal): Promise<{ res: Response; url: URL }> {
   let url = assertHttpUrl(new URL(rawUrl));
   const headers = { "User-Agent": userAgent, Accept: accept, "Accept-Language": "en-US,en;q=0.9", "Accept-Encoding": "gzip, deflate, br" };
   for (let hop = 0; hop <= 5; hop++) {
     const ip = pickPublicAddress(await lookup(url.hostname.replace(/^\[|\]$/g, ""), { all: true }));
-    const r = await pinnedGet(url, ip, headers, maxBytes, AbortSignal.timeout(10_000));
+    const r = await pinnedGet(url, ip, headers, maxBytes, signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs));
     const next = redirectTarget(r.status, r.headers.get("location"), url);
     if (next) { url = next; continue; }
     if (r.status < 200 || r.status >= 300) throw new Error(`The site answered ${r.status}`);
