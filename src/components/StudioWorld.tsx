@@ -394,6 +394,10 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
   const [hover, setHover] = useState<Hover>({ id: null, x: 0, y: 0 });
   const [sort, setSort] = useState<Sort>("newest");
   const [mode, setMode] = useState<Mode>(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("studio") ? "stats" : "channel"));
+  const modesRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!paused) modesRef.current?.querySelector<HTMLElement>('[aria-pressed="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [mode, paused]); // CORE/deep links can select a section outside the visible part of the strip
   useEffect(() => { if (review) setMode("production"); }, [review]); // a review link opens the production workspace
   useEffect(() => { if (open) setMode(open.view === "stats" ? "stats" : open.view === "clips" || open.view === "review" || open.view === "failed" ? "clips" : "channel"); }, [open]);
   useEffect(() => { // Esc goes back to the channel first; capture phase + preventDefault keeps Orbit from closing the world
@@ -559,8 +563,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
         )}
       </header>
 
-      <nav className="studio-modes absolute left-1/2 top-[4.5rem] z-[15] -translate-x-1/2" aria-label="Studio sections" style={{ ["--i" as string]: MODES.findIndex(([k]) => k === mode) }}>
-        <span aria-hidden className="studio-modes-pill" />
+      <nav ref={modesRef} className="studio-modes absolute left-1/2 top-[4.5rem] z-[15] -translate-x-1/2" aria-label="Studio sections">
         {MODES.map(([k, label], i) => <button key={k} aria-pressed={mode === k} onClick={() => setMode(k)} className={i === YOUTUBE_MODES ? "studio-sep" : undefined} title={i < YOUTUBE_MODES ? `YouTube: ${label}` : label}>{label}</button>)}
         {data?.configured !== false && <button className="studio-refresh" onClick={() => { if (!loading) void load(true); }} aria-disabled={loading} aria-label={loading ? "Refreshing channel data" : "Refresh channel data"} title="Refresh">{loading ? "…" : "↻"}</button>}
       </nav>
