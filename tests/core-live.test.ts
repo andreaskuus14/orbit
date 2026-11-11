@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyLive, fmtMs, liveResult, liveStep, liveSummary, liveTracker, ndjsonStream, type LiveEvent, type LiveRow } from "../src/lib/core-live-pure.ts";
+import { applyLive, coreRunPhase, fmtMs, liveResult, liveStep, liveSummary, liveTracker, ndjsonStream, type LiveEvent, type LiveRow } from "../src/lib/core-live-pure.ts";
 
 test("step lines carry the key detail: query, domain, agent + task, memory title, files with sizes", () => {
   assert.deepEqual(liveStep("web_search", { query: "  cafes   in Tartu " }, false), { label: "Searching the web…", key: "live.web_search", detail: "cafes in Tartu" });
@@ -86,4 +86,13 @@ test("cancelling the stream (Stop / client gone) calls onCancel at once", async 
   const stream = ndjsonStream(() => new Promise(() => {}), () => { cancelled = true; });
   await stream.cancel();
   assert.equal(cancelled, true);
+});
+
+test("CORE reports the active phase from stream and background evidence", () => {
+  const tool: LiveRow = { id: 1, tool: "web_search", label: "Searching", at: 0 };
+  assert.equal(coreRunPhase([], false), "working");
+  assert.equal(coreRunPhase([{ ...tool, tool: "think" }], false), "working");
+  assert.equal(coreRunPhase([tool], true), "tool");
+  assert.equal(coreRunPhase([{ ...tool, ok: true }], true), "answering");
+  assert.equal(coreRunPhase([tool], true, "task-1"), "background");
 });
