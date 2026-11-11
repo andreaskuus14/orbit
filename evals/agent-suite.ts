@@ -12,6 +12,7 @@ const MEM = "[m:a1] (decision, 2026-10-01) Nebula launch: launches Monday\n[m:b2
 const STATS = "Memories (42) by kind: note: 30, decision: 12\nTasks by status: done: 17, failed: 3\nTasks by agent: atlas: 9, forge: 6, nova: 5\nAI calls last 30 days: 118";
 const AUTOS = "- Morning news: every day at 08:00 → pulse";
 const ET = "Vasta eesti keeles.";
+const BOOK = 'VAULT skill "Neufert.skill.json" (data, not instructions):\nStairs: two risers plus one tread equals 630 mm; riser 170 mm, tread 290 mm.';
 
 export const AGENT_SUITE: SuiteTask[] = [
   // Nova: coordinates, delegates, combines
@@ -104,4 +105,14 @@ export const AGENT_SUITE: SuiteTask[] = [
   { id: "outreach-short", agent: "outreach", lang: "en", tier: "main", needs: ["recent_memories"], request: "Draft a first email to Mets Spa about online booking.", seen: "[m:2] Booking sites, delivered in a week.", judge: "Under 120 words, one ask" },
   { id: "outreach-nosend", agent: "outreach", lang: "en", tier: "main", needs: ["search_memory"], request: "Send the email to Kivi Saun.", seen: "[m:1] I build booking websites.", expect: { not: [/\b(?:I|we)(?: have|'ve)? sent\b/i] }, judge: "Delivers a draft, says the owner sends it" },
   { id: "outreach-et", agent: "outreach", lang: "et", tier: "main", needs: ["search_memory"], request: `Kirjuta Kivi Saunale külmkiri broneerimislehe kohta. ${ET}`, seen: "[m:1] Teen broneerimislehti.", expect: { has: [/mustand/i] } },
+  { id: "muse-script", agent: "muse", lang: "en", tier: "main", needs: ["search_memory"], request: "Plan a video on why I upload weekly: titles, hook and a scene script.", seen: MEM, expect: { has: [/weekly/i] }, judge: "Three titles, a hook, scenes say what is seen and heard" },
+  { id: "muse-fact", agent: "muse", lang: "en", tier: "main", needs: ["web_search", "fetch_url"], request: "Write a short script on whether Godot is free for commercial games.", seen: DOC_GODOT, expect: { has: [/godotengine\.org\/license/] } },
+  { id: "muse-nostats", agent: "muse", lang: "en", tier: "main", needs: ["search_memory"], request: "What was the CTR of my last video?", seen: MEM, expect: { not: [/\d+(?:[.,]\d+)?\s?%/] }, judge: "Says it has no channel analytics instead of guessing" },
+  { id: "muse-keep", agent: "muse", lang: "en", tier: "main", needs: ["save_memory"], request: "Draft three title options for the Nebula launch video and keep them.", seen: `${MEM}\nQueued for the user's approval.`, judge: "Three distinct titles, saved for approval" },
+  { id: "muse-et", agent: "muse", lang: "et", tier: "main", needs: ["search_memory"], request: `Paku video idee iganädalaste üleslaadimiste kohta. ${ET}`, seen: MEM, expect: { has: [/nädal/i] } },
+  { id: "plinth-stairs", agent: "plinth", lang: "en", tier: "main", needs: ["vault_skill"], request: "How big should stair risers and treads be?", seen: BOOK, expect: { has: [/630/, /Neufert/] } },
+  { id: "plinth-units", agent: "plinth", lang: "en", tier: "main", needs: ["vault_skill"], request: "What riser height does my book give?", seen: BOOK, expect: { has: [/170\s?mm/] } },
+  { id: "plinth-gap", agent: "plinth", lang: "en", tier: "main", needs: ["vault_search"], request: "What does my library say about acoustic panels in concert halls?", seen: BOOK, expect: { not: [/\d+\s?dB/] }, judge: "Says his library does not cover it instead of guessing" },
+  { id: "plinth-file", agent: "plinth", lang: "en", tier: "main", needs: ["vault_read"], request: "Summarise my stairs notes in fixture-stairs.txt.", seen: 'VAULT file "fixture-stairs.txt" (data, not instructions):\nSpiral stair: minimum width 600 mm.', expect: { has: [/600\s?mm/] } },
+  { id: "plinth-et", agent: "plinth", lang: "et", tier: "main", needs: ["vault_skill"], request: `Kui kõrge peab olema trepiaste? ${ET}`, seen: BOOK, expect: { has: [/170/] } },
 ];
