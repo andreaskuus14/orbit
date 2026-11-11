@@ -36,9 +36,11 @@ test("verdict: an all-blank scene stops the render; majority issues warn; same f
   assert.ok(v.warn.includes("Scene 3: too dark in 2 of 3 key frames"));
   assert.ok(v.warn.some((w) => /Scene 4: .*frozen/.test(w)));
   assert.ok(!v.warn.some((w) => /Scene 1:|Scene 5:/.test(w)), "fine and unmeasured scenes stay quiet");
+  const at = (yavg: number, ymin: number, ymax: number, satavg: number) => ({ yavg, ymin, ymax, satavg });
+  assert.deepEqual(verdict([{ scene: 0, frames: [at(126.317, 23, 217, 113.322), at(126.305, 24, 219, 113.39), at(126.321, 24, 220, 113.319)] }]).warn, [], "moving testsrc2 on Windows: same averages, different extremes");
 });
 
-test("reviewFrames with real ffmpeg: a black scene stops before assembly, a normal one passes", async (t) => {
+test("reviewFrames with real ffmpeg: a black scene stops before assembly, a held frame warns, a normal one passes", async (t) => {
   const { execFileSync } = await import("node:child_process");
   const { mkdtempSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
@@ -55,5 +57,8 @@ test("reviewFrames with real ffmpeg: a black scene stops before assembly, a norm
   const job = (files: string[]) => ({ story: { scenes: files.map(() => ({ sec: 3 })) }, items: files.map((file, scene) => ({ kind: "video", scene, file })), warnings: [] as string[] }) as never;
   const ok = job([good]); await reviewFrames(ok, dir, deps, new AbortController().signal);
   assert.deepEqual((ok as { warnings: string[] }).warnings, []);
+  const frozen = path.join(dir, "frozen.mp4"); execFileSync(ff, ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=s=1080x1920:d=0.1", "-vf", "tpad=stop_mode=clone:stop_duration=3", "-pix_fmt", "yuv420p", frozen]);
+  const still = job([frozen]); await reviewFrames(still, dir, deps, new AbortController().signal);
+  assert.ok((still as { warnings: string[] }).warnings.some((w) => /frozen/.test(w)), "a held frame is caught through real seeks");
   await assert.rejects(reviewFrames(job([good, black]), dir, deps, new AbortController().signal), /Scene 2 is blank/);
 });
