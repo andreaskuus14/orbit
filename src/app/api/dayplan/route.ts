@@ -29,13 +29,14 @@ export async function POST(req: Request) {
   if (str(b?.move)) return out(await movePlan(sb, user.id, str(b!.move)!, str(b!.before)));
   if (str(b?.defer) && (b!.until === "tomorrow" || b!.until === "week")) return out(await deferBlock(sb, user.id, str(b!.defer)!, b!.until));
   if (str(b?.overrun) && Number.isInteger(b!.min)) return out(await adjust(str(b!.overrun)!, b!.min as number));
+  const kind = b?.from === "life" ? "life" : "typed"; // LIFE-panel text is private: world-pure never puts it in a prompt
   if (typeof b?.task === "string" && b.task.trim() && b.task.length <= 200) {
     const min = Number(b.min), rank = Number(b.rank), due = typeof b.due === "string" && /^\d{4}-\d\d-\d\d$/.test(b.due) ? b.due : undefined;
-    return out(await addTask(b.task.trim(), { kind: "typed" }, { ...(min >= 10 && min <= 240 && { min: Math.round(min) }), ...(rank >= 1 && rank <= 3 && { rank: Math.round(rank) * 10 }), ...(due && { due }) }));
+    return out(await addTask(b.task.trim(), { kind }, { ...(min >= 10 && min <= 240 && { min: Math.round(min) }), ...(rank >= 1 && rank <= 3 && { rank: Math.round(rank) * 10 }), ...(due && { due }) }));
   }
   if (b?.accept === true) return out(await accept());
   if (str(b?.done)) return out(await setDone(str(b!.done)!, b!.value !== false));
-  if (typeof b?.capture === "string" && b.capture.trim() && b.capture.length <= 5000) return out(await captureCommitments(b.capture, { kind: "typed" }));
+  if (typeof b?.capture === "string" && b.capture.trim() && b.capture.length <= 5000) return out(await captureCommitments(b.capture, { kind }));
   if (str(b?.commitment) && typeof b?.ok === "boolean") return out(await decide(str(b.commitment)!, b.ok, b.due === undefined ? undefined : String(b.due)));
   return Response.json({ error: "Expected move, accept, done, capture or commitment" }, { status: 400 });
 }

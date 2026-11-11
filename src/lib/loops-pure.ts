@@ -15,13 +15,15 @@ export const MAX_LOOPS = 30;
 
 export type LoopKind = "promise" | "waiting" | "inbox" | "goal" | "mission" | "prospect" | "approval" | "invoice" | "contract";
 export type Evidence = { label: string; panel: PanelId; chat?: string }; // chat: the CORE conversation to open
-export type Loop = { key: string; kind: LoopKind; title: string; next: string; since: string; evidence: Evidence };
+export type Loop = { key: string; kind: LoopKind; title: string; next: string; since: string; evidence: Evidence; origin?: string }; // origin: source kind a task made from it keeps
+/** Source kind for "Turn into task": the loop's own origin, else what its kind implies. Unknown stays "loop" (world-pure drops it). */
+export const loopOrigin = (l: Loop): string => l.origin ?? ({ goal: "goal", mission: "mission", prospect: "business", approval: "business", invoice: "business", contract: "business" } as Partial<Record<LoopKind, string>>)[l.kind] ?? "loop";
 export type LoopAction = "close" | "snooze" | "task";
 export type Decided = { action: LoopAction; at: string; until?: string };
 
 export type LoopSources = {
   now: number; today: string; // today: local YYYY-MM-DD
-  commitments?: Pick<Commitment, "id" | "text" | "owner" | "due" | "status" | "at">[];
+  commitments?: (Pick<Commitment, "id" | "text" | "owner" | "due" | "status" | "at"> & { source?: { kind?: string } })[];
   goals?: { id: string; title: string; status: string; updated_at: string }[];
   missions?: { id: string; objective: string; status: string; updated_at: string }[];
   prospects?: Pick<Prospect, "id" | "name" | "stage" | "updated_at" | "notes" | "draft">[];
@@ -48,16 +50,16 @@ export function detectLoops(s: LoopSources): Loop[] {
   for (const c of s.commitments ?? []) {
     const due = c.due && c.due < s.today;
     if (c.status === "confirmed" && c.owner === "me" && due)
-      add({ key: `promise:${norm(c.text)}`, kind: "promise", title: `You said you'd ${clip(c.text)}`, next: "Do it, set a new day, or close it if it no longer matters", since: c.at, evidence: { label: `Commitment inbox, due ${c.due}`, panel: "life" } });
+      add({ key: `promise:${norm(c.text)}`, kind: "promise", title: `You said you'd ${clip(c.text)}`, next: "Do it, set a new day, or close it if it no longer matters", since: c.at, evidence: { label: `Commitment inbox, due ${c.due}`, panel: "life" }, origin: c.source?.kind ?? "loop" });
     else if (c.status === "confirmed" && c.owner === "them" && due)
-      add({ key: `waiting:${norm(c.text)}`, kind: "waiting", title: `Still waiting: ${clip(c.text)}`, next: "Send a short nudge or decide without it", since: c.at, evidence: { label: `Commitment inbox, due ${c.due}`, panel: "life" } });
+      add({ key: `waiting:${norm(c.text)}`, kind: "waiting", title: `Still waiting: ${clip(c.text)}`, next: "Send a short nudge or decide without it", since: c.at, evidence: { label: `Commitment inbox, due ${c.due}`, panel: "life" }, origin: c.source?.kind ?? "loop" });
     else if (c.status === "awaiting" && old(c.at, APPROVAL_DAYS))
-      add({ key: `inbox:${c.id}`, kind: "inbox", title: `Unconfirmed: ${clip(c.text)}`, next: "Confirm it with a day, or dismiss it", since: c.at, evidence: { label: `Commitment inbox, caught ${ago(days(c.at, s.now))}`, panel: "life" } });
+      add({ key: `inbox:${c.id}`, kind: "inbox", title: `Unconfirmed: ${clip(c.text)}`, next: "Confirm it with a day, or dismiss it", since: c.at, evidence: { label: `Commitment inbox, caught ${ago(days(c.at, s.now))}`, panel: "life" }, origin: c.source?.kind ?? "loop" });
   }
   for (const m of s.messages ?? []) {
     if (!old(m.created_at, 1)) continue; // give him a day to do it
     for (const t of promisesIn(m.content))
-      add({ key: `promise:${norm(t)}`, kind: "promise", title: `You said you'd ${clip(t)}`, next: "Turn it into a task, or close it if it's done", since: m.created_at, evidence: { label: `CORE chat, ${ago(days(m.created_at, s.now))}`, panel: "core", chat: m.conversation_id } });
+      add({ key: `promise:${norm(t)}`, kind: "promise", title: `You said you'd ${clip(t)}`, next: "Turn it into a task, or close it if it's done", since: m.created_at, evidence: { label: `CORE chat, ${ago(days(m.created_at, s.now))}`, panel: "core", chat: m.conversation_id }, origin: "chat" });
   }
   for (const g of s.goals ?? []) {
     if (["done", "stopped", "draft"].includes(g.status) || !old(g.updated_at, STALL_DAYS)) continue;

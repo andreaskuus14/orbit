@@ -6,11 +6,15 @@ import { render, worldCommitments, type World, type WorldGoal } from "./world-pu
 import { forecast } from "./forecast-pure";
 
 const TTL = 120_000;
-const G = globalThis as unknown as { __orbitWorld?: Map<string, { at: number; text: string }> };
+const G = globalThis as unknown as { __orbitWorld?: Map<string, { at: number; text: string; private: string[] }> };
 
 export async function worldContext(sb: SupabaseClient, userId: string, now = Date.now()): Promise<string> {
+  return (await worldWithPrivate(sb, userId, now)).text;
+}
+/** The block plus its commitment texts, which core.ts adds to privateText so no web/agent call carries them out. */
+export async function worldWithPrivate(sb: SupabaseClient, userId: string, now = Date.now()): Promise<{ text: string; private: string[] }> {
   const cache = (G.__orbitWorld ??= new Map()), hit = cache.get(userId);
-  if (hit && now - hit.at < TTL) return hit.text;
+  if (hit && now - hit.at < TTL) return hit;
   try {
     const [goals, week, life, commits] = await Promise.all([
       import("./goals").then((m) => m.listGoals(sb, userId)).catch(() => []),
@@ -40,11 +44,11 @@ export async function worldContext(sb: SupabaseClient, userId: string, now = Dat
       // No LIFE text here: this block is in context before any taint check. worldCommitments keeps only allowlisted source kinds.
       commitments: worldCommitments(commits),
     };
-    const text = render(world, day(now));
-    cache.set(userId, { at: now, text });
-    return text;
+    const entry = { at: now, text: render(world, day(now)), private: world.commitments.map((c) => c.text) };
+    cache.set(userId, entry);
+    return entry;
   } catch (e) {
     console.error("[orbit] world model failed", e);
-    return "";
+    return { text: "", private: [] };
   }
 }

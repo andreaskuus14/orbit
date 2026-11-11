@@ -111,6 +111,8 @@ export const setDone = (id: string, done: boolean) => update((s) => {
   if (!s.plan) return "No plan yet";
   const r = markDone(s.plan, id, done);
   if (typeof r !== "string") s.plan = r;
+  // A finished commitment leaves "confirmed" (no pile-up in the plan, loops or world model); unticking brings it back.
+  if (typeof r !== "string") s.commitments = s.commitments.map((c) => c.id === id && (c.status === "confirmed" || c.status === "done") ? { ...c, status: done ? "done" : "confirmed" } : c);
   return r;
 });
 export async function review(now = Date.now()) {

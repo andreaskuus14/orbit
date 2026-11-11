@@ -71,3 +71,15 @@ test("decideLoop validates; loopsLine is one line", () => {
   assert.equal(loopsLine([]), "");
   assert.equal(loopsLine(found), "1 open loop, oldest: Goal stalled: A");
 });
+
+test("loopOrigin: Turn into task keeps the loop's source kind; LIFE stays life, unknown stays loop", async () => {
+  const { loopOrigin } = await import("../src/lib/loops-pure.ts");
+  const ev = { label: "x", panel: "life" as const };
+  const l = (kind: string, origin?: string) => ({ key: "k", kind, title: "t", next: "n", since: "2026-11-01", evidence: ev, ...(origin && { origin }) }) as Parameters<typeof loopOrigin>[0];
+  assert.equal(loopOrigin(l("promise", "life")), "life");
+  assert.equal(loopOrigin(l("promise", "chat")), "chat");
+  assert.equal(loopOrigin(l("prospect")), "business");
+  assert.equal(loopOrigin(l("inbox")), "loop");
+  const found = detectLoops({ now: Date.parse("2026-11-10T12:00:00Z"), today: "2026-11-10", commitments: [{ id: "c1", text: "Write essay", owner: "me", due: "2026-11-01", status: "confirmed", at: "2026-10-30T00:00:00Z", source: { kind: "life" } }] } as LoopSources);
+  assert.equal(found[0] && loopOrigin(found[0]), "life");
+});

@@ -231,6 +231,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   onStep?.("search_memory", {});
   let byId = new Map<string, { id: string; title: string; kind: string }>(); // memories in context, for citations
   let playbookRules: string[] = [];
+  const worldPrivate: string[] = []; // world-model commitment texts: in context from the start, so outbound calls are checked against them
   const evalTools: CoreEvalTool[] = (budget.tools ??= []); // carried across a handoff, so the receipt counts the finished steps too
   // Every lookup runs in parallel while step 0's CLI is already booting: the finished prompt becomes its stdin.
   const prep = (async () => {
@@ -241,7 +242,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       at("chats", searchMemories(sb, question, 3, userId, { coreSummariesOnly: true }).catch(() => ({ results: [] }))),
       at("facts", Promise.all([factsContext(sb, userId, question), import("./lessons").then((m) => m.lessonsContext(userId, question), () => ""), import("./episodes").then((m) => m.episodesContext(sb, userId, question), () => ""), import("./dream").then((m) => m.dreamContext(userId), () => ""), import("./memory-graph").then((m) => m.graphContext(), () => ""), import("./when").then((m) => m.rangeContext(sb, userId, question), () => ""), import("./diary").then((m) => m.diaryContext(userId, question), () => "")]).then((xs) => xs.filter(Boolean).join("\n\n"))), // beliefs ("" until migration 0008) + kept lessons (lessons.ts) + two recalled episodes (episodes.ts) + this morning's dream question (dream.ts); never throws
       at("modules", moduleStatus(sb, userId)), // one live line per module (core-modules.ts); never throws
-      at("world", import("./world").then((m) => m.worldContext(sb, userId))), // goals, this week, commitments; "" on failure
+      at("world", import("./world").then((m) => m.worldWithPrivate(sb, userId)).then((w) => (worldPrivate.push(...w.private), w.text))), // goals, this week, commitments; "" on failure
       at("people", import("./people").then((m) => m.peopleContext(sb, userId, question), () => "")), // names + relation + last contact of people he mentions; "" otherwise
     ]);
     playbookRules = playbook?.rules ?? [];
@@ -307,7 +308,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const wsGate = await loadWsGate(userId, sessionKey); // workspace names + CORE's pending Build-it offer for this chat
   // Outbound calls are checked against this text (policy-pure decide()); an earlier turn's private results live only in this process.
   const privateText = [attach?.block ?? "", pinsIn ? project : "", ...(sessionKey ? carriedText.get(sessionKey) ?? [] : [])].filter(Boolean);
-  const policyCtx = () => ({ ws: wsGate, stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels(), carried, outsideEarlier, privateText, ownLeads: ownLeadsIn(sessionKey), plugins: pluginGates() });
+  const policyCtx = () => ({ ws: wsGate, stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels(), carried, outsideEarlier, privateText: [...privateText, ...worldPrivate], ownLeads: ownLeadsIn(sessionKey), plugins: pluginGates() });
   // Both engines: an allowed tool call's dispatch, then its eval row, trace row and activity log (decide() ran before).
   // Results over the step limit are clipped with a read_more pointer; the full text lives in this per-turn store (roadmap 20).
   const clips = (budget.clips ??= createClipStore()); // carried across a handoff like budget.done, so read_more refs in its steps stay valid
