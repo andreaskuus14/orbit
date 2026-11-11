@@ -375,7 +375,7 @@ export const TOOLS: Record<string, Tool> = {
       const { data: all } = await sb.from("prospects").select("id,name,contact").eq("user_id", userId).limit(1000);
       const dup = duplicateOf(all ?? [], await loadCrm(), v.name, v.contact); // also the idempotency check: a retried approval finds its own row
       if (dup) return `Already in the BUSINESS pipeline as ${dup}; not added again.`;
-      const { watch, ...row } = v;
+      const { watch, ...row } = v; // no drafted_at on purpose: a pitch saved by an agent is never auto-sent, only by his click
       const { data, error } = await sb.from("prospects").insert({ ...row, user_id: userId, stage: "lead" }).select("id").single();
       if (error) throw error;
       await updateCrm((st) => { st[data.id] = newCrm("web-find", v.name, v.contact); }); // unverified until he checks the contact

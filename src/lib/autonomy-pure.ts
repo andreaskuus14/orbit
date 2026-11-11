@@ -154,7 +154,7 @@ const WORDS = [
   "deadline", "refund", "refunds", "purchase", "subscription", "free", "trial", "pilot", "iban", "bank", "transfer", "money", "cash", "euro", "euros", "eur", "eurot",
   "usd", "dollar", "dollars", "gbp", "pound", "pounds", "cent", "cents", "we'd", "we’d", "we'll", "we’ll", "we will", "i will", "i'll", "i’ll", "will deliver",
   "by monday", "by tuesday", "by wednesday", "by thursday", "by friday", "by saturday", "by sunday", "by tomorrow", "by next", "by the end", "by end", "tomorrow", "next week",
-  "next month", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january", "february", "april", "june", "july", "august", "september",
+  "next month", "next year", "this week", "this month", "this year", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january", "february", "march", "april", "may", "june", "july", "august", "september",
   "october", "november", "december", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "twenty", "thirty", "forty", "fifty",
   "hundred", "thousand", "million", "half", "kaks", "kolm", "neli", "viis", "kuus", "seitse", "kaheksa", "üheksa", "kümme", "sada", "tuhat", "miljon", "homme",
 ];
@@ -181,6 +181,13 @@ export const doneToday = (s: AutonomyState, area: AutoArea, now: number) => {
 // seen: the version (draft stamp / video+title+description); text: everything that would go out (subject + body, title + description);
 // changedAt: when it was made or last edited (only after the area's `since` counts).
 export type Candidate = { ref: string; seen: string; label: string; text?: string; changedAt: string };
+/** A prospect's saved draft as a candidate. changedAt is the draft's own stamp, so a note or stage edit doesn't make an old draft new;
+ *  seen stays updated_at (the version sendDraft claims). No drafted_at (drafted before 0026) = never auto. */
+export const draftCandidate = (p: { id: string; name: string; draft: string; updated_at: string; drafted_at?: string | null }, subject: string): Candidate =>
+  ({ ref: p.id, seen: p.updated_at, changedAt: p.drafted_at ?? "", label: `Email to ${String(p.name).slice(0, 80)}`, text: `${subject}\n${p.draft}` });
+/** The ledger row for a fired auto action, whatever its result ("unsure" may have gone out). */
+export const autoLedger = (area: AutoArea, ref: string, result: "done" | "unsure") =>
+  ({ area, action: area === "business-send" ? "send" : "publish", ref: ref.slice(0, 128), result });
 /** Which candidates to queue now (each goes out UNDO_MS later unless cancelled). Pending ones count toward the cap. */
 export function pickAuto(s: AutonomyState, area: AutoArea, cands: Candidate[], now: number, stopAll: boolean): Candidate[] {
   const since = Date.parse(s.since[area] ?? "");
