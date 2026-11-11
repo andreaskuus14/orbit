@@ -98,7 +98,7 @@ export async function fetchTo(url: string, base: string, signal: AbortSignal): P
   const ext = EXT[type] ?? path.extname(new URL(url).pathname).toLowerCase();
   if (!Object.values(EXT).includes(ext)) throw new Error(`unexpected download type ${type || ext || "unknown"}`);
   if (Number(res.headers.get("content-length")) > MAX_BYTES) throw new Error("download too large");
-  const buf = Buffer.from(body.buffer, body.byteOffset, body.length); // a view, not a copy: 300 MB is held once, not three times
+  const buf = Buffer.from(body.buffer, body.byteOffset, body.length); // a view, not a copy of body; safeFetch's Response still holds its own copy, so 300 MB is held twice, not three times
   if (buf.length > MAX_BYTES) throw new Error("download too large");
   await writeFile(base + ext, buf);
   return base + ext;

@@ -269,9 +269,31 @@ test("after tool results the resolved record must be named whole; curly apostrop
   const rows = [{ name: "Markus Ehitus OÜ" }, { name: "Cake Shop" }];
   const p = pickByName(rows, "mark", "lead") as { name: string };
   assert.equal(p.name, "Markus Ehitus OÜ"); // the substring fallback still resolves...
-  assert.match(resolvedBlocked(p.name, "mark", true)!, /only partly matches/); // ...but tool text can't act on it
+  assert.match(resolvedBlocked(p.name, "mark", true)!, /only words of his request/); // ...but tool text can't act on it
   assert.equal(resolvedBlocked(p.name, "markus", true), null);
   assert.equal(resolvedBlocked(p.name, "mark", false), null); // he typed it himself
   assert.equal(opsBlocked("vault_rename", "rename andreas’s notes.pdf to cv.pdf", true, { name: "andreas’s notes.pdf", to: "cv.pdf" }), null);
   assert.match(opsBlocked("vault_rename", "rename cv to resume", true, { name: "cv", to: "resume" })!, /too short|this short/);
+});
+
+test("after tool results the verb of his message is not a name; short names say why; one target length everywhere", async () => {
+  const { opsBlocked, resolvedBlocked, TARGET_LEN } = await import("../src/lib/core-operator-pure.ts");
+  for (const lead of ["mark", "lost", "Mark", "märgi"]) assert.match(opsBlocked("lead_update", "mark it lost, nothing else to do", true, { lead })!, /only words of his request/, lead);
+  assert.equal(opsBlocked("lead_update", "mark Mark Tamm as lost", true, { lead: "Mark Tamm" }), null); // a real name that starts with the verb
+  assert.equal(opsBlocked("lead_update", "märgi Lost & Found OÜ kaotatuks", true, { lead: "Lost & Found OÜ" }), null);
+  assert.match(resolvedBlocked("HP", "HP", true)!, /this short/); // not "only partly matches"
+  const long = `${"a".repeat(200)} report.pdf`;
+  assert.equal(TARGET_LEN, 300);
+  assert.equal(opsBlocked("vault_rename", `rename ${long} to b.pdf`, true, { name: long, to: "b.pdf" }), null); // read past 120 chars, as vault_rename acts
+});
+
+test("Fable #551: stop words and command words of his message are not a target; a verb-named lead gets an accurate refusal", async () => {
+  const { opsBlocked, resolvedBlocked } = await import("../src/lib/core-operator-pure.ts");
+  for (const lead of ["the", "lead", "nothing", "the lead"]) assert.match(opsBlocked("lead_update", "mark the lead as lost, nothing else to do", true, { lead })!, /only words of his request/, lead);
+  assert.match(opsBlocked("vault_rename", "rename the file", true, { name: "rename", to: "x" })!, /only words of his request/);
+  assert.match(resolvedBlocked("The Bakery OÜ", "the", true)!, /only words of his request/);
+  assert.match(resolvedBlocked("Lead Forge OÜ", "lead", true)!, /only words of his request/);
+  const pilot = opsBlocked("lead_update", "mark Pilot as lost", true, { lead: "Pilot" })!;
+  assert.match(pilot, /confirm the record by its full name/); assert.doesNotMatch(pilot, /not a name he typed/);
+  assert.equal(opsBlocked("lead_update", "mark the Bakery as lost", true, { lead: "Bakery" }), null);
 });

@@ -41,25 +41,36 @@ export function opsBlocked(tool: OpsTool, question: string, tainted: boolean, in
   if (saysNotTo(q, OPS_VERBS) || ET_NOT.test(q)) return "the user said not to; answer instead";
   // A lead CORE itself added for this task (this turn or this chat) is ORBIT's own record: noting "not a fit" on it needs no new ask.
   // Callers pass [] with attachments/pins in context; Stop-all is refused before this (policy-pure decide).
-  if (tool === "lead_update" && isOwnLead(str(input.lead, 120), own)) return null;
+  if (tool === "lead_update" && isOwnLead(str(input.lead, TARGET_LEN), own)) return null;
   const [en, ee] = ASK[tool];
   if (!en.test(q) && !ee.test(q)) return "the user's latest message didn't ask for this change; answer instead";
   if (!tainted || tool === "lead_create") return null; // lead_create stores what a search found by design; his message still has to ask for leads
-  const key = TARGET[tool], target = key ? norm(str(input[key], 120)) : "";
+  const key = TARGET[tool], target = key ? norm(str(input[key], TARGET_LEN)) : "";
+  // the words of his request are not a name: "mark the lead as lost" must not let tool text pick "Mark Tamm" ({ lead: "mark" }), "The Bakery" ({ lead: "the" })
+  if (target && onlyRequestWords(target)) return requestWordsMsg(target);
   if (target && target.length < 3) return `after tool results, a target this short ("${target}") can't be checked against the user's message; ask him to confirm it by its full name`;
   return target && names(q, target) ? null : "after tool results, make this change only for a target the user names in their latest message";
 }
+/** How much of a target name every check reads: the same 300 characters vault_rename / vault_move / lead_update act on. */
+export const TARGET_LEN = 300;
 const norm = (s: string) => s.toLowerCase().replace(/[‘’ʼ]/g, "'");
 /** After tool results: the record pickByName resolved must contain the typed target as a whole word, so a substring
  *  fallback ("mark" → "Markus Ehitus OÜ") can't act on a record he didn't name. null = allowed. */
 export const resolvedBlocked = (recordName: string, typed: string, tainted: boolean): string | null =>
-  !tainted || names(norm(recordName), norm(typed.trim())) ? null : `"${typed.slice(0, 60)}" only partly matches "${recordName.slice(0, 60)}"; after tool results, make this change only when the user names it in full`;
+  !tainted ? null : onlyRequestWords(norm(typed.trim())) ? requestWordsMsg(typed.trim()) : names(norm(recordName), norm(typed.trim())) ? null : typed.trim().length < 3 ? `after tool results, a target this short ("${typed.trim()}") can't be checked against the user's message; ask him to confirm it` : `"${typed.slice(0, 60)}" only partly matches "${recordName.slice(0, 60)}"; after tool results, make this change only when the user names it in full`;
 // A whole word or more (3+ chars): plain includes() let tool text pick "o" or "re", which any message contains.
 const names = (q: string, target: string) => {
   const t = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return target.length >= 3 && new RegExp(`(?<![\\p{L}\\p{N}])${t}(?![\\p{L}\\p{N}])`, "u").test(q);
 };
 
+// Filler and the command words any operator ask uses: never enough to tell which record he means. A lead really named "Pilot"
+// is refused too (fail closed); the message says why instead of claiming he didn't type it.
+const STOP = new Set(("the a an as to of in on at by for from with and or but it its this that these those my me i you he his her our please now then " +
+  "all any every everything nothing something else just one same new old lead leads prospect prospects client clients business file files automation automations " +
+  "record records name stage note notes next step action ja ning või see seda selle kõik mitte midagi ka veel").split(" "));
+const onlyRequestWords = (t: string) => { const w = t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []; return w.length > 0 && w.every((x) => STOP.has(x) || Object.values(ASK).some(([en, ee]) => en.test(x) || ee.test(x))); };
+const requestWordsMsg = (t: string) => `after tool results, "${t.slice(0, 60)}" is only words of his request (the change itself, or words like "the" or "lead"), so it can't be told apart from a name; ask him to confirm the record by its full name`;
 const isOwnLead = (name: string, own: readonly string[]) => !!name && own.some((n) => n.trim().toLowerCase() === name.toLowerCase());
 
 /** Names of the leads lead_create added in these tool results ("added "X" (id …)"); skipped duplicates are not ours. */

@@ -5,7 +5,7 @@ import type { WriteEvidence } from "./completion-pure.ts";
 import { wsConfirmOffer, wsWriteBlocked, type WsGate, type WsPending } from "./ws-intent-pure.ts";
 import { explicitBuild, slugify as wsSlug } from "./ws-intent-pure.ts";
 import { SITE_GUIDE, SITE_PIPELINE, UNPLANNED_HINT, guideDue } from "./site-guide.ts";
-import { factsLine, isFullstackPlan, lintDepth, lintSite, siteStepHint, wantsBackend } from "./site-pipeline-pure.ts";
+import { factsLine, isFullstackPlan, lintDepth, lintSite, ownerText, siteStepHint, wantsBackend } from "./site-pipeline-pure.ts";
 export const WS_TOOLS = ["ws_list", "ws_read", "ws_write", "ws_create", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft", "ws_run", "ws_stop"] as const;
 export type WsTool = (typeof WS_TOOLS)[number];
 export const isWsTool = (t: string): t is WsTool => (WS_TOOLS as readonly string[]).includes(t);
@@ -101,6 +101,7 @@ async function siteLint(userId: string, slug: string, question = ""): Promise<{ 
     images: files.filter((f) => /\.(?:png|jpe?g|webp|svg)$/i.test(f.path)).map((f) => ({ path: f.path, bytes: f.size })),
     credits: (await ws.readWsFile(userId, slug, "assets/CREDITS.md"))?.text,
     fullstack: files.some((f) => f.path === "server.mjs") || isFullstackPlan(plan), wantsBackend: wantsBackend(question),
+    owner: `${ownerText(userId)}\n${question}`, // his own words only: never plan.md, which CORE writes (also from pages it read)
   };
   return { issues: [...lintSite(f), ...lintDepth(f)], facts: factsLine(f) };
 }

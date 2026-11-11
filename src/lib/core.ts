@@ -7,6 +7,7 @@ const deepFlags = { effort: DEEP_EFFORT };
 // The CORE route's maxDuration is 300 s: a deep turn (steps + review) must finish inside it.
 const DEEP_TURN_MS = 270_000;
 import { typedText } from "./attach-pure";
+import { rememberOwnerText } from "./site-pipeline-pure";
 import { pickModel } from "./core-ui";
 import { partialAnswer } from "./streamjson";
 import { searchMemories, MEMORY_COLUMNS } from "./memory";
@@ -170,6 +171,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const turnId = crypto.randomUUID(); // links policy.decision ledger rows to this turn's trace (failure report)
   const transcriptHolder = { text: "" };
   const question = typedText(history[history.length - 1].content); // attached file names never count as the user's words
+  // Owner proof on built sites is checked only against what he typed himself; attached files never count.
+  rememberOwnerText(userId, history.filter((h) => h.role === "user").map((h) => typedText(h.content)).join("\n"));
 
   // Per-stage timing for the server log: ms since the turn started when each stage finished.
   const t0 = Date.now(), ms: Record<string, number> = {};
