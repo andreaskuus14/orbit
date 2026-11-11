@@ -32,7 +32,6 @@
     "wake:debug": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wake/orbit-wake.ps1 -DebugRun",
     "night:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/night/install.ps1",
     "night:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/night/uninstall.ps1",
-    "rea:setup": "node scripts/setup-rea.mjs",
     "remote:vapid": "node --experimental-strip-types scripts/vapid-keys.ts",
     "perf:run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/perf-run.ps1",
     "perf:report": "node --no-warnings --experimental-strip-types scripts/perf-run.ts"

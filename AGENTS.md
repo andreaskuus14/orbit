@@ -4,7 +4,7 @@ ORBIT is Andreas's personal AI OS (Next.js 15, React 19, R3F, Supabase). The liv
 
 1. Never commit to `main`. Make a new branch and open a pull request; Claude reviews, merges and deploys.
 2. Never commit secrets: `.env.local` stays local. Add new settings to `.env.example` with empty values only.
-3. Do not edit REA files (the owner's reverse-engineering tool and `src/app/api/rea/`). Change code around them.
+3. REA (the owner's reverse-engineering tool) was removed on 2026-11-10 at his request; there are no REA files left to protect.
 4. Before a PR: `npm run gate` must pass (`tsc --noEmit -p .`, `npm test`, the synthetic AI eval `npm run eval:ai`, then `next build`).
 5. Pure logic lives in `*-pure.ts` files with tests in `tests/`.
 6. Operator mode (standing grants, owner-granted 2026-10-30). ORBIT acts as an operator, not an assistant that asks. Without

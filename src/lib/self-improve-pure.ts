@@ -125,7 +125,7 @@ export function builderBrief(t: Task, rank: number, week: string): string {
     t.goal,
     "",
     "### How to work",
-    "Read AGENTS.md first and follow it: a new branch (never `main`), no secrets, never edit REA files, pure logic in `*-pure.ts` with tests in `tests/`.",
+    "Read AGENTS.md first and follow it: a new branch (never `main`), no secrets, pure logic in `*-pure.ts` with tests in `tests/`.",
     "Add a test that would have caught this. `npm run gate` must pass before you open the pull request.",
   ].join("\n");
 }

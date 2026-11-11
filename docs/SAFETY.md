@@ -17,7 +17,7 @@ Approvals from the phone, a voice call or a Shortcut use the same checks as the 
 
 ORBIT never: buys anything, messages a seller, logs in to other sites, posts comments, deploys a shop, edits your Roblox place or ORBIT's own code. Web access is read-only.
 
-Standing rules (AGENTS → Rules) and their *Run now* button start work only through the existing tasks, skills, missions and deal hunter, so every approval above still applies; Stop-all and the usage limit stop them, and event rules run at most 5 times a day. A *Draft patch* in Make ORBIT better is saved as a local file for you to review; it is never applied, committed or pushed, and a check refuses patches that touch safety code, AGENTS.md, REA, `.env` or CI.
+Standing rules (AGENTS → Rules) and their *Run now* button start work only through the existing tasks, skills, missions and deal hunter, so every approval above still applies; Stop-all and the usage limit stop them, and event rules run at most 5 times a day. A *Draft patch* in Make ORBIT better is saved as a local file for you to review; it is never applied, committed or pushed, and a check refuses patches that touch safety code, AGENTS.md, `.env` or CI.
 
 ### CORE tools
 

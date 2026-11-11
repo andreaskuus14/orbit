@@ -16,7 +16,6 @@ export function toolTarget(tool: string): string | null {
   if (tool === "read_news") return "intelligence";
   if (tool === "ask_agent") return "agents";
   if (/^(studio_status|learned|run_scout|run_niche|schedule_approved)$/.test(tool)) return "studio";
-  if (tool.startsWith("rea_")) return "creation";
   if (/^(plan_task|create_goal|goal_status|suggestions)$/.test(tool)) return "operations";
   if (tool === "wishlist" || tool === "add_wish") return "life";
   return null; // think, review, navigate, unknown
