@@ -149,10 +149,8 @@ test("modelForJob: guide table, owner pref wins, risky jobs never below Opus", a
   for (const pref of [undefined, "haiku", "claude-haiku-5-5", "sonnet", "x"]) assert.equal(modelForJob("search", risky, pref), JOB_MODELS.opus);
   assert.equal(modelForJob("rename", { approvals: true }), "opus");
   assert.equal(modelForJob("security", risky, "fable"), "fable"); // above the floor stays
-  assert.deepEqual([reviewerFor("sonnet"), reviewerFor("haiku"), reviewerFor("opus")], ["opus", "opus", "sonnet"]);
-  // risky: reviewer at least Opus and not the writer
-  assert.deepEqual([reviewerFor("opus", risky), reviewerFor("claude-opus-5-5", risky), reviewerFor("sonnet", risky), reviewerFor("fable", risky)], [JOB_MODELS.fable, JOB_MODELS.fable, "opus", "opus"]);
-  assert.equal(reviewerFor(JOB_MODELS.fable, risky), "opus");
+  // reviewer: Opus, Fable only when Opus wrote it; never below Opus, never the writer
+  assert.deepEqual([reviewerFor("sonnet"), reviewerFor("haiku"), reviewerFor("opus"), reviewerFor("claude-opus-5-5"), reviewerFor(JOB_MODELS.fable)], ["opus", "opus", JOB_MODELS.fable, JOB_MODELS.fable, "opus"]);
   assert.equal(modelForJob("build", risky, "opusplan"), "opus"); // opusplan runs on Sonnet: not above the floor
 });
 

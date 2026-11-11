@@ -244,10 +244,5 @@ export function modelForJob(job: JobKind, risk: Risk = {}, pref?: string): strin
   const want = pref?.trim() || BY_JOB[job];
   return isRisky(risk) ? atLeastOpus(want) : want;
 }
-/** Reviews come from a different model than the writer: Opus, or Sonnet when Opus wrote it. A risky job's reviewer is at least
- *  Opus and still differs from the writer: Fable when Opus wrote it, else Opus. */
-export const reviewerFor = (writer: string, risk: Risk = {}) => {
-  const r = rank(writer);
-  if (isRisky(risk)) return r === OPUS ? JOB_MODELS.fable : JOB_MODELS.opus;
-  return r === OPUS ? JOB_MODELS.sonnet : JOB_MODELS.opus;
-};
+/** The reviewer is Opus; Fable when Opus wrote it (a review comes from a different model and is never below Opus). */
+export const reviewerFor = (writer: string) => (rank(writer) === OPUS ? JOB_MODELS.fable : JOB_MODELS.opus);

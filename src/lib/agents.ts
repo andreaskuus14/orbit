@@ -535,7 +535,7 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
         if (needsSelfReview(result, transcript.length, depth, verified) && budget.used < budget.calls && budget.deadline - Date.now() > 150_000) {
           chargeCall(budget, signal);
           const t0 = Date.now();
-          const reviewer = reviewerFor(model, risk); // risky: at least Opus, never the writer
+          const reviewer = reviewerFor(model); // Opus, or Fable when Opus wrote it
           const rv = await reviewDraft(`TASK: ${task.title}\n\n${task.request}`, result, transcript.join("\n\n"), { signal, model: reviewer, purpose: `agent.${agent.slug}.review`, onUsage: (rr) => recordUsage(sb, userId, `agent.${agent.slug}.review`, rr) });
           result = rv.text;
           if (rv.reviewed) trace.push({ step: "review", detail: `${reviewer} · reviewed (writer ${model})`, ms: Date.now() - t0, ok: true });
