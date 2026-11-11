@@ -1,3 +1,4 @@
+import { seenProblem } from "@/lib/approval-bind-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { ConflictError, cancelTask, kickQueue, resolvePending } from "@/lib/agents";
@@ -32,12 +33,14 @@ export async function POST(req: Request, { params }: Ctx) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const { id } = await params;
-  const { action, request } = await req.json().catch(() => ({}));
+  const { action, request, seen } = await req.json().catch(() => ({}));
   try {
     if (action === "approve" || action === "resume") { // OPS03: one writer per output at a time
       const { data: mine, error: mineError } = await sb.from("tasks").select("pending").eq("user_id", user.id).eq("id", id).maybeSingle();
       if (mineError) return Response.json({ error: "Couldn't check this task's outputs. No actions were run. Try again." }, { status: 503 });
       if (!mine) return Response.json({ error: "Not found" }, { status: 404 });
+      const changed = action === "approve" ? seenProblem(mine.pending ?? [], seen) : ""; // S02: approve only what he was shown
+      if (changed) return Response.json({ error: changed, changed: true }, { status: 409 });
       const { data: others, error: othersError } = await sb.from("tasks").select("id, status, pending").eq("user_id", user.id).eq("status", "running").neq("id", id).limit(100);
       if (othersError) return Response.json({ error: "Couldn't check competing task outputs. No actions were run. Try again." }, { status: 503 });
       const clash = outputClash(mine?.pending ?? [], others ?? []);

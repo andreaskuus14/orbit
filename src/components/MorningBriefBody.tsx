@@ -56,7 +56,7 @@ export default function MorningBriefBody({ home, onOpenTask, onOpenGoal, onClose
     try {
       const a = i.approve;
       if (what === "snooze") await post({ snooze: i.id });
-      else if (a && "task" in a) await api(`/api/tasks/${a.task}`, { method: "POST", body: JSON.stringify({ action: "approve" }) });
+      else if (a && "task" in a) await api(`/api/tasks/${a.task}`, { method: "POST", body: JSON.stringify({ action: "approve", ...(a.seen ? { seen: a.seen } : {}) }) });
       else if (a) await api("/api/goals", { method: "POST", body: JSON.stringify({ action: "ok", id: a.goal, step: a.step, stepId: a.stepId }) });
       setMarks((m) => ({ ...m, [i.id]: t(what === "snooze" ? "brief.snoozed" : "common.approved") }));
     } catch (e) { setErr(e instanceof Error ? e.message : t("common.failed")); }

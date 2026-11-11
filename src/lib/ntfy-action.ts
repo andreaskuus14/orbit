@@ -21,7 +21,7 @@ function secret(): Promise<Buffer> {
 }
 
 /** A fresh token for one waiting task (put in its notification's buttons). */
-export const actToken = async (taskId: string, userId: string) => signAct(await secret(), taskId, userId, Date.now());
+export const actToken = async (taskId: string, userId: string, seen?: string) => signAct(await secret(), taskId, userId, Date.now(), undefined, seen);
 
 /** Check the token and spend it (saved before the caller acts: a crash afterwards can't make it usable twice). */
 export function spendAct(token: unknown): Promise<ActToken | { error: string }> {

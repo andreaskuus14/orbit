@@ -34,3 +34,15 @@ test("buttons only for one waiting reversible action", () => {
   assert.equal(phoneActionable(null), false);
   assert.ok(isPhoneAct("approve") && isPhoneAct("reject") && !isPhoneAct("resume"));
 });
+
+test("S02: the notification token carries the action's fingerprint, signed; tampering breaks the signature", async () => {
+  const { signAct, verifyAct } = await import("../src/lib/ntfy-action-pure.ts");
+  const key = Buffer.alloc(32, 7), tok = signAct(key, "t1", "u1", 1000, "n1", "abcdef0123456789");
+  const v = verifyAct(key, tok, 2000, {});
+  assert.ok(!("error" in v) && v.s === "abcdef0123456789");
+  const [body, sig] = tok.split(".");
+  const forged = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, "base64url").toString()), s: "ffffffffffffffff" })).toString("base64url");
+  assert.ok("error" in verifyAct(key, `${forged}.${sig}`, 2000, {}), "changing the fingerprint invalidates the token");
+  const old = verifyAct(key, signAct(key, "t1", "u1", 1000, "n2"), 2000, {});
+  assert.ok(!("error" in old) && old.s === undefined, "tokens from before this change still verify");
+});
