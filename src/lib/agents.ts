@@ -18,7 +18,7 @@ import { needsSelfReview } from "./core-ui";
 import { stopAllOn } from "./stop-all";
 import { authorizeAction } from "./authority";
 import { PAUSED_MSG } from "./stop-all-pure";
-import { modelForJob, reviewerFor, riskFlags, type JobKind } from "./core-mcp-boost-pure";
+import { modelForJob, reviewerFor, riskFlags, type JobKind } from "./agent-defs-pure";
 import { attemptId, attemptTag, completionState, INTERRUPTED, interruptedPatch, startedBeforeBoot, startedThenFailed, type WriteEvidence } from "./completion-pure";
 import { registerSource, taskExecution as execOf, track } from "./execution";
 import { claimFilter, missingOwnerColumn } from "./task-claim-pure";

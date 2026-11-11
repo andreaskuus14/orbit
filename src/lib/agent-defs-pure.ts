@@ -201,3 +201,32 @@ export function pickFair(queued: readonly Queued[], running: readonly string[]):
   for (const q of queued) { const l = load.get(deptOf(q.agent)) ?? 0; if (l < bestLoad) { best = q; bestLoad = l; } }
   return best.id;
 }
+
+// ---- per-job model choice ("which model for which job"): one table, Claude Code CLI aliases as ORBIT_MODEL* use them ----
+export const JOB_MODELS = { haiku: "haiku", sonnet: "sonnet", opus: "opus", fable: "fable" } as const;
+const RANK = ["haiku", "sonnet", "opus", "fable"]; // cheapest first
+export type JobKind = "search" | "rename" | "boilerplate" | "build" | "test" | "ui" | "bug" | "review" | "plan" | "security";
+const BY_JOB: Record<JobKind, string> = {
+  search: JOB_MODELS.haiku, rename: JOB_MODELS.haiku, boilerplate: JOB_MODELS.haiku,
+  build: JOB_MODELS.sonnet, test: JOB_MODELS.sonnet,
+  ui: JOB_MODELS.opus, bug: JOB_MODELS.opus, review: JOB_MODELS.opus,
+  plan: JOB_MODELS.fable, security: JOB_MODELS.fable,
+};
+export type Risk = { auth?: boolean; money?: boolean; approvals?: boolean; sending?: boolean };
+const RISK: [keyof Risk, RegExp][] = [
+  ["auth", /\b(?:auth\w*|log ?in|passwords?|tokens?|credentials?|oauth|sessions?)\b|parool/i],
+  ["money", /\b(?:pay\w*|money|invoices?|billing|purchases?|buy|spend\w*|credits?|stripe|refunds?)\b|makse|raha/i],
+  ["approvals", /\b(?:approv\w*|propose_\w+|grants?)\b|kinnit/i],
+  ["sending", /\b(?:send\w*|emails?|publish\w*|post(?:s|ing)?|upload\w*|messages?)\b|saada/i],
+];
+/** Risk flags found in free text (a request, a tool list). */
+export const riskFlags = (text: string): Risk => Object.fromEntries(RISK.filter(([, re]) => re.test(text)).map(([k]) => [k, true]));
+export const isRisky = (r: Risk) => Object.values(r).some(Boolean);
+const rank = (m: string) => RANK.findIndex((n) => m.toLowerCase().includes(n));
+/** Model for one job. The owner's explicit pref wins, but a risky job never runs below Opus (an unknown id counts as below). */
+export function modelForJob(job: JobKind, risk: Risk = {}, pref?: string): string {
+  const want = pref?.trim() || BY_JOB[job];
+  return isRisky(risk) && rank(want) < RANK.indexOf("opus") ? JOB_MODELS.opus : want;
+}
+/** Reviews come from a different model than the writer: Opus, or Sonnet when Opus wrote it. */
+export const reviewerFor = (writer: string) => (rank(writer) === RANK.indexOf("opus") ? JOB_MODELS.sonnet : JOB_MODELS.opus);
