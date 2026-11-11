@@ -6,6 +6,7 @@
 import { pdfDoc, pdfText, type PdfPage } from "./pdf-pure.ts";
 import { emailIn } from "./business-pure.ts";
 import { localDay } from "./morning-pure.ts";
+import { dayKey } from "./agent-stats-pure.ts";
 
 export const STATUSES = ["draft", "sent", "paid"] as const;
 export type Status = (typeof STATUSES)[number];
@@ -176,7 +177,7 @@ export function setStatus(i: Invoice, to: unknown, now: number, s: Seller | null
   }
   if (to === "paid") {
     if (i.status !== "sent") return "Mark it sent first";
-    const day = paidOn === undefined || paidOn === "" ? localDay(new Date(now)) : paidOn;
+    const day = paidOn === undefined || paidOn === "" ? dayKey(new Date(now), "Europe/Tallinn") : paidOn; // his Tallinn day, whatever the server zone
     if (!isDay(day)) return "Paid date must be YYYY-MM-DD";
     return { ...i, status: "paid", paidAt: day, reminder: null, updated: at };
   }
