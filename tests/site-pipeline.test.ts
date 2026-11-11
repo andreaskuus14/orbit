@@ -156,7 +156,7 @@ test("craft lint false positives: ©®™, table cells, owner stars, max/line-he
   const page = (body: string, css = GOOD_CSS, owner = OWNER) => lintSite({ html: [{ path: "index.html", text: `<html lang="en"><meta name="viewport" content="width=device-width"><body>${body}</body></html>` }], css: [{ path: "css/style.css", text: css }], images: [], owner });
   assert.deepEqual(page("<h1>Hi</h1><footer>© 2026 Cafe® Brew™</footer>"), [], "© ® ™ aren't emoji");
   assert.deepEqual(page("<h1>Hours</h1><table><tr><td>09</td><td>17</td></tr></table>"), [], "a table cell isn't a section number");
-  assert.deepEqual(page('<h1>Hi</h1><blockquote data-proof="owner">★★★★★ Great</blockquote>'), [], "owner-marked stars pass");
+  assert.deepEqual(page('<h1>Hi</h1><blockquote data-proof="owner">★★★★★ Best rye in town</blockquote>'), [], "owner-marked stars pass");
   assert.deepEqual(page("<h1>Hi</h1>", GOOD_CSS + " .acc{transition:max-height .2s} p{transition:line-height .2s}"), [], "max-height/line-height aren't layout animation");
   assert.deepEqual(page("<h1>Hi</h1>", GOOD_CSS + " .m{mask:url(#fade)} .n{fill:url('#abc')}"), [], "url(#id) isn't a colour");
   const long = Array.from({ length: 600 }, (_, i) => `word${i}`).join(" ");
@@ -173,13 +173,34 @@ test("owner proof comes from plan.md / his message, not the model's mark; times 
   const { wordIssues } = await import("../src/lib/site-pipeline-pure.ts");
   const page = (body: string, owner = OWNER) => lintSite({ html: [{ path: "index.html", text: `<html lang="en"><meta name="viewport" content="width=device-width"><body>${body}</body></html>` }], css: [{ path: "css/style.css", text: GOOD_CSS }], images: [], owner });
   const fake = '<h1>Hi</h1><blockquote data-proof="owner">★★★★★ "Best cafe in Europe" – Jane D., Forbes</blockquote>';
-  assert.ok(page(fake).some((i) => /isn't in plan\.md/.test(i)) && page(fake).some((i) => /never invent reviews/.test(i)), "a self-declared owner mark is caught");
-  assert.ok(page(fake, "").some((i) => /isn't in plan\.md/.test(i)), "no owner source: nothing is trusted");
+  assert.ok(page(fake).some((i) => /isn't in the owner's own/.test(i)) && page(fake).some((i) => /never invent reviews/.test(i)), "a self-declared owner mark is caught");
+  assert.ok(page(fake, "").some((i) => /isn't in the owner's own/.test(i)), "no owner source: nothing is trusted");
   assert.deepEqual(page('<h1>Hi</h1><section class="reviews"><h2>Guests say</h2><blockquote data-proof="owner">“Lovely staff” – Jaan</blockquote></section>'), [], "proven owner review in an unmarked wrapper");
-  assert.deepEqual(page('<h1>Hi</h1><div data-proof="owner"><div>Great</div> ★★★★★</div>'), [], "nested same-name tag inside an owner block");
+  assert.deepEqual(page('<h1>Hi</h1><div data-proof="owner"><div>Best rye in town</div> ★★★★★</div>'), [], "nested same-name tag inside an owner block");
   assert.ok(page('<h1>Hi</h1><section class="reviews"><blockquote data-proof="owner">Lovely staff</blockquote><p>"Wow" – Kate</p></section>').some((i) => /never invent/.test(i)), "invented text beside it still flags");
   for (const h of ["<h3>09:00 Doors open</h3>", "<h3>07 May: concert</h3>", "<h2>05 mai kontsert</h2>"]) assert.deepEqual(page(`<h1>Hi</h1>${h}`), [], h);
   for (const h of ["<h2>01 About</h2>", "<h2>02. Menu</h2>", "<h2><span>03</span> Visit</h2>"]) assert.ok(page(`<h1>Hi</h1>${h}`).some((i) => /section numbers/.test(i)), h);
   assert.deepEqual(wordIssues({ html: [{ path: "index.html", text: "<h1 data-owner>Mari's bakery on the corner of Pikk street since 1999</h1>" }], css: [], images: [] }), [], "the owner's headline isn't capped");
   assert.match(wordIssues({ html: [{ path: "index.html", text: "<h1>The best bakery on the corner of Pikk street</h1>" }], css: [], images: [] }).join(), /hero headline has 9 words/);
+});
+
+test("Fable #551: owner proof is his own words, data-owner proves nothing, unclosed marks own nothing; home page floor; section numbers", async () => {
+  const { lintDepth, rememberOwnerText, ownerText } = await import("../src/lib/site-pipeline-pure.ts");
+  const page = (body: string, owner = OWNER) => lintSite({ html: [{ path: "index.html", text: `<html lang="en"><meta name="viewport" content="width=device-width"><body>${body}</body></html>` }], css: [{ path: "css/style.css", text: GOOD_CSS }], images: [], owner });
+  const flagged = (body: string, owner = OWNER) => page(body, owner).some((i) => /isn't in the owner's own|never invent/.test(i));
+  assert.ok(flagged('<h1>Hi</h1><div data-proof="owner">★★★★★</div>', ""), "stars only, no owner text");
+  assert.ok(flagged('<h1>Hi</h1><blockquote data-proof="owner">★★★★★ Great</blockquote>', "build a great site for my cafe"), "one common word is not proof");
+  assert.ok(flagged('<h1>Hi</h1><blockquote data-proof="owner">★★★★★ Best rye in town</blockquote>', 'Mari said: "Best rye in town"'), "stars he never gave");
+  assert.ok(flagged('<h1>Hi</h1><section data-owner><blockquote>Best cafe in Europe – Jane D., Forbes</blockquote></section>'), "a quote inside data-owner is flagged again");
+  assert.ok(flagged('<h1>Hi</h1><img data-owner src="a.jpg" alt=""><blockquote>Amazing – Jane D.</blockquote><p>★★★★★</p>'), "a void data-owner tag exempts nothing");
+  assert.ok(flagged('<h1>Hi</h1><p data-owner>Our menu<blockquote>Amazing – Jane D.</blockquote>'), "an unclosed data-owner element exempts nothing");
+  assert.deepEqual(page('<h1>Hi</h1><blockquote data-proof="owner"><p>Best rye in town</p><cite>Mari</cite></blockquote>', 'Mari said: "Best rye in town"'), [], "name and quote in another order than his message");
+  rememberOwnerText("u1", 'Mari said: "Best rye in town"');
+  assert.match(ownerText("u1"), /Best rye/); assert.equal(ownerText("u2"), "");
+  const words = (n: number) => Array.from({ length: n }, (_, i) => `w${i}`).join(" ");
+  const pic = '<img src="a.jpg" alt="">';
+  const floor = (html: { path: string; text: string }[]) => lintDepth({ html, css: [], images: [] }).filter((i) => /words of text/.test(i));
+  assert.match(floor([{ path: "about/index.html", text: `${pic}<p>${words(200)}</p>` }, { path: "index.html", text: `${pic}<h1>Hi</h1>` }]).join(), /^index\.html: only 1 words/, "the root index.html is the home page");
+  assert.equal(floor([{ path: "index.html", text: `<html><head><title>${words(119)}</title></head><body>${pic}<h1>Hi</h1></body></html>` }]).length, 1, "<title> text doesn't count");
+  for (const h of ["<h2>05 jaanuar kontsert</h2>", "<h2>07 days in Lisbon</h2>", "<h2>09 AM yoga</h2>"]) assert.ok(!page(`<h1>Hi</h1>${h}`).some((i) => /section numbers/.test(i)), h);
 });

@@ -112,7 +112,8 @@ export function cssContrast(css: string): string[] {
   return out;
 }
 export type SiteFiles = { html: { path: string; text: string }[]; css: { path: string; text: string }[]; images: { path: string; bytes: number }[]; credits?: string;
-  /** What the owner actually gave (plan.md + his message): the only source a data-proof="owner" mark is trusted against. */
+  /** What the owner wrote himself (his chat messages and the files he attached; never plan.md or any file CORE writes): the only
+   *  source a data-proof="owner" mark is trusted against. */
   owner?: string };
 export function lintSite(f: SiteFiles): string[] {
   const out: string[] = [];
@@ -139,40 +140,51 @@ export function lintSite(f: SiteFiles): string[] {
 const rules = (css: string) => [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim(), decl: m[2] }));
 const COLOR_LIT = /(?<!url\(\s*["']?)#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb)\(/i;
 const EMOJI = /\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F/u; // not text-style symbols such as © ® ™
+const VOID = /^(?:area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)$/i;
 /** Each element whose opening tag passes `want`, to its balanced closing tag (nested tags of the same name counted); outermost only. */
 function elements(h: string, want: (open: string) => boolean): { start: number; end: number; open: string; inner: string }[] {
   const out: { start: number; end: number; open: string; inner: string }[] = [];
   for (const m of h.matchAll(/<([a-z][a-z0-9]*)\b[^>]*>/gi)) {
-    if (m.index < (out.at(-1)?.end ?? 0) || !want(m[0])) continue;
+    if (m.index < (out.at(-1)?.end ?? 0) || !want(m[0]) || VOID.test(m[1]) || /\/>$/.test(m[0])) continue; // a void tag holds nothing
     const re = new RegExp(`<(/?)${m[1]}\\b[^>]*>`, "gi"); re.lastIndex = m.index + m[0].length;
     let depth = 1, end = h.length, close = h.length;
     for (let t; depth && (t = re.exec(h)); ) if ((depth += t[1] ? -1 : 1) === 0) { close = t.index; end = t.index + t[0].length; }
+    if (depth) continue; // never closed: it owns nothing, rather than the rest of the page
     out.push({ start: m.index, end, open: m[0], inner: h.slice(m.index + m[0].length, close) });
   }
   return out;
 }
 const cut = (h: string, els: { start: number; end: number }[]) => els.reduceRight((s, e) => s.slice(0, e.start) + " " + s.slice(e.end), h);
 const wordsOf = (t: string) => (t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).join(" ");
-const OWNER_MARK = /\bdata-(?:proof\s*=\s*["']?owner|slot\s*=|owner\b)/i, PROOF_MARK = /\bdata-proof\s*=\s*["']?owner/i;
+const OWNER_MARK = /\bdata-(?:proof\s*=\s*["']?owner|slot\s*=|owner\b)/i, PROOF_MARK = /\bdata-proof\s*=\s*["']?owner/i, SLOT_MARK = /\bdata-slot\s*=/i;
 /** Owner-marked blocks (data-proof="owner", data-slot, data-owner) removed: his own text and proof aren't linted as invented or too long. */
 const unowned = (h: string) => cut(h, elements(h, (o) => OWNER_MARK.test(o)));
-/** A data-proof="owner" block whose words are not in what the owner gave: the model wrote the mark, so it proves nothing. */
-const unproven = (inner: string, owner: string) => { const w = wordsOf(visible(inner)); return !!w && !` ${wordsOf(owner)} `.includes(` ${w} `); };
+/** A data-proof="owner" block not backed by what the owner wrote: the model wrote the mark, so it proves nothing. Each text run
+ *  (quote, name) must appear in his words on its own, in any order; under 3 words (stars only, one common word) proves nothing,
+ *  and stars only count when he gave a star rating. */
+const unproven = (inner: string, owner: string) => {
+  const runs = inner.replace(/<(script|style|svg)\b[\s\S]*?<\/\1>/gi, " ").split(/<[^>]*>/).map((t) => wordsOf(t.replace(/&[a-z#0-9]+;/gi, " "))).filter(Boolean);
+  if (runs.join(" ").split(" ").length < 3) return true;
+  if (/[★⭐☆]/u.test(inner) && !/[★⭐]|\bstars?\b|tärn|звезд/iu.test(owner)) return true;
+  const said = ` ${wordsOf(owner)} `;
+  return runs.some((r) => !said.includes(` ${r} `));
+};
 export function lintCraft(f: SiteFiles): string[] {
   const out: string[] = [];
   const css = [...f.css.map((c) => c.text), ...f.html.flatMap((h) => [...h.text.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map((m) => m[1]))].join("\n");
   const rs = rules(css), outside = rs.filter((r) => !/^:root\b/.test(r.sel) && !/^(?:from|to|\d+%)/.test(r.sel));
   for (const { path, text: h } of f.html) {
     const body = h.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ");
-    const marked = elements(body, (o) => OWNER_MARK.test(o)), fake = marked.filter((e) => PROOF_MARK.test(e.open) && unproven(e.inner, f.owner ?? ""));
-    if (fake.length) out.push(`${path}: ${fake.length} block${fake.length > 1 ? "s" : ""} marked data-proof="owner" with text that isn't in plan.md or the owner's message: use only proof he gave, word for word, or a data-slot="proof"`);
+    // data-owner is not proof: a quote inside it is still checked. Only proven data-proof blocks and empty slots are cut.
+    const marked = elements(body, (o) => PROOF_MARK.test(o) || SLOT_MARK.test(o)), fake = marked.filter((e) => PROOF_MARK.test(e.open) && unproven(e.inner, f.owner ?? ""));
+    if (fake.length) out.push(`${path}: ${fake.length} block${fake.length > 1 ? "s" : ""} marked data-proof="owner" with text that isn't in the owner's own messages or files: use only proof he gave, word for word, or a data-slot="proof"`);
     const rest = cut(body, marked.filter((e) => !fake.includes(e))); // what's left once proven owner blocks and slots are out
     // a review wrapper is fine when nothing but proven owner blocks (and headings) were inside it
-    const wrappers = elements(rest, (o) => /\b(?:class|id)\s*=\s*["'][^"']*\b(?:reviews?|testimonials?|ratings?|stars)\b/i.test(o) && !OWNER_MARK.test(o));
+    const wrappers = elements(rest, (o) => /\b(?:class|id)\s*=\s*["'][^"']*\b(?:reviews?|testimonials?|ratings?|stars)\b/i.test(o) && !PROOF_MARK.test(o) && !SLOT_MARK.test(o));
     if (/<(?:blockquote|q)\b/i.test(rest) || wrappers.some((e) => words(visible(e.inner.replace(/<(h[1-6])\b[\s\S]*?<\/\1>/gi, " ")))) || /★|⭐/.test(rest))
       out.push(`${path}: a review/quote block not marked as the owner's: never invent reviews, names or numbers; use proof the owner gave (data-proof="owner") or a marked slot (data-slot="proof")`);
     if (/\b(?:class|id)\s*=\s*["'][^"']*\b(?:eyebrow|kicker|overline|pretitle)\b/i.test(body)) out.push(`${path}: eyebrow/kicker label above a heading; let the heading stand alone`);
-    if (/>\s*0[1-9]\s*[./—–-]?\s*<\/[a-z0-9]+>\s*<h[1-6]\b|<h[1-6]\b[^>]*>\s*(?:<[a-z]+\b[^>]*>\s*)?0[1-9](?:\s*<|\s*[./—–|-]\s|\s+(?!(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|veeb|märts|mai|juun|juul|okt|dets)\p{L}*)\p{L})/iu.test(body)) out.push(`${path}: 01/02/03-style section numbers; drop them`); // next to a heading only: not a table cell or a time
+    if (/>\s*0[1-9]\s*[./—–-]?\s*<\/[a-z0-9]+>\s*<h[1-6]\b|<h[1-6]\b[^>]*>\s*(?:<[a-z]+\b[^>]*>\s*)?0[1-9](?:\s*<|\s*[./—–|-]\s|\s+(?!(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|jaan|veeb|märts|mai|juun|juul|okt|dets|day|week|month|year|night|hour|hr|min|päev|nädal|kuu|aast|tund|öö)\p{L}*|[ap]\.?m\b))\p{L})/iu.test(body)) out.push(`${path}: 01/02/03-style section numbers; drop them`); // next to a heading only: not a table cell or a time
     if (EMOJI.test(visible(h))) out.push(`${path}: emoji used as icons or decoration; draw a small inline SVG icon instead`);
     const reveals = (body.match(/<[a-z]+\b[^>]*(?:\bclass\s*=\s*["'][^"']*\b(?:reveal|fade-?in|fade-?up|animate-on-scroll)\b|\bdata-(?:reveal|aos)\b)/gi) ?? []).length;
     if (reveals > 1) out.push(`${path}: ${reveals} reveal-on-scroll elements; keep one authored moment and leave the rest visible`);
@@ -244,7 +256,7 @@ export function siteWriteLabel(files: unknown): string | null {
 export const WORDS_PER_SCREEN = 80, WORDS_PER_PAGE = 450, HERO_WORDS = 7, MIN_HOME_WORDS = 120;
 /** The owner's request wants data saved (bookings, orders, accounts, a database or an admin). */
 export const wantsBackend = (q: string) => /\b(?:back[- ]?end|database|\bdb\b|full[- ]?stack|admin (?:panel|page)|log ?in|sign ?up|accounts?|(?:that|which|to) saves?|stores? (?:the )?(?:bookings?|orders?|data)|booking system|api)\b|andmebaas|tagasüsteem|salvesta/i.test(q);
-const visible = (h: string) => h.replace(/<(script|style|svg|noscript)\b[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]*>/g, " ").replace(/&[a-z#0-9]+;/gi, " ").replace(/\s+/g, " ").trim();
+const visible = (h: string) => h.replace(/<(script|style|svg|noscript|title)\b[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]*>/g, " ").replace(/&[a-z#0-9]+;/gi, " ").replace(/\s+/g, " ").trim();
 type Depth = SiteFiles & { js?: { path: string; text: string }[]; fullstack?: boolean; wantsBackend?: boolean };
 
 /** Pictures (img/picture/svg/canvas or a CSS url() background), visible text characters and forms across the pages. */
@@ -275,7 +287,7 @@ export function lintDepth(f: Depth): string[] {
   if (!x.visuals) out.push("no pictures, SVG or illustration at all: draft real photos with ws_picture_draft (stand-ins appear at once), fetch licensed ones with ws_fetch_image, and draw inline SVG art for icons and section art");
   out.push(...wordIssues(f));
   // a floor, so a built site isn't an empty starter template: the home page needs real text (owner text counts)
-  const home = f.html.find((h) => /(?:^|\/)index\.html$/.test(h.path)) ?? f.html[0], hn = words(visible(home.text));
+  const home = f.html.find((h) => h.path === "index.html") ?? f.html.find((h) => h.path === "public/index.html") ?? f.html.find((h) => /(?:^|\/)index\.html$/.test(h.path)) ?? f.html[0], hn = words(visible(home.text));
   if (hn < MIN_HOME_WORDS) out.push(`${home.path}: only ${hn} words of text (at least ${MIN_HOME_WORDS} on the home page): write the real content from plan.md, not a starter template`);
   if (x.forms && !x.handled) out.push("a <form> has no handler, so it saves nothing: give it a submit handler with a visible confirmation (and a fullstack back end when entries must be kept)");
   if (f.wantsBackend && !f.fullstack) out.push("the request needs saved data (bookings, orders, accounts or a database) but this is a static site: ws_create the \"fullstack\" template and move the front end to public/");
@@ -283,3 +295,9 @@ export function lintDepth(f: Depth): string[] {
 }
 /** The facts part of the Check line, so the answer's honest review has numbers. */
 export const factsLine = (f: Depth) => { const x = siteFacts(f); return `${x.visuals} picture${x.visuals === 1 ? "" : "s"}/SVG, ${x.chars} chars of text${x.forms ? `, ${x.forms} form${x.forms > 1 ? "s" : ""}${x.handled ? "" : " (no handler)"}` : ""}`; };
+
+// shortcut: in process memory per user, replaced each turn (lost on restart: proof checks fail closed until his next message).
+const SAID = ((globalThis as unknown as { __orbitOwnerSaid?: Map<string, string> }).__orbitOwnerSaid ??= new Map());
+/** core.ts, each turn: what the owner himself wrote in this chat (typed messages + attached files). */
+export const rememberOwnerText = (userId: string, text: string) => void SAID.set(userId, text.slice(-60_000));
+export const ownerText = (userId: string): string => SAID.get(userId) ?? "";

@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "./i18n";
+import { pairRefetch } from "@/lib/pair-poll-pure";
 
 type View = { problem: string; pair: { code?: string; locked?: true; expiresAt: number } | null; devices: { id: string; name: string; createdAt: string; lastSeen: string | null }[];
   shortcuts?: { id: string; name: string; action: string; createdAt: string; lastSeen: string | null }[]; token?: string };
@@ -23,9 +24,16 @@ export function PhonePairing() {
   useEffect(() => { void call(); }, [call]);
   useEffect(() => {
     if (!v?.pair) return;
-    const h = setInterval(() => { setNow(Date.now()); if (Date.now() >= v.pair!.expiresAt) void call(); }, 1000);
+    let last = Date.now(), busy = false;
+    const h = setInterval(() => {
+      const t = Date.now(); setNow(t);
+      if (busy || !pairRefetch(v.pair, t, last)) return;
+      busy = true; last = t;
+      // a quiet re-read (no error flash, keeps a token shown once): the lock happens while the code is on screen
+      void fetch("/api/remote/owner").then((r) => (r.ok ? r.json() : null)).then((j) => j && setV((old) => ({ ...j, token: old?.token }))).catch(() => {}).finally(() => { busy = false; });
+    }, 1000);
     return () => clearInterval(h);
-  }, [v?.pair, call]);
+  }, [v?.pair]);
   const left = v?.pair ? Math.max(0, Math.ceil((v.pair.expiresAt - now) / 1000)) : 0;
   return (
     <section className="space-y-3" aria-labelledby="phone-title">
