@@ -805,7 +805,7 @@ function JobFitSection() {
   return (
     <section className="space-y-2" aria-label={t("jobs.title")}>
       <b className="text-sm">{t("jobs.title")}</b> <span className="muted text-xs">{t("jobs.hint")}</span>
-      <textarea className="field h-24 w-full text-xs" value={posting} onChange={(e) => setPosting(e.target.value)} placeholder={t("jobs.paste")} maxLength={8000} />
+      <textarea aria-label={t("jobs.paste")} className="field h-24 w-full text-xs" value={posting} onChange={(e) => setPosting(e.target.value)} placeholder={t("jobs.paste")} maxLength={8000} />
       <button className="btn" disabled={busy || posting.trim().length < 80} onClick={run}>{busy ? t("jobs.busy") : t("jobs.run")}</button>
       {err && <p className="error text-xs" role="alert">{err}</p>}
       {r && <div className="space-y-1 text-xs">
