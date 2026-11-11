@@ -22,7 +22,7 @@ import { fixHint, prepareArgs } from "./mcp-schemas-pure";
 import { ACTION_BLOCK, doneGate, mcpCliFiles, exposedTools, mcpEvent, mcpToolList, toolDocs, tokenOk } from "./core-mcp-pure";
 import type { Turn } from "./core-sdk";
 import { boostTurn } from "./core-mcp-boost";
-import { stripSkills } from "./core-mcp-boost-pure";
+import { needsOpus, stripSkills } from "./core-mcp-boost-pure";
 
 type McpTurn = Turn & { question: string; tools: CoreEvalTool[] };
 type Handlers = { tools: () => unknown; call: (name: string, args: Record<string, unknown>) => Promise<unknown>; stop: (body: Record<string, unknown>) => unknown; pre?: (body: Record<string, unknown>) => unknown };
@@ -58,10 +58,10 @@ const MCP_ENV = { MCP_TOOL_TIMEOUT: "180000", MCP_TIMEOUT: "30000" };
 const TURN_CAP_MS = 280_000; // the turn's own deadline (core.ts runCoreFor) aborts first; this only bounds a stuck CLI
 
 /** Runs the turn; same contract as core-sdk.ts sdkTurn (escalated: the fast model reached for a tool, core.ts redoes it on the main model). */
-export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: string; escalated?: boolean }> {
+export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: string; escalated?: boolean; opus?: boolean }> {
   const ac = new AbortController();
   const signal = t.signal ? AbortSignal.any([t.signal, ac.signal]) : ac.signal;
-  let escalated = false, blocks = 0, hookSeen = false;
+  let escalated = false, opus = false, blocks = 0, hookSeen = false;
   const one = serial(); // parallel tool calls run one at a time, so each decide() sees the steps before it (as the SDK engine)
   const names = exposedTools(sdkTools([...MODULE_TOOLS, ...pluginToolNames()]), t.policy());
   // every tool is listed natively with its own description here, so the JSON loop's MODULE TOOLS pointer doesn't apply
@@ -70,7 +70,8 @@ export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: st
   const list = mcpToolList(names, toolDocs(stripSkills(`${t.system}\n${MODULE_PROMPT}\n${pluginPromptNow()}`), names), pluginSchemasNow());
   const call = (name: string, raw: Record<string, unknown>) => one(async () => {
     if (!names.includes(name)) return toolResult(`Error: unknown tool "${name.slice(0, 60)}"; call only the tools listed for this turn`);
-    if (t.escalate && b.route.tier === "fast") { escalated = true; ac.abort(); return toolResult("Error: stopped"); }
+    opus = !b.route.risky && needsOpus(name, b.route.model); // a usage-limit step-down below Opus counts too
+    if ((t.escalate && b.route.tier === "fast") || opus) { escalated = true; ac.abort(); return toolResult("Error: stopped"); }
     const prepared = prepareArgs(name, raw); // JSON-string arrays → arrays, required props checked with a how-to-call error
     if ("error" in prepared) return toolResult(prepared.error);
     const input = prepared.args;
@@ -119,7 +120,7 @@ export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: st
     }));
     let r;
     try { r = await run(b.prompt); }
-    catch (e) { if (escalated && !t.signal?.aborted) return { text: "", sessionId: t.session?.id ?? "", escalated }; throw e; }
+    catch (e) { if (escalated && !t.signal?.aborted) return { text: "", sessionId: t.session?.id ?? "", escalated, opus }; throw e; }
     // No Stop hook ran (hooks off in this CLI): the same check after the run, with one automatic continue.
     const open = !hookSeen && !escalated ? await b.beforeGate() : "";
     const after = !hookSeen && !escalated ? gate() : { block: false as const };
