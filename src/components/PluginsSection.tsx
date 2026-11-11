@@ -5,7 +5,7 @@ import { usePoll } from "./use-poll";
 import type { Gate, Mode, Pending, SUGGESTED } from "@/lib/plugins-pure";
 
 type Tool = Gate & { id: string; name: string; description: string; check: "checked" | "partial" | "unchecked" | "refused"; schemaError?: string };
-type P = { name: string; command?: string; args: string[]; url?: string; env: Record<string, string>; headers?: Record<string, string>; enabled: boolean; local: boolean; others?: Mode; timeoutSec: number; note?: string;
+type P = { name: string; command?: string; args: string[]; url?: string; env: Record<string, string>; headers?: Record<string, string>; oauth?: boolean; signedIn?: boolean; enabled: boolean; local: boolean; others?: Mode; timeoutSec: number; note?: string;
   cache?: { at: string; error?: string }; tools: Tool[]; settings: Record<string, Mode> };
 export type PluginsView = { plugins: P[]; pending: Pending[]; suggested: typeof SUGGESTED; vault: string; stopAll: boolean; out?: string; tested?: number };
 
@@ -75,6 +75,9 @@ export function PluginsSection() {
               <label><input type="checkbox" checked={p.enabled} onChange={(e) => void call({ action: "update", name: p.name, enabled: e.target.checked })} /> enabled</label>
               <label title="A program on this PC that doesn't reach the internet. Only then can its changing tools run without asking."><input type="checkbox" checked={p.local} onChange={(e) => void call({ action: "update", name: p.name, local: e.target.checked })} /> local app only</label>
               <button className="chip" disabled={!!busy} onClick={() => void call({ action: "test", name: p.name }, "test:" + p.name)}>{busy === "test:" + p.name ? "Connecting…" : "Test connection"}</button>
+              {p.oauth && (p.signedIn
+                ? <button className="chip" disabled={!!busy} onClick={() => void call({ action: "signout", name: p.name })}>Sign out</button>
+                : <a className="chip" href={`/api/plugins/oauth?name=${encodeURIComponent(p.name)}`}>Sign in</a>)}
               <button className="chip" onClick={() => confirm(`Remove plugin ${p.name}?`) && void call({ action: "remove", name: p.name })}>Remove</button>
             </div>
             {p.cache?.error && <p className="text-xs text-red-400">Last test failed: {p.cache.error}</p>}
@@ -110,7 +113,7 @@ export function PluginsSection() {
       </details>
       <details className="text-sm" open={!!draft}>
         <summary className="cursor-pointer">Add a plugin</summary>
-        <p className="muted mt-1 text-xs">JSON: name, command + args (a program on this PC) or url (https) + headers (e.g. a sign-in token), env, local, tools {"{"}"tool": "auto"|"ask"|"off"{"}"}, others (default for unlisted tools). Saved only on this PC (plugins.json in ORBIT&apos;s data folder), never in git.</p>
+        <p className="muted mt-1 text-xs">JSON: name, command + args (a program on this PC) or url (https) + headers (e.g. a sign-in token) or "oauth": true (browser Sign in, opened from http://127.0.0.1:3000), env, local, tools {"{"}"tool": "auto"|"ask"|"off"{"}"}, others (default for unlisted tools). Saved only on this PC (plugins.json in ORBIT&apos;s data folder), never in git.</p>
         <textarea className="field mt-1 h-40 w-full font-mono text-xs" value={draft} onChange={(e) => setDraft(e.target.value)} aria-label="Plugin JSON" placeholder='{"name": "files", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\\\path"]}' />
         <button className="chip" disabled={!draft.trim() || !!busy} onClick={() => void add()}>Add</button>
       </details>

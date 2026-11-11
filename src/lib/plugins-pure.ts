@@ -20,6 +20,7 @@ export type CachedTool = { name: string; description: string; annotations: Annot
 export type Plugin = {
   name: string; command?: string; args: string[]; env: Record<string, string>; url?: string; enabled: boolean; local: boolean;
   headers?: Record<string, string>; // http only: sent with every request (a sign-in token); masked like env, never logged
+  oauth?: true; // http only: browser sign-in (MCP authorization: discovery, dynamic registration, PKCE); tokens live in plugin-oauth/<name>.json, never here
   tools: Record<string, Mode>; others?: Mode; timeoutSec: number; note?: string;
   cache?: { at: string; tools: CachedTool[]; error?: string };
 };
@@ -69,6 +70,9 @@ export function validatePlugin(b: unknown): Plugin | string {
       headers[k] = v;
     }
   }
+  if (o.oauth !== undefined && o.oauth !== true && o.oauth !== false) return "oauth: true or false";
+  if (o.oauth === true && !url) return "oauth is for http plugins (url) only";
+  if (o.oauth === true && Object.keys(headers).length) return "use either oauth sign-in or a token in headers, not both";
   const tools: Record<string, Mode> = {};
   if (o.tools !== undefined) {
     if (!o.tools || typeof o.tools !== "object" || Array.isArray(o.tools)) return "tools must be an object of tool → auto|ask|off";
@@ -80,6 +84,7 @@ export function validatePlugin(b: unknown): Plugin | string {
   const p: Plugin = { name, args: args as string[], env, enabled: o.enabled !== false, local: o.local === true, tools, timeoutSec: t };
   if (command) p.command = command; else p.url = url;
   if (Object.keys(headers).length) p.headers = headers;
+  if (o.oauth === true) p.oauth = true;
   if (o.others !== undefined) p.others = o.others as Mode;
   const note = str(o.note, 300);
   if (note) p.note = note;
@@ -335,11 +340,12 @@ const mask = (o: Record<string, string>) => Object.fromEntries(Object.keys(o).ma
 export const publicPlugin = (p: Plugin) => ({ ...p, env: mask(p.env), ...(p.headers && { headers: mask(p.headers) }) });
 
 /** Why a connection failed, in his words. An http server that refuses the sign-in (401/403) points at the token, never shows it. */
-export function connectError(e: unknown, p: Pick<Plugin, "url" | "headers">): string {
+export function connectError(e: unknown, p: Pick<Plugin, "url" | "headers" | "oauth">, secrets: readonly string[] = []): string {
   const code = (e as { code?: unknown })?.code;
+  if (p.oauth && (code === 401 || code === 403 || (e as Error)?.name === "UnauthorizedError" || (e as Error)?.message === SIGN_IN_FIRST)) return SIGN_IN_FIRST;
   if (p.url && (code === 401 || code === 403)) return p.headers ? `sign-in refused (HTTP ${code}): check the token in this plugin's headers, it may have expired` : `this server needs a sign-in (HTTP ${code}): add its token under "headers", e.g. {"Authorization": "Bearer …"}`;
   let m = (e instanceof Error ? e.message : String(e)).slice(0, 300);
-  for (const v of Object.values(p.headers ?? {})) if (v.length >= 8) m = m.split(v).join("•••"); // a server echoing the token back
+  for (const v of [...Object.values(p.headers ?? {}), ...secrets]) if (v.length >= 8) m = m.split(v).join("•••"); // a server echoing the token back
   return m;
 }
 
@@ -376,3 +382,29 @@ export const SUGGESTED: { title: string; about: string; install: string; plugin:
     plugin: { name: "notion", command: "npx", args: ["-y", "@notionhq/notion-mcp-server"], env: { NOTION_TOKEN: "" }, local: false },
   },
 ];
+
+// ---- OAuth sign-in for http plugins (IO: plugins.ts, route /api/plugins/oauth). The SDK does discovery, registration, PKCE and the
+// token requests; these are the parts ORBIT decides. ----
+export const SIGN_IN_FIRST = "not signed in (or the sign-in expired): click Sign in for this plugin in Profile → Plugins";
+export const OAUTH_PATH = "/api/plugins/oauth";
+export const STATE_TTL_MS = 10 * 60_000;
+export const REFRESH_SKEW_MS = 2 * 60_000;
+/** The redirect_uri: only when he opened ORBIT at 127.0.0.1 (so ORBIT's session cookie comes back with the redirect); never
+ *  localhost, a LAN name or a proxy host. */
+export function oauthRedirect(host: string | null | undefined): string | null {
+  const m = /^127\.0\.0\.1:(\d{1,5})$/.exec(host ?? "");
+  return m ? `http://127.0.0.1:${m[1]}${OAUTH_PATH}` : null;
+}
+/** state = "<plugin>.<random>": the callback finds the plugin from it, then compares the whole value with the saved one. */
+export const makeState = (name: string, random: string) => `${name}.${random}`;
+export function stateName(state: string | null | undefined): string | null {
+  const i = (state ?? "").indexOf(".");
+  const name = i > 0 ? state!.slice(0, i) : "";
+  return NAME.test(name) && state!.length - i > 16 ? name : null;
+}
+/** A saved state only counts once and for 10 minutes (the caller also compares it in constant time). */
+export const stateFresh = (at: string | undefined, now: number) => !!at && now - Date.parse(at) >= 0 && now - Date.parse(at) < STATE_TTL_MS;
+/** expires_in (seconds) → absolute ms; none given = unknown (refreshed only when the server says 401). */
+export const expiresAt = (expiresIn: unknown, now: number) => (typeof expiresIn === "number" && expiresIn > 0 ? now + expiresIn * 1000 : undefined);
+/** Refresh ahead of expiry, so a tool call never starts on a token about to die. */
+export const needsRefresh = (exp: number | undefined, now: number) => exp !== undefined && exp - now < REFRESH_SKEW_MS;
