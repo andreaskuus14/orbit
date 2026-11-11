@@ -5,6 +5,7 @@ import path from "node:path";
 import { buildAss, type Word } from "./pure.ts";
 import { assembleArgs, dialogueAss, dramaArgs, hfErrorKind, lineTimes, payable, rankTitles, submittable, thumbAss, thumbShots, sceneSecs, scriptWords, unpaid, DRAMA, type DramaShot, type HfErrorKind, type StoryJob } from "./story-pure.ts";
 import type { HiggsfieldAdapter } from "./higgsfield.ts";
+import { parseStats, reviewArgs, sampleTimes, verdict, type SceneReview } from "./frame-review-pure.ts";
 
 export class StoryError extends Error {
   kind: HfErrorKind;
@@ -86,6 +87,24 @@ async function poll(job: StoryJob, d: Pick<RenderDeps, "hf" | "save" | "pollMs">
   }
 }
 
+/** Looks at 3–5 key frames of every scene before the render (frame-review-pure.ts). A blank scene stops here, before any
+ *  assembly time is spent; weak frames become warnings on the clip. A frame ffmpeg can't measure is skipped, never judged. */
+export async function reviewFrames(job: StoryJob, dir: string, d: Pick<RenderDeps, "ffmpeg" | "duration" | "save">, signal: AbortSignal): Promise<void> {
+  await d.save("Checking key frames");
+  const scenes: SceneReview[] = [];
+  for (const [i, s] of job.story.scenes.entries()) {
+    const file = job.items.find((it) => it.kind !== "audio" && it.scene === i)?.file;
+    if (!file) continue;
+    const video = /\.(mp4|mov|webm)$/i.test(file), sec = video ? await d.duration(file, signal).catch(() => s.sec) : 0;
+    const frames = [];
+    for (const t of sampleTimes(sec || s.sec, video)) frames.push(parseStats(await d.ffmpeg(reviewArgs(file, t), dir, signal).catch((e) => { if (signal.aborted) throw e; return ""; })));
+    scenes.push({ scene: i, frames });
+  }
+  const v = verdict(scenes);
+  job.warnings.push(...v.warn);
+  if (v.stop.length) throw new StoryError("other", `${v.stop.join("; ")}: regenerate ${v.stop.length > 1 ? "those scenes" : "that scene"} before rendering (nothing was assembled)`);
+}
+
 export type Made = { video: string; thumb?: string; duration: number; thumbs?: string[]; titles?: { text: string; score: number }[] };
 /** Runs the paid part (submit once, poll, download) then assembles; null when a later approval is still needed (drama: the
  *  character images are made, the shots are not priced yet). Resumable: submitted jobs and downloaded files are reused. */
@@ -93,6 +112,7 @@ export async function makeStory(job: StoryJob, dir: string, d: RenderDeps, signa
   const scenes = job.story.scenes;
   await generate(job, dir, d, signal);
   if (unpaid(job.items).length) return null;
+  await reviewFrames(job, dir, d, signal);
   if (job.opts.format === "drama") return makeDrama(job, dir, d, signal);
   // 4. Narration: Higgsfield audio, local Kokoro, or none (then the captions still tell the story).
   const voice = job.opts.voice, narr: (string | undefined)[] = [];
