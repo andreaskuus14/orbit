@@ -204,3 +204,13 @@ test("Fable #551: owner proof is his own words, data-owner proves nothing, unclo
   assert.equal(floor([{ path: "index.html", text: `<html><head><title>${words(119)}</title></head><body>${pic}<h1>Hi</h1></body></html>` }]).length, 1, "<title> text doesn't count");
   for (const h of ["<h2>05 jaanuar kontsert</h2>", "<h2>07 days in Lisbon</h2>", "<h2>09 AM yoga</h2>"]) assert.ok(!page(`<h1>Hi</h1>${h}`).some((i) => /section numbers/.test(i)), h);
 });
+
+test("Fable #551: a quote that is only in an attached file is flagged; only his typed text is owner proof", async () => {
+  const { readFileSync } = await import("node:fs");
+  const typed = "build a site for my bakery, see the attached file"; // the attached file says: Mari said "Best rye in town"
+  const issues = lintSite({ html: [{ path: "index.html", text: '<html lang="en"><meta name="viewport" content="width=device-width"><body><h1>Hi</h1><blockquote data-proof="owner">Best rye in town – Mari</blockquote></body></html>' }], css: [{ path: "css/style.css", text: GOOD_CSS }], images: [], owner: typed });
+  assert.ok(issues.some((i) => /isn't in the owner's own|never invent/.test(i)));
+  const call = readFileSync(new URL("../src/lib/core.ts", import.meta.url), "utf8").match(/rememberOwnerText\([^;]*;/)?.[0] ?? "";
+  assert.ok(call && !/attach/.test(call), "attached files never feed owner proof");
+  assert.doesNotMatch(SITE_GUIDE, /plan\.md \(mark it data-proof|message or plan\.md/);
+});
