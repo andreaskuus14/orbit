@@ -53,7 +53,7 @@ export default function ReconcilePanel() {
       {r && (<>
         <p className="muted">{r.from} – {r.to}</p>
         <table className="w-full"><caption className="text-left font-semibold">Matched ({r.matched.length})</caption><tbody>
-          {r.matched.map((m) => <tr key={m.line.row}><td className="num">{m.line.day}</td><td>{m.line.name}</td><td>{m.invoice.number} · {m.invoice.buyer.name}</td><td className="muted">{m.by}</td>
+          {r.matched.map((m) => <tr key={m.line.row}><td className="num">{m.line.day}</td><td>{m.line.name} <span className="muted">{m.line.text}</span></td><td>{m.invoice.number} · {m.invoice.buyer.name}</td><td className="muted">{m.by}</td>
             <td className="num text-right">{euro(m.line.cents)}</td>
             <td className="text-right">{m.markPaid ? <button className="chip" disabled={busy} onClick={() => void markPaid(m.markPaid!.id, m.markPaid!.paidOn)}>Mark paid {m.markPaid.paidOn}</button> : <span className="muted">paid {m.invoice.paidAt}</span>}</td></tr>)}
         </tbody></table>

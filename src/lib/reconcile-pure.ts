@@ -1,7 +1,7 @@
 // Bank reconcile (ticket B3), pure, tested in tests/reconcile.test.ts. UI: ReconcilePanel.tsx inside BUSINESS → Money.
 // His bank CSV is read in the browser and never uploaded, stored or sent to a model. Nothing changes on its own: the result lists
 // "mark paid" suggestions and he applies each one with a click (the existing invoices status action). Money is integer cents only.
-import { addDays, totals, refunded, type Invoice } from "./invoices-pure.ts";
+import { addDays, totals, type Invoice } from "./invoices-pure.ts";
 
 export type Format = "swedbank" | "seb" | "lhv" | "generic";
 export type Field = "day" | "amount" | "dk" | "ref" | "name" | "text";
@@ -38,12 +38,15 @@ export function splitCsv(text: string): string[][] {
 }
 
 /** Format from the header row, and the column mapping when the bank is known. */
+const ROW_TYPE = ["reatüüp", "row type", "record type", "line type"]; // Swedbank, Estonian and English headers
+const BALANCE = /\b(algsaldo|lõppsaldo|käive|saldo|opening balance|closing balance|turnover|balance)\b/i;
+
 export function detect(header: string[]): { format: Format; mapping: Mapping } {
   const h = header.map((x) => x.trim().toLowerCase());
   const mapping: Mapping = {};
   for (const f of Object.keys(NAMES) as Field[]) { const i = h.findIndex((x) => NAMES[f].includes(x)); if (i >= 0) mapping[f] = i; }
   const has = (x: string) => h.includes(x);
-  const format: Format = has("reatüüp") ? "swedbank"
+  const format: Format = h.some((x) => ROW_TYPE.includes(x)) ? "swedbank"
     : has("kande viide") || has("customer account no") || (has("kliendi konto") && has("tühi")) ? "lhv"
     : has("konto number") || has("tühi") || has("empty") ? "seb" : "generic";
   return { format, mapping: format === "generic" && (mapping.day === undefined || mapping.amount === undefined) ? {} : mapping };
@@ -54,7 +57,7 @@ export function parseCents(v: string): number | null {
   let s = v.replace(/[\s €]/g, "");
   const neg = s.startsWith("-") || (s.startsWith("(") && s.endsWith(")"));
   s = s.replace(/^[-+(]|\)$/g, "");
-  const m = /^(\d{1,3}(?:([.,' ])\d{3})*|\d+)(?:([.,])(\d{1,2}))?$/.exec(s);
+  const m = /^([1-9]\d{0,2}(?:([.,' ])\d{3})+|\d+)(?:([.,])(\d{1,2}))?$/.exec(s);
   if (!m || (m[2] && m[3] === m[2])) return null;
   const whole = m[1].replace(/[.,' ]/g, ""), frac = (m[4] ?? "").padEnd(2, "0");
   const c = Number(whole) * 100 + Number(frac);
@@ -81,10 +84,11 @@ export function parseBank(text: string, mapping?: Mapping): Parsed {
   if (!rows.length) return { ...out, problem: "The file is empty" };
   if (rows.length > MAX_ROWS + 1) return { ...out, problem: `At most ${MAX_ROWS} rows` };
   if (map.day === undefined || map.amount === undefined) return { ...out, problem: "Pick the date and amount columns" };
-  const typeCol = header.findIndex((x) => x.trim().toLowerCase() === "reatüüp");
+  const typeCol = header.findIndex((x) => ROW_TYPE.includes(x.trim().toLowerCase()));
   rows.slice(1).forEach((r, k) => {
     const row = k + 2, get = (f: Field) => (map[f] === undefined ? "" : (r[map[f]!] ?? "").trim());
     if (typeCol >= 0 && r[typeCol]?.trim() !== "20") return; // Swedbank: 10/82/86 are balance and turnover rows, 20 is a payment
+    if (typeCol < 0 && BALANCE.test(get("text") + " " + get("name"))) { out.skipped.push(row); return; } // unknown row type: a balance line is never income
     const day = parseDay(get("day")), c = parseCents(get("amount"));
     if (!day || c === null) { out.skipped.push(row); return; }
     const dk = get("dk").toUpperCase();
@@ -101,7 +105,7 @@ export type Match = { line: BankLine; invoice: Invoice; by: "reference" | "numbe
 export type Month = { month: string; bank: number; invoices: number; diff: number }; // diff = bank − invoices, in cents
 export type Report = { from: string; to: string; matched: Match[]; bankOnly: BankLine[]; paidNoBank: Invoice[]; months: Month[] };
 
-const owed = (i: Invoice) => totals(i).gross - refunded(i);
+const owed = (i: Invoice) => totals(i).gross; // the payment was the full gross; refunds are their own money-out lines
 const inWindow = (i: Invoice, day: string) =>
   i.status === "paid" && i.paidAt ? Math.abs(Date.parse(day) - Date.parse(i.paidAt)) <= PAID_SLACK * 86_400_000
     : day >= addDays(i.issued, -EARLY_DAYS) && day <= addDays(i.due, LATE_DAYS);

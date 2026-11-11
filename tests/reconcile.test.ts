@@ -74,3 +74,31 @@ test("two equal open invoices with no reference are left for him, not guessed", 
   assert.equal(r.matched.length, 0);
   assert.equal(r.bankOnly.length, 1);
 });
+
+test("Swedbank English header drops balance/turnover rows; unknown row type never treats a balance as income", () => {
+  const en = '"Client account";"Row type";"Date";"Beneficiary/Payer";"Details";"Amount";"Currency";"Debit/Credit";"Archive ID";"Transaction type";"Reference number";"Document number"\n'
+    + '"EE1";"10";"01.10.2026";"";"Opening balance";"1 000,00";"EUR";"K";"";"AS";"";""\n'
+    + '"EE1";"20";"05.10.2026";"Cake";"Invoice";"620,00";"EUR";"K";"";"MK";"20260011";""\n'
+    + '"EE1";"82";"31.10.2026";"";"Turnover";"620,00";"EUR";"K";"";"KL";"";""\n"EE1";"86";"31.10.2026";"";"Closing balance";"1 620,00";"EUR";"K";"";"LS";"";""\n';
+  const p = parseBank(en);
+  assert.equal(p.format, "swedbank");
+  assert.deepEqual(p.lines.map((l) => l.cents), [62000]);
+  const rec = parseBank(en.replace('"Row type"', '"Record type"'));
+  assert.deepEqual(rec.lines.map((l) => l.cents), [62000]);
+  const g = parseBank("Date,Text,Amount\n01.10.2026,Algsaldo,1000\n05.10.2026,Pay,620\n", { day: 0, text: 1, amount: 2 });
+  assert.deepEqual(g.lines.map((l) => l.cents), [62000]);
+});
+
+test("a paid invoice with a later refund still matches its full payment", () => {
+  const c = inv("c", 25000, [], "2026-11-12");
+  c.refunds = [{ day: "2026-11-20", cents: 5000, note: "partial", at: "x" }];
+  const r = reconcile(parseBank(fx("lhv.csv")).lines, [c]);
+  assert.deepEqual(r.matched.map((m) => m.invoice.id), ["c"]);
+  assert.equal(r.months[0].diff, 0);
+});
+
+test("sub-cent amounts are refused", () => {
+  assert.equal(parseCents("0,005"), null);
+  assert.equal(parseCents("0,05"), 5);
+  assert.equal(parseCents("1 234,50"), 123450);
+});
