@@ -23,10 +23,11 @@ export const dynamic = "force-dynamic";
 // "*" so `template` comes back when 0015 has run and reads still work before it.
 const COLS = "*";
 // Before 0026 there is no drafted_at column: save the draft without it (Auto then never sends it).
+const noColumn = (e: { code?: string } | null) => e?.code === "42703" || e?.code === "PGRST204";
 type Saved = { data: unknown; error: { message: string; code?: string } | null };
 async function saveDraft(save: (patch: object) => PromiseLike<Saved>, patch: { drafted_at: string; [k: string]: unknown }): Promise<Saved> {
   const r = await save(patch);
-  if (r.error?.code !== "42703") return r;
+  if (!noColumn(r.error)) return r;
   const { drafted_at: _, ...rest } = patch;
   return save(rest);
 }
@@ -155,7 +156,7 @@ export async function POST(req: Request) {
         void logEvent({ id: b.id as string, name: p.name, contact: "" }, "draft", followup ? "follow-up" : template ?? undefined);
         if (!template || p.stage !== "lead") return one(saveDraft(save, patch));
         const tagged = await save({ ...patch, template });
-        return one(Promise.resolve(tagged.error?.code === "42703" ? saveDraft(save, patch) : tagged)); // no column before 0015: save untagged
+        return one(Promise.resolve(noColumn(tagged.error) ? saveDraft(save, patch) : tagged)); // no column before 0015: save untagged
       } catch (e) {
         if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
         return fail(`Couldn't draft: ${e instanceof Error ? e.message : "unknown error"}`, 502);

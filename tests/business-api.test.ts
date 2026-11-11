@@ -7,13 +7,14 @@ import * as pure from "../src/lib/business-pure.ts";
 import * as crmPure from "../src/lib/prospect-crm-pure.ts";
 
 const code = ts.transpileModule(readFileSync(new URL("../src/app/api/business/route.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-function api(answer = "Tere! Kas minu eelmine idee võiks teile kasulik olla?", stage = "contacted", draft = "Tere! Pakun tasuta pilooti.", noTemplateColumn = false, heavy = false) {
+function api(answer = "Tere! Kas minu eelmine idee võiks teile kasulik olla?", stage = "contacted", draft = "Tere! Pakun tasuta pilooti.", noTemplateColumn = false, heavy = false, noDraftedAt = "") {
   const row = { id: "11111111-1111-1111-1111-111111111111", name: "Bakery", kind: "cakes", notes: "", draft, stage, updated_at: "2026-10-01T00:00:00Z" };
   const writes: object[] = [], asks: any[] = [];
   const sb = { from: () => {
     let patch: any;
     const q = { select: () => q, eq: () => q, update: (p: object) => { patch = p; return q; }, maybeSingle: async () => {
       if (patch && noTemplateColumn && "template" in patch) return { data: null, error: { code: "42703", message: "column prospects.template does not exist" } };
+      if (patch && noDraftedAt && "drafted_at" in patch) return { data: null, error: { code: noDraftedAt, message: "Could not find the 'drafted_at' column" } };
       if (patch) { writes.push(patch); Object.assign(row, patch); }
       return { data: { ...row }, error: null };
     } };
@@ -93,4 +94,14 @@ test("find API proceeds on the owner's click at 119% of the soft budget, with a 
   assert.equal(j.finds[0].name, "Cake Shop");
   assert.equal(j.pastBudget, true);
   assert.equal(a.asks[0][2].lane, "foreground");
+});
+
+test("draft and followup still save before migration 0026 (PostgREST PGRST204 for the missing drafted_at column)", async () => {
+  const a = api("Tere!", "lead", "", false, false, "PGRST204");
+  assert.equal((await a.post({ action: "draft", lang: "Estonian", angle: "speed" })).status, 200);
+  assert.equal(a.row.draft, "Tere!");
+  assert.equal("drafted_at" in a.writes[0], false);
+  const b = api(undefined, "contacted", "Tere! Pakun tasuta pilooti.", false, false, "PGRST204");
+  assert.equal((await b.request()).status, 200);
+  assert.equal("drafted_at" in b.writes[0], false);
 });
