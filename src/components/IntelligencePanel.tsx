@@ -201,7 +201,10 @@ export function IntelligencePanel() {
                 <div className="font-medium">{b.title}</div>
                 <div className="muted text-xs">{when(b.created_at)} · {b.article_count} articles · {b.citations.length} cited</div>
               </button>
-              {open === b.id && <div className="mt-3"><BriefingBody b={b} /></div>}
+              {open === b.id && <div className="mt-3">
+                {/* two-voice audio of this briefing (local Kokoro voices; the first play takes a minute to make it) */}
+                <audio className="w-full mb-3" controls preload="none" src={`/api/briefings/${b.id}/audio`} aria-label={`Listen: ${b.title}`} />
+                <BriefingBody b={b} /></div>}
             </li>
           ))}
           {!briefings.length && <li className="muted text-sm">No briefings yet. Press “World brief” or “My topics”.</li>}

@@ -1,4 +1,5 @@
 "use client";
+import { isBrief, withBrief } from "@/lib/brief-mode-pure";
 import { hereLink } from "./voice/object-command";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isSleepCommand } from "./voice/wake";
@@ -279,7 +280,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           partial += ev.text;
           say(voiceOut.push(ev.text));
           // One render per frame at most, and only the streaming bubble changes.
-          if (!raf) raf = requestAnimationFrame(() => { raf = 0; setLive(partial); });
+          if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (here()) setLive(partial); });
         } else if (ev.type === "step" || ev.type === "step_done") {
           steps = applyLive(steps, ev as unknown as LiveEvent); setRows(steps);
           if (ev.type === "step" && ev.tool) dispatchEvent(new CustomEvent<CoreSignal>(CORE_SIGNAL, { detail: { type: "step", tool: ev.tool } })); // the singularity shows it (E4)
@@ -485,7 +486,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
               {/* Citation numbers arrive with the final answer; hide raw [m:id] markers until then. */}
               {live && <><Markdown text={numberCitations(live, [])} openMemory={onOpenMemory} />
               <span aria-hidden className="inline-block h-4 w-1.5 translate-y-0.5 rounded-sm bg-current opacity-60" style={{ animation: "blink 1s steps(2) infinite" }} /></>}
-              <CoreActivity rows={rows} running streaming={!!live} since={since.current} taskId={bgTask} />
+              <CoreActivity rows={rows} running streaming={!!live} since={since.current} taskId={bgTask} projectName={chats.projects.find((p) => p.id === project)?.name} />
             </div>}
         <div ref={end} />
       </div>
@@ -719,7 +720,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   return (
     <WorkspaceFrame planet="memory" title={tr("mem.title")} views={views} view={view} onView={setView}
       context={tr("memws.context", { n: items.length, r: suggested.length })}
-      action={<span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>{tr("mem.beliefs")}</button><a className="link text-xs" href="/api/export">{tr("mem.export")}</a></span>}>
+      action={<span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>{tr("mem.beliefs")}</button><a className="link text-xs" href="/api/export">{tr("mem.export")}</a><a className="link text-xs" href="/api/export/obsidian">{tr("mem.exportObsidian")}</a></span>}>
       {err && view !== "recent" && <p className="error" role="alert">{err}</p>}
       {view === "search" && (episodesOnly ? <><div className="flex gap-2">{chips}</div><EpisodesList onOpen={setFocus} /></>
         : <MemorySearch recent={learned(items)} hits={learned(hits)} searched={q} mode={mode} onSearch={(x) => (x ? void load(x) : setQ(""))} row={row}>{chips}</MemorySearch>)}
@@ -793,6 +794,32 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
 /* ---------------- PROFILE ---------------- */
 const LIST_FIELDS = [["interests", "profile.interests"], ["projects", "profile.projects"], ["goals", "profile.goals"], ["news_topics", "profile.news_topics"], ["research_priorities", "profile.research_priorities"]] as const;
 
+/** Job fit: paste a posting → score, gaps and draft texts. Drafts only: ORBIT never applies or sends anything. */
+function JobFitSection() {
+  const { t } = useT();
+  const [posting, setPosting] = useState(""), [busy, setBusy] = useState(false), [err, setErr] = useState("");
+  const [r, setR] = useState<{ score: number; verdict: string; matches: string[]; gaps: string[]; cvSummary: string; coverLetter: string } | null>(null);
+  async function run() {
+    setBusy(true); setErr(""); setR(null);
+    try { setR(await api("/api/jobs/fit", { method: "POST", body: JSON.stringify({ posting }) })); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+  return (
+    <section className="space-y-2" aria-label={t("jobs.title")}>
+      <b className="text-sm">{t("jobs.title")}</b> <span className="muted text-xs">{t("jobs.hint")}</span>
+      <textarea aria-label={t("jobs.paste")} className="field h-24 w-full text-xs" value={posting} onChange={(e) => setPosting(e.target.value)} placeholder={t("jobs.paste")} maxLength={8000} />
+      <button className="btn" disabled={busy || posting.trim().length < 80} onClick={run}>{busy ? t("jobs.busy") : t("jobs.run")}</button>
+      {err && <p className="error text-xs" role="alert">{err}</p>}
+      {r && <div className="space-y-1 text-xs">
+        <p><b>{r.score}/100</b> · {t(r.verdict === "apply" ? "jobs.apply" : r.verdict === "stretch" ? "jobs.stretch" : "jobs.skip")}</p>
+        {r.matches.length > 0 && <ul className="list-disc pl-4">{r.matches.map((m) => <li key={m}>{m}</li>)}</ul>}
+        {r.gaps.length > 0 && <><p className="muted">{t("jobs.gaps")}</p><ul className="list-disc pl-4">{r.gaps.map((g) => <li key={g}>{g}</li>)}</ul></>}
+        <p className="muted">{t("jobs.cv")}</p><p className="whitespace-pre-wrap">{r.cvSummary}</p>
+        <p className="muted">{t("jobs.letter")}</p><p className="whitespace-pre-wrap">{r.coverLetter}</p>
+      </div>}
+    </section>
+  );
+}
+
 export function ProfilePanel() {
   const { t } = useT();
   const [p, setP] = useState<Record<string, string>>({});
@@ -821,9 +848,11 @@ export function ProfilePanel() {
         <label key={k} className="block text-sm">{t(label)} <span className="muted">{t("profile.comma")}</span>
           <input className="field mt-1 w-full" value={p[k] ?? ""} onChange={(e) => setP({ ...p, [k]: e.target.value })} /></label>
       ))}
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isBrief(p.communication)} onChange={(e) => setP({ ...p, communication: withBrief(p.communication ?? "", e.target.checked) })} /> {t("profile.brief")} <span className="muted text-xs">{t("profile.briefHint")}</span></label>
       <label className="block text-sm">{t("profile.talk")}<textarea className="field mt-1 h-20 w-full" value={p.communication ?? ""} onChange={(e) => setP({ ...p, communication: e.target.value })} maxLength={1000} /></label>
       <button className="btn">{t("profile.save")}</button> {msg && <span className="muted text-sm">{msg}</span>}
     </form>
+    <JobFitSection />
     <PasswordSection />
     <AutonomySection />
     <CoreEngineSection />

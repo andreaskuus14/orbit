@@ -13,7 +13,7 @@ import {
   INDEX_FILE, INDEX_TEXT_MAX, PREVIEW_BYTES, extractType, kindOf, parseRange, renameTarget, sanitizeName, snippet, uniqueName, uploadError, type VaultFile,
 } from "./vault-pure.ts";
 import {
-  META_FILE, TRASH_DIR, byName, coverageOf, expired, expiresAt, fromTrash, newMeta, parseMeta, reconcile, recordSync, renamed, resolveRef, retryQueue,
+  META_FILE, TRASH_DIR, byName, coverageOf, nameIndex, expired, expiresAt, fromTrash, newMeta, parseMeta, reconcile, recordSync, renamed, resolveRef, retryQueue,
   syncState, toTrash, typeMismatch, type Coverage, type Meta, type SyncState,
 } from "./vault-meta-pure.ts";
 
@@ -219,8 +219,9 @@ export async function listDetailed(cloud: Map<string, number> | null): Promise<L
   let m = await readMeta();
   if (reconcile(structuredClone(m), files, () => "x", 0)) m = await updateMeta((mm) => { reconcile(mm, files, mkId, now()); return mm; }).catch(() => m);
   const idx = g.__orbitVaultIdx?.data ?? {};
+  const rec = nameIndex(m);
   return files.map((f) => {
-    const r = byName(m, f.name);
+    const r = rec.get(f.name);
     const cov = extractType(f.name, DOCX) ? idx[f.name]?.cov ?? (idx[f.name] ? "indexed" : null) : "unsupported";
     return { ...f, id: r?.id ?? "", version: r?.version ?? 1, hash: r?.hash ?? null, sync: syncState(r, cloud ? cloud.has(f.name) : undefined), lastSync: r?.lastSync ?? null, syncError: r?.syncError ?? null, cov };
   });
@@ -236,14 +237,14 @@ export async function readStream(name: unknown, rangeHeader: string | null) {
   return { size, range, stream: Readable.toWeb(node) as unknown as ReadableStream<Uint8Array> };
 }
 
-/** First 20 KB of a text/code file. */
-export async function previewText(name: unknown): Promise<{ text: string; truncated: boolean }> {
+/** First 20 KB (or `bytes`) of a text/code file. */
+export async function previewText(name: unknown, bytes = PREVIEW_BYTES): Promise<{ text: string; truncated: boolean }> {
   const p = await filePath(name);
   if (kindOf(name as string) !== "text") throw new VaultError("No text preview for this type", 415);
   const fh = await open(p, "r");
   try {
-    const buf = Buffer.alloc(PREVIEW_BYTES);
-    const { bytesRead } = await fh.read(buf, 0, PREVIEW_BYTES, 0);
+    const buf = Buffer.alloc(bytes);
+    const { bytesRead } = await fh.read(buf, 0, bytes, 0);
     const size = (await fh.stat()).size;
     return { text: buf.subarray(0, bytesRead).toString("utf8").replace(/�$/, ""), truncated: size > bytesRead };
   } finally { await fh.close(); }
@@ -346,7 +347,7 @@ export async function readVaultText(name: string, maxChars = 8000): Promise<stri
   try {
     name = path.basename(await filePath(name)); // a renamed file's old name still resolves
     if (extractType(name, DOCX)) return ((await freshIndex())[name]?.text ?? "").slice(0, maxChars) || null;
-    if (kindOf(name) === "text") return (await previewText(name)).text.slice(0, maxChars);
+    if (kindOf(name) === "text") return (await previewText(name, Math.max(PREVIEW_BYTES, maxChars * 4))).text.slice(0, maxChars); // up to 4 UTF-8 bytes a char
     return null;
   } catch { return null; }
 }
@@ -425,7 +426,7 @@ export async function syncToCloud(sb: SupabaseClient, uid: string) {
   const cloud = await cloudList(sb, uid, true);
   const files = await listVault();
   // Already in the cloud (e.g. an upload that timed out after it landed): mark it, never upload it again.
-  await updateMeta((m) => { for (const f of files) { const r = byName(m, f.name); if (r && cloud.has(f.name) && r.sync !== "cloud" && r.sync !== "restored") { r.sync = "cloud"; r.syncError = null; } } }).catch(() => {});
+  await updateMeta((m) => { const rec = nameIndex(m); for (const f of files) { const r = rec.get(f.name); if (r && cloud.has(f.name) && r.sync !== "cloud" && r.sync !== "restored") { r.sync = "cloud"; r.syncError = null; } } }).catch(() => {});
   const size = new Map(files.map((f) => [f.name, f.size]));
   const missing = retryQueue(files, await readMeta(), cloud).filter((n) => size.get(n)! <= CLOUD_MAX).map((name) => ({ name, size: size.get(name)! }));
   let uploaded = 0, failed = 0, firstError: string | null = null, tried = 0;

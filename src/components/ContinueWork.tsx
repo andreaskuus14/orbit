@@ -14,10 +14,17 @@ export function ContinueWork({ floating = false, onOpenTask, onOpenGoal }: { flo
     setLoading(true);
     try {
       const r = await fetch("/api/continue", { signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]) });
-      if (!r.ok) throw new Error("Couldn't load your unfinished work.");
+      if (signal.aborted) return;
+      if (r.status === 401 || r.status === 403) {
+        setData(null);
+        setUpdatedAt(null);
+        setError(r.status === 401 ? "Sign in to see your work, then refresh." : "You don’t have access to this work.");
+        return;
+      }
+      if (!r.ok) throw new Error("Couldn’t load your unfinished work.");
       const next = await r.json() as WorkSummary;
       if (!signal.aborted) { setData(next); setError(""); setUpdatedAt(new Date()); }
-    } catch { if (!signal.aborted) setError("Couldn't refresh your work. Try again."); }
+    } catch { if (!signal.aborted) setError(navigator.onLine ? "Couldn’t refresh your work. Try again." : "You’re offline. Reconnect and refresh."); }
     finally { if (inFlight.current === signal) { inFlight.current = null; if (!signal.aborted) setLoading(false); } }
   }, []);
   const controller = useRef<AbortController | null>(null);

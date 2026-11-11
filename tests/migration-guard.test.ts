@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { blockedMsg, migrationNeed } from "../src/lib/version-pure.ts";
+import * as agentDefsPure from "../src/lib/agent-defs-pure.ts";
 import { MigrationBlocked, missingGuarded, probeMarkers, refuse, requireMigration } from "../src/lib/migration-guard.ts";
 
 // Fake Supabase: a head select of table.column fails with 42703 when that column is in `gone`.
@@ -81,7 +82,7 @@ function rowsDb(tables: Record<string, Record<string, unknown>[]>) {
 
 test("task claiming refuses while 0021 is missing: the task stays queued (not failed)", async () => {
   const tasks = [{ id: "t1", user_id: "owner", status: "queued", parent_id: null }];
-  const a = load("agents.ts", { "./task-claim-pure": claimPure, "./completion-pure": completionPure, "./clip-store-pure": clipStorePure, "./pure": pure, "./memory": { KINDS: ["note"] }, "./claude": { createBudget: () => ({ signal: new AbortController().signal }) }, "./stop-all": { stopAllOn: () => false }, "./migration-guard": stub(["0021"]) });
+  const a = load("agents.ts", { "./task-claim-pure": claimPure, "./completion-pure": completionPure, "./clip-store-pure": clipStorePure, "./agent-defs-pure": agentDefsPure, "./pure": pure, "./memory": { KINDS: ["note"] }, "./claude": { createBudget: () => ({ signal: new AbortController().signal }) }, "./stop-all": { stopAllOn: () => false }, "./migration-guard": stub(["0021"]) });
   await a.kickQueue(rowsDb({ tasks }), "owner");
   assert.equal(tasks[0].status, "queued");
   const r = await a.runTask(rowsDb({ tasks }), "owner", "t1");

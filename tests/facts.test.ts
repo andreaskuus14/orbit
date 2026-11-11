@@ -65,7 +65,7 @@ test("factsBlock: relevant first, never over the limit, empty when nothing", () 
 test("validateFact", () => {
   assert.deepEqual(validateFact(" coffee ", "I like  tea"), { subject: "coffee", statement: "I like tea" });
   assert.ok("error" in validateFact("", "I like tea"));
-  assert.ok("error" in validateFact("key", "my api key is sk-ant-abcdefghijklmnopqrstuv"));
+  assert.ok("error" in validateFact("key", "my api key is sk-ant-abcdefghijklmnopqrstuv")); // secret-scan: allow (fake test value)
 });
 
 test("review fixes: pasted text, attachments, instructions, abbreviations, short objects, private subjects", () => {

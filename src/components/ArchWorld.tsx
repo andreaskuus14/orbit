@@ -11,6 +11,7 @@ import { ContactShadows, Edges, Line, OrbitControls, PerformanceMonitor } from "
 import { useGlRecovery } from "./useGlRecovery";
 import { useT } from "./i18n";
 import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
+import { concepts as makeConcepts, type Brief } from "@/lib/arch-concepts-pure";
 import { COST_ASSUMPTIONS, COST_EXCLUDED, MAX, applyOps, boq, bulkTips, costLines, isOpening, isStraightWall, RULES, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
 import { coach, type FloorType } from "@/lib/arch-structure-pure";
 import { lessonNote, lessonScene, quizScore, type Lesson } from "@/lib/arch-lesson-pure";
@@ -276,6 +277,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const [preview, setPreview] = useState<Scene | null>(null), view = preview ?? scene; // time machine: a past version shown in 3D
   const [prices, setPrices] = useState<PriceItem[]>(STARTER_PRICES);
   const [past, setPast] = useState<Scene[]>([]);
+  const [brief, setBrief] = useState<Brief | null>(null); // concept generator form; null = closed
   const [hideGroups, setHideGroups] = useState<Set<Group>>(() => new Set()); // view only: hidden parts stay in the model and its saves
   const [sel, setSel] = useState<string | null>(null);
   const [run, setRun] = useState(0), [t0, setT0] = useState(0); // ▶ Build replays the assembly
@@ -621,6 +623,24 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
             </span>
           )}
           <button className="chip" onClick={() => { setPast((p) => [...p, scene]); setScene(starterScene()); setSel(null); }}>{tr("arch.startOver")}</button>
+          {brief && (
+            <div className="glass w-full space-y-2 p-2 text-xs" role="group" aria-label={tr("arch.concepts")}>
+              <div className="flex flex-wrap items-center gap-2">
+                <label>{tr("arch.conceptsArea")} <input className="input w-16" type="number" min={50} max={300} value={brief.area} onChange={(e) => setBrief({ ...brief, area: Number(e.target.value) })} /></label>
+                <label>{tr("arch.conceptsBeds")} <input className="input w-12" type="number" min={1} max={5} value={brief.bedrooms} onChange={(e) => setBrief({ ...brief, bedrooms: Number(e.target.value) })} /></label>
+                <label><input type="checkbox" checked={brief.sauna} onChange={(e) => setBrief({ ...brief, sauna: e.target.checked })} /> {tr("arch.conceptsSauna")}</label>
+                <label>{tr("arch.conceptsView")} <select className="input" value={brief.view} onChange={(e) => setBrief({ ...brief, view: e.target.value as Brief["view"] })}>{(["n", "e", "s", "w"] as const).map((f) => <option key={f} value={f}>{f.toUpperCase()}</option>)}</select></label>
+              </div>
+              {makeConcepts(brief).map((c) => (
+                <div key={c.name} className="border-t border-white/10 pt-1">
+                  <p><b>{c.name}</b> · {c.area} m² · {c.rooms.join(", ")}</p>
+                  <p className="muted">{c.idea} {c.tradeoff}</p>
+                  <button className="chip" onClick={() => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = c.scene; setScene(c.scene); setSel(null); setBrief(null); }}>{tr("arch.conceptsUse")}</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button className="chip" aria-pressed={!!brief} onClick={() => setBrief((b) => (b ? null : { area: 120, bedrooms: 2, sauna: true, view: "s" }))} title={tr("arch.conceptsTitle")}>✏ {tr("arch.concepts")}</button>
           <button className="chip" disabled={!shell} onClick={addInterior} title={tr("arch.wallTitle")}>+ {tr("arch.wall")}</button>
         </div>
 

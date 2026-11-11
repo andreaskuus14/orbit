@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as approvalBind from "../src/lib/approval-bind-pure.ts";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -159,7 +160,7 @@ test("actual retry endpoint preserves receipts in both root and delegated tasks"
     const exports: Record<string, any> = {};
     const source = ts.transpileModule(readFileSync(new URL("../src/app/api/tasks/[id]/route.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
     vm.runInNewContext(source, { exports, Response, require: (name: string) => name.endsWith("supabase/server") ? { requireUser: async () => ({ sb: h.sb, user: { id: "owner" } }) }
-      : name.endsWith("completion-pure") ? { canRetryTask } : name.endsWith("/agents") ? { kickQueue: () => { kicks++; }, ConflictError: Error } : name.endsWith("/csrf") ? { crossSiteBlocked: () => false } : {} });
+      : name.endsWith("completion-pure") ? { canRetryTask } : name.endsWith("/agents") ? { kickQueue: () => { kicks++; }, ConflictError: Error } : name.endsWith("approval-bind-pure") ? approvalBind : name.endsWith("/csrf") ? { crossSiteBlocked: () => false } : {} });
     const response = await exports.POST(new Request("http://localhost/api/tasks/root", { method: "POST", body: JSON.stringify({ action: "retry" }) }), { params: Promise.resolve({ id: "root" }) });
     assert.equal(response.status, 409);
     assert.equal(h.db[0].status, "failed");
@@ -250,7 +251,7 @@ function routeWith(h: ReturnType<typeof approvalHarness>) {
   const exports: Record<string, any> = {};
   const source = ts.transpileModule(readFileSync(new URL("../src/app/api/tasks/[id]/route.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   vm.runInNewContext(source, { exports, Response, require: (name: string) => name.endsWith("supabase/server") ? { requireUser: async () => ({ sb: h.sb, user: { id: "owner" } }) }
-    : name.endsWith("tasks-recovery-pure") ? recovery : name.endsWith("completion-pure") ? { canRetryTask } : name.endsWith("/agents") ? { resolvePending: h.resolve, kickQueue: () => {}, ConflictError: Error } : name.endsWith("/csrf") ? { crossSiteBlocked: () => false } : {} });
+    : name.endsWith("tasks-recovery-pure") ? recovery : name.endsWith("completion-pure") ? { canRetryTask } : name.endsWith("/agents") ? { resolvePending: h.resolve, kickQueue: () => {}, ConflictError: Error } : name.endsWith("approval-bind-pure") ? approvalBind : name.endsWith("/csrf") ? { crossSiteBlocked: () => false } : {} });
   return (id: string, body: object) => exports.POST(new Request(`http://localhost/api/tasks/${id}`, { method: "POST", body: JSON.stringify(body) }), { params: Promise.resolve({ id }) });
 }
 

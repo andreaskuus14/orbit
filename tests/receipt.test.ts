@@ -97,7 +97,7 @@ test("receipt: the independent verifier's verdict shows on the line and survives
 
 test("W04 copyReceipt: job state from the row, no prompt, planted secrets redacted", async () => {
   const { copyReceipt } = await import("../src/lib/receipt-pure.ts");
-  const KEY = "sk-ant-FAKEFAKEFAKE0123456789", O = "https://orbit.test";
+  const KEY = "sk-ant-FAKEFAKEFAKE0123456789", O = "https://orbit.test"; // secret-scan: allow (fake test value)
   const job = { id: "11111111-2222-3333-4444-555555555555", agent: "core", started_at: "2026-11-09T10:00:00Z" };
   // refresh while running: no receipt yet, elapsed time so far
   const running = copyReceipt({ ...job, status: "running" }, null, O, Date.parse("2026-11-09T10:01:30Z"));

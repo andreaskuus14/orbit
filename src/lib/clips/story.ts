@@ -4,6 +4,7 @@ import { kokoroTts } from "./kokoro";
 import { spendContent } from "../approval-pure";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
+import { pickMusic } from "./music";
 import { MODEL, askClaude, emitAsOwner } from "../claude";
 import { clipsDir, ffmpegPath, readState, runFfmpeg, saveJob, saveState, studioRoot, transcribe } from "./factory";
 import { higgsfield } from "./higgsfield";
@@ -250,11 +251,11 @@ async function run(job: StoryJob, signal: AbortSignal) {
 
 async function deps(ff: string, job: StoryJob, dir: string): Promise<RenderDeps> {
   const exec = (args: string[], cwd: string, signal: AbortSignal) => runFfmpeg(ff, args, { cwd, signal, timeoutMs: 20 * 60_000 });
-  const music = await readdir(musicDir()).then((n) => n.filter((f) => /\.(mp3|wav|m4a|ogg)$/i.test(f)), () => [] as string[]);
+  const music = await pickMusic({ ...job.opts, seconds: job.opts.length, dir: musicDir(), cache: path.join(dir, "..", "music-cache") });
   return {
     hf: higgsfield(),
     ffmpeg: exec,
-    music: music.length ? path.join(musicDir(), music[Math.floor(Math.random() * music.length)]) : null,
+    music,
     duration: async (f, signal) => parseDuration(await runFfmpeg(ff, probeArgs(f, true), { signal, timeoutMs: 60_000, okCodes: [1] })) ?? 0,
     hasAudio: async (f, signal) => /Stream #\d+:\d+.*: Audio:/.test(await runFfmpeg(ff, probeArgs(f, true), { signal, timeoutMs: 60_000, okCodes: [1] })),
     async tts(text, voice, file) {

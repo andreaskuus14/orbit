@@ -225,7 +225,10 @@ export function costLines(q: Boq, prices: PriceItem[], parts: Part[] = []) {
 
 /** Bill of quantities as CSV (one row per line + total), for a spreadsheet. */
 export function boqCsv(c: ReturnType<typeof costLines>): string {
-  const cell = (v: string | number) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+  const cell = (v: string | number) => {
+    const s = typeof v === "string" && /^[=+\-@\t\r]/.test(v) ? `'${v}` : String(v); // part names and sources are free text: never a spreadsheet formula (as money-pure toCsv)
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
   const rows = [["Item", "Net qty", "Waste %", "Buy qty", "Unit", "EUR per unit", "Total EUR", "Price source", "Price date", "Derivation", "From elements"],
     ...c.lines.map((l) => [l.label, l.qty, Math.round(l.waste * 100), l.buy, l.unit, l.eur ?? "unknown", l.total ?? "unknown", l.source, l.date, l.how, l.from.join("; ")]),
     [c.unknown.length ? `Total of known prices (materials, VAT excl.); unknown: ${c.unknown.join("; ")}` : "Total (materials, VAT excl.)", "", "", "", "", "", c.total, "", "", "", ""]];

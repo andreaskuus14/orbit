@@ -15,9 +15,6 @@ orbit-build.log
 orbit-launcher.log
 orbit-launcher.log.1
 
-.env.local.rea-backup-*
-.env.local.rea-*.tmp
-.orbit-rea-backups/
 
 # npm run smoke screenshots
 /smoke-shots/
@@ -34,3 +31,6 @@ orbit-launcher.log.1
 
 # npm run eval results (scripts/eval-core.ts)
 /evals/runs/
+
+# Strix pentest reports (scripts/isolated/strix.mjs): may hold the throwaway test password
+/strix-reports/

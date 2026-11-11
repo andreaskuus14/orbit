@@ -101,7 +101,6 @@ When Claude is unreachable, rate-limited or the usage hold is on, CORE chat and 
 | Roblox Studio bridge | `ORBIT_ROBLOX_MCP_COMMAND` (+ `ORBIT_ROBLOX_MCP_ARGS`) |
 | Reach: Twitch clips | `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` |
 | Wake word with ORBIT closed; night run | `npm run wake:install`; `npm run night:install` (Windows) |
-| REA project analysis | `ORBIT_REA_ENABLED=true` + `npm run rea:setup` (see below) |
 
 ## Not built yet
 Gmail, GitHub and Notion integrations; a knowledge-graph view; hardening and public deployment. Files uploaded to MEMORY are not described automatically (images are stored, and their text is extracted only from documents); images attached in a CORE chat are seen by CORE. MEMORY uploads (PDF, Word .docx, text, Markdown, CSV, images, max 4 MB) are stored privately in the `vault` bucket; their text is extracted for search.
@@ -138,6 +137,3 @@ Run `npm run app:install` once. It puts an **ORBIT** icon on your Desktop and in
 ## Layout
 `src/lib/claude.ts` Claude Code bridge · `core.ts` CORE turn · `memory.ts` capture/search · `src/lib/clips` STUDIO · `src/components/Galaxy.tsx` 3D scene · `panels.tsx` workspaces · `src/components/voice` voice · `supabase/migrations` schema with row-level security on every table.
 
-## REA project analysis
-
-REA is bundled in `vendor/rea` as a local add-on controlled by ORBIT. It can inspect registered local JavaScript/TypeScript projects from CORE or the signed-in `/rea` page. Run `npm run rea:setup` to build the supplied source, then rebuild/restart ORBIT. Full setup, coverage, privacy and cancellation details are in [docs/REA.md](docs/REA.md). The bridge uses a source-only snapshot, retains complete Evidence, and never edits the original project.

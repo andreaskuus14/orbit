@@ -173,6 +173,8 @@ export function parseRunSkill(text: string): { name: string; input: string } | n
 
 /** The skill to run for what was said, or a message naming the closest skills. */
 export function findSkill(name: string, skills: Skill[]): Skill | string {
+  // Mission Control uses a stable ID so a deleted pin cannot run a similar skill.
+  if (name.startsWith("@")) return skills.find((s) => s.id === name.slice(1)) ?? "This pinned skill is no longer available.";
   const list = skills.map((s) => ({ id: s.id, name: currentVersion(s).name }));
   const m = matchRecipe(name, list);
   if ("id" in m) return skills.find((s) => s.id === m.id)!;
