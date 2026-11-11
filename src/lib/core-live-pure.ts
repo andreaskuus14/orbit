@@ -92,6 +92,12 @@ export function liveTracker(priv: (tool: string, input: Record<string, unknown>)
 // --- client side: the list the activity view renders ---
 export type LiveRow = { id: number; tool: string; label: string; key?: string; vars?: Record<string, string>; detail?: string; at: number; ms?: number; ok?: boolean; result?: string };
 
+export function coreRunPhase(rows: LiveRow[], streaming: boolean, taskId?: string | null) {
+  if (taskId) return "background";
+  if (rows.some((row) => row.ok === undefined && row.tool !== "think" && row.tool !== "review")) return "tool";
+  return streaming ? "answering" : "working";
+}
+
 /** Applies one stream event to the rows (immutable). `at` = the event's server time (ms since the turn started). */
 export function applyLive(rows: LiveRow[], ev: LiveEvent): LiveRow[] {
   if (ev.type === "step") return [...rows, { id: ev.id, tool: ev.tool, label: ev.label, key: ev.key, vars: ev.vars, detail: ev.detail, at: ev.t }];

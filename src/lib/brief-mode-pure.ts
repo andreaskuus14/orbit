@@ -24,3 +24,15 @@ export function briefProblems(reply: string): string[] {
   if (numbered < 3 && (bullets >= 3 || cues >= 3)) out.push("3+ steps not numbered");
   return out;
 }
+
+const BRIEF_ON = /^(?:(?:core|orbit)[,: ]+)?(?:be brief|brief mode(?: on)?|lühidalt|ole lühike|lühirežiim(?: sisse)?)$/;
+const BRIEF_OFF = /^(?:(?:core|orbit)[,: ]+)?(?:normal|normal mode|brief mode off|tavaline|tavarežiim|lühirežiim välja)$/;
+/** A typed or spoken "be brief" / "lühidalt" (on) or "normal" (off) as the whole message; null for anything else. */
+export function briefCommand(text: string): { on: boolean; et: boolean } | null {
+  const t = text.trim().toLowerCase().replace(/[\s.!]+$/, "").replace(/\s+/g, " ");
+  const on = BRIEF_ON.test(t) ? true : BRIEF_OFF.test(t) ? false : null;
+  return on === null ? null : { on, et: /lühi|tava/.test(t) };
+}
+export const briefReply = (on: boolean, et: boolean) =>
+  et ? (on ? "Lühirežiim on sees. Ütle \"tavaline\", et välja lülitada." : "Lühirežiim on väljas.")
+     : (on ? "Brief mode is on. Say \"normal\" to turn it off." : "Brief mode is off.");

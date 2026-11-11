@@ -2,7 +2,7 @@ import { authorizeApproval } from "@/lib/authority";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emit } from "@/lib/claude";
 import { stopAllOn } from "@/lib/stop-all";
-import { sendContent } from "@/lib/business-pure";
+import { mailOutcome, sendContent } from "@/lib/business-pure";
 import { allows } from "@/lib/autonomy";
 import { crmOf, loadCrm, logEvent } from "@/lib/prospect-crm";
 import { claimProblem } from "@/lib/prospect-crm-pure";
@@ -54,7 +54,7 @@ export async function sendDraft(sb: SupabaseClient, userId: string, id: string, 
     await logEvent(who, "sent", "first message: result unknown");
     return fail("No answer from the email service: it may or may not have been sent. Check your Resend log; it stays marked Contacted.", 504);
   }
-  if (r.status >= 500 || r.status === 429) { // server trouble: it may have gone out, same as no answer
+  if (mailOutcome(r.status) === "unknown") { // server trouble or a 409 on this key: it may have gone out, same as no answer
     await sb.from("prospects").update({ notes: `${p.notes ? `${p.notes}\n` : ""}Email to ${to} on ${stamp.slice(0, 10)}: result unknown (Resend ${r.status}). Check your Resend log.`.slice(-2000) }).eq("id", id);
     await logEvent(who, "sent", "first message: result unknown");
     return fail(`The email service had a problem (${r.status}): it may or may not have been sent. Check your Resend log; it stays marked Contacted.`, 502);
@@ -70,7 +70,7 @@ export async function sendDraft(sb: SupabaseClient, userId: string, id: string, 
 }
 
 /** One email through Resend, the BUSINESS send path, for callers that already gated (Stop-all, autonomy) and claimed the send.
- *  "unknown": no answer or a server error, it may have gone out; "refused": a clear 4xx, nothing went out. */
+ *  "unknown": no answer, a server error, 429 or 409 (mailOutcome), it may have gone out; "refused": a clear 4xx, nothing went out. */
 export async function resendMail(m: { to: string; subject: string; text: string; idempotencyKey: string }): Promise<{ result: "sent" | "unknown" | "refused"; why?: string }> {
   const key = process.env.RESEND_API_KEY, from = process.env.ORBIT_MAIL_FROM;
   if (!key || !from) return { result: "refused", why: "Sending isn't set up" };
@@ -80,8 +80,7 @@ export async function resendMail(m: { to: string; subject: string; text: string;
       body: JSON.stringify({ from, to: m.to, subject: m.subject, text: m.text, ...(process.env.ORBIT_MAIL_REPLY_TO ? { reply_to: process.env.ORBIT_MAIL_REPLY_TO } : {}) }),
       signal: AbortSignal.timeout(20_000),
     });
-    if (r.status >= 500 || r.status === 429) return { result: "unknown", why: `Resend ${r.status}` };
-    if (!r.ok) return { result: "refused", why: `Resend ${r.status}` };
-    return { result: "sent" };
+    const result = mailOutcome(r.status);
+    return result === "sent" ? { result } : { result, why: `Resend ${r.status}` };
   } catch { return { result: "unknown", why: "no answer from Resend" }; }
 }
