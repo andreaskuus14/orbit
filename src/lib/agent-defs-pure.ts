@@ -203,7 +203,9 @@ export function pickFair(queued: readonly Queued[], running: readonly string[]):
 }
 
 // ---- per-job model choice ("which model for which job"): one table, Claude Code CLI aliases as ORBIT_MODEL* use them ----
-export const JOB_MODELS = { haiku: "haiku", sonnet: "sonnet", opus: "opus", fable: "fable" } as const;
+// Top tier pinned to an id the repo knows (pure.ts prices). shortcut: claude-fable-5-2 pending confirmation (not in the repo or
+// Anthropic docs yet); change it here once confirmed.
+export const JOB_MODELS = { haiku: "haiku", sonnet: "sonnet", opus: "opus", fable: "claude-fable-5-1" } as const;
 const RANK = ["haiku", "sonnet", "opus", "fable"]; // cheapest first
 export type JobKind = "search" | "rename" | "boilerplate" | "build" | "test" | "ui" | "bug" | "review" | "plan" | "security";
 const BY_JOB: Record<JobKind, string> = {
