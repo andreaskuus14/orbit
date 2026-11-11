@@ -2,15 +2,15 @@
 import { useEffect, useState } from "react";
 import { useT } from "./i18n";
 import { SITE_LABEL_KEYS } from "@/lib/site-pipeline-pure";
-import { fmtMs, liveSummary, type LiveRow } from "@/lib/core-live-pure";
+import { coreRunPhase, fmtMs, liveSummary, type LiveRow } from "@/lib/core-live-pure";
 import type { Key } from "@/lib/i18n-pure";
 
 const SHOWN = 6; // running: the newest steps; older ones fold into "N earlier"
 
 /** CORE's live work view: one line per step (newest at bottom) with its key detail and time; each line expands to its result.
  *  running: the turn is in progress (since = client start time); otherwise a collapsed "12 steps · 1m 40s" summary under the answer. */
-export function CoreActivity({ rows, running, streaming = false, since = 0, totalMs = 0, taskId }: { rows: LiveRow[]; running: boolean; streaming?: boolean; since?: number; totalMs?: number; taskId?: string | null }) {
-  const { t, tn } = useT();
+export function CoreActivity({ rows, running, streaming = false, since = 0, totalMs = 0, taskId, projectName }: { rows: LiveRow[]; running: boolean; streaming?: boolean; since?: number; totalMs?: number; taskId?: string | null; projectName?: string }) {
+  const { t, tn, lang } = useT();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { if (!running) return; const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, [running]);
   const label = (r: LiveRow) => (r.key ? t(r.key as Key, r.vars) : SITE_LABEL_KEYS[r.label] ? t(SITE_LABEL_KEYS[r.label]) : r.label.replace(/…$/, ""));
@@ -34,7 +34,14 @@ export function CoreActivity({ rows, running, streaming = false, since = 0, tota
   }
   const older = rows.slice(0, -SHOWN), recent = rows.slice(-SHOWN);
   const current = streaming ? t("live.writing") : rows.length ? label(rows.at(-1)!) : t("live.connecting");
+  const phase = coreRunPhase(rows, streaming, taskId);
+  const labels = lang === "et"
+    ? { project: "Projekt", background: "Taustatöö", tool: "Tööriist töös", answering: "Vastab", working: "Valmistab vastust" }
+    : { project: "Project", background: "Working in background", tool: "Using a tool", answering: "Answering", working: "Preparing an answer" };
   return <div className="core-activity" aria-label={t("live.aria")}>
+    <p className="core-activity-hint break-words" role="status">
+      {labels[phase]}{projectName && <> · {labels.project} <b>{projectName}</b></>}
+    </p>
     {older.length > 0 && <details><summary>{t("live.earlier", { n: older.length })}</summary><ol>{older.map(line)}</ol></details>}
     <ol>{recent.map(line)}{streaming && <li><div className="core-step"><span className="activity-orbit" aria-hidden="true" /><span className="core-step-label">{t("live.writing")}</span></div></li>}</ol>
     <p className="sr-only" role="status">{current}</p>

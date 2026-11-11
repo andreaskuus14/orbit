@@ -279,7 +279,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           partial += ev.text;
           say(voiceOut.push(ev.text));
           // One render per frame at most, and only the streaming bubble changes.
-          if (!raf) raf = requestAnimationFrame(() => { raf = 0; setLive(partial); });
+          if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (here()) setLive(partial); });
         } else if (ev.type === "step" || ev.type === "step_done") {
           steps = applyLive(steps, ev as unknown as LiveEvent); setRows(steps);
           if (ev.type === "step" && ev.tool) dispatchEvent(new CustomEvent<CoreSignal>(CORE_SIGNAL, { detail: { type: "step", tool: ev.tool } })); // the singularity shows it (E4)
@@ -485,7 +485,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
               {/* Citation numbers arrive with the final answer; hide raw [m:id] markers until then. */}
               {live && <><Markdown text={numberCitations(live, [])} openMemory={onOpenMemory} />
               <span aria-hidden className="inline-block h-4 w-1.5 translate-y-0.5 rounded-sm bg-current opacity-60" style={{ animation: "blink 1s steps(2) infinite" }} /></>}
-              <CoreActivity rows={rows} running streaming={!!live} since={since.current} taskId={bgTask} />
+              <CoreActivity rows={rows} running streaming={!!live} since={since.current} taskId={bgTask} projectName={chats.projects.find((p) => p.id === project)?.name} />
             </div>}
         <div ref={end} />
       </div>
