@@ -126,12 +126,23 @@ export function parseSkill(md: string): { name: string; description: string; bod
 export type ModelPref = "auto" | "opus" | "sonnet";
 export const parsePref = (v: unknown): ModelPref => (v === "opus" || v === "sonnet" ? v : "auto");
 export type Models = { fast: string; smart: string; deep: string };
-export type Route = { model: string; effort?: string; tier: "fast" | "smart" | "deep"; why: string };
+export type Route = { model: string; effort?: string; tier: "fast" | "smart" | "deep"; why: string; risky?: true };
+
+// per-job model choice lives in agent-defs-pure (agents.ts loads only pure leaf modules); re-exported here for core-mcp
+export { JOB_MODELS, modelForJob, reviewerFor, riskFlags, isRisky, turnRisk, atLeastOpus, type JobKind, type Risk } from "./agent-defs-pure.ts";
+import { atLeastOpus, belowOpus, isRisky, riskFlags } from "./agent-defs-pure.ts";
+import { TIERS } from "./policy-pure.ts";
+/** The real Opus floor: a T2/T3 tool (unknown = T3, as policy-pure) called by a model below Opus → stop, redo the turn on Opus. */
+export const needsOpus = (tool: string, model: string) => (TIERS[tool] ?? "T3") >= "T2" && belowOpus(model);
 const PLAN = /\b(?:plan|roadmap|strategy|architect|design (?:a|the|my)|break (?:it|this) down)\b|planeeri|kava\b|strateegi/i;
 /** Model + effort for one mcp turn: site builds and planning → deep (Opus, high); routine tool work → smart (Sonnet); short chit-chat
  *  stays fast (Haiku; core.ts escalates it if it reaches for a tool). A Profile pref other than auto pins the model. */
-export function routeTurn(o: { question: string; tier: "fast" | "smart" | "deep"; pref: ModelPref; build: boolean; models: Models; effort?: string }): Route {
+export function routeTurn(o: { question: string; tier: "fast" | "smart" | "deep"; pref: ModelPref; build: boolean; models: Models; effort?: string; risky?: boolean }): Route {
   const deep = (why: string): Route => ({ model: o.models.deep, effort: o.effort || "high", tier: "deep", why });
+  // risky (a T2/T3 tool already ran into needsOpus) first, so every route it applies to carries the flag (downTier never drops it);
+  // the floor holds even if ORBIT_MODEL_DEEP is lower. A keyword hint only routes to Opus: a usage limit may still step it down.
+  if (o.risky) return { ...deep("T2/T3 tool: Opus floor"), model: atLeastOpus(o.models.deep), risky: true };
+  if (isRisky(riskFlags(o.question))) return deep(o.pref === "opus" ? "Profile: always Opus" : "auth/money/approvals/sending hint");
   if (o.pref === "opus") return deep("Profile: always Opus");
   if (o.pref === "sonnet") return { model: o.models.smart, tier: "smart", why: "Profile: always Sonnet" };
   if (o.build) return deep("site build");
@@ -141,6 +152,7 @@ export function routeTurn(o: { question: string; tier: "fast" | "smart" | "deep"
 }
 /** One tier down after a usage-limit result (Opus → Sonnet → Haiku), else null. */
 export function downTier(r: Route, m: Models): Route | null {
+  if (r.risky) return null; // never below the Opus floor
   if (r.tier === "deep") return { model: m.smart, tier: "smart", why: `${r.why}; Opus limit → Sonnet` };
   if (r.tier === "smart") return { model: m.fast, tier: "fast", why: `${r.why}; Sonnet limit → Haiku` };
   return null;

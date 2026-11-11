@@ -4,9 +4,9 @@ import { BACKGROUND_TURN_MS, BG_FAILED, handoffReply } from "@/lib/long-work-pur
 import { contextLine, safeLink } from "@/lib/voice-target-pure";
 import { reflectOnTurn } from "@/lib/reflect";
 import { learnFacts } from "@/lib/facts";
-import { emit } from "@/lib/claude";
+import { emit, FAST_MODEL, MODEL } from "@/lib/claude";
 import { liveTracker, ndjsonStream, type StepDone } from "@/lib/core-live-pure";
-import type { Tier } from "@/lib/core-steps-pure";
+import { routeEvent } from "@/lib/core-steps-pure";
 import { MODULE_PRIVATE } from "@/lib/core-modules";
 import { coreSessionStore, coreTaintStore } from "@/lib/durable";
 import { doneSoFar, newBgTurn, stoppedNote } from "@/lib/bg-resume-pure";
@@ -82,11 +82,11 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
       void emit(sb, userId, "core.started", "core", { conversationId: cid, ...(opts.remote ? { source: "remote" } : {}) }); // never throws; the answer needn't wait for the event row
 
       // Shared by both response styles: answer, then save it once at the end.
-      let lastRoute: Tier | undefined;
-      const onRoute = (model: Tier) => {
+      let lastRoute: string | undefined;
+      const onRoute = (model: string) => {
         if (model !== lastRoute) {
           lastRoute = model;
-          send({ type: "route", model });
+          send(routeEvent(model, { fast: FAST_MODEL, smart: MODEL }));
         }
       };
       const answer = async (onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void) => {

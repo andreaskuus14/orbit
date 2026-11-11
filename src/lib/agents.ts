@@ -18,6 +18,7 @@ import { needsSelfReview } from "./core-ui";
 import { stopAllOn } from "./stop-all";
 import { authorizeAction } from "./authority";
 import { PAUSED_MSG } from "./stop-all-pure";
+import { isRisky, modelForJob, reviewerFor, riskFlags, type JobKind } from "./agent-defs-pure";
 import { attemptId, attemptTag, completionState, INTERRUPTED, interruptedPatch, startedBeforeBoot, startedThenFailed, type WriteEvidence } from "./completion-pure";
 import { registerSource, taskExecution as execOf, track } from "./execution";
 import { claimFilter, missingOwnerColumn } from "./task-claim-pure";
@@ -33,6 +34,7 @@ import { noteToolResult, newsHours, parseAgentReply, parseFeed, cleanTags, toOrQ
 
 export { BUILTIN_AGENTS, type AgentDef };
 const TIER_MODEL: Record<Tier, string | undefined> = { smart: SMART_MODEL, main: undefined, fast: FAST_MODEL }; // undefined = MODEL
+const TIER_JOB: Record<Tier, JobKind> = { smart: "plan", main: "build", fast: "search" };
 export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; url?: string; at?: string; evidence?: string }; // url/at/evidence: step "source", a page actually read (full URL, not the 160-char detail)
 export type PendingAction = { tool: string; input: Record<string, unknown>; status: "pending" | "attempting" | "approved" | "rejected" | "failed" | "uncertain"; note?: string; evidence?: WriteEvidence[]; attempt?: string };
 type Task = { id: string; agent: string; title: string; request: string; parent_id: string | null; project_id: string | null };
@@ -375,7 +377,7 @@ export const TOOLS: Record<string, Tool> = {
       const { data: all } = await sb.from("prospects").select("id,name,contact").eq("user_id", userId).limit(1000);
       const dup = duplicateOf(all ?? [], await loadCrm(), v.name, v.contact); // also the idempotency check: a retried approval finds its own row
       if (dup) return `Already in the BUSINESS pipeline as ${dup}; not added again.`;
-      const { watch, ...row } = v;
+      const { watch, ...row } = v; // no drafted_at on purpose: a pitch saved by an agent is never auto-sent, only by his click
       const { data, error } = await sb.from("prospects").insert({ ...row, user_id: userId, stage: "lead" }).select("id").single();
       if (error) throw error;
       await updateCrm((st) => { st[data.id] = newCrm("web-find", v.name, v.contact); }); // unverified until he checks the contact
@@ -490,7 +492,9 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
   const system = systemPrompt(agent, today);
   const transcript: string[] = [];
   const clips = createClipStore(5800); // transcript keeps 6000 chars per step; the rest stays readable via read_more
-  const model = agent.tier ? TIER_MODEL[agent.tier] : undefined;
+  // Owner's ORBIT_MODEL* setting per tier, raised to the Opus floor when the agent's tools or the request touch auth/money/approvals/sending.
+  const risk = riskFlags(`${agent.tools.join(" ")} ${task.request}`);
+  const model = modelForJob(TIER_JOB[agent.tier ?? "main"], risk, (agent.tier && TIER_MODEL[agent.tier]) || MODEL);
   let seen = "", checked = false; // seen: every tool result, what the self-check lets the answer cite
   try {
     const halt = () => { if (stopAllOn()) live.get(taskId)?.abort(); signal.throwIfAborted(); }; // Stop-all set by another process aborts here too
@@ -499,11 +503,11 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
       const forceFinal = step === MAX_STEPS - 1 || budget.used >= budget.calls - 1; // keep the last call for an answer
       const prompt = `TASK: ${task.title}\n\nREQUEST:\n${task.request}\n\n${transcript.length ? `YOUR STEPS SO FAR:\n${transcript.join("\n\n")}\n\n` : ""}${forceFinal ? "You are out of steps: reply now with \"final\"." : "Your next JSON reply:"}`;
       chargeCall(budget, signal);
-      const r = await askClaude(prompt, system, { signal, purpose: `agent.${agent.slug}`, ...(model ? { model } : {}) });
+      const r = await askClaude(prompt, system, { signal, purpose: `agent.${agent.slug}`, model });
       await recordUsage(sb, userId, `agent.${agent.slug}`, r);
       const reply = parseAgentReply(r.text);
       if (reply.garbled && !forceFinal) { trace.push({ step: "fallback", detail: "reply used function-call markup → asked again", ms: r.ms, ok: false }); continue; }
-      trace.push({ step: "think", detail: `${model ?? MODEL} · ${reply.thought || (reply.final ? "answering" : "")}`.slice(0, 300), ms: r.ms, ok: true });
+      trace.push({ step: "think", detail: `${model} · ${reply.thought || (reply.final ? "answering" : "")}`.slice(0, 300), ms: r.ms, ok: true });
 
       if (reply.final !== undefined || !reply.tool || forceFinal) {
         let result = reply.final ?? r.text;
@@ -531,9 +535,11 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
         if (needsSelfReview(result, transcript.length, depth, verified) && budget.used < budget.calls && budget.deadline - Date.now() > 150_000) {
           chargeCall(budget, signal);
           const t0 = Date.now();
-          const rv = await reviewDraft(`TASK: ${task.title}\n\n${task.request}`, result, transcript.join("\n\n"), { signal, purpose: `agent.${agent.slug}.review`, onUsage: (rr) => recordUsage(sb, userId, `agent.${agent.slug}.review`, rr) });
+          const reviewer = isRisky(risk) ? reviewerFor(model) : MODEL; // risky: Opus, or Fable when Opus wrote it; else the cheaper main model
+          const rv = await reviewDraft(`TASK: ${task.title}\n\n${task.request}`, result, transcript.join("\n\n"), { signal, model: reviewer, purpose: `agent.${agent.slug}.review`, onUsage: (rr) => recordUsage(sb, userId, `agent.${agent.slug}.review`, rr),
+            onFail: (e) => emit(sb, userId, "review.failed", "agents", { agent: agent.slug, taskId, model: reviewer, error: String(e instanceof Error ? e.message : e).slice(0, 200) }) });
           result = rv.text;
-          if (rv.reviewed) trace.push({ step: "review", detail: `${MODEL} · self-reviewed`, ms: Date.now() - t0, ok: true });
+          if (rv.reviewed) trace.push({ step: "review", detail: `${reviewer} · reviewed (writer ${model})`, ms: Date.now() - t0, ok: true });
         }
         // A delegated agent may be waiting for approval too: surface that on this task so the user sees it.
         const { data: kids, error: kidsError } = await sb.from("tasks").select("status").eq("user_id", userId).eq("parent_id", taskId);

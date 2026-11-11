@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { briefCommand, briefProblems, briefReply, communicationText, isBrief, withBrief } from "../src/lib/brief-mode-pure.ts";
+import { readFileSync } from "node:fs";
+import { COMMUNICATION_MAX, COMMUNICATION_STORED_MAX, briefCommand, briefProblems, briefReply, communicationText, isBrief, withBrief } from "../src/lib/brief-mode-pure.ts";
 
 test("the marker switches on and off and keeps the owner's own words", () => {
   assert.equal(isBrief(""), false);
@@ -29,4 +30,23 @@ test("briefCommand: the whole message switches brief mode, anything longer is a 
   assert.equal(briefCommand("be brief")?.et, false);
   assert.match(briefReply(true, false), /on/);
   assert.match(briefReply(false, true), /väljas/);
+});
+
+test("a bare 'normal' / 'tavaline' answers CORE's own question instead of switching brief mode off", () => {
+  const asked = ["Which one do you mean: normal or brief?", "Want the long version?\n\nChoices: normal | brief", "Kumba sa mõtled, tavalist või lühikest?"];
+  for (const prev of asked) for (const s of ["normal", "Normal.", "tavaline", "CORE, normal"]) assert.equal(briefCommand(s, prev), null, `${s} after "${prev}"`);
+  assert.equal(briefCommand("normal", "Done. I saved it.")?.on, false);
+  assert.equal(briefCommand("normal", "")?.on, false);
+  assert.equal(briefCommand("tavaline", undefined)?.on, false);
+  for (const s of ["brief mode off", "normal mode", "tavarežiim", "lühirežiim välja"]) assert.equal(briefCommand(s, "Which one?")?.on, false, `${s}: explicit commands still work`);
+  assert.equal(briefCommand("be brief", "Which one?")?.on, true);
+});
+
+test("switching brief mode on never cuts the owner's text: the stored limit leaves room for the marker", () => {
+  const own = "x".repeat(COMMUNICATION_MAX);
+  const on = withBrief(own, true);
+  assert.ok(on.length <= COMMUNICATION_STORED_MAX);
+  assert.equal(communicationText(on), own);
+  assert.equal(withBrief(on, false), own);
+  assert.match(readFileSync(new URL("../src/lib/core.ts", import.meta.url), "utf8").match(/async function briefTurn[\s\S]*?\n}\n/)![0], /withBrief\(String\(data\?\.communication \?\? ""\), on\) }\)/, "no slice after withBrief");
 });

@@ -25,8 +25,10 @@ export async function searchImages(query: string, f: Fetch = fetch): Promise<Can
 }
 
 /** Download with a hard size cap (the body is read in chunks, never past MAX_IMAGE_BYTES). */
+// The default goes through safeFetch (DNS-pinned, private addresses refused, each redirect re-checked); tests inject their own.
+const safeGet: Fetch = async (url) => (await (await import("./memory")).safeFetch(url, "image/*", UA, MAX_IMAGE_BYTES + 1, 30_000)).res;
 async function download(f: Fetch, url: string): Promise<Uint8Array | string> {
-  const r = await f(url, { headers: { "User-Agent": UA }, redirect: "follow", signal: AbortSignal.timeout(30_000) });
+  const r = await f(url, { headers: { "User-Agent": UA }, redirect: "manual", signal: AbortSignal.timeout(30_000) });
   if (!r.ok || !r.body) return `download failed (HTTP ${r.status})`;
   if (Number(r.headers.get("content-length") ?? 0) > MAX_IMAGE_BYTES) return "image is over 2 MB";
   const parts: Uint8Array[] = []; let n = 0;
@@ -66,7 +68,7 @@ export async function fetchImage(input: Record<string, unknown>, question: strin
   const tried: string[] = [];
   for (const c of cands.slice(0, 4)) {
     let data: Uint8Array | string;
-    try { data = await download(f, c.url); } catch (e) { tried.push(`${c.title}: ${e instanceof Error ? e.message : "error"}`); continue; }
+    try { data = await download(io.fetch ?? safeGet, c.url); } catch (e) { tried.push(`${c.title}: ${e instanceof Error ? e.message : "error"}`); continue; }
     if (typeof data === "string") { tried.push(`${c.title}: ${data}`); continue; }
     let ext: string | null = sniffImage(data);
     if (!ext) { tried.push(`${c.title}: not a jpg/png/webp/svg`); continue; }

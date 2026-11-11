@@ -35,3 +35,23 @@ test("pair code: one success, then used; expired codes never pair", () => {
   assert.equal(verifyPair(r.pair, "123456", T0 + 2).ok, false);
   assert.equal(verifyPair(p, "123456", p.expiresAt).ok, false);
 });
+
+test("pairView: the PC shows a code spent by PAIR_MAX_FAILS_ALL wrong tries as locked, not usable", async () => {
+  const { pairView, PAIR_MAX_FAILS_ALL } = await import("../src/lib/remote-pure.ts");
+  const p = makePairCode(() => 42, 0);
+  assert.equal(pairView(p, 1)?.code, p.code);
+  assert.deepEqual(pairView({ ...p, fails: PAIR_MAX_FAILS_ALL }, 1), { locked: true, expiresAt: p.expiresAt });
+  assert.equal(pairView({ ...p, used: true }, 1), null);
+  assert.equal(pairView(p, p.expiresAt), null);
+  assert.equal(pairView(null, 1), null);
+});
+
+test("Fable #551: the PC re-reads the pairing while a code shows, so the lock appears without a reload", async () => {
+  const { pairRefetch, PAIR_POLL_MS } = await import("../src/lib/pair-poll-pure.ts");
+  const live = { code: "123456", expiresAt: 100_000 };
+  assert.equal(pairRefetch(live, 10_000, 10_000 - PAIR_POLL_MS), true);
+  assert.equal(pairRefetch(live, 10_000, 9_000), false);
+  assert.equal(pairRefetch({ locked: true, expiresAt: 100_000 }, 10_000, 0), false, "locked: nothing left to watch until it expires");
+  assert.equal(pairRefetch(live, 100_000, 99_999), true, "expired: read once more");
+  assert.equal(pairRefetch(null, 10_000, 0), false);
+});

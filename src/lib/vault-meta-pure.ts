@@ -29,6 +29,12 @@ export function newMeta(id: string, name: string, size: number, hash: string | n
 }
 
 export const byName = (m: Meta, name: string) => Object.values(m.files).find((f) => f.name === name);
+/** name → record for many lookups at once (byName scans every record; per file that was O(n²): 1.5 s per listing at 2000 files). First record wins, like byName. */
+export function nameIndex(m: Meta): Map<string, FileMeta> {
+  const out = new Map<string, FileMeta>();
+  for (const f of Object.values(m.files)) if (!out.has(f.name)) out.set(f.name, f);
+  return out;
+}
 
 /** Give every file on disk a record and drop records whose file is gone (outside ORBIT), unless the file has a cloud copy. Returns whether anything changed. */
 export function reconcile(m: Meta, onDisk: { name: string; size: number }[], mkId: () => string, now: number): boolean {
@@ -36,7 +42,8 @@ export function reconcile(m: Meta, onDisk: { name: string; size: number }[], mkI
   const names = new Set(onDisk.map((f) => f.name));
   // A missing file with a cloud copy is cloud-only (e.g. a new PC after a restore), not deleted: keep its id for restoreFromCloud.
   for (const [id, f] of Object.entries(m.files)) if (!names.has(f.name) && f.sync !== "cloud" && f.sync !== "restored") { delete m.files[id]; changed = true; }
-  for (const f of onDisk) if (!byName(m, f.name)) { const id = mkId(); m.files[id] = newMeta(id, f.name, f.size, null, now); changed = true; }
+  const known = new Set(nameIndex(m).keys());
+  for (const f of onDisk) if (!known.has(f.name)) { const id = mkId(); m.files[id] = newMeta(id, f.name, f.size, null, now); known.add(f.name); changed = true; }
   return changed;
 }
 
@@ -93,7 +100,7 @@ export function syncState(f: FileMeta | undefined, cloudHas: boolean | undefined
 
 /** Files that still need a cloud copy, failed ones first so a retry starts with them. Never includes one already in the cloud. */
 export function retryQueue(files: { name: string; mtime: number }[], m: Meta, cloud: Map<string, number>): string[] {
-  const rank = (n: string) => (byName(m, n)?.sync === "failed" ? 0 : 1);
+  const idx = nameIndex(m), rank = (n: string) => (idx.get(n)?.sync === "failed" ? 0 : 1);
   return files.filter((f) => !cloud.has(f.name)).sort((a, b) => rank(a.name) - rank(b.name) || b.mtime - a.mtime).map((f) => f.name);
 }
 

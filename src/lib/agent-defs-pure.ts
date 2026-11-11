@@ -201,3 +201,52 @@ export function pickFair(queued: readonly Queued[], running: readonly string[]):
   for (const q of queued) { const l = load.get(deptOf(q.agent)) ?? 0; if (l < bestLoad) { best = q; bestLoad = l; } }
   return best.id;
 }
+
+// ---- per-job model choice ("which model for which job"): one table, Claude Code CLI aliases as ORBIT_MODEL* use them ----
+// Top tier pinned to an id the repo knows (pure.ts prices). shortcut: claude-fable-5-2 pending confirmation (not in the repo or
+// Anthropic docs yet); change it here once confirmed.
+export const JOB_MODELS = { haiku: "haiku", sonnet: "sonnet", opus: "opus", fable: "claude-fable-5-1" } as const;
+const RANK = ["haiku", "sonnet", "opus", "fable"]; // cheapest first
+export type JobKind = "search" | "rename" | "boilerplate" | "build" | "test" | "ui" | "bug" | "review" | "plan" | "security";
+const BY_JOB: Record<JobKind, string> = {
+  search: JOB_MODELS.haiku, rename: JOB_MODELS.haiku, boilerplate: JOB_MODELS.haiku,
+  build: JOB_MODELS.sonnet, test: JOB_MODELS.sonnet,
+  ui: JOB_MODELS.opus, bug: JOB_MODELS.opus, review: JOB_MODELS.opus,
+  plan: JOB_MODELS.fable, security: JOB_MODELS.fable,
+};
+export type Risk = { auth?: boolean; money?: boolean; approvals?: boolean; sending?: boolean };
+// Word edges that also split on "_", so tool names (gmail_send, lead_email, ws_publish) flag the job by themselves.
+const w = (src: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${src})(?![\\p{L}\\p{N}])`, "iu");
+// A light pre-hint only (routes the turn to Opus up front, may still step down on a usage limit). The floor itself comes from
+// the tool actually called: a T2/T3 tool from a model below Opus redoes the turn on Opus (needsOpus, core-mcp-boost-pure).
+const RISK: [keyof Risk, RegExp][] = [
+  ["auth", w("passwords?|credentials?|api ?keys?|secrets?|log ?in|sign ?in|parool\\w*|logi sisse")],
+  ["money", w("pay (?:for|the|him|her|them|it|this|that)|payments?|paid|invoices?|bills?|bank\\w*|transfer\\w*|wire|charge (?:the|my|his|her)|purchases?|buy|refunds?|stripe|eur|usd|€|maks\\w*|arve\\w*|ülekan\\w*|pank\\w*")],
+  ["approvals", w("approv\\w*|kinnit\\w*")],
+  ["sending", w("send\\w*|e-?mails?|gmail|publish\\w*|upload\\w*|reply to|dm|tweet\\w*|saada\\w*")],
+];
+/** Risk flags found in free text (a request, a tool list). */
+export const riskFlags = (text: string): Risk => Object.fromEntries(RISK.filter(([, re]) => re.test(text)).map(([k]) => [k, true]));
+export const isRisky = (r: Risk) => Object.values(r).some(Boolean);
+const CONFIRM = /^\W*(?:yes|yep|yeah|ok(?:ay)?|sure|go(?: ahead)?|do it|confirm(?:ed)?|approved?|please do|go for it|send it|jah|jaa|ok|tee (?:ära|seda)|kinnita\w*|saada)\b/i;
+/** Risk of one chat turn: his message, plus the previous answer when he only confirms it ("yes, go ahead" on a pending approval). */
+export function turnRisk(question: string, prev = "", pending = false): Risk {
+  const own = riskFlags(question);
+  if (!CONFIRM.test(question)) return own;
+  const before = riskFlags(prev);
+  return pending || isRisky(before) ? { ...before, ...own, approvals: true } : own;
+}
+// Exact alias, or a full id with the family as its own part (claude-opus-5-5): "opusplan" executes on Sonnet, so it ranks as unknown.
+const rank = (m: string) => { const id = m.trim().toLowerCase(); return RANK.findIndex((n) => id === n || new RegExp(`^claude-${n}(?:-|$)`).test(id)); };
+const OPUS = RANK.indexOf("opus");
+/** Below Opus (an unknown id counts as below). */
+export const belowOpus = (m: string) => rank(m) < OPUS;
+/** m, or Opus when m is below Opus (an unknown id counts as below). */
+export const atLeastOpus = (m: string) => (rank(m) < OPUS ? JOB_MODELS.opus : m);
+/** Model for one job. The owner's explicit pref wins, but a risky job never runs below Opus. */
+export function modelForJob(job: JobKind, risk: Risk = {}, pref?: string): string {
+  const want = pref?.trim() || BY_JOB[job];
+  return isRisky(risk) ? atLeastOpus(want) : want;
+}
+/** The reviewer is Opus; Fable when Opus wrote it (a review comes from a different model and is never below Opus). */
+export const reviewerFor = (writer: string) => (rank(writer) === OPUS ? JOB_MODELS.fable : JOB_MODELS.opus);

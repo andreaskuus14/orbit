@@ -111,7 +111,10 @@ export function cssContrast(css: string): string[] {
   }
   return out;
 }
-export type SiteFiles = { html: { path: string; text: string }[]; css: { path: string; text: string }[]; images: { path: string; bytes: number }[]; credits?: string };
+export type SiteFiles = { html: { path: string; text: string }[]; css: { path: string; text: string }[]; images: { path: string; bytes: number }[]; credits?: string;
+  /** What the owner wrote himself (his chat messages and the files he attached; never plan.md or any file CORE writes): the only
+   *  source a data-proof="owner" mark is trusted against. */
+  owner?: string };
 export function lintSite(f: SiteFiles): string[] {
   const out: string[] = [];
   for (const { path, text: h } of f.html) {
@@ -130,6 +133,81 @@ export function lintSite(f: SiteFiles): string[] {
   const need = attributionLine(parseCredits(f.credits ?? ""));
   const all = f.html.map((h) => h.text.replace(/<[^>]*>/g, " ")).join(" ");
   for (const c of parseCredits(f.credits ?? "").filter((c) => c.attribution)) if (!all.includes(clean(c.author))) { out.push(`footer is missing the required image credit; add: ${need}`); break; }
+  return [...out, ...lintCraft(f)];
+}
+
+// ---- Craft lint (owner's website rules): invented proof, AI-look tells, CSS discipline. Each issue says what to do instead.
+const rules = (css: string) => [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim(), decl: m[2] }));
+const COLOR_LIT = /(?<!url\(\s*["']?)#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb)\(/i;
+const EMOJI = /\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F/u; // not text-style symbols such as © ® ™
+const VOID = /^(?:area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)$/i;
+/** Each element whose opening tag passes `want`, to its balanced closing tag (nested tags of the same name counted); outermost only. */
+function elements(h: string, want: (open: string) => boolean): { start: number; end: number; open: string; inner: string }[] {
+  const out: { start: number; end: number; open: string; inner: string }[] = [];
+  for (const m of h.matchAll(/<([a-z][a-z0-9]*)\b[^>]*>/gi)) {
+    if (m.index < (out.at(-1)?.end ?? 0) || !want(m[0]) || VOID.test(m[1]) || /\/>$/.test(m[0])) continue; // a void tag holds nothing
+    const re = new RegExp(`<(/?)${m[1]}\\b[^>]*>`, "gi"); re.lastIndex = m.index + m[0].length;
+    let depth = 1, end = h.length, close = h.length;
+    for (let t; depth && (t = re.exec(h)); ) if ((depth += t[1] ? -1 : 1) === 0) { close = t.index; end = t.index + t[0].length; }
+    if (depth) continue; // never closed: it owns nothing, rather than the rest of the page
+    out.push({ start: m.index, end, open: m[0], inner: h.slice(m.index + m[0].length, close) });
+  }
+  return out;
+}
+const cut = (h: string, els: { start: number; end: number }[]) => els.reduceRight((s, e) => s.slice(0, e.start) + " " + s.slice(e.end), h);
+const wordsOf = (t: string) => (t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).join(" ");
+const OWNER_MARK = /\bdata-(?:proof\s*=\s*["']?owner|slot\s*=|owner\b)/i, PROOF_MARK = /\bdata-proof\s*=\s*["']?owner/i, SLOT_MARK = /\bdata-slot\s*=/i;
+/** Owner-marked blocks (data-proof="owner", data-slot, data-owner) removed: his own text and proof aren't linted as invented or too long. */
+const unowned = (h: string) => cut(h, elements(h, (o) => OWNER_MARK.test(o)));
+/** A data-proof="owner" block not backed by what the owner wrote: the model wrote the mark, so it proves nothing. Each text run
+ *  (quote, name) must appear in his words on its own, in any order; under 3 words (stars only, one common word) proves nothing,
+ *  and stars only count when he gave a star rating. */
+const unproven = (inner: string, owner: string) => {
+  const runs = inner.replace(/<(script|style|svg)\b[\s\S]*?<\/\1>/gi, " ").split(/<[^>]*>/).map((t) => wordsOf(t.replace(/&[a-z#0-9]+;/gi, " "))).filter(Boolean);
+  if (runs.join(" ").split(" ").length < 3) return true;
+  if (/[★⭐☆]/u.test(inner) && !/[★⭐]|\bstars?\b|tärn|звезд/iu.test(owner)) return true;
+  const said = ` ${wordsOf(owner)} `;
+  return runs.some((r) => !said.includes(` ${r} `));
+};
+export function lintCraft(f: SiteFiles): string[] {
+  const out: string[] = [];
+  const css = [...f.css.map((c) => c.text), ...f.html.flatMap((h) => [...h.text.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map((m) => m[1]))].join("\n");
+  const rs = rules(css), outside = rs.filter((r) => !/^:root\b/.test(r.sel) && !/^(?:from|to|\d+%)/.test(r.sel));
+  for (const { path, text: h } of f.html) {
+    const body = h.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ");
+    // data-owner is not proof: a quote inside it is still checked. Only proven data-proof blocks and empty slots are cut.
+    const marked = elements(body, (o) => PROOF_MARK.test(o) || SLOT_MARK.test(o)), fake = marked.filter((e) => PROOF_MARK.test(e.open) && unproven(e.inner, f.owner ?? ""));
+    if (fake.length) out.push(`${path}: ${fake.length} block${fake.length > 1 ? "s" : ""} marked data-proof="owner" with text that isn't in the owner's own messages or files: use only proof he gave, word for word, or a data-slot="proof"`);
+    const rest = cut(body, marked.filter((e) => !fake.includes(e))); // what's left once proven owner blocks and slots are out
+    // a review wrapper is fine when nothing but proven owner blocks (and headings) were inside it
+    const wrappers = elements(rest, (o) => /\b(?:class|id)\s*=\s*["'][^"']*\b(?:reviews?|testimonials?|ratings?|stars)\b/i.test(o) && !PROOF_MARK.test(o) && !SLOT_MARK.test(o));
+    if (/<(?:blockquote|q)\b/i.test(rest) || wrappers.some((e) => words(visible(e.inner.replace(/<(h[1-6])\b[\s\S]*?<\/\1>/gi, " ")))) || /★|⭐/.test(rest))
+      out.push(`${path}: a review/quote block not marked as the owner's: never invent reviews, names or numbers; use proof the owner gave (data-proof="owner") or a marked slot (data-slot="proof")`);
+    if (/\b(?:class|id)\s*=\s*["'][^"']*\b(?:eyebrow|kicker|overline|pretitle)\b/i.test(body)) out.push(`${path}: eyebrow/kicker label above a heading; let the heading stand alone`);
+    if (/>\s*0[1-9]\s*[./—–-]?\s*<\/[a-z0-9]+>\s*<h[1-6]\b|<h[1-6]\b[^>]*>\s*(?:<[a-z]+\b[^>]*>\s*)?0[1-9](?:\s*<|\s*[./—–|-]\s|\s+(?!(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|jaan|veeb|märts|mai|juun|juul|okt|dets|day|week|month|year|night|hour|hr|min|päev|nädal|kuu|aast|tund|öö)\p{L}*|[ap]\.?m\b))\p{L})/iu.test(body)) out.push(`${path}: 01/02/03-style section numbers; drop them`); // next to a heading only: not a table cell or a time
+    if (EMOJI.test(visible(h))) out.push(`${path}: emoji used as icons or decoration; draw a small inline SVG icon instead`);
+    const reveals = (body.match(/<[a-z]+\b[^>]*(?:\bclass\s*=\s*["'][^"']*\b(?:reveal|fade-?in|fade-?up|animate-on-scroll)\b|\bdata-(?:reveal|aos)\b)/gi) ?? []).length;
+    if (reveals > 1) out.push(`${path}: ${reveals} reveal-on-scroll elements; keep one authored moment and leave the rest visible`);
+  }
+  const js = f.html.map((h) => h.text).join("\n") + ((f as { js?: { text: string }[] }).js ?? []).map((j) => j.text).join("\n");
+  if (/querySelectorAll\(\s*["'`][^"'`]*\bsection\b[^)]*\)[\s\S]{0,300}observe\(/.test(js)) out.push("reveal-on-scroll is applied to every section; keep one authored moment and leave the rest visible");
+  if (!css.trim()) return out;
+  const hidden = rs.find((r) => /reveal|fade|aos|animate/i.test(r.sel) && !/\.in\b|\.is-|\.visible|\.shown|\.js\b|\.active/i.test(r.sel) && /(?:^|;)\s*(?:opacity\s*:\s*0(?:\.0*)?\s*(?:;|$)|visibility\s*:\s*hidden)/i.test(r.decl));
+  if (hidden) out.push(`"${hidden.sel.slice(0, 60)}" hides content until a script reveals it; content must be visible by default (hide it only under a class the script adds)`);
+  const lit = outside.find((r) => r.decl.split(";").some((d) => /^\s*--/.test(d) ? false : COLOR_LIT.test(d)));
+  if (lit) out.push(`"${lit.sel.slice(0, 60)}" uses a literal colour; define colours once as :root custom properties and use var(--…)`);
+  const font = outside.find((r) => /(?:^|;)\s*font-family\s*:\s*(?!\s*(?:var\(|inherit\b|initial\b|unset\b))/i.test(r.decl));
+  if (font) out.push(`"${font.sel.slice(0, 60)}" sets a font stack directly; define fonts as :root custom properties and use var(--…)`);
+  if (/transition(?:-property)?\s*:\s*all\b/i.test(css)) out.push("transition: all; name the properties (transform, opacity)");
+  const layoutAnim = /transition(?:-property)?\s*:[^;}]*(?<![\w-])(?:width|height|top|left)\b/i.test(css) || [...css.matchAll(/@keyframes[^{]*\{((?:[^{}]*\{[^{}]*\})*)/gi)].some((m) => /(?:^|[;{\s])(?:width|height|top|left)\s*:/i.test(m[1]));
+  if (layoutAnim) out.push("animates width/height/top/left (janky layout work); animate transform and opacity instead");
+  const clip = (el: string) => rs.some((r) => r.sel.split(",").some((x) => x.trim() === el) && /overflow-x\s*:\s*clip/i.test(r.decl));
+  if (!clip("html") || !clip("body")) out.push("set overflow-x: clip on html and body (no sideways scroll)");
+  if (!/:focus-visible/.test(css)) out.push("no :focus-visible style; give every control a visible keyboard focus ring");
+  if (!/::selection/.test(css)) out.push("no ::selection style; colour the text selection from the palette");
+  if (rs.some((r) => /(?:-webkit-)?background-clip\s*:\s*text|text-fill-color\s*:\s*transparent/i.test(r.decl))) out.push("gradient text; use a solid colour from the palette");
+  const tracked = rs.find((r) => /text-transform\s*:\s*uppercase/i.test(r.decl) && /letter-spacing\s*:\s*(?:0?\.\d*[1-9]|[1-9])/i.test(r.decl));
+  if (tracked) out.push(`"${tracked.sel.slice(0, 60)}" is a tracked-caps label; use sentence case headings instead`);
   return out;
 }
 
@@ -174,13 +252,28 @@ export function siteWriteLabel(files: unknown): string | null {
 
 // ---- Depth lint (owner: "built sites look like plain starter templates"): no pictures, thin text, a form that saves nothing,
 // or a back end asked for but not built. Separate from lintSite so its basic rules stay testable on tiny pages.
-export const MIN_TEXT = 2500;
+/** Words budget (owner's website rules): about 80 visible words per screen (a section), at most about 450 per page, hero ≤7 words. */
+export const WORDS_PER_SCREEN = 80, WORDS_PER_PAGE = 450, HERO_WORDS = 7, MIN_HOME_WORDS = 120;
 /** The owner's request wants data saved (bookings, orders, accounts, a database or an admin). */
 export const wantsBackend = (q: string) => /\b(?:back[- ]?end|database|\bdb\b|full[- ]?stack|admin (?:panel|page)|log ?in|sign ?up|accounts?|(?:that|which|to) saves?|stores? (?:the )?(?:bookings?|orders?|data)|booking system|api)\b|andmebaas|tagasüsteem|salvesta/i.test(q);
-const visible = (h: string) => h.replace(/<(script|style|svg|noscript)\b[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]*>/g, " ").replace(/&[a-z#0-9]+;/gi, " ").replace(/\s+/g, " ").trim();
+const visible = (h: string) => h.replace(/<(script|style|svg|noscript|title)\b[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]*>/g, " ").replace(/&[a-z#0-9]+;/gi, " ").replace(/\s+/g, " ").trim();
 type Depth = SiteFiles & { js?: { path: string; text: string }[]; fullstack?: boolean; wantsBackend?: boolean };
 
 /** Pictures (img/picture/svg/canvas or a CSS url() background), visible text characters and forms across the pages. */
+const words = (t: string) => (t.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? []).length;
+/** Per page: over-budget words, sections over a screen's worth (+25% slack), and a long hero headline (the first <h1>). */
+export function wordIssues(f: Depth): string[] {
+  const out: string[] = [];
+  for (const { path, text: h } of f.html) {
+    const n = words(visible(unowned(h))); // text the owner supplied (data-owner) is never counted, so it's never asked to be cut
+    if (n > WORDS_PER_PAGE * 1.1) out.push(`${path}: ${n} visible words you wrote (aim for at most about ${WORDS_PER_PAGE} per page): tighten your own copy; never cut text the owner gave (mark it data-owner)`);
+    const long = [...unowned(h).matchAll(/<(section|header)\b[^>]*>([\s\S]*?)<\/\1>/gi)].map((m) => words(visible(m[2]))).filter((w) => w > WORDS_PER_SCREEN * 1.25);
+    if (long.length) out.push(`${path}: ${long.length} section${long.length > 1 ? "s" : ""} over about ${WORDS_PER_SCREEN} words (${long.join(", ")}): one screen, one idea`);
+    const h1 = /<h1\b([^>]*)>([\s\S]*?)<\/h1>/i.exec(h), hw = h1 && !OWNER_MARK.test(h1[1]) ? words(visible(unowned(h1[2]))) : 0; // the owner's own headline is never told to shrink
+    if (hw > HERO_WORDS) out.push(`${path}: hero headline has ${hw} words (at most ${HERO_WORDS})`);
+  }
+  return out;
+}
 export function siteFacts(f: Depth): { visuals: number; chars: number; forms: number; handled: boolean } {
   const html = f.html.map((h) => h.text).join("\n"), css = f.css.map((c) => c.text).join("\n"), js = [...(f.js ?? []).map((j) => j.text), ...[...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1])].join("\n");
   const visuals = (html.match(/<(?:img|picture|svg|canvas|video)\b/gi) ?? []).length + (`${css}\n${html}`.match(/background(?:-image)?\s*:[^;}]*url\(/gi) ?? []).length;
@@ -192,10 +285,19 @@ export function lintDepth(f: Depth): string[] {
   const x = siteFacts(f), out: string[] = [];
   if (!f.html.length) return out;
   if (!x.visuals) out.push("no pictures, SVG or illustration at all: draft real photos with ws_picture_draft (stand-ins appear at once), fetch licensed ones with ws_fetch_image, and draw inline SVG art for icons and section art");
-  if (x.chars < MIN_TEXT) out.push(`only ${x.chars} characters of visible text (aim for ${MIN_TEXT}+): write the real sections this business needs (what it offers with specifics, prices/packages, how it works, proof such as reviews or numbers, FAQ, location/hours, contact) instead of placeholder lines`);
+  out.push(...wordIssues(f));
+  // a floor, so a built site isn't an empty starter template: the home page needs real text (owner text counts)
+  const home = f.html.find((h) => h.path === "index.html") ?? f.html.find((h) => h.path === "public/index.html") ?? f.html.find((h) => /(?:^|\/)index\.html$/.test(h.path)) ?? f.html[0], hn = words(visible(home.text));
+  if (hn < MIN_HOME_WORDS) out.push(`${home.path}: only ${hn} words of text (at least ${MIN_HOME_WORDS} on the home page): write the real content from plan.md, not a starter template`);
   if (x.forms && !x.handled) out.push("a <form> has no handler, so it saves nothing: give it a submit handler with a visible confirmation (and a fullstack back end when entries must be kept)");
   if (f.wantsBackend && !f.fullstack) out.push("the request needs saved data (bookings, orders, accounts or a database) but this is a static site: ws_create the \"fullstack\" template and move the front end to public/");
   return out;
 }
 /** The facts part of the Check line, so the answer's honest review has numbers. */
 export const factsLine = (f: Depth) => { const x = siteFacts(f); return `${x.visuals} picture${x.visuals === 1 ? "" : "s"}/SVG, ${x.chars} chars of text${x.forms ? `, ${x.forms} form${x.forms > 1 ? "s" : ""}${x.handled ? "" : " (no handler)"}` : ""}`; };
+
+// shortcut: in process memory per user, replaced each turn (lost on restart: proof checks fail closed until his next message).
+const SAID = ((globalThis as unknown as { __orbitOwnerSaid?: Map<string, string> }).__orbitOwnerSaid ??= new Map());
+/** core.ts, each turn: what the owner himself wrote in this chat (typed messages + attached files). */
+export const rememberOwnerText = (userId: string, text: string) => void SAID.set(userId, text.slice(-60_000));
+export const ownerText = (userId: string): string => SAID.get(userId) ?? "";

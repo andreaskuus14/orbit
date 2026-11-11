@@ -22,7 +22,7 @@
   padding: 1rem;
 }
 
-.inline { max-width: 42rem; margin-block: 0 1rem; }
+.inline { max-width: 42rem; margin: 0 auto 1rem; border-radius: .75rem; }
 
 .rail .heading, .inline .heading {
   display: flex;
@@ -51,6 +51,14 @@
 .entry:focus-visible { outline: 2px solid #a3d6e9; outline-offset: 2px; }
 .inline .list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .inline .slot + .slot { border-top: 0; }
+.inline .heading h2 { font-size: 1rem; }
+.inline .heading button:global(.needs-you-chip),
+.inline .entry, .inline .empty { min-height: 44px; }
+.inline .slot { padding: .35rem .7rem; }
+.inline .entry > span:first-child { white-space: normal; overflow-wrap: anywhere; }
+.inlineDetail :is(button, a) { min-height: 44px; }
+.inlineDetail :global(.continue-heading), .inlineDetail :global(.continue-heading) > span { flex-wrap: wrap; }
+.inlineDetail :global(.continue-heading) { gap: .25rem .75rem; }
 
 @media (max-width: 700px) {
   .rail, .detail {
@@ -61,4 +69,6 @@
   .rail .list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .rail .slot + .slot { border-top: 0; }
   .entry { min-height: 2rem; }
+  .inline .list { display: block; }
+  .inline .slot + .slot { border-top: 1px solid #253642; }
 }

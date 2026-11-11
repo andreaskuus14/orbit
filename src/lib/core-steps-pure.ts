@@ -4,6 +4,10 @@
 // own model writes the final answer. Pure; tests in tests/core-steps.test.ts.
 export type Tier = "fast" | "smart" | "deep";
 
+/** The live "route" event for the model that actually runs: its tier label (the UI's Fast/Main/Deep) and its id. */
+export const routeEvent = (model: string, m: { fast: string; smart: string }) =>
+  ({ type: "route", model: (model === m.fast ? "fast" : model === m.smart ? "smart" : "deep") as Tier, id: model });
+
 /** Thinking cap for an intermediate tool-choice step (the CLI's MAX_THINKING_TOKENS; 1024 is the API minimum). */
 export const STEP_THINKING = 1024;
 /** Newest tool results a tool-choice step sees in full; older ones are cut to their start. */

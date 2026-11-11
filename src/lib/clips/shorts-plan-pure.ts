@@ -22,7 +22,7 @@ export const planProblem = (x: unknown) => ((x as ShortsPlan)?.v === 1 && Array.
 export const rollWeek = (p: ShortsPlan, week: number, live: string[] = []): ShortsPlan =>
   p.week === week ? p : { v: 1, week, target: validTarget(p.target), picks: p.picks.filter((x) => x.story && live.includes(x.story)), used: p.used.slice(-USED_MAX) };
 
-type IdeaLike = { id: string; title: string; summary: string; area: string; score: number; dismissed?: boolean; origin?: Idea["origin"] };
+type IdeaLike = { id: string; title: string; summary: string; area: string; score: number; dismissed?: boolean; origin?: Idea["origin"]; untrusted?: true };
 /** STUDIO ideas from IDEA RADAR (comment ideas and Day-N Roblox sessions live there too). The seed matches the pipeline board's. */
 export const ideaCands = (ideas: IdeaLike[]): Cand[] => ideas.filter((i) => i.area === "studio" && !i.dismissed && i.origin !== "transcript").map((i) => ({
   key: `idea:${i.id}`, source: i.origin === "comments" ? "comments" : i.origin === "devsession" ? "roblox" : "radar", title: i.title, idea: ideaSeed(i),

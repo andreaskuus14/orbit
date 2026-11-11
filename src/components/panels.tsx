@@ -1,5 +1,5 @@
 "use client";
-import { isBrief, withBrief } from "@/lib/brief-mode-pure";
+import { COMMUNICATION_STORED_MAX, isBrief, withBrief } from "@/lib/brief-mode-pure";
 import { hereLink } from "./voice/object-command";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isSleepCommand } from "./voice/wake";
@@ -11,6 +11,8 @@ import { takeLines } from "@/lib/streamjson";
 import { followUps } from "@/lib/core-ui";
 import { dropNote, handoffTask } from "@/lib/long-work-pure";
 import { applyLive, type LiveEvent, type LiveRow } from "@/lib/core-live-pure";
+import { turnRunState } from "@/lib/skill-run-pure";
+import { CORE_OPEN_SKILL_CHAT, updateSkillRun, type SkillLaunch } from "./skill-run-receipts";
 import { CoreActivity } from "./CoreActivity";
 import { CoreWorkspace } from "./CoreWorkspace";
 import { cancelsJob, missionOf, turnArtifact } from "@/lib/core-workspace-pure";
@@ -94,7 +96,7 @@ async function waitTask(id: string, live: () => boolean): Promise<{ status: stri
   return null;
 }
 
-export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreeted }: { initial: string | null; onConsumed: () => void; onOpenMemory: (id: string) => void; greeting?: string | null; onGreeted?: () => void }) {
+export function CorePanel({ initial, initialSkill, onConsumed, onOpenMemory, greeting, onGreeted }: { initial: string | null; initialSkill?: SkillLaunch; onConsumed: () => void; onOpenMemory: (id: string) => void; greeting?: string | null; onGreeted?: () => void }) {
   const { t: tr } = useT();
   const [msgs, setMsgs] = useState<Msg[]>([]);
   // "Orbital wake up" greeting: shown as a CORE bubble only (local state, never sent to /api/core or saved).
@@ -184,8 +186,16 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       try { sessionStorage.removeItem(CORE_PROJECT_REQUEST_KEY); } catch { /* no stored request */ }
       if (target) openProject(target); else newChat();
     };
+    const openReceipt = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail;
+      if (id) void openChat(id);
+    };
     addEventListener(CORE_NEW_CHAT, h);
-    return () => removeEventListener(CORE_NEW_CHAT, h);
+    addEventListener(CORE_OPEN_SKILL_CHAT, openReceipt);
+    return () => {
+      removeEventListener(CORE_NEW_CHAT, h);
+      removeEventListener(CORE_OPEN_SKILL_CHAT, openReceipt);
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const project = (chatId ? chats.map[chatId] : null) ?? newProject; // newProject covers a just-created chat before the list reloads
   const pin = async (text: string, title?: string) => {
@@ -212,7 +222,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     return () => { alive.current = false; setTimeout(() => { if (!alive.current && !flying.current) stopSpeech(); }, 0); };
   }, []);
 
-  const send = useCallback(async (text: string, fromVoice?: boolean, look?: Preset) => {
+  const send = useCallback(async (text: string, fromVoice?: boolean, look?: Preset, skill?: SkillLaunch) => {
     const message = text.trim();
     const mine = view.current, here = () => mine === view.current;
     const nav = parseNavCommand(message, { current: "core" });
@@ -275,7 +285,16 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       const handle = (line: string) => {
         const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget; label?: string; tool?: string; taskId?: string; model?: "fast" | "smart" | "deep"; lesson?: { id: string; text: string } };
         if (ev.conversationId && !cid) { const id = cid = ev.conversationId; setRunning((r) => [...r, id]); }
-        if (!here()) { if (ev.type === "done" || ev.type === "error") finished = true; return; } // detached by "+ New": the server finishes and saves it in its own chat
+        if (skill) {
+          if (ev.type === "start" && cid) updateSkillRun(skill, { state: "started", chatId: cid });
+          else if (ev.type === "background" && ev.taskId) updateSkillRun(skill, { taskId: ev.taskId });
+          else if (ev.type === "bg_done") updateSkillRun(skill, { state: "finished" }); // fires on failure and cancel too: the task row says which
+          else if (ev.type === "done" && !handedOff && !bgId) updateSkillRun(skill, { state: turnRunState(ev.trace) });
+          else if (ev.type === "error") updateSkillRun(skill, { state: "failed" });
+        }
+        if (!here()) {
+          if (ev.type === "background" && ev.taskId) { handedOff = true; bgId = ev.taskId; }
+          if (ev.type === "done" || ev.type === "error") finished = true; return; } // detached by "+ New": the server finishes and saves it in its own chat
         if (ev.conversationId && ev.conversationId !== convo.current) { setChatId(ev.conversationId); void chats.reload(); }
         if (ev.type === "route" && (ev.model === "fast" || ev.model === "smart" || ev.model === "deep")) {
           setRoute(ev.model);
@@ -321,6 +340,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       if (!finished) throw new Error("Connection to CORE was lost");
       if (navTo && here()) fly(navTo); // after the stream closed: leaving the panel aborts the request, which mustn't land mid-read
     } catch (e) {
+      if (skill && !bgId) updateSkillRun(skill, { state: ac.signal.aborted ? "cancelled" : "failed" });
       const stopped = ac.signal.aborted;
       if (talk) stopSpeech();
       if (!stopped) ac.abort(); // e.g. a malformed line: stop the server-side CLI too
@@ -355,22 +375,26 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
 
   // React dev mode runs effects twice; remember what we already sent so the command bar message goes out once.
   const sentInitial = useRef<string | null>(null);
-  const queued = useRef<string | null>(null);
+  const queued = useRef<{ text: string; skill?: SkillLaunch } | null>(null);
   useEffect(() => {
     if (!initial) { sentInitial.current = null; return; }
-    if (sentInitial.current === initial) return;
-    sentInitial.current = initial;
+    const key = initialSkill?.runId ?? initial;
+    if (sentInitial.current === key) return;
+    sentInitial.current = key;
     onConsumed();
     // Busy: never drop the new question (e.g. a voice follow-up).
     // A cancel stops the job; any other follow-up (talking over CORE included) waits for it to finish.
-    if (busy) { if (cancelsJob(initial)) { abort.current?.abort(); stopSpeech(); } else queued.current = initial; }
-    else void send(initial);
-  }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (busy) { if (cancelsJob(initial)) { abort.current?.abort(); stopSpeech(); } else {
+      if (queued.current?.skill) updateSkillRun(queued.current.skill, { state: "cancelled" }); // replaced by a newer question before it ran
+      queued.current = { text: initial, skill: initialSkill };
+    } }
+    else void send(initial, undefined, undefined, initialSkill);
+  }, [initial, initialSkill]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (busy || !queued.current) return;
     const q = queued.current;
     queued.current = null;
-    void send(q);
+    void send(q.text, undefined, undefined, q.skill);
   }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   // Follow the answer only while the reader is at the bottom: scrolling up to read keeps its place (audit 8 Nov).
   const atBottom = useRef(true);
@@ -852,7 +876,7 @@ export function ProfilePanel() {
           <input className="field mt-1 w-full" value={p[k] ?? ""} onChange={(e) => setP({ ...p, [k]: e.target.value })} /></label>
       ))}
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isBrief(p.communication)} onChange={(e) => setP({ ...p, communication: withBrief(p.communication ?? "", e.target.checked) })} /> {t("profile.brief")} <span className="muted text-xs">{t("profile.briefHint")}</span></label>
-      <label className="block text-sm">{t("profile.talk")}<textarea className="field mt-1 h-20 w-full" value={p.communication ?? ""} onChange={(e) => setP({ ...p, communication: e.target.value })} maxLength={1000} /></label>
+      <label className="block text-sm">{t("profile.talk")}<textarea className="field mt-1 h-20 w-full" value={p.communication ?? ""} onChange={(e) => setP({ ...p, communication: e.target.value })} maxLength={COMMUNICATION_STORED_MAX} /></label>
       <button className="btn">{t("profile.save")}</button> {msg && <span className="muted text-sm">{msg}</span>}
     </form>
     <JobFitSection />

@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { cancelChain, createChain, drive, getChain } from "./chains";
 import { parseMeta, type ChainView } from "./chains-pure";
 import { checkContains, checkFile, checkPdf, checkResearch, evidenceLevels, evidenceLine, expected, fetchedFromTrace, plan, reviewStep, type Check } from "./mission-checks-pure";
+import { pdfPages } from "./pdf-open";
 import { createWorkspace, readWsFile, writeWsFile } from "./workspace";
 import { baselineMinutes, checkReport, closeMetrics, holdFor, section, PILOT_CONTRACT, RESEARCH_PILOT } from "./research-pilot-pure";
 import {
@@ -41,7 +42,7 @@ export async function createMission(sb: SupabaseClient, userId: string, body: un
   if ("error" in c) return c;
   // Saved workflow: the contract is the server's own constant, never taken from the request body.
   const wf = (body as { workflow?: unknown } | null)?.workflow === RESEARCH_PILOT ? { workflow: RESEARCH_PILOT, contract: PILOT_CONTRACT, metrics: { startedAt: now(), interventions: 0 } } : {};
-  const fresh = () => newDoc(m.objective, m.constraints, now(), { acceptance: m.acceptance, assumptions: m.assumptions, effort: plan(m.steps, MAX_RETRIES), ...wf });
+  const fresh = () => newDoc(m.objective, m.constraints, now(), { acceptance: m.acceptance, assumptions: m.assumptions, ...(m.brief && { brief: m.brief }), effort: plan(m.steps, MAX_RETRIES), ...wf });
   const { data, error } = await sb.from("missions").insert({ user_id: userId, chain_id: c.chainId, status: "queued", doc: cap.headsUp ? logged(fresh(), now(), cap.headsUp) : fresh() }).select(COLS).single();
   if (error) { await cancelChain(sb, c.chainId); return { error: error.message }; }
   await reconcile(sb, userId, data as Row);
@@ -91,7 +92,7 @@ async function examine(sb: SupabaseClient, userId: string, chainId: string, chai
     const checks: Check[] = [], kid = kids.get(s.taskId ?? ""), result = kid?.result || s.result || "";
     for (const r of doc.receipts.filter((r) => r.step === s.index && r.kind === "file" && r.path)) {
       const f = await readWsFile(userId, r.ref, r.path!);
-      checks.push(!f ? { step: s.index, ok: false, kind: "readBack", what: `${r.path} can't be read back` } : /\.pdf$/i.test(r.path!) ? await checkPdf(r.path!, f.bytes, s.index) : checkFile(r.path!, f.text, s.index));
+      checks.push(!f ? { step: s.index, ok: false, kind: "readBack", what: `${r.path} can't be read back` } : /\.pdf$/i.test(r.path!) ? await checkPdf(r.path!, f.bytes, s.index, pdfPages) : checkFile(r.path!, f.text, s.index));
     }
     // Approved-action receipts only exist after completion.ts read the destination back and it matched (matchesStored).
     if (doc.receipts.some((r) => r.step === s.index && r.kind !== "task")) checks.push({ step: s.index, ok: true, kind: "readBack", what: "destination read back matches the approved action" });

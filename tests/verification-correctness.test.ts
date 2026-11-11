@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { pdfPages } from "../src/lib/pdf-open.ts";
 import { checkFile, checkPdf, checkResearch, checkTests, evidenceLevels, fetchedFromTrace, normUrl, parseCsv, type Fetched } from "../src/lib/mission-checks-pure.ts";
 
 const src = (url: string, evidence: string): Fetched => ({ url, at: "2026-10-29T10:00:00Z", evidence });
@@ -31,8 +32,8 @@ test("fetchedFromTrace reads full source records, not 160-char detail strings", 
 
 test("pdf: a fake %PDF- … %%EOF string fails; a real PDF opens", async () => {
   assert.ok(!checkFile("p.pdf", "%PDF-1.4 hello %%EOF").ok);
-  assert.ok(!(await checkPdf("p.pdf", new TextEncoder().encode("%PDF-1.4 hello %%EOF"))).ok);
-  const r = await checkPdf("p.pdf", new TextEncoder().encode(minimalPdf()));
+  assert.ok(!(await checkPdf("p.pdf", new TextEncoder().encode("%PDF-1.4 hello %%EOF"), 0, pdfPages)).ok);
+  const r = await checkPdf("p.pdf", new TextEncoder().encode(minimalPdf()), 0, pdfPages);
   assert.ok(r.ok, r.what);
   assert.ok(checkFile("p.pdf", minimalPdf()).ok);
 });

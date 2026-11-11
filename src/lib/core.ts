@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { inlineTask } from "./task-claim-pure";
+import { atLeastOpus, isRisky, turnRisk } from "./agent-defs-pure";
+import { needsOpus } from "./core-mcp-boost-pure";
 import { askClaude, askClaudeStream, emit, warmClaude, recordUsage, reviewDraft, MODEL, FAST_MODEL, DEEP_MODEL, DEEP_EFFORT, type PromptImage } from "./claude";
 
 // Cleared once the local CLI rejects --effort, so later deep turns don't fail on it again (until a restart).
@@ -7,6 +9,7 @@ const deepFlags = { effort: DEEP_EFFORT };
 // The CORE route's maxDuration is 300 s: a deep turn (steps + review) must finish inside it.
 const DEEP_TURN_MS = 270_000;
 import { typedText } from "./attach-pure";
+import { rememberOwnerText } from "./site-pipeline-pure";
 import { pickModel } from "./core-ui";
 import { partialAnswer } from "./streamjson";
 import { searchMemories, MEMORY_COLUMNS } from "./memory";
@@ -164,12 +167,14 @@ const carriedText = new Map<string, string[]>();
 // own ask on later turns. shortcut: in-memory; after a restart an ongoing chat counts as having outside text (fails closed).
 const outsideClean = new Set<string>();
 
-async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject?: MemoryProject, sessionKey?: string, lang: Lang = "en", onRoute?: (tier: Tier) => void) {
+async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject?: MemoryProject, sessionKey?: string, lang: Lang = "en", onRoute?: (model: string) => void) {
   const budget = turnBudget.getStore() ?? { ms: TURN_MS, background: false, steps: [], trace: [], done: new Map<string, string>(), extra: 0 };
   const trace = budget.trace; // shared with a background resume (CoreHandoff.carry)
   const turnId = crypto.randomUUID(); // links policy.decision ledger rows to this turn's trace (failure report)
   const transcriptHolder = { text: "" };
   const question = typedText(history[history.length - 1].content); // attached file names never count as the user's words
+  // Owner proof on built sites is checked only against what he typed himself; attached files never count.
+  rememberOwnerText(userId, history.filter((h) => h.role === "user").map((h) => typedText(h.content)).join("\n"));
 
   // Per-stage timing for the server log: ms since the turn started when each stage finished.
   const t0 = Date.now(), ms: Record<string, number> = {};
@@ -180,7 +185,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const logTiming = (tier: string) => { console.info(`[core] ${tier} ${Object.entries({ ...ms, total: Date.now() - t0 }).map(([k, v]) => `${k}=${v}ms`).join(" ")}`); recordCoreTurn(tier, ms, Date.now() - t0, trace); };
 
   // "be brief" / "lühidalt" / "normal": flips the saved brief-mode marker in the profile's communication text, no model call
-  const flip = attach ? null : briefCommand(question);
+  const flip = attach ? null : briefCommand(question, [...history].reverse().find((h) => h.role === "assistant")?.content);
   if (flip) {
     const out = await briefTurn(sb, userId, flip.on, flip.et, sendDelta).catch((e) => { console.error("[orbit] brief-mode switch failed; taking the full path", e); return null; });
     if (out) { logTiming("reflex:brief"); return out; }
@@ -212,7 +217,14 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   if (twin) { sendDelta?.(twin.text); trace.push(...twin.trace); logTiming("reflex:twin"); return twin; }
 
   let t = Date.now();
-  let tier = attach ? "smart" as const : pickModel(question, [...history].reverse().find((h) => h.role === "assistant")?.content);
+  const prevAnswer = [...history].reverse().find((h) => h.role === "assistant")?.content;
+  let tier = attach ? "smart" as const : pickModel(question, prevAnswer);
+  // Keyword hint (auth/money/approvals/sending, or "yes, go ahead" on such a proposal): start on the deep tier; a limit may still step it down.
+  if (isRisky(turnRisk(question, prevAnswer ?? ""))) tier = "deep";
+  // held: a model below Opus reached for a T2/T3 tool (needsOpus), so the turn was redone on Opus: from then on every model
+  // below runs at Opus or above, never locally, with no limit fallback
+  let held = false;
+  const floor = (m: string) => (held ? atLeastOpus(m) : m), toOpus = (from: string) => { onReset?.(); held = true; if (tier === "fast") tier = "smart"; trace.push({ step: "fallback", detail: `${from} reached for a T2/T3 tool → redo on Opus`, ms: 0, ok: false }); };
   if (typeof voice === "string" && tier === "deep") tier = "smart"; // phone call: no screen, the reply must start fast. On-screen voice keeps full depth (only its summary is spoken)
   const maxN = maxSteps(process.env.ORBIT_CORE_MAX_STEPS, isHeavy(question, [])); // operator/research turns get more steps
   const system = systemPrompt(await at("profile", cachedProfile(sb, userId)), localDate(), maxN); // no clock: the same all day, so spare CLIs (warmCore) and prompt caching match
@@ -342,6 +354,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     tier = "smart"; return true;
   };
   // Deep: one self-check pass on the same context, with no tools: it can only rewrite the draft.
+  const reviewFailed = (e: unknown) => void emit(sb, userId, "review.failed", "core", { model: floor(DEEP_MODEL), error: String(e instanceof Error ? e.message : e).slice(0, 200) });
   const review = async () => {
     if (tier !== "deep" || !answer || deepLeft() <= 45_000) return;
     onReset?.(); // the streamed draft clears; the checked answer arrives with "done"
@@ -349,9 +362,9 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     t = Date.now();
     // Tool results first, so the review's context cap cuts memories rather than fresh results.
     const ctxText = `${steps.length ? `TOOL RESULTS:\n${steps.join("\n\n")}\n\n` : ""}${prompt}`;
-    const rv = await reviewDraft(question, answer, ctxText, { lane: "foreground", signal, model: DEEP_MODEL, timeoutMs: Math.min(120_000, deepLeft() - 10_000), onUsage: (rr) => recordUsage(sb, userId, "core.review", rr, DEEP_MODEL) });
+    const rv = await reviewDraft(question, answer, ctxText, { lane: "foreground", signal, model: floor(DEEP_MODEL), risky: held, timeoutMs: Math.min(120_000, deepLeft() - 10_000), onUsage: (rr) => recordUsage(sb, userId, "core.review", rr, floor(DEEP_MODEL)), onFail: reviewFailed });
     answer = rv.text;
-    if (rv.reviewed) trace.push({ step: "review", detail: `${DEEP_MODEL} · self-checked`, ms: Date.now() - t, ok: true });
+    if (rv.reviewed) trace.push({ step: "review", detail: `${floor(DEEP_MODEL)} · self-checked`, ms: Date.now() - t, ok: true });
   };
   // Independent verifier (verifier.ts): once at the end of the turn; the MCP engine calls it itself so a "not verified" can continue.
   let verdict: { ok: boolean; reason: string } | null = null, verifyRan = false;
@@ -376,9 +389,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
         // A redo after tools already ran carries their results, so writes aren't repeated.
         const tail = `\n\n${CORE_LANG_RULE[lang]}${voiceNote.replace(/"final"/g, "your answer")}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}`;
         try {
-          onRoute?.(tier);
-          const r = await engineTurn({ question, tools: evalTools, sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL, effort, maxTurns: maxN, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast", turnId, exec, record, onDelta: sendDelta, onReset, onStep, verify });
-          if (r.escalated) { onReset?.(); tier = "smart"; continue; } // as the loop: a fast-model tool call is redone on the main model
+          const r = await engineTurn({ question, tools: evalTools, sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: floor(tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL), risky: held, effort, maxTurns: maxN, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast" && !held, turnId, exec, record, onDelta: sendDelta, onReset, onStep, onRoute, verify });
+          if (r.escalated) { if (r.opus) toOpus(tier); else { onReset?.(); tier = "smart"; } continue; } // as the loop: redone on the main model, or on Opus for T2/T3
           if (sess && sessionKey) coreSessions.set(sessionKey, { id: r.sessionId || sess.id, resume: true });
           answer = r.text;
           break;
@@ -400,14 +412,14 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       const ask = (prompt ? Promise.resolve(prompt) : prep.then((p) => (prompt = p))).then((p) => sessNow ? sessionInput(p, transcriptHolder.text, sessNow.resume, sentNow) + tail : p + tail);
       // Deep steps leave 60 s for the review; too little time left → finish on the main model.
       if (tier === "deep" && deepLeft() - 60_000 < 30_000) { tier = "smart"; trace.push({ step: "fallback", detail: "deep → main model (time limit)", ms: 0, ok: false }); }
-      const model = planning || tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL;
-      onRoute?.(planning ? "fast" : tier);
+      const model = floor(planning || tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL);
+      onRoute?.(model); // the model that runs (after the Opus floor); core-turn.ts sends it only when it changes
       const effort = !planning && tier === "deep" ? deepFlags.effort || undefined : undefined;
       const timeoutMs = !planning && tier === "deep" ? Math.min(120_000, deepLeft() - 60_000) : callTimeout(!planning && isHeavy(question, steps), deepLeft());
       let r;
       try {
       if (planning) {
-        r = await askClaude(ask, system, { lane: "foreground", signal, model, effort, timeoutMs, thinking: STEP_THINKING }); // nothing streams: a tool call, or a draft redone below
+        r = await askClaude(ask, system, { lane: "foreground", signal, model, effort, timeoutMs, thinking: STEP_THINKING, risky: held }); // nothing streams: a tool call, or a draft redone below
       } else if (onDelta) {
         // The model writes a JSON envelope; forward only the newly decoded part of its "final" answer.
         // Deep: nothing until the reply is clearly the JSON envelope, so a raw plan or tool call never streams.
@@ -417,9 +429,9 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
           if (tier === "deep" && !/^\s*[{`]/.test(raw)) return;
           const shown = partialAnswer(raw);
           if (shown && shown.length > sent) { sendDelta!(shown.slice(sent)); sent = shown.length; }
-        }, signal, "foreground", model, attach?.images, effort, timeoutMs, undefined, sess ?? undefined);
+        }, signal, "foreground", model, attach?.images, effort, timeoutMs, undefined, sess ?? undefined, held);
       } else {
-        r = await askClaude(ask, system, { lane: "foreground", signal, model, images: attach?.images, effort, timeoutMs, session: sess ?? undefined });
+        r = await askClaude(ask, system, { lane: "foreground", signal, model, images: attach?.images, effort, timeoutMs, session: sess ?? undefined, risky: held });
       }
       } catch (e) {
         // A long step timed out: once more with the work split, then (interactive) hand the rest to the background.
@@ -449,6 +461,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       const thought = tier === "deep" ? (reply.tool ? "planned privately" : "answering") : reply.thought || (reply.final !== undefined ? "answering" : "");
       trace.push({ step: "think", detail: `${model} · ${thought}`.slice(0, 200), ms: r.ms, ok: true });
       if (planning && !r.local && (reply.final !== undefined || !reply.tool)) { synth = true; step--; continue; } // ready to answer: the turn's model writes it
+      if (reply.tool && !r.local && !held && needsOpus(reply.tool, model)) { toOpus(model); step--; continue; } // before it runs, as the engines
       if (tier === "fast" && reply.tool) { onReset?.(); tier = "smart"; step--; continue; }
       if (reply.final !== undefined || !reply.tool || last) {
         answer = reply.final ?? (reply.tool ? "" : r.text); // a tool call on the last step is never shown as the answer
@@ -568,7 +581,7 @@ async function briefTurn(sb: SupabaseClient, userId: string, on: boolean, et: bo
   const t = Date.now();
   const { data, error } = await sb.from("profiles").select("communication").eq("id", userId).maybeSingle();
   if (error) throw error;
-  const { error: upErr } = await sb.from("profiles").upsert({ id: userId, communication: withBrief(String(data?.communication ?? ""), on).slice(0, 1000) });
+  const { error: upErr } = await sb.from("profiles").upsert({ id: userId, communication: withBrief(String(data?.communication ?? ""), on) });
   if (upErr) throw upErr;
   forgetProfile(userId); // the next turn reads the new setting
   const text = briefReply(on, et);

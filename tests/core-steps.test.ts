@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stepTier, stepsContext, callKey, remember, reused, estimateStepMs, STEP_THINKING, KEEP_FULL } from "../src/lib/core-steps-pure.ts";
+import { stepTier, stepsContext, callKey, remember, reused, estimateStepMs, routeEvent, STEP_THINKING, KEEP_FULL } from "../src/lib/core-steps-pure.ts";
 
 const search = (q: string, body = "x".repeat(8000)) => `You called web_search {"query":"${q}"}\nRESULT:\n${body}`;
 
@@ -58,4 +58,12 @@ test("timing model: the live 3 min step vs a capped fast tool-choice step", () =
   const after = estimateStepMs({ tier: "fast", inputChars: 30_000 + 2 * 8000 + 4 * 650, outputTokens: 150, thinkingTokens: STEP_THINKING });
   assert.ok(before > 150_000, `before ${before}`);
   assert.ok(after < 20_000, `after ${after}`);
+});
+
+test("routeEvent: labels the model that actually runs, not the core tier", () => {
+  const m = { fast: "haiku", smart: "sonnet" };
+  assert.deepEqual(routeEvent("haiku", m), { type: "route", model: "fast", id: "haiku" });
+  assert.deepEqual(routeEvent("sonnet", m), { type: "route", model: "smart", id: "sonnet" });
+  assert.deepEqual(routeEvent("opus", m), { type: "route", model: "deep", id: "opus" }); // the Opus floor/redo on a fast or main tier
+  assert.deepEqual(routeEvent("claude-fable-5-1", m), { type: "route", model: "deep", id: "claude-fable-5-1" });
 });

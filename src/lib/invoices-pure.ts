@@ -5,6 +5,8 @@
 // Money is kept in cents (integers) so totals never drift.
 import { pdfDoc, pdfText, type PdfPage } from "./pdf-pure.ts";
 import { emailIn } from "./business-pure.ts";
+import { localDay } from "./morning-pure.ts";
+import { dayKey } from "./agent-stats-pure.ts";
 
 export const STATUSES = ["draft", "sent", "paid"] as const;
 export type Status = (typeof STATUSES)[number];
@@ -139,7 +141,7 @@ export function editInvoice(i: Invoice, b: Record<string, unknown>, now: number)
 export type From = { source: Source; buyer: Partial<Party>; line: { text: string; cents: number } };
 /** A new draft. Seller not VAT-registered (no KMKR) → VAT off by default. */
 export function newInvoice(id: string, f: From, seller: Seller | null, existing: string[], now: number): Invoice {
-  const t = new Date(now).toISOString(), issued = t.slice(0, 10);
+  const t = new Date(now).toISOString(), issued = localDay(new Date(now)); // his calendar day, like `today` (UTC is a day behind after midnight in Tallinn)
   return {
     id, ...nextNumber(existing, Number(issued.slice(0, 4))), source: f.source,
     buyer: { name: clean(f.buyer.name, 120), regCode: clean(f.buyer.regCode, 20), vatNo: clean(f.buyer.vatNo, 20), address: clean(f.buyer.address, 200), email: clean(f.buyer.email, 120) },
@@ -175,7 +177,7 @@ export function setStatus(i: Invoice, to: unknown, now: number, s: Seller | null
   }
   if (to === "paid") {
     if (i.status !== "sent") return "Mark it sent first";
-    const day = paidOn === undefined || paidOn === "" ? at.slice(0, 10) : paidOn;
+    const day = paidOn === undefined || paidOn === "" ? dayKey(new Date(now), "Europe/Tallinn") : paidOn; // his Tallinn day, whatever the server zone
     if (!isDay(day)) return "Paid date must be YYYY-MM-DD";
     return { ...i, status: "paid", paidAt: day, reminder: null, updated: at };
   }
@@ -193,7 +195,7 @@ export const refunded = (i: Pick<Invoice, "refunds">) => (i.refunds ?? []).reduc
 /** His record of money paid back on a paid invoice: at most what is left of its total, on or after the paid day. */
 export function addRefund(i: Invoice, b: Record<string, unknown>, now: number): Invoice | string {
   if (i.status !== "paid" || !i.paidAt) return "Only a paid invoice can have a refund";
-  const at = new Date(now).toISOString(), day = b.day === undefined || b.day === "" ? at.slice(0, 10) : b.day;
+  const at = new Date(now).toISOString(), day = b.day === undefined || b.day === "" ? localDay(new Date(now)) : b.day;
   if (!isDay(day)) return "Refund date must be YYYY-MM-DD";
   if (day < i.paidAt) return "A refund can't be before the invoice was paid";
   const cents = toCents(b.amount), left = totals(i).gross - refunded(i);
@@ -254,7 +256,7 @@ export function approveProblem(i: Invoice | undefined, today: string): string {
 }
 /** Overdue invoices that may get a reminder draft now: never reminded, or the last one is a week old. */
 export const remindDue = (list: Invoice[], today: string) =>
-  list.filter((i) => isOverdue(i, today) && !i.reminder && !(i.reminded.length && daysBetween(i.reminded.at(-1)!.at.slice(0, 10), today) < REMIND_AGAIN_DAYS));
+  list.filter((i) => isOverdue(i, today) && !i.reminder && !(i.reminded.length && daysBetween(localDay(new Date(i.reminded.at(-1)!.at)), today) < REMIND_AGAIN_DAYS));
 
 // ---- Morning brief / night report lines ----------------------------------------------
 

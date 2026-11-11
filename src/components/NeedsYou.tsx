@@ -1,7 +1,7 @@
 "use client";
 // "Needs you": the home HUD's main card. One deduplicated list (needs-you-pure) of decisions, blockers and finished results, each
 // with one action: open it where it is handled (Decide → "Review": the exact content and its Approve, never a one-tap approve here). Polls /api/needs-you every 60 s while visible. Continue my work and Mission control stay one tap away.
-import { useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { pollMs } from "@/lib/poll-pure";
 import { usePoll } from "./use-poll";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
@@ -43,6 +43,19 @@ export function NeedsYou({ onOpenTask, onOpenGoal, tasks, tasksFailed, inline = 
   const [loadFailed, setLoadFailed] = useState(false);
   const [snooze, setSnooze] = useState<{ ref: string; why: string } | null>(null);
   const [open, setOpen] = useState(false); // quiet open (#352): the galaxy stays uncovered; the count waits in a chip until clicked
+  const focusOnMount = useRef<"close" | "more" | null>(null);
+  const focusClose = useCallback((button: HTMLButtonElement | null) => {
+    if (button && focusOnMount.current === "close") {
+      focusOnMount.current = null;
+      button.focus();
+    }
+  }, []);
+  const focusMore = useCallback((button: HTMLButtonElement | null) => {
+    if (button && focusOnMount.current === "more") {
+      focusOnMount.current = null;
+      button.focus();
+    }
+  }, []);
   const [digest, setDigest] = useState<Digest | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null); // the group card showing its items
   // When he was last here, read once before MorningCard moves it forward (orbit.lastSeen, ms epoch).
@@ -69,15 +82,15 @@ export function NeedsYou({ onOpenTask, onOpenGoal, tasks, tasksFailed, inline = 
   const taskEntry = (task: GalaxyTasks["running"]) => task && { title: task.title, open: () => onOpenTask(task.id) };
   const taskState = tasksFailed ? (tasks ? "stale" : "unavailable") : tasks ? "fresh" : "loading";
   const attentionState = loadFailed ? (items ? "stale" : "unavailable") : items ? "fresh" : "loading";
-  if (!open) return <GalaxyActivityRail inline={inline} onMore={() => setOpen(true)} slots={[
+  if (!open) return <GalaxyActivityRail inline={inline} moreRef={focusMore} onMore={() => { focusOnMount.current = "close"; setOpen(true); }} slots={[
     { entry: taskEntry(tasks?.running ?? null), state: taskState },
     { entry: attention ? { title: attention.title, open: () => openTarget(attention.act.open, onOpenTask, onOpenGoal) } : null, state: attentionState },
     { entry: taskEntry(tasks?.latest ?? null), state: taskState },
   ]} />;
-  return <section className={inline ? "continue-work needs-you" : `continue-work needs-you ${styles.detail}`} aria-labelledby={titleId}>
+  return <section className={inline ? `continue-work needs-you ${styles.inlineDetail}` : `continue-work needs-you ${styles.detail}`} aria-labelledby={titleId}>
     <div className="continue-heading"><h2 id={titleId}>{t("needs.title")}{items?.length ? ` · ${items.length}` : ""}</h2>
       <span className="flex items-center gap-2">
-        <button type="button" className="link" aria-expanded onClick={() => setOpen(false)}>{t("common.close")}</button>
+        <button type="button" className="link" ref={focusClose} aria-expanded onClick={() => { focusOnMount.current = "more"; setOpen(false); }}>{t("common.close")}</button>
         <button type="button" className="link" onClick={() => nav({ panel: null, continueWork: true })}>{t("needs.work")}</button>
         <button type="button" className="link" onClick={() => nav({ panel: null, mission: true })}>{t("needs.mission")}</button>
       </span></div>

@@ -14,7 +14,13 @@ export function deviceForToken<D extends { id: string }>(token: unknown, secret:
 
 export const PAIR_TTL_MS = 2 * 60 * 1000;
 export const PAIR_MAX_FAILS = 5;
-export type PairCode = { code: string; expiresAt: number; fails: number; used: boolean };
+/** Wrong tries over all clients before the code locks for everyone: the client key is a spoofable header, so this is the real bound. */
+export const PAIR_MAX_FAILS_ALL = 15;
+/** fails = wrong guesses in total (shown nowhere, kept for logs); failsBy = per client, which is what locks (see verifyPair). */
+export type PairCode = { code: string; expiresAt: number; fails: number; used: boolean; failsBy?: Record<string, number> };
+/** What the PC shows: the live code, or "locked" once PAIR_MAX_FAILS_ALL wrong tries spent it (the phone is told to make a new one), else null. */
+export const pairView = (p: PairCode | null | undefined, now: number) =>
+  !p || p.used || now >= p.expiresAt ? null : p.fails >= PAIR_MAX_FAILS_ALL ? { locked: true as const, expiresAt: p.expiresAt } : { code: p.code, expiresAt: p.expiresAt };
 export type PairResult = { ok: true; pair: PairCode } | { ok: false; reason: "expired" | "locked" | "used" | "wrong"; pair: PairCode };
 
 /** `rand(n)` must return a cryptographically random integer in [0, n), e.g. node:crypto randomInt. */
@@ -29,15 +35,17 @@ const sameBytes = (a: string, b: string) => {
   return x.length === y.length && timingSafeEqual(x, y);
 };
 
-/** Check an attempt; returns the next pair state to store. Locks after 5 wrong tries; one success consumes the code. */
-export function verifyPair(pair: PairCode, attempt: unknown, now: number): PairResult {
+/** Check an attempt from client `who`; returns the next pair state to store. One success consumes the code. Five wrong tries lock
+ *  that client; PAIR_MAX_FAILS_ALL wrong tries from all clients lock the code (client keys are spoofable), and the owner makes a new one. */
+export function verifyPair(pair: PairCode, attempt: unknown, now: number, who = ""): PairResult {
   if (pair.used) return { ok: false, reason: "used", pair };
-  if (pair.fails >= PAIR_MAX_FAILS) return { ok: false, reason: "locked", pair };
+  if ((pair.failsBy?.[who] ?? 0) >= PAIR_MAX_FAILS || pair.fails >= PAIR_MAX_FAILS_ALL) return { ok: false, reason: "locked", pair };
   if (now >= pair.expiresAt) return { ok: false, reason: "expired", pair };
   const guess = typeof attempt === "string" && /^\d{6}$/.test(attempt) ? attempt : "------";
   if (sameBytes(pair.code, guess)) return { ok: true, pair: { ...pair, used: true } };
-  const next = { ...pair, fails: pair.fails + 1 };
-  return { ok: false, reason: next.fails >= PAIR_MAX_FAILS ? "locked" : "wrong", pair: next };
+  const mine = (pair.failsBy?.[who] ?? 0) + 1;
+  const next = { ...pair, fails: pair.fails + 1, failsBy: { ...pair.failsBy, [who]: mine } };
+  return { ok: false, reason: mine >= PAIR_MAX_FAILS || next.fails >= PAIR_MAX_FAILS_ALL ? "locked" : "wrong", pair: next };
 }
 
 // ---- Session tokens ------------------------------------------------------

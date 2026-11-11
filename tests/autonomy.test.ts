@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   AREAS, AREA_INFO, AUTO_CONFIRM, DEFAULT_LEVELS, LIMIT_DEFAULTS, autonomyAllows, autonomyDefaults, autoPush, commitmentIn, doneToday, nightOff,
-  parseAutonomy, patchLimits, pickAuto, setLevel, autoClock, quietAuto, UNDO_MS, cancelPending, clipVersion, sendOutcome, autoApprove, undoAutoApprove, type Pending, type Area, type AutonomyState,
+  parseAutonomy, patchLimits, pickAuto, setLevel, autoClock, quietAuto, UNDO_MS, cancelPending, clipVersion, sendOutcome, autoApprove, autoLedger, draftCandidate, undoAutoApprove, type Pending, type Area, type AutonomyState,
 } from "../src/lib/autonomy-pure.ts";
 import { decide, TIERS, type PolicyCtx } from "../src/lib/policy-pure.ts";
 import { planNight, NIGHT_DEFAULTS, type PlanInput } from "../src/lib/night-pure.ts";
@@ -203,4 +203,40 @@ test("a Short's version covers video, title and description: editing any one mak
   assert.deepEqual(pickAuto(s, "studio-publish", [cand(v)], Date.parse("2026-10-25T12:00:00Z"), false), []);
   assert.equal(pickAuto(s, "studio-publish", [cand(clipVersion({ ...base, title: "New title" }))], Date.parse("2026-10-25T12:00:00Z"), false).length, 1);
   assert.equal(parseAutonomy(JSON.stringify({ ...s, pending: [{ id: "1", area: "studio-publish", ref: "j/c", seen: v + "x".repeat(400), label: "l", at: "", dueAt: "" }] })).pending.length, 1); // long versions survive a restart
+});
+
+test("AGENTS.md rule 6 as code: under-cap send passes, the 4th is held, spend is always held, Auto off holds everything", () => {
+  const ok = { limits: LIMIT_DEFAULTS, known: true, text: "Hi, a short idea for you" };
+  const auto = { ...DEFAULT_LEVELS, "business-send": "auto" as const, "studio-publish": "auto" as const, "higgsfield-spend": "auto" as const }; // spend forced to auto anyway
+  for (const n of [0, 1, 2]) assert.equal(autonomyAllows("business-send", "auto", { ...ok, levels: auto, doneToday: n }).ok, true, `send ${n + 1}`);
+  assert.equal(autonomyAllows("business-send", "auto", { ...ok, levels: auto, doneToday: 3 }).ok, false); // the 4th
+  assert.equal(autonomyAllows("studio-publish", "auto", { ...ok, levels: auto, doneToday: 1 }).ok, false); // the 2nd publish
+  assert.equal(autonomyAllows("higgsfield-spend", "auto", { ...ok, levels: auto, doneToday: 0 }).ok, false);
+  assert.equal(typeof setLevel(autonomyDefaults(), "higgsfield-spend", "auto", "x"), "string");
+  for (const a of AREAS) assert.equal(autonomyAllows(a, "auto", { ...ok, levels: DEFAULT_LEVELS, doneToday: 0 }).ok, false, a);
+  const on: AutonomyState = { ...autonomyDefaults(), levels: auto, pending: [{ id: "1", area: "business-send", ref: "p", seen: "v", label: "", at: "", dueAt: "" }] };
+  const off = setLevel(on, "business-send", "ask", "") as AutonomyState;
+  assert.deepEqual(off.pending, []); // turning Auto off drops what was queued, right away
+  assert.deepEqual(AREAS.filter(a => AREA_INFO[a].levels.includes("auto")).sort(), ["business-send", "studio-publish"]); // rule 6 scope: a new Auto area fails here
+});
+
+test("an old draft stays old after an unrelated edit to the prospect: the draft's own drafted_at counts, not updated_at", () => {
+  const now = Date.parse("2026-10-25T12:00:00Z");
+  const on = setLevel(autonomyDefaults(), "business-send", "auto", AUTO_CONFIRM["business-send"], Date.parse("2026-10-25T10:00:00Z")) as AutonomyState;
+  const row = (drafted_at: string | null) => ({ id: "p1", name: "Cafe", draft: "Hi, a short idea for you", updated_at: "2026-10-25T11:00:00Z", drafted_at });
+  assert.deepEqual(pickAuto(on, "business-send", [draftCandidate(row("2026-10-20T10:00:00Z"), "Idea")], now, false), []); // note edited today, draft from last week
+  assert.deepEqual(pickAuto(on, "business-send", [draftCandidate(row(null), "Idea")], now, false), []); // drafted before 0026
+  const fresh = draftCandidate(row("2026-10-25T10:30:00Z"), "Idea");
+  assert.equal(fresh.seen, "2026-10-25T11:00:00Z"); // the version sendDraft claims
+  assert.deepEqual(pickAuto(on, "business-send", [fresh], now, false).map((x) => x.ref), ["p1"]);
+});
+
+test("month names and relative years are held like dates", () => {
+  for (const t of ["See you in March", "May works for us", "Let's talk next year", "this week?"]) assert.ok(commitmentIn(t), t);
+  assert.equal(commitmentIn("Hi, a short idea for your cafe"), "");
+});
+
+test("the ledger gets every fired auto action, also an unknown-result publish", () => {
+  assert.deepEqual(autoLedger("studio-publish", "j/c", "unsure"), { area: "studio-publish", action: "publish", ref: "j/c", result: "unsure" });
+  assert.equal(autoLedger("business-send", "x".repeat(200), "done").ref.length, 128);
 });

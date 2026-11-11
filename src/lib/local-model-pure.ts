@@ -18,9 +18,10 @@ export const localModelName = (env: Record<string, string | undefined>) => (env.
 export const LOCAL_NOTE = "\n\nOFFLINE MODE: you are a small local model with no tools. Never call or describe tool calls; answer directly in plain text from what is given.";
 
 /** Which calls may run locally: CORE chat ("core") and background summaries (*.summary). Never anything with images or MCP
- *  tools, and never drafts of outward messages (business.*, call.opener, clips.engage…): those aren't on the list. */
-export function localAllowed(o: { model: string; purpose: string; images: number; mcp: boolean }): boolean {
-  return !!o.model && !o.images && !o.mcp && (o.purpose === "core" || o.purpose === "core.chat" || /\.summary$/.test(o.purpose));
+ *  tools, never a risky turn (auth/money/approvals/sending: Opus floor), and never drafts of outward messages (business.*, call.opener,
+ *  clips.engage…): those aren't on the list. */
+export function localAllowed(o: { model: string; purpose: string; images: number; mcp: boolean; risky?: boolean }): boolean {
+  return !!o.model && !o.images && !o.mcp && !o.risky && (o.purpose === "core" || o.purpose === "core.chat" || /\.summary$/.test(o.purpose));
 }
 
 const UNREACHABLE = /Could not start|Claude Code failed|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|fetch failed|Connection error|network error|overloaded|API Error: (?:5\d\d|529)/i;

@@ -5,7 +5,7 @@ import type { WriteEvidence } from "./completion-pure.ts";
 import { wsConfirmOffer, wsWriteBlocked, type WsGate, type WsPending } from "./ws-intent-pure.ts";
 import { explicitBuild, slugify as wsSlug } from "./ws-intent-pure.ts";
 import { SITE_GUIDE, SITE_PIPELINE, UNPLANNED_HINT, guideDue } from "./site-guide.ts";
-import { factsLine, isFullstackPlan, lintDepth, lintSite, siteStepHint, wantsBackend } from "./site-pipeline-pure.ts";
+import { factsLine, isFullstackPlan, lintDepth, lintSite, ownerText, siteStepHint, wantsBackend } from "./site-pipeline-pure.ts";
 export const WS_TOOLS = ["ws_list", "ws_read", "ws_write", "ws_create", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft", "ws_run", "ws_stop"] as const;
 export type WsTool = (typeof WS_TOOLS)[number];
 export const isWsTool = (t: string): t is WsTool => (WS_TOOLS as readonly string[]).includes(t);
@@ -27,7 +27,7 @@ export const wsTainted = (steps: string[], question = "") => {
   return steps.some((s) => { const t = /^You called (\S+)/.exec(s)?.[1]; return !t || (inbound.test(t) && !readsFresh(s, fresh, own)); });
 };
 // Every tool in policy-pure UNTRUSTED belongs here too (tests/outside-text-taint.test.ts checks it). plugin__<server>__<tool>: a plugin's result is outside text.
-const OUTSIDE = "read_more|reach_trending|reach_read|vault_search|vault_read|vault_skill|ws_read|life_journal|ask_agent|calendar_events|git_summary|browse|watch_changes|business_status|ideas_list|wishlist|plan_day|mission_status|run_niche|local_transcribe|read_news|mcp_.*|plugin__.*";
+const OUTSIDE = "read_more|reach_trending|reach_read|find_outliers|vault_search|vault_read|vault_skill|ws_read|life_journal|ask_agent|calendar_events|git_summary|browse|watch_changes|business_status|ideas_list|wishlist|plan_day|mission_status|run_niche|local_transcribe|read_news|mcp_.*|plugin__.*";
 const INBOUND = new RegExp(`^(?:web_search|fetch_url|scrape_page|ws_fetch_image|ws_inspire_image|${OUTSIDE})$`);
 const INBOUND_BUILD = new RegExp(`^(?:${OUTSIDE})$`); // his explicit build: the site pipeline's own public research (search, fetch, images) doesn't taint
 /** Workspaces this task's own ws_create made (empty or ORBIT's template; a taken name becomes a new version), so reading them adds no outside text. */
@@ -101,6 +101,7 @@ async function siteLint(userId: string, slug: string, question = ""): Promise<{ 
     images: files.filter((f) => /\.(?:png|jpe?g|webp|svg)$/i.test(f.path)).map((f) => ({ path: f.path, bytes: f.size })),
     credits: (await ws.readWsFile(userId, slug, "assets/CREDITS.md"))?.text,
     fullstack: files.some((f) => f.path === "server.mjs") || isFullstackPlan(plan), wantsBackend: wantsBackend(question),
+    owner: `${ownerText(userId)}\n${question}`, // his own words only: never plan.md, which CORE writes (also from pages it read)
   };
   return { issues: [...lintSite(f), ...lintDepth(f)], facts: factsLine(f) };
 }

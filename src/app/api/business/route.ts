@@ -22,6 +22,15 @@ export const dynamic = "force-dynamic";
 // "draft" takes angle (speed | missed-leads | free-pilot | auto) and tags the prospect's `template` (0015_prospect_template.sql).
 // "*" so `template` comes back when 0015 has run and reads still work before it.
 const COLS = "*";
+// Before 0026 there is no drafted_at column: save the draft without it (Auto then never sends it).
+const noColumn = (e: { code?: string } | null) => e?.code === "42703" || e?.code === "PGRST204";
+type Saved = { data: unknown; error: { message: string; code?: string } | null };
+async function saveDraft(save: (patch: object) => PromiseLike<Saved>, patch: { drafted_at: string; [k: string]: unknown }): Promise<Saved> {
+  const r = await save(patch);
+  if (!noColumn(r.error)) return r;
+  const { drafted_at: _, ...rest } = patch;
+  return save(rest);
+}
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
 export async function GET() {
@@ -131,7 +140,8 @@ export async function POST(req: Request) {
         const draft = nightFollowupDraft(await import("@/lib/night").then((n) => n.getNightReport(sb, user.id)).catch(() => null), b.id as string, p.draft);
         if (!draft) return fail("There's no new draft from last night for this client", 404);
         void logEvent({ id: b.id as string, name: p.name, contact: "" }, "draft", "follow-up");
-        return one(sb.from("prospects").update({ draft, updated_at: new Date().toISOString() }).eq("id", b.id as string).select(COLS).maybeSingle());
+        const now = new Date().toISOString();
+        return one(saveDraft((patch) => sb.from("prospects").update(patch).eq("id", b.id as string).select(COLS).maybeSingle(), { draft, updated_at: now, drafted_at: now }));
       }
       try {
         const angle = isTemplate(b.angle) ? b.angle : "auto";
@@ -140,13 +150,13 @@ export async function POST(req: Request) {
         if (followup && draft === p.draft.trim()) return fail("CORE repeated the first draft; try again", 502);
         if (!draft) return fail("CORE returned an empty draft; try again", 502);
         const save = (patch: object) => sb.from("prospects").update(patch).eq("id", b.id as string).select(COLS).maybeSingle();
-        const patch = { draft, updated_at: new Date().toISOString() };
+        const now = new Date().toISOString(), patch = { draft, updated_at: now, drafted_at: now }; // drafted_at: Auto sends only drafts made after it was switched on
         if (!followup && p.stage === "lead") pushNotify("send"); // phone push (6.3): a label only, never the draft
         // Tag only drafts that haven't gone out yet, so a sent message keeps the angle it was sent with.
         void logEvent({ id: b.id as string, name: p.name, contact: "" }, "draft", followup ? "follow-up" : template ?? undefined);
-        if (!template || p.stage !== "lead") return one(save(patch));
+        if (!template || p.stage !== "lead") return one(saveDraft(save, patch));
         const tagged = await save({ ...patch, template });
-        return one(Promise.resolve(tagged.error?.code === "42703" ? save(patch) : tagged)); // no column before 0015: save untagged
+        return one(Promise.resolve(noColumn(tagged.error) ? saveDraft(save, patch) : tagged)); // no column before 0015: save untagged
       } catch (e) {
         if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
         return fail(`Couldn't draft: ${e instanceof Error ? e.message : "unknown error"}`, 502);
