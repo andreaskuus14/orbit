@@ -712,23 +712,23 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
       ) : isPlanetWorld(shown) ? (
         <PlanetWorld key={shown} id={shown} flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld}>{panelBody(shown)}</PlanetWorld>
-      ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (<>
-        <AmbientLoop />
+      ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
         <nav aria-label={t("overview.aria")} inert={covered || undefined} className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
+          <AmbientLoop />
           <div className="overview-heading"><p>{t("overview.kicker")}</p><h1>{t("overview.title1")}<br />{t("overview.title2")}</h1><span>{t("overview.lede")}</span></div>
           {activityHome && <NeedsYou inline tasks={galaxyTasks} tasksFailed={galaxyTasksFailed} onOpenTask={openTask} onOpenGoal={openGoal} />}
           {!shown && <ContinueWork onOpenTask={openTask} onOpenGoal={openGoal} />}
           <ul className="overview-worlds">
             <li><button className={`planet-card${warning ? " warn" : ""}`} onClick={() => select("core")} style={{ borderColor: "#7dd3fc" }}>
-              <WorldEmblem id="core" size={44} className="planet-card-emblem" /><b>CORE</b><span className="muted text-sm">{busy ? t("overview.thinking") : warning ? t("overview.lastFailed") : t("overview.core")}</span></button></li>
+              <b><WorldEmblem id="core" size={26} className="planet-card-emblem" />CORE</b><span className="muted text-sm">{busy ? t("overview.thinking") : warning ? t("overview.lastFailed") : t("overview.core")}</span></button></li>
             {PLANETS.map((p) => (
               <li key={p.id}><button className="planet-card" onPointerEnter={() => warmWorld(p.id)} onFocus={() => warmWorld(p.id)} data-overview-planet={p.id} onClick={() => galaxySelect(p.id)} style={{ borderColor: p.color }}>
-                <WorldEmblem id={p.id} size={44} className="planet-card-emblem" /><b style={{ color: p.color }}>{t(`planet.${p.id}`)}</b>
+                <b style={{ color: p.color }}><WorldEmblem id={p.id} size={26} className="planet-card-emblem" />{t(`planet.${p.id}`)}</b>
                 <span className="muted text-sm">{p.id === "memory" ? tn("overview.memories", memoryShown) : p.id === "intelligence" && pulseBusy ? t("overview.pulseBusy") : p.id === "intelligence" && pulseFailed ? t("overview.pulseFailed") : p.id === "operations" && automationFailing ? t("overview.autoFailed") : p.id === "life" && lifeLine ? lifeLine : p.id === "agents" && runningTasks.length ? tn("overview.running", runningTasks.length) : t(`planet.${p.id}.blurb`)}</span></button></li>
             ))}
           </ul>
         </nav>
-      </>)}
+      )}
 
       <header className="absolute inset-x-0 top-0 flex items-center justify-between gap-3 px-4 py-3">
         <button className="logo" onClick={closeWorld} aria-label={t("hud.home")}>
