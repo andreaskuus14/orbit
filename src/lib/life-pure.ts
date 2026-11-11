@@ -211,20 +211,14 @@ export function view(s: LifeStore, now: number): LifeState {
   };
 }
 
-/** ≤600 chars of plain text for CORE's context. */
+/** CORE's view of LIFE: counts and the next reminder's time only. Habit names and reminder text are LIFE text, which never goes
+ *  to a model (AGENTS.md); the user reads them in LIFE. */
 export function summaryText(st: LifeState, now: number): string {
-  const todays = st.habits.filter((h) => h.scheduledToday);
-  const fmt = (h: HabitView) => `${h.name}${h.streak ? ` (streak ${h.streak})` : ""}`;
-  const done = todays.filter((h) => h.doneToday), pending = todays.filter((h) => !h.doneToday);
-  const next = st.reminders.filter((r) => !r.fired && Date.parse(r.at) > now).slice(0, 3)
-    .map((r) => `${new Date(r.at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })} ${r.text}`);
-  const lines = [
-    `LIFE ${st.today}: habits ${done.length}/${todays.length} done today.`,
-    done.length ? `Done: ${done.map(fmt).join(", ")}.` : "",
-    pending.length ? `Pending: ${pending.map(fmt).join(", ")}.` : "",
-    next.length ? `Next reminders: ${next.join("; ")}.` : "No upcoming reminders.",
-    `Focus today: ${st.focus.today} min (week ${st.focus.week} min).`,
-  ];
-  const out = lines.filter(Boolean).join(" ");
-  return out.length > 600 ? out.slice(0, 599) + "…" : out;
+  const todays = st.habits.filter((h) => h.scheduledToday), done = todays.filter((h) => h.doneToday).length;
+  const next = st.reminders.filter((r) => !r.fired && Date.parse(r.at) > now);
+  return [
+    `LIFE ${st.today}: habits ${done}/${todays.length} done today (${todays.length - done} pending).`,
+    next.length ? `${next.length} upcoming reminder${next.length > 1 ? "s" : ""}, next at ${new Date(next[0].at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}.` : "No upcoming reminders.",
+    `Focus today: ${st.focus.today} min (week ${st.focus.week} min). Names and texts are in LIFE.`,
+  ].join(" ");
 }

@@ -103,7 +103,8 @@ test("view + summary", () => {
   assert.equal(v.journal[1].text, "hi");
   const t = summaryText(v, now);
   assert.match(t, /1\/2 done/);
-  assert.match(t, /Pending: Run \(streak 1\)/);
+  assert.match(t, /1 pending/);
+  assert.ok(!/Read|Run/.test(t), "no habit names");
   assert.match(t, /Focus today: 50 min/);
   assert.ok(t.length <= 600);
 });
@@ -113,4 +114,13 @@ test("recurring reminders are never pruned and are due while their time has come
   const rs = [{ id: "r", text: "x", at: "2026-10-10T09:00:00Z", repeat: "daily" as const }];
   assert.deepEqual(pruneReminders(rs, now).map((r) => r.id), ["r"]);
   assert.deepEqual(dueReminders(rs, now).map((r) => r.id), ["r"]);
+});
+
+test("summaryText (CORE's life_status) carries counts and the next reminder time, never habit or reminder text", () => {
+  const now = new Date(2026, 9, 16, 12).getTime(), s = emptyStore();
+  s.habits.push({ id: "1", name: "habit-secret-91", emoji: "x", days: ALL_DAYS, created: "2026-10-01", done: ["2026-10-16"] });
+  s.reminders.push({ id: "r", text: "reminder-secret-42", at: new Date(now + 3_600_000).toISOString() });
+  const t = summaryText(view(s, now), now);
+  assert.match(t, /1\/1 done/); assert.match(t, /1 upcoming reminder, next at/);
+  assert.ok(!t.includes("habit-secret") && !t.includes("reminder-secret"), t);
 });
