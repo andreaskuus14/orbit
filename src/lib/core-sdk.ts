@@ -18,6 +18,7 @@ import type { StepDone } from "./core-live-pure";
 export type Turn = {
   sb: SupabaseClient; userId: string; system: string; prompt: string; model: string; effort?: string; maxTurns: number;
   policy: () => Omit<PolicyCtx, "steps">; attachBlock: string; images?: PromptImage[]; steps: string[]; trace: TraceStep[]; signal?: AbortSignal; turnId?: string;
+  risky?: boolean; // auth/money/approvals/sending turn (core.ts turnRisk): never below Opus
   session?: CliSession; escalate?: boolean; // escalate: the fast model reached for a tool → stop, core.ts redoes the turn on the main model
   /** core.ts's dispatch for an allowed call (navigate / module / runCoreTool) and its eval/trace/activity record, shared with the CLI loop. */
   exec: (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[], operator?: boolean) => Promise<string>;

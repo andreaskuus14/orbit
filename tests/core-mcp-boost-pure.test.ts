@@ -150,6 +150,20 @@ test("modelForJob: guide table, owner pref wins, risky jobs never below Opus", a
   assert.equal(modelForJob("rename", { approvals: true }), "opus");
   assert.equal(modelForJob("security", risky, "fable"), "fable"); // above the floor stays
   assert.deepEqual([reviewerFor("sonnet"), reviewerFor("haiku"), reviewerFor("opus")], ["opus", "opus", "sonnet"]);
+  // risky: reviewer at least Opus and not the writer
+  assert.deepEqual([reviewerFor("opus", risky), reviewerFor("claude-opus-5-5", risky), reviewerFor("sonnet", risky), reviewerFor("fable", risky)], ["fable", "fable", "opus", "opus"]);
+  assert.equal(modelForJob("build", risky, "opusplan"), "opus"); // opusplan runs on Sonnet: not above the floor
+});
+
+test("riskFlags/turnRisk: ordinary phrasings, Estonian, tool names, confirmations of a risky proposal", async () => {
+  const { riskFlags, turnRisk, isRisky } = await import("../src/lib/core-mcp-boost-pure.ts");
+  for (const q of ["sign in to my bank and transfer 500 EUR to Mari", "reply to Jaan and tell him the deal is off", "wire the deposit", "DM her the link",
+    "charge the card", "maksa arve ära", "logi sisse", "gmail_send", "lead_email", "ws_publish", "tweet this", "rotate the API key", "I paid already, mark the bill settled"])
+    assert.ok(isRisky(riskFlags(q)), q);
+  assert.equal(isRisky(riskFlags("what's the weather")), false);
+  assert.equal(isRisky(turnRisk("yes, go ahead", "Shall I send the invoice to Mari?")), true);
+  assert.equal(isRisky(turnRisk("yes, go ahead", "", true)), true); // a pending approval
+  assert.equal(isRisky(turnRisk("yes, go ahead", "Want me to summarise the article?")), false);
 });
 
 test("routeTurn: risky questions get the Opus floor and no limit fallback", () => {
@@ -159,4 +173,9 @@ test("routeTurn: risky questions get the Opus floor and no limit fallback", () =
     assert.equal(r.model, "opus");
     assert.equal(downTier(r, models), null);
   }
+  const always = routeTurn({ question: "send the invoice", tier: "fast", pref: "opus", build: false, models });
+  assert.equal(always.risky, true); // "always Opus" keeps the floor through a usage limit
+  assert.equal(downTier(always, models), null);
+  assert.equal(routeTurn({ question: "send it", tier: "fast", pref: "auto", build: false, models: { ...models, deep: "sonnet" } }).model, "opus"); // ORBIT_MODEL_DEEP below Opus
+  assert.equal(routeTurn({ question: "yes", tier: "fast", pref: "sonnet", build: false, models, risky: true }).model, "opus");
 });

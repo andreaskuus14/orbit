@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { inlineTask } from "./task-claim-pure";
+import { atLeastOpus, isRisky, turnRisk } from "./agent-defs-pure";
 import { askClaude, askClaudeStream, emit, warmClaude, recordUsage, reviewDraft, MODEL, FAST_MODEL, DEEP_MODEL, DEEP_EFFORT, type PromptImage } from "./claude";
 
 // Cleared once the local CLI rejects --effort, so later deep turns don't fail on it again (until a restart).
@@ -212,7 +213,10 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   if (twin) { sendDelta?.(twin.text); trace.push(...twin.trace); logTiming("reflex:twin"); return twin; }
 
   let t = Date.now();
-  let tier = attach ? "smart" as const : pickModel(question, [...history].reverse().find((h) => h.role === "assistant")?.content);
+  const prevAnswer = [...history].reverse().find((h) => h.role === "assistant")?.content;
+  let tier = attach ? "smart" as const : pickModel(question, prevAnswer);
+  // auth/money/approvals/sending (or "yes, go ahead" on such a proposal): every model below runs at Opus or above, never locally
+  const risky = isRisky(turnRisk(question, prevAnswer ?? "")), floor = (m: string) => (risky ? atLeastOpus(m) : m);
   if (typeof voice === "string" && tier === "deep") tier = "smart"; // phone call: no screen, the reply must start fast. On-screen voice keeps full depth (only its summary is spoken)
   const maxN = maxSteps(process.env.ORBIT_CORE_MAX_STEPS, isHeavy(question, [])); // operator/research turns get more steps
   const system = systemPrompt(await at("profile", cachedProfile(sb, userId)), localDate(), maxN); // no clock: the same all day, so spare CLIs (warmCore) and prompt caching match
@@ -376,7 +380,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
         // A redo after tools already ran carries their results, so writes aren't repeated.
         const tail = `\n\n${CORE_LANG_RULE[lang]}${voiceNote.replace(/"final"/g, "your answer")}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}`;
         try {
-          const r = await engineTurn({ question, tools: evalTools, sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL, effort, maxTurns: maxN, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast", turnId, exec, record, onDelta: sendDelta, onReset, onStep, verify });
+          const r = await engineTurn({ question, tools: evalTools, sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: floor(tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL), risky, effort, maxTurns: maxN, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast", turnId, exec, record, onDelta: sendDelta, onReset, onStep, verify });
           if (r.escalated) { onReset?.(); tier = "smart"; continue; } // as the loop: a fast-model tool call is redone on the main model
           if (sess && sessionKey) coreSessions.set(sessionKey, { id: r.sessionId || sess.id, resume: true });
           answer = r.text;
@@ -399,13 +403,13 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       const ask = (prompt ? Promise.resolve(prompt) : prep.then((p) => (prompt = p))).then((p) => sessNow ? sessionInput(p, transcriptHolder.text, sessNow.resume, sentNow) + tail : p + tail);
       // Deep steps leave 60 s for the review; too little time left → finish on the main model.
       if (tier === "deep" && deepLeft() - 60_000 < 30_000) { tier = "smart"; trace.push({ step: "fallback", detail: "deep → main model (time limit)", ms: 0, ok: false }); }
-      const model = planning || tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL;
+      const model = floor(planning || tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL);
       const effort = !planning && tier === "deep" ? deepFlags.effort || undefined : undefined;
       const timeoutMs = !planning && tier === "deep" ? Math.min(120_000, deepLeft() - 60_000) : callTimeout(!planning && isHeavy(question, steps), deepLeft());
       let r;
       try {
       if (planning) {
-        r = await askClaude(ask, system, { lane: "foreground", signal, model, effort, timeoutMs, thinking: STEP_THINKING }); // nothing streams: a tool call, or a draft redone below
+        r = await askClaude(ask, system, { lane: "foreground", signal, model, effort, timeoutMs, thinking: STEP_THINKING, risky }); // nothing streams: a tool call, or a draft redone below
       } else if (onDelta) {
         // The model writes a JSON envelope; forward only the newly decoded part of its "final" answer.
         // Deep: nothing until the reply is clearly the JSON envelope, so a raw plan or tool call never streams.
@@ -415,9 +419,9 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
           if (tier === "deep" && !/^\s*[{`]/.test(raw)) return;
           const shown = partialAnswer(raw);
           if (shown && shown.length > sent) { sendDelta!(shown.slice(sent)); sent = shown.length; }
-        }, signal, "foreground", model, attach?.images, effort, timeoutMs, undefined, sess ?? undefined);
+        }, signal, "foreground", model, attach?.images, effort, timeoutMs, undefined, sess ?? undefined, risky);
       } else {
-        r = await askClaude(ask, system, { lane: "foreground", signal, model, images: attach?.images, effort, timeoutMs, session: sess ?? undefined });
+        r = await askClaude(ask, system, { lane: "foreground", signal, model, images: attach?.images, effort, timeoutMs, session: sess ?? undefined, risky });
       }
       } catch (e) {
         // A long step timed out: once more with the work split, then (interactive) hand the rest to the background.

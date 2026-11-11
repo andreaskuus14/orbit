@@ -213,20 +213,39 @@ const BY_JOB: Record<JobKind, string> = {
   plan: JOB_MODELS.fable, security: JOB_MODELS.fable,
 };
 export type Risk = { auth?: boolean; money?: boolean; approvals?: boolean; sending?: boolean };
+// Word edges that also split on "_", so tool names (gmail_send, lead_email, ws_publish) flag the job by themselves.
+const w = (src: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${src})(?![\\p{L}\\p{N}])`, "iu");
 const RISK: [keyof Risk, RegExp][] = [
-  ["auth", /\b(?:auth\w*|log ?in|passwords?|tokens?|credentials?|oauth|sessions?)\b|parool/i],
-  ["money", /\b(?:pay\w*|money|invoices?|billing|purchases?|buy|spend\w*|credits?|stripe|refunds?)\b|makse|raha/i],
-  ["approvals", /\b(?:approv\w*|propose_\w+|grants?)\b|kinnit/i],
-  ["sending", /\b(?:send\w*|emails?|publish\w*|post(?:s|ing)?|upload\w*|messages?)\b|saada/i],
+  ["auth", w("auth\\w*|log ?in|sign ?in|passwords?|tokens?|credentials?|oauth|sessions?|api ?keys?|secrets?|parool\\w*|logi sisse|sisselogi\\w*")],
+  ["money", w("pay\\w*|paid|money|invoices?|bills?|billing|bank\\w*|transfer\\w*|wire\\w*|charge\\w*|purchases?|buy|spend\\w*|credits?|stripe|refunds?|eur|usd|€|maks\\w*|raha\\w*|arve\\w*|ülekan\\w*|pank\\w*")],
+  ["approvals", w("approv\\w*|propose|grants?|kinnit\\w*")],
+  ["sending", w("send\\w*|e-?mails?|gmail|publish\\w*|post(?:s|ing)?|upload\\w*|messages?|reply to|repl(?:y|ies)|dm|tweet\\w*|text (?:him|her|them)|saada\\w*")],
 ];
 /** Risk flags found in free text (a request, a tool list). */
 export const riskFlags = (text: string): Risk => Object.fromEntries(RISK.filter(([, re]) => re.test(text)).map(([k]) => [k, true]));
 export const isRisky = (r: Risk) => Object.values(r).some(Boolean);
-const rank = (m: string) => RANK.findIndex((n) => m.toLowerCase().includes(n));
-/** Model for one job. The owner's explicit pref wins, but a risky job never runs below Opus (an unknown id counts as below). */
+const CONFIRM = /^\W*(?:yes|yep|yeah|ok(?:ay)?|sure|go(?: ahead)?|do it|confirm(?:ed)?|approved?|send it|jah|jaa|ok|tee (?:ära|seda)|kinnita\w*|saada)\b/i;
+/** Risk of one chat turn: his message, plus the previous answer when he only confirms it ("yes, go ahead" on a pending approval). */
+export function turnRisk(question: string, prev = "", pending = false): Risk {
+  const own = riskFlags(question);
+  if (!CONFIRM.test(question)) return own;
+  const before = riskFlags(prev);
+  return pending || isRisky(before) ? { ...before, ...own, approvals: true } : own;
+}
+// Exact alias, or a full id with the family as its own part (claude-opus-5-5): "opusplan" executes on Sonnet, so it ranks as unknown.
+const rank = (m: string) => { const id = m.trim().toLowerCase(); return RANK.findIndex((n) => id === n || new RegExp(`^claude-${n}(?:-|$)`).test(id)); };
+const OPUS = RANK.indexOf("opus");
+/** m, or Opus when m is below Opus (an unknown id counts as below). */
+export const atLeastOpus = (m: string) => (rank(m) < OPUS ? JOB_MODELS.opus : m);
+/** Model for one job. The owner's explicit pref wins, but a risky job never runs below Opus. */
 export function modelForJob(job: JobKind, risk: Risk = {}, pref?: string): string {
   const want = pref?.trim() || BY_JOB[job];
-  return isRisky(risk) && rank(want) < RANK.indexOf("opus") ? JOB_MODELS.opus : want;
+  return isRisky(risk) ? atLeastOpus(want) : want;
 }
-/** Reviews come from a different model than the writer: Opus, or Sonnet when Opus wrote it. */
-export const reviewerFor = (writer: string) => (rank(writer) === RANK.indexOf("opus") ? JOB_MODELS.sonnet : JOB_MODELS.opus);
+/** Reviews come from a different model than the writer: Opus, or Sonnet when Opus wrote it. A risky job's reviewer is at least
+ *  Opus and still differs from the writer: Fable when Opus wrote it, else Opus. */
+export const reviewerFor = (writer: string, risk: Risk = {}) => {
+  const r = rank(writer);
+  if (isRisky(risk)) return r === OPUS ? JOB_MODELS.fable : JOB_MODELS.opus;
+  return r === OPUS ? JOB_MODELS.sonnet : JOB_MODELS.opus;
+};

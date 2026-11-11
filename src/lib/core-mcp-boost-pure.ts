@@ -129,15 +129,19 @@ export type Models = { fast: string; smart: string; deep: string };
 export type Route = { model: string; effort?: string; tier: "fast" | "smart" | "deep"; why: string; risky?: true };
 
 // per-job model choice lives in agent-defs-pure (agents.ts loads only pure leaf modules); re-exported here for core-mcp
-export { JOB_MODELS, modelForJob, reviewerFor, riskFlags, isRisky, type JobKind, type Risk } from "./agent-defs-pure.ts";
-import { isRisky, riskFlags } from "./agent-defs-pure.ts";
+export { JOB_MODELS, modelForJob, reviewerFor, riskFlags, isRisky, turnRisk, atLeastOpus, type JobKind, type Risk } from "./agent-defs-pure.ts";
+import { atLeastOpus, isRisky, riskFlags } from "./agent-defs-pure.ts";
 const PLAN = /\b(?:plan|roadmap|strategy|architect|design (?:a|the|my)|break (?:it|this) down)\b|planeeri|kava\b|strateegi/i;
 /** Model + effort for one mcp turn: site builds and planning → deep (Opus, high); routine tool work → smart (Sonnet); short chit-chat
  *  stays fast (Haiku; core.ts escalates it if it reaches for a tool). A Profile pref other than auto pins the model. */
-export function routeTurn(o: { question: string; tier: "fast" | "smart" | "deep"; pref: ModelPref; build: boolean; models: Models; effort?: string }): Route {
+export function routeTurn(o: { question: string; tier: "fast" | "smart" | "deep"; pref: ModelPref; build: boolean; models: Models; effort?: string; risky?: boolean }): Route {
   const deep = (why: string): Route => ({ model: o.models.deep, effort: o.effort || "high", tier: "deep", why });
+  // risky first, so every route it applies to carries the flag (downTier never drops it); the floor holds even if ORBIT_MODEL_DEEP is lower
+  if (o.risky || isRisky(riskFlags(o.question))) {
+    const r = deep(o.pref === "opus" ? "Profile: always Opus; auth/money/approvals/sending: Opus floor" : "auth/money/approvals/sending: Opus floor");
+    return { ...r, model: atLeastOpus(r.model), risky: true };
+  }
   if (o.pref === "opus") return deep("Profile: always Opus");
-  if (isRisky(riskFlags(o.question))) return { ...deep("auth/money/approvals/sending: Opus floor"), risky: true };
   if (o.pref === "sonnet") return { model: o.models.smart, tier: "smart", why: "Profile: always Sonnet" };
   if (o.build) return deep("site build");
   if (o.tier === "deep") return deep("hard request");

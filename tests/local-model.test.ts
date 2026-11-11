@@ -77,3 +77,8 @@ test("journalReflect: newest first, empty days skipped, capped, null when empty"
   const big = journalReflect(Array.from({ length: 7 }, (_, i) => ({ date: `d${i}`, text: "x".repeat(2000) })))!;
   assert.ok(big.prompt.length < 12_500);
 });
+
+test("localAllowed: a risky core turn never falls back to the local model", () => {
+  assert.equal(localAllowed({ model: "llama3.1:8b", images: 0, mcp: false, purpose: "core", risky: true }), false);
+  assert.equal(localAllowed({ model: "llama3.1:8b", images: 0, mcp: false, purpose: "core" }), true);
+});

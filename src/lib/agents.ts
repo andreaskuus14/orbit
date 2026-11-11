@@ -493,7 +493,8 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
   const transcript: string[] = [];
   const clips = createClipStore(5800); // transcript keeps 6000 chars per step; the rest stays readable via read_more
   // Owner's ORBIT_MODEL* setting per tier, raised to the Opus floor when the agent's tools or the request touch auth/money/approvals/sending.
-  const model = modelForJob(TIER_JOB[agent.tier ?? "main"], riskFlags(`${agent.tools.join(" ")} ${task.request}`), (agent.tier && TIER_MODEL[agent.tier]) || MODEL);
+  const risk = riskFlags(`${agent.tools.join(" ")} ${task.request}`);
+  const model = modelForJob(TIER_JOB[agent.tier ?? "main"], risk, (agent.tier && TIER_MODEL[agent.tier]) || MODEL);
   let seen = "", checked = false; // seen: every tool result, what the self-check lets the answer cite
   try {
     const halt = () => { if (stopAllOn()) live.get(taskId)?.abort(); signal.throwIfAborted(); }; // Stop-all set by another process aborts here too
@@ -534,7 +535,7 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
         if (needsSelfReview(result, transcript.length, depth, verified) && budget.used < budget.calls && budget.deadline - Date.now() > 150_000) {
           chargeCall(budget, signal);
           const t0 = Date.now();
-          const reviewer = reviewerFor(model);
+          const reviewer = reviewerFor(model, risk); // risky: at least Opus, never the writer
           const rv = await reviewDraft(`TASK: ${task.title}\n\n${task.request}`, result, transcript.join("\n\n"), { signal, model: reviewer, purpose: `agent.${agent.slug}.review`, onUsage: (rr) => recordUsage(sb, userId, `agent.${agent.slug}.review`, rr) });
           result = rv.text;
           if (rv.reviewed) trace.push({ step: "review", detail: `${reviewer} · reviewed (writer ${model})`, ms: Date.now() - t0, ok: true });
