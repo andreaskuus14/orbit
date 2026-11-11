@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
-import { discardPending, listPending, loadPlugins, runPending, testPlugin, updatePlugins } from "@/lib/plugins";
-import { publicPlugin, toolGate, toolId, validatePlugin, SUGGESTED } from "@/lib/plugins-pure";
+import { discardPending, isRunning, listPending, loadPlugins, runPending, testPlugin, updatePlugins } from "@/lib/plugins";
+import { checkState, publicPlugin, toolGate, toolId, validatePlugin, SUGGESTED } from "@/lib/plugins-pure";
 import { vaultDir } from "@/lib/vault";
 import { stopAllOn } from "@/lib/stop-all";
 import { logActivity } from "@/lib/activity";
@@ -16,10 +16,10 @@ export async function GET() {
   if (res) return res;
   const plugins = loadPlugins().map((p) => ({
     ...publicPlugin(p),
-    tools: (p.cache?.tools ?? []).map((t) => ({ id: toolId(p.name, t.name), name: t.name, description: t.description, ...toolGate(p, t) })),
+    tools: (p.cache?.tools ?? []).map((t) => ({ id: toolId(p.name, t.name), name: t.name, description: t.description, ...toolGate(p, t), check: checkState(t), ...(t.schemaError ? { schemaError: t.schemaError } : {}) })),
     settings: p.tools,
   }));
-  return Response.json({ plugins, pending: await listPending(), suggested: SUGGESTED, vault: vaultDir(), stopAll: stopAllOn() });
+  return Response.json({ plugins, pending: (await listPending()).map((q) => ({ ...q, running: isRunning(q.id) })), suggested: SUGGESTED, vault: vaultDir(), stopAll: stopAllOn() });
 }
 
 export async function POST(req: Request) {
@@ -50,10 +50,10 @@ export async function POST(req: Request) {
     const r = await testPlugin(name);
     if (!r.ok) err = r.error ?? "test failed"; else extra = { tested: r.tools };
   } else if (b.action === "run") {
-    const r = await runPending(String(b.id ?? ""));
+    const r = await runPending(String(b.id ?? ""), typeof b.again === "string" ? b.again : null);
     if (r.error) err = r.error; else extra = { out: r.out };
   } else if (b.action === "discard") {
-    await discardPending(String(b.id ?? ""));
+    err = (await discardPending(String(b.id ?? ""))) ?? "";
   } else err = "Unknown action";
   if (err) return Response.json({ error: err }, { status: 400 });
   const view = await (await GET()).json();

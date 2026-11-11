@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
   // Another package-lock.json in the home folder confuses Next; pin the project root.
   outputFileTracingRoot: __dirname,
   env: { ORBIT_BUILD_COMMIT: gitHead, ORBIT_BUILD_TIME: new Date().toISOString() },
+  poweredByHeader: false, // don't advertise the framework (X-Powered-By)
   devIndicators: false, // the dev "N" badge covered the System panel
   // Document parsers, ffmpeg binary and Whisper (native onnxruntime) run server-side only; keep them out of the bundler.
   serverExternalPackages: ["unpdf", "mammoth", "playwright-core", "ffmpeg-static", "@huggingface/transformers", "kokoro-js", "@anthropic-ai/claude-agent-sdk"], // kokoro-js: AI Story narration on the server; the SDK spawns its bundled native CLI

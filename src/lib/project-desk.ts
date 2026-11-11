@@ -22,6 +22,20 @@ export async function getDesk(user: string, project: string): Promise<Desk> {
   await state.__orbitProjectDesk?.catch(() => {});
   return checked((await read())[archScopeKey(user, project)]);
 }
+/** Export only this user's metadata; linked VAULT file bytes remain in the existing VAULT storage.
+ *  An invalid record is left out (it stays in project-desks.json) and named in `warning`, so one bad desk can't empty the section. */
+export async function exportDesks(user: string): Promise<{ desks: Record<string, Desk>; skipped: string[]; warning?: string }> {
+  await state.__orbitProjectDesk?.catch(() => {});
+  const prefix = `${user}:`, desks: Record<string, Desk> = {}, skipped: string[] = [];
+  for (const [key, desk] of Object.entries(await read())) {
+    if (!key.startsWith(prefix)) continue;
+    try { desks[key.slice(prefix.length)] = checked(desk); } catch { skipped.push(key.slice(prefix.length)); }
+  }
+  if (!skipped.length) return { desks, skipped };
+  const warning = `${skipped.length} project desk record(s) were invalid and left out of this export: ${skipped.join(", ")}. They are unchanged in project-desks.json.`;
+  console.warn(`[project-desk] ${warning}`);
+  return { desks, skipped, warning };
+}
 /** Exact revision check prevents a stale tab from replacing newer notes/references. */
 export function saveDesk(user: string, project: string, rev: number, input: Omit<Desk, "rev">): Promise<Desk | null> {
   const run = (state.__orbitProjectDesk ?? Promise.resolve()).catch(() => {}).then(async () => {

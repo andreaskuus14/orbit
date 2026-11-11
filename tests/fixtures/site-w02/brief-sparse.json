@@ -1,0 +1,5 @@
+{
+  "name": "Holm Light",
+  "offer": "A rechargeable storm lantern for boats and cabins.",
+  "assets": [{ "path": "assets/hero.jpg", "alt": "A lighthouse on a rock at dusk", "width": 1600, "height": 1600, "focal": { "x": 0.66, "y": 0.48 } }]
+}

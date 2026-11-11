@@ -16,8 +16,8 @@ import { wishBlocked } from "./deals-pure.ts";
 import { ruleBlocked } from "./rules-pure.ts";
 import { watchBlocked } from "./pagewatch-pure.ts";
 import { AREA_INFO, autonomyAllows, type Area, type Levels } from "./autonomy-pure.ts";
-import { et } from "./et-ask-pure.ts";
-import { createdLeads, isOpsTool, opsBlocked } from "./core-operator-pure.ts";
+import { et, etQuestion } from "./et-ask-pure.ts";
+import { createdLeads, isOpsTool, opsAsked, opsBlocked } from "./core-operator-pure.ts";
 import { outboundLeak, outgoing, privateResults } from "./outbound-pure.ts";
 import { isPluginTool, outsideIn, pluginDecision, type Gate } from "./plugins-pure.ts";
 
@@ -28,6 +28,9 @@ export type Decision = { allow: boolean; tier: Tier; reason: string };
 export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; steps: string[]; question: string; privateTools?: readonly string[]; autonomy?: Partial<Levels>;
   /** an earlier turn of this chat had private data in context (journal/LIFE, attachments, pins): it is still in the session (C03) */
   carried?: boolean;
+  /** an earlier turn of this chat read outside text (pages, agents, invites, files…): it is still in the session, so the operator grant
+   *  needs his own ask in this message, as after reading his stores (core.ts tracks it per chat) */
+  outsideEarlier?: boolean;
   /** private text in this turn's context besides tool results (attachments, pinned notes, an earlier turn's private results): outbound calls are checked against it */
   privateText?: readonly string[];
   /** workspace names + CORE's pending build offer in this chat (ws-intent-pure.ts) */
@@ -41,16 +44,16 @@ export const TIERS: Record<string, Tier> = {
   navigate: "T0", goal_status: "T0", mission_status: "T0", business_status: "T0", ideas_list: "T0",
   studio_status: "T0", learned: "T0", suggestions: "T0",
   life_status: "T0", life_journal: "T0", vault_search: "T0", vault_read: "T0", calendar_events: "T0", plan_day: "T0", git_summary: "T0",
-  ws_list: "T0", ws_read: "T0", rea_status: "T0", rea_read: "T0", week_review: "T0", wishlist: "T0",
+  ws_list: "T0", ws_read: "T0", week_review: "T0", wishlist: "T0",
   load_module: "T1", // returns a module's own instruction text (core-modules-pure loadModule)
   read_more: "T1", // rereads a clipped result already in this turn (clip-store-pure)
-  web_search: "T1", fetch_url: "T1", read_news: "T1", reach_trending: "T1", reach_read: "T1",
+  web_search: "T1", fetch_url: "T1", scrape_page: "T1", read_news: "T1", reach_trending: "T1", reach_read: "T1",
   save_memory: "T2", ask_agent: "T2", create_goal: "T2", start_mission: "T2", plan_task: "T2", run_scout: "T2", run_niche: "T2",
   propose_rule: "T2", // saves a standing rule as proposed; nothing runs until the owner's Confirm click in Agents → Rules
   add_wish: "T2", // adds to his own wishlist; the hunter only reads public pages, and nothing is bought or sent by ORBIT
   save_checkpoint: "T2", // his own chat checkpoint (local file); every line can be edited or deleted on the Checkpoint card
   queue_tonight: "T2", // adds to the night shift's own queue; the night run's outside effects still wait for owner approvals
-  life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_create: "T2", ws_fetch_image: "T2", ws_run: "T2", ws_stop: "T2", rea_analyze: "T2", rea_cancel: "T2",
+  life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_create: "T2", ws_fetch_image: "T2", ws_run: "T2", ws_stop: "T2",
   vault_move: "T2", vault_rename: "T2", lead_create: "T2", lead_update: "T2", life_plan: "T2", automation_create: "T2", automation_pause: "T2", // ORGANIZE: his own records, each with Undo
   schedule_approved: "T3", // uploads owner-approved clips to YouTube
   higgsfield_draft: "T3", // proposes a Higgsfield spend (price check only); the spend itself is the owner's story.approve click
@@ -60,7 +63,10 @@ export const TIERS: Record<string, Tier> = {
   local_3d: "T2", local_tts: "T2", local_transcribe: "T2", // free models on his own PC (tools/local-ai); the result is a new VAULT file, nothing leaves the PC
   roblox_export: "T2", // rojo syncback into his own projects folder + a local git commit (tools/roblox); nothing leaves the PC
   roblox_lint: "T0", // selene on his exported project, read-only
+  local_image: "T2", // ComfyUI on his PC (tools/comfyui): a new VAULT picture, the prompt never leaves the PC
+  browse: "T1", // ORBIT's hidden browser on a public page: read-only (non-GET requests blocked), submits/logins refused for his click
   watch_add: "T2", watch_list: "T0", watch_changes: "T0", // page watch (pagewatch.ts): a local record; the checks only read public pages
+  daily_runs: "T0", // daily.ts: reads the three daily workflows' own records
 };
 
 // T3 runs only behind an owner-click approval (AGENTS.md rule 6): the token each path checks before anything leaves ORBIT.
@@ -83,19 +89,25 @@ export const TOOL_AREA: Record<string, Area> = {
   ask_agent: "research", start_mission: "research", plan_task: "research", run_niche: "research", run_scout: "studio-prepare", save_memory: "memory",
   create_goal: "goals", queue_tonight: "night-shift", add_wish: "deals", schedule_approved: "studio-publish", higgsfield_draft: "higgsfield-spend", ws_picture_draft: "higgsfield-spend",
   ws_run: "operator-build", // a local demo server of his own workspace (AGENTS.md rule 6 category A); never public
-  local_3d: "operator-build", local_tts: "operator-build", local_transcribe: "operator-build", // local models writing new VAULT files (category A)
+  local_3d: "operator-build", local_tts: "operator-build", local_transcribe: "operator-build", local_image: "operator-build", // local models writing new VAULT files (category A)
   roblox_export: "operator-build", // local project files + git commit (category A)
   watch_add: "research", // later reads of a public page (category A)
 };
 
-// Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, REA rea_read, BUSINESS (private: true), WEEK (private: true), ORGANIZE lead_update + life_plan.
+// Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, BUSINESS (private: true), WEEK (private: true), ORGANIZE lead_update + life_plan.
 // shortcut: hand-copied because core-modules.ts can't load under node --test; update both when a module's private flag changes.
-export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "rea_read", "business_status", "week_review", "lead_update", "life_plan"];
-const LINK_TOOLS = ["watch_add", "fetch_url", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft"];
-const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "local_tts"]; // local_tts: journal/LIFE text never goes to a model, local ones included
+export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "business_status", "week_review", "lead_update", "life_plan"];
+const LINK_TOOLS = ["browse", "watch_add", "fetch_url", "scrape_page", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft"];
+const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "local_tts", "local_image"]; // local_tts/local_image: journal/LIFE text never goes to a model, local ones included
 
 // Text from outside ORBIT (pages, news, search hits, agent results, prospect mail, attached files) can't start an agent task by itself.
-export const UNTRUSTED = ["fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes"];
+// Includes every read tool whose own description calls its output third-party data: calendar invites, Idea Radar's video text,
+// shop offer titles, vault/workspace file text, git commit subjects.
+/** His own stores that hold other people's text (invites, video text, offer titles, files, commits, analysed code). */
+// plan_day carries calendar invites; local_transcribe the words in any audio/video file he points it at.
+const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "vault_skill", "ws_read", "plan_day", "local_transcribe"];
+// mission_status: agents' results; run_niche: its web research.
+export const UNTRUSTED = ["browse", "fetch_url", "scrape_page", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes", "mission_status", "run_niche", ...STORED_OUTSIDE];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;
 const AGENT_ASK_ET = et("(?:küsi|lase|palu|saada|anna|kasuta|delegeeri)[^.?!\\n]{0,40}(?:agent|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)|delegeeri");
 /** ask_agent after untrusted content: only when the owner's own message asks for an agent (or names the one being asked). */
@@ -108,7 +120,9 @@ export function agentBlocked(question: string, agent: unknown, untrusted: boolea
 
 const called = (steps: string[], tools: string[]) => steps.some((s) => tools.some((t) => s.startsWith(`You called ${t} `)));
 /** outside text in this answer: the untrusted tools above or any plugin's result (plugins-pure resultText) */
-const untrustedIn = (steps: string[]) => called(steps, UNTRUSTED) || steps.some((s) => s.startsWith("You called plugin__"));
+const untrustedIn = (steps: string[], except: readonly string[] = []) => called(steps, UNTRUSTED.filter((t) => !except.includes(t))) || steps.some((s) => s.startsWith("You called plugin__"));
+/** This turn read outside text: later turns of the chat count it as still there (core.ts outsideEarlier). */
+export const outsideTextIn = (steps: string[]) => untrustedIn(steps);
 const err = (s: string | null | undefined) => (s ? s.replace(/^Error: /, "") : "");
 
 // Operator mode (AGENTS.md rule 6, owner-granted 2026-10-30): with the category's Profile → Autonomy area at "do" (the default),
@@ -120,9 +134,48 @@ export const OPERATOR_TOOLS: Record<string, Area> = {
   life_plan: "operator-organize", automation_create: "operator-organize", automation_pause: "operator-organize",
 };
 export const OPERATOR_REASON = "standing operator grant";
-export function operatorAllows(tool: string, ctx: Pick<PolicyCtx, "stopAll" | "attach" | "steps" | "autonomy">): boolean {
+/** After reading his own stores the grant still applies when HIS typed message asks for this kind of action ("read my notes and
+ *  set a goal"): the read is his means, not the source of the instruction. Text inside the results never counts as asking. */
+const BUILD_ASKS: Record<string, RegExp> = { create_goal: /\bgoals?\b|eesmär/i, queue_tonight: /\btonight\b|öösel|täna öö/i, start_mission: /\bmissions?\b|missioon/i };
+// His explicit "no" for one kind of action ("don't save this", "don't ask an agent", "set a goal but don't create an automation").
+// A denial reaches only the action it names; "don't do it (yet)" / "don't do anything" reaches every write. EN + ET.
+// "no new goals yet" / "not a goal": a plain no/not reaches only the next two words (a comma ends it: "no idea, set a goal" asks).
+const NEG = String.raw`(?:\b(?:don't|dont|do not|never|no need to|without)\b(?!\s+(?:forget|miss|hesitate)\b)(?:\s+[\w'-]+){0,4}?|\b(?:no|not)\b(?:\s+[\w'-]+){0,2}?)\s+`;
+const ET_NEG = String.raw`(?<!\p{L})(?:ära|ärge|ärme|ärgu|mitte|ei (?:taha|soovi|ole vaja)|pole vaja|ei taha,? et)(?!\p{L})(?:\s+\S+){0,3}?\s*`; // \b is ASCII-only: "ära" needs \p{L}
+const DENY: Record<string, [string, string]> = {
+  save_memory: [String.raw`(?:sav|remember|memori[sz]|stor|record|note|keep|log)`, String.raw`(?:salvest|jäta|meelde|mäleta)`],
+  ask_agent: [String.raw`(?:ask|use|involve|delegat|hand|send|get)\b.{0,30}?\b(?:agents?|atlas|nova|forge|scout|sage|anyone)|delegat|agents?\b`, String.raw`(?:agent|delegeeri|küsi)`],
+  create_goal: [String.raw`(?:goals?\b|target)`, String.raw`eesmär`],
+  queue_tonight: [String.raw`(?:tonight|queue|overnight|night shift)`, String.raw`(?:öö|järjekorda)`],
+  start_mission: [String.raw`missions?\b`, String.raw`missioon`],
+  automation_create: [String.raw`(?:automat|recurring|schedul|every (?:day|week|morning))`, String.raw`(?:automaat|ajasta|iga päev)`],
+};
+const DENY_ALL = /\b(?:don'?t|do not)\s+(?:do|start|run|act on|make|change)\s+(?:it|that|this|anything|any of (?:it|that|this))\b|\bdon'?t do anything\b|(?<!\p{L})(?:ära|ärge) (?:tee|muuda|tehke) (?:seda|midagi)(?!\p{L})|(?<!\p{L})(?:ära|ärge)\s*!|^\s*(?:ei|ära)\s*[.!]?\s*$/iu;
+/** Curly apostrophes (phone keyboards) read like straight ones. */
+const plain = (q: string) => q.replace(/[‘’ʼ`]/g, "'");
+export function denied(tool: string, question: string): boolean {
+  const q = plain(typedText(question)), d = DENY[tool];
+  return DENY_ALL.test(q) || (!!d && (new RegExp(`${NEG}(?:${d[0]})`, "i").test(q) || new RegExp(`${ET_NEG}(?:${d[1]})`, "iu").test(q)));
+}
+// A clause asks for something when it isn't a question: "what goals do my notes mention?" names goals but asks for nothing.
+// A polite ask ("can you set a goal?", "kas sa saaksid …") is an ask. Each sentence is judged on its own.
+const EN_QUESTION = /^(?:hey orbit\W*)?(?:what|what's|whats|which|who|whose|when|where|why|how|is|are|was|were|do|does|did|have|has|had|am|any|anything)\b/i;
+const POLITE = /^(?:hey orbit\W*)?(?:(?:can|could|would|will) (?:you|u)|please|pls)\b/i;
+const asking = (s: string) => POLITE.test(s.trim()) || (!/\?\s*$/.test(s) && !EN_QUESTION.test(s.trim()) && !etQuestion(s)) || (/^\s*(?:hei\s+orbit\W*)?kas (?:sa |te )?(?:saad|saaksid|saate|saaksite|võid|võiksid|võite|võiksite|palun)/iu.test(s));
+export const requestsIn = (q: string) => (q.match(/[^.?!\n]+[.?!]*/g) ?? []).filter(asking).join(" ");
+function ownerAsked(tool: string, question: string): boolean {
+  if (denied(tool, question)) return false;
+  const q = requestsIn(plain(typedText(question))); // questions and retrieved text never count as asking
+  if (tool === "ask_agent") return AGENT_ASK.test(q) || AGENT_ASK_ET.test(q);
+  if (tool === "save_memory") return asksToRemember(q);
+  if (isOpsTool(tool)) return opsAsked(tool, q);
+  return !!BUILD_ASKS[tool]?.test(q);
+}
+export function operatorAllows(tool: string, ctx: Pick<PolicyCtx, "stopAll" | "attach" | "steps" | "autonomy" | "outsideEarlier"> & { question?: string }): boolean {
   const area = OPERATOR_TOOLS[tool];
-  if (!area || ctx.stopAll || ctx.attach || untrustedIn(ctx.steps)) return false;
+  if (!area || ctx.stopAll || ctx.attach) return false;
+  if (untrustedIn(ctx.steps, STORED_OUTSIDE)) return false; // pages, news, agents, plugins: never, as before
+  if ((ctx.outsideEarlier || called(ctx.steps, STORED_OUTSIDE)) && !ownerAsked(tool, ctx.question ?? "")) return false; // his stores, or an earlier turn's outside text: only when he asked
   const l = ctx.autonomy?.[area];
   return (l ?? AREA_INFO[area].def) === "do";
 }
@@ -140,6 +193,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   const no = (reason: string): Decision => ({ allow: false, tier, reason });
   if (!(tool in TIERS)) return no(`unknown tool "${tool}"`);
   const question = typedText(ctx.question); // core.ts:95 attached file names never count as the user's words
+  if (tier !== "T0" && denied(tool, question)) return no("he said not to do this in his message"); // his "don't" beats every grant and ask-check
   const dataIn = ctx.attach || ctx.pins || ctx.steps.some((s) => !s.startsWith("You called navigate")); // core.ts:139
   const privateIn = !!ctx.carried || called(ctx.steps, [...(ctx.privateTools ?? PRIVATE_TOOLS)]); // core.ts:146; CORE passes its live MODULE_PRIVATE
 
@@ -174,8 +228,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   else if (tool === "save_memory" && !asksToRemember(question)) blocked = "only save when the user asks; reflection handles the rest"; // core.ts:287
   if (blocked && operatorAllows(tool, ctx)) return { allow: true, tier, reason: OPERATOR_REASON };
   if (blocked) return no(blocked);
-  // shortcut: rea_analyze/rea_cancel keep their explicit-ask check inside REA code (not ported: REA files stay untouched).
-  return { allow: true, tier, reason: tool.startsWith("rea_") && tier === "T2" ? "allowed here; REA's own guard still applies" : "allowed" };
+  return { allow: true, tier, reason: "allowed" };
 }
 
 /** The ledger's policy.decision payload, T2/T3 only: tool, tier, verdict and the guard's fixed reason; never inputs or message text. */

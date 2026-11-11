@@ -61,7 +61,7 @@ type TaskRow = {
   created_at: string; started_at: string | null; finished_at: string | null;
 };
 const STATUS: Record<string, string> = { queued: "Queued", running: "Running", awaiting_approval: "Needs approval", done: "Done", failed: "Failed", cancelled: "Cancelled" };
-const INNER = new Set(["think", "verify", "review", "error", "receipt"]);
+const INNER = new Set(["think", "verify", "review", "error", "receipt", "sources"]);
 
 /** Agent tasks (incl. team-chain steps, goal steps, automation runs) → one item each; the tools it used and its approvals in the detail. */
 export function taskItems(rows: TaskRow[]): ActItem[] {

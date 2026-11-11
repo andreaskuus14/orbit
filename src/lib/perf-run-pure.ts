@@ -51,17 +51,27 @@ export function cleanRun(x: unknown, at: number): PerfRun | null {
   return { at, label: o.label, w: o.w as number, h: o.h as number, dpr: o.dpr as number, gpu: typeof o.gpu === "string" ? o.gpu.slice(0, 160) : "unknown", hidden: o.hidden === true, segments, marks };
 }
 
-/** The newest earlier run at the same label (window size), or null. */
-export const previousOf = (runs: PerfRun[], cur: PerfRun) =>
-  runs.filter((r) => r.label === cur.label && r.at < cur.at).sort((a, b) => b.at - a.at)[0] ?? null;
+function sameSetup(a: PerfRun, b: PerfRun): boolean {
+  return !a.hidden && !b.hidden && a.gpu.trim() !== "" && a.gpu.toLowerCase() !== "unknown"
+    && a.gpu === b.gpu && a.label === b.label && a.w === b.w && a.h === b.h && a.dpr === b.dpr;
+}
 
-export type CompareRow = { seg: string; fps: number; p95: number; p99: number; long: number; prevP95: number | null; pct: number | null; regressed: boolean };
-/** p95 regression: more than `threshold` (15%) slower than the previous run, and at least 1 ms (vsync jitter is not a regression). */
+/** The latest earlier visible run with the same viewport, renderer and device pixel ratio. */
+export const previousOf = (runs: PerfRun[], cur: PerfRun) =>
+  runs.filter((r) => r.at < cur.at && sameSetup(r, cur)).sort((a, b) => b.at - a.at)[0] ?? null;
+
+export type CompareRow = { seg: string; fps: number; p95: number; p99: number; long: number; prevP95: number | null; pct: number | null; regressed: boolean; renderChanged: boolean };
+/** p95 regression: more than `threshold` (15%) slower at the same render settings, and at least 1 ms. */
 export function compareRuns(prev: PerfRun | null, cur: PerfRun, threshold = 0.15): CompareRow[] {
+  const baseline = prev && sameSetup(prev, cur) ? prev : null;
   return cur.segments.map((s) => {
-    const p = prev?.segments.find((x) => x.seg === s.seg);
+    const previous = baseline?.segments.find((x) => x.seg === s.seg);
+    const renderChanged = !!previous && (s.level !== previous.level || s.rdpr !== previous.rdpr
+      || s.cw !== previous.cw || s.ch !== previous.ch || s.dpr !== previous.dpr);
+    const p = renderChanged ? undefined : previous;
     const pct = p && p.p95 > 0 ? Math.round(((s.p95 - p.p95) / p.p95) * 1000) / 10 : null;
-    return { seg: s.seg, fps: s.fps, p95: s.p95, p99: s.p99, long: s.long, prevP95: p ? p.p95 : null, pct, regressed: !!p && s.p95 > p.p95 * (1 + threshold) && s.p95 - p.p95 >= 1 };
+    return { seg: s.seg, fps: s.fps, p95: s.p95, p99: s.p99, long: s.long, prevP95: p ? p.p95 : null, pct,
+      regressed: !!p && s.p95 > p.p95 * (1 + threshold) && s.p95 - p.p95 >= 1, renderChanged };
   });
 }
 
@@ -70,7 +80,10 @@ export function formatRun(cur: PerfRun, rows: CompareRow[]): string {
   const pad = (v: unknown, n: number) => String(v).padStart(n);
   const head = `${cur.label}  (page ${cur.w}x${cur.h} @${cur.dpr}x)  ${cur.gpu}${cur.hidden ? "  (window was hidden: numbers are not valid)" : ""}`;
   const lines = [head, `${"segment".padEnd(16)}${pad("fps", 7)}${pad("p95", 7)}${pad("p99", 7)}${pad("long", 6)}${pad("prev95", 8)}${pad("chg%", 8)}`];
-  for (const r of rows) lines.push(`${r.seg.padEnd(16)}${pad(r.fps, 7)}${pad(r.p95, 7)}${pad(r.p99, 7)}${pad(r.long, 6)}${pad(r.prevP95 ?? "-", 8)}${pad(r.pct === null ? "-" : (r.pct > 0 ? "+" : "") + r.pct, 8)}${r.regressed ? "  REGRESSION" : ""}`);
+  for (const r of rows) lines.push(`${r.seg.padEnd(16)}${pad(r.fps, 7)}${pad(r.p95, 7)}${pad(r.p99, 7)}${pad(r.long, 6)}${pad(r.prevP95 ?? "-", 8)}${pad(r.pct === null ? "-" : (r.pct > 0 ? "+" : "") + r.pct, 8)}${r.regressed ? "  REGRESSION" : r.renderChanged ? "  render settings changed" : ""}`);
+  if (!cur.hidden && rows.every((r) => r.prevP95 === null) && !rows.some((r) => r.renderChanged)) {
+    lines.push("No comparable baseline. Match the visible window, GPU and pixel ratio.");
+  }
   return lines.join("\n");
 }
 

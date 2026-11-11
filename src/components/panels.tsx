@@ -1,4 +1,5 @@
 "use client";
+import { isBrief, withBrief } from "@/lib/brief-mode-pure";
 import { hereLink } from "./voice/object-command";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isSleepCommand } from "./voice/wake";
@@ -8,6 +9,7 @@ import { numberCitations } from "@/lib/pure";
 import { OPEN_SOURCE_EVENT } from "@/lib/week-pure";
 import { takeLines } from "@/lib/streamjson";
 import { followUps } from "@/lib/core-ui";
+import { dropNote, handoffTask } from "@/lib/long-work-pure";
 import { applyLive, type LiveEvent, type LiveRow } from "@/lib/core-live-pure";
 import { CoreActivity } from "./CoreActivity";
 import { CoreWorkspace } from "./CoreWorkspace";
@@ -56,7 +58,7 @@ import { loadUsageTotals } from "@/lib/analytics-usage";
 import { usageSummary, type UsageDays, type UsageTotal } from "@/lib/analytics-usage-pure";
 import { eventLabel } from "@/lib/event-label-pure";
 import { ChatSheet, chatsApi, useCoreChats } from "./CoreChats";
-import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT, codeBlocks } from "@/lib/core-chats-pure";
+import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT, CORE_PROJECT_REQUEST_KEY, projectChatRequest, codeBlocks } from "@/lib/core-chats-pure";
 import { sentenceStream, speechChunks } from "./voice/speech-text";
 import { CORE_BUSY } from "@/lib/interruption-pure";
 import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
@@ -82,6 +84,16 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
 /* ---------------- CORE chat ---------------- */
+/** Polls a handed-off task until it finishes (or the chat moves on): its result replaces the dropped stream. */
+async function waitTask(id: string, live: () => boolean): Promise<{ status: string; result?: string | null; error?: string | null } | null> {
+  for (let i = 0; i < 360 && live(); i++) { // shortcut: polls up to 30 min; a longer task stays in OPERATIONS
+    await new Promise((r) => setTimeout(r, 5000));
+    const t = await fetch(`/api/tasks?id=${encodeURIComponent(id)}`).then((r) => r.json()).then((j) => (j.tasks as { id: string; status: string; result?: string; error?: string }[] | undefined)?.find((x) => x.id === id), () => undefined);
+    if (t && ["done", "failed", "cancelled", "interrupted", "blocked"].includes(t.status)) return t;
+  }
+  return null;
+}
+
 export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreeted }: { initial: string | null; onConsumed: () => void; onOpenMemory: (id: string) => void; greeting?: string | null; onGreeted?: () => void }) {
   const { t: tr } = useT();
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -129,26 +141,48 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     opening.current++;
     setMsgs([]); setChatId(null); setNewProject(projectId); setSheet(false); lastQ.current = "";
   }, [setChatId]);
-  const openChat = useCallback(async (id: string) => {
+  const openChat = useCallback(async (id: string, fallbackProject: string | null = null) => {
     setSheet(false);
     if (id === convo.current) return;
-    abort.current?.abort(); stopSpeech();
+    // Like newChat: a running turn detaches and finishes in its own chat; only Stop/Esc cancel it.
+    if (abort.current) { view.current++; abort.current = null; setBusy(false); setLive(null); setRows([]); setBgTask(null); }
+    stopSpeech();
     const mine = ++opening.current;
     try {
       const r = await chatsApi<{ messages: Msg[] }>(undefined, `?id=${encodeURIComponent(id)}`);
       if (mine !== opening.current) return;
-      if (!r.messages.length) { newChat(); return; } // deleted (or not this user's): start fresh
+      if (!r.messages.length) { newChat(fallbackProject); return; } // deleted (or not this user's): start fresh
       setMsgs(r.messages.map((m) => ({ role: m.role, content: m.content, citations: m.citations, trace: m.trace })));
       setChatId(id); setNewProject(null);
       lastQ.current = [...r.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+      const pending = handoffTask(r.messages); // reopened (reload, other device) while its background task runs: show the answer when it lands
+      if (pending) void waitTask(pending, () => alive.current && mine === opening.current).then(async (t) => {
+        if (!t || mine !== opening.current || abort.current) return; // moved on, or a new turn is streaming: the answer shows on the next open
+        const again = await chatsApi<{ messages: Msg[] }>(undefined, `?id=${encodeURIComponent(id)}`).catch(() => null); // the server wrote it before closing the task
+        if (again?.messages.length && mine === opening.current && !abort.current) setMsgs(again.messages.map((m) => ({ role: m.role, content: m.content, citations: m.citations, trace: m.trace })));
+      });
     } catch (e) { if (mine === opening.current) { setMsgs([{ role: "assistant", content: e instanceof Error ? e.message : "Couldn't open that chat", error: true }]); setChatId(null); } }
   }, [setChatId, newChat]);
   // Reopen the last chat on mount (the panel remounts each time it opens); palette/voice "new chat" starts fresh.
   useEffect(() => {
     let last: string | null = null;
     try { last = localStorage.getItem(ACTIVE_CHAT_KEY); } catch { /* private mode */ }
-    if (last && !initial && !greeting) void openChat(last);
-    const h = () => newChat();
+    const readRequest = () => {
+      try { const raw = sessionStorage.getItem(CORE_PROJECT_REQUEST_KEY); sessionStorage.removeItem(CORE_PROJECT_REQUEST_KEY); return raw ? projectChatRequest(JSON.parse(raw)) : null; }
+      catch { return null; }
+    };
+    const openProject = (target: NonNullable<ReturnType<typeof projectChatRequest>>) => {
+      void chats.reload();
+      if (target.chatId) void openChat(target.chatId, target.projectId); else newChat(target.projectId);
+    };
+    const requested = readRequest();
+    if (requested) openProject(requested);
+    else if (last && !initial && !greeting) void openChat(last);
+    const h = (event: Event) => {
+      const target = projectChatRequest((event as CustomEvent).detail) ?? readRequest();
+      try { sessionStorage.removeItem(CORE_PROJECT_REQUEST_KEY); } catch { /* no stored request */ }
+      if (target) openProject(target); else newChat();
+    };
     addEventListener(CORE_NEW_CHAT, h);
     return () => removeEventListener(CORE_NEW_CHAT, h);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -172,7 +206,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   }, []);
   useEffect(() => {
     alive.current = true;
-    return () => { alive.current = false; const ac = abort.current; setTimeout(() => { if (!alive.current) { ac?.abort(); if (!flying.current) stopSpeech(); } }, 0); };
+    // Closing the chat leaves a running turn alone: the server finishes it and saves the answer to the conversation (Stop still aborts).
+    // shortcut: a reload or closed tab still drops the request and stops the turn; hand it to the background turn if that bites.
+    return () => { alive.current = false; setTimeout(() => { if (!alive.current && !flying.current) stopSpeech(); }, 0); };
   }, []);
 
   const send = useCallback(async (text: string, fromVoice?: boolean, look?: Preset) => {
@@ -210,7 +246,12 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     setRows([]); setBgTask(null);
     since.current = Date.now();
     let steps: LiveRow[] = []; // mirrors `rows` so "done" can keep them under the answer
-    let handedOff = false;
+    let handedOff = false, bgId = "";
+    // Diagnostics for a dropped stream (seen only on the Windows PC, ~5 min in): how long it ran and how long the tab was hidden
+    const doc = typeof document === "undefined" ? null : document; // tests drive send() without a DOM
+    let hiddenMs = 0, hiddenAt = doc?.hidden ? Date.now() : 0;
+    const onVis = () => { if (doc?.hidden) hiddenAt = Date.now(); else if (hiddenAt) { hiddenMs += Date.now() - hiddenAt; hiddenAt = 0; } };
+    doc?.addEventListener("visibilitychange", onVis);
     const ac = new AbortController();
     abort.current = ac;
     let partial = "";
@@ -251,7 +292,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
           if (talk && speechGen() === myGen) { stopSpeech(); myGen = speechGen(); } // restart, unless the user already silenced it
           setLive("");
         } else if (ev.type === "background" && ev.taskId) {
-          handedOff = true; setBgTask(ev.taskId);
+          handedOff = true; bgId = ev.taskId; setBgTask(ev.taskId);
         } else if (ev.type === "bg_done") {
           flush(); setLive(null); partial = "";
           setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", live: { rows: steps, ms: Date.now() - since.current } }]);
@@ -281,10 +322,15 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       if (talk) stopSpeech();
       if (!stopped) ac.abort(); // e.g. a malformed line: stop the server-side CLI too
       if (!stopped) dispatchEvent(new CustomEvent<CoreSignal>(CORE_SIGNAL, { detail: { type: "error" } }));
-      if (!(stopped && handedOff) && here()) setMsgs((m) => [...m, stopped // after a handoff, Stop only stops watching: the work goes on in OPERATIONS
+      if (handedOff && !stopped && bgId) { // the stream dropped (sleep, proxy, server timeout) but the task runs on the server: wait for it
+        const t = await waitTask(bgId, here);
+        if (t && here()) setMsgs((m) => [...m, t.status === "done" ? { role: "assistant", content: t.result ?? "", live: { rows: steps, ms: Date.now() - since.current } }
+          : { role: "assistant", content: t.error || `The task ended as ${t.status}.`, error: true }]);
+      } else if (!(stopped && handedOff) && here()) setMsgs((m) => [...m, stopped // after a handoff, Stop only stops watching: the work goes on in OPERATIONS
         ? { role: "assistant", content: `${partial}${partial ? "\n\n" : ""}_Stopped._`, live: { rows: steps, ms: Date.now() - since.current } }
-        : { role: "assistant", content: e instanceof Error ? e.message : "CORE failed", error: true }]);
+        : { role: "assistant", content: dropNote(e instanceof Error ? e.message : "CORE failed", Date.now() - since.current, hiddenMs + (hiddenAt ? Date.now() - hiddenAt : 0), !!doc?.hidden), error: true }]);
     } finally {
+      doc?.removeEventListener("visibilitychange", onVis);
       flush();
       if (cid) setRunning((r) => r.filter((x) => x !== cid));
       if (here()) { setLive(null); setRows([]); setBgTask(null); setBusy(false); }
@@ -323,7 +369,17 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     queued.current = null;
     void send(q);
   }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs, busy, live]);
+  // Follow the answer only while the reader is at the bottom: scrolling up to read keeps its place (audit 8 Nov).
+  const atBottom = useRef(true);
+  useEffect(() => {
+    const box = end.current?.parentElement;
+    if (!box) return;
+    const on = () => { atBottom.current = box.scrollHeight - box.scrollTop - box.clientHeight < 80; };
+    box.addEventListener("scroll", on, { passive: true });
+    return () => box.removeEventListener("scroll", on);
+  }, []);
+  useEffect(() => { atBottom.current = true; }, [msgs.length]); // a new message (yours or CORE's) jumps back down
+  useEffect(() => { if (atBottom.current) end.current?.scrollIntoView({ block: "end" }); }, [msgs, busy, live]);
 
   // Memoised so streaming deltas re-render only the live bubble, not the whole history.
   const history = useMemo(() => msgs.map((m, i) => (
@@ -664,7 +720,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   return (
     <WorkspaceFrame planet="memory" title={tr("mem.title")} views={views} view={view} onView={setView}
       context={tr("memws.context", { n: items.length, r: suggested.length })}
-      action={<span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>{tr("mem.beliefs")}</button><a className="link text-xs" href="/api/export">{tr("mem.export")}</a></span>}>
+      action={<span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>{tr("mem.beliefs")}</button><a className="link text-xs" href="/api/export">{tr("mem.export")}</a><a className="link text-xs" href="/api/export/obsidian">{tr("mem.exportObsidian")}</a></span>}>
       {err && view !== "recent" && <p className="error" role="alert">{err}</p>}
       {view === "search" && (episodesOnly ? <><div className="flex gap-2">{chips}</div><EpisodesList onOpen={setFocus} /></>
         : <MemorySearch recent={learned(items)} hits={learned(hits)} searched={q} mode={mode} onSearch={(x) => (x ? void load(x) : setQ(""))} row={row}>{chips}</MemorySearch>)}
@@ -738,6 +794,32 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
 /* ---------------- PROFILE ---------------- */
 const LIST_FIELDS = [["interests", "profile.interests"], ["projects", "profile.projects"], ["goals", "profile.goals"], ["news_topics", "profile.news_topics"], ["research_priorities", "profile.research_priorities"]] as const;
 
+/** Job fit: paste a posting → score, gaps and draft texts. Drafts only: ORBIT never applies or sends anything. */
+function JobFitSection() {
+  const { t } = useT();
+  const [posting, setPosting] = useState(""), [busy, setBusy] = useState(false), [err, setErr] = useState("");
+  const [r, setR] = useState<{ score: number; verdict: string; matches: string[]; gaps: string[]; cvSummary: string; coverLetter: string } | null>(null);
+  async function run() {
+    setBusy(true); setErr(""); setR(null);
+    try { setR(await api("/api/jobs/fit", { method: "POST", body: JSON.stringify({ posting }) })); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+  return (
+    <section className="space-y-2" aria-label={t("jobs.title")}>
+      <b className="text-sm">{t("jobs.title")}</b> <span className="muted text-xs">{t("jobs.hint")}</span>
+      <textarea aria-label={t("jobs.paste")} className="field h-24 w-full text-xs" value={posting} onChange={(e) => setPosting(e.target.value)} placeholder={t("jobs.paste")} maxLength={8000} />
+      <button className="btn" disabled={busy || posting.trim().length < 80} onClick={run}>{busy ? t("jobs.busy") : t("jobs.run")}</button>
+      {err && <p className="error text-xs" role="alert">{err}</p>}
+      {r && <div className="space-y-1 text-xs">
+        <p><b>{r.score}/100</b> · {t(r.verdict === "apply" ? "jobs.apply" : r.verdict === "stretch" ? "jobs.stretch" : "jobs.skip")}</p>
+        {r.matches.length > 0 && <ul className="list-disc pl-4">{r.matches.map((m) => <li key={m}>{m}</li>)}</ul>}
+        {r.gaps.length > 0 && <><p className="muted">{t("jobs.gaps")}</p><ul className="list-disc pl-4">{r.gaps.map((g) => <li key={g}>{g}</li>)}</ul></>}
+        <p className="muted">{t("jobs.cv")}</p><p className="whitespace-pre-wrap">{r.cvSummary}</p>
+        <p className="muted">{t("jobs.letter")}</p><p className="whitespace-pre-wrap">{r.coverLetter}</p>
+      </div>}
+    </section>
+  );
+}
+
 export function ProfilePanel() {
   const { t } = useT();
   const [p, setP] = useState<Record<string, string>>({});
@@ -766,9 +848,11 @@ export function ProfilePanel() {
         <label key={k} className="block text-sm">{t(label)} <span className="muted">{t("profile.comma")}</span>
           <input className="field mt-1 w-full" value={p[k] ?? ""} onChange={(e) => setP({ ...p, [k]: e.target.value })} /></label>
       ))}
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isBrief(p.communication)} onChange={(e) => setP({ ...p, communication: withBrief(p.communication ?? "", e.target.checked) })} /> {t("profile.brief")} <span className="muted text-xs">{t("profile.briefHint")}</span></label>
       <label className="block text-sm">{t("profile.talk")}<textarea className="field mt-1 h-20 w-full" value={p.communication ?? ""} onChange={(e) => setP({ ...p, communication: e.target.value })} maxLength={1000} /></label>
       <button className="btn">{t("profile.save")}</button> {msg && <span className="muted text-sm">{msg}</span>}
     </form>
+    <JobFitSection />
     <PasswordSection />
     <AutonomySection />
     <CoreEngineSection />

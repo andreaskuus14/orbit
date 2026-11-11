@@ -17,10 +17,15 @@ export async function POST(req: Request) {
   if (!p) return Response.json({ error: "No pairing code: press Pair phone on the PC first" }, { status: 400 });
   const now = Date.now();
   const r = verifyPair(p, b?.code, now);
-  S.pair = { ...r.pair, userId: p.userId };
+  const reserved = { ...r.pair, userId: p.userId };
+  S.pair = reserved; // a right code is marked used at once, so two phones can't both pair with it
   if (!r.ok) return Response.json({ error: { expired: "That code expired: make a new one on the PC", locked: "Too many wrong codes: make a new one on the PC", used: "That code was already used: make a new one on the PC", wrong: "Wrong code" }[r.reason] }, { status: 401 });
   const device = { id: newDeviceId(), name: deviceName(b?.name), userId: p.userId, createdAt: new Date(now).toISOString(), ...(b?.type === "screen" && { type: "screen" as const }) }; // asking for a screen only ever narrows rights
-  await updateDevices((ds) => [...ds, device]);
+  try { await updateDevices((ds) => [...ds, device]); }
+  catch (e) { // devices file locked or damaged (safe-file.ts): nothing saved, so the code isn't spent
+    if (S.pair === reserved) S.pair = p;
+    return Response.json({ error: `Pairing didn't finish: ${e instanceof Error ? e.message : e}. The code still works: try again in a moment.` }, { status: 503 });
+  }
   const token = signToken({ deviceId: device.id, issuedAt: now, exp: now + REMOTE_TOKEN_DAYS * 86_400_000 }, remoteSecret());
   const h = req.headers;
   const https = publicOrigin({ host: h.get("host"), forwardedHost: h.get("x-forwarded-host"), forwardedProto: h.get("x-forwarded-proto") }, req.url).startsWith("https:");

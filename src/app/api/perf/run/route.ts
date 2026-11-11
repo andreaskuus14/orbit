@@ -1,5 +1,5 @@
 // Scripted perf runs (PerfRun.tsx, ?perfrun=1): POST saves one run to <data dir>/perf-runs/<ms>.json; GET returns the
-// recent runs, each compared with the previous run at the same window size (ANALYTICS PERF card). Owner only.
+// recent runs, each compared with a comparable previous run (ANALYTICS PERF card). Owner only.
 import { requireUser } from "@/lib/supabase/server";
 import { listRuns, saveRun } from "@/lib/perf-runs";
 import { cleanRun, compareRuns, previousOf } from "@/lib/perf-run-pure";

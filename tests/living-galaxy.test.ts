@@ -46,3 +46,8 @@ test("hoverParts: counts only, quiet worlds say so, nothing known → empty", ()
   assert.deepEqual(hoverParts("life", { life: { done: 9, total: 4 } }), [{ key: "galaxy.habits", vars: { done: "4", total: "4" } }]);
   assert.deepEqual(hoverParts("memory", { memories: 12 }), [{ key: "overview.memories", n: 12 }]);
 });
+
+test("hoverParts: a world with events in the last 24 h says how many are new today, first", () => {
+  assert.deepEqual(hoverParts("vault", { today: { vault: 2 }, recent: { vault: 5 } }), [{ key: "galaxy.today", n: 2 }, { key: "galaxy.week", n: 5 }]);
+  assert.deepEqual(hoverParts("vault", { today: { vault: 0, life: 3 } }), []);
+});

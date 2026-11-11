@@ -5,11 +5,13 @@
 // needs-you-pure doneDigest, DeliverableCards ReceiptChip.
 import { EFFECTS } from "./approval-pure.ts";
 import type { ActionResult, WriteEvidence } from "./completion-pure.ts";
+import { redact } from "./health-pure.ts";
 import type { Lang } from "./i18n-pure.ts";
 
 /** Never "done" without a passed check: verified = the acceptance check passed; partly = some of it; unverified = ran, not checked. */
 export type ReceiptStatus = "verified" | "partly" | "unverified" | "failed";
-export type Receipt = { asked: string; accept: string; status: ReceiptStatus; verified: string[]; claimed: string[]; failed: string[]; links: string[] };
+/** check: the independent verifier's verdict (verifier-pure.ts), when one ran. */
+export type Receipt = { asked: string; accept: string; status: ReceiptStatus; verified: string[]; claimed: string[]; failed: string[]; links: string[]; check?: { ok: boolean; reason: string } };
 type Tool = { tool: string; input: Readonly<Record<string, unknown>>; output: string; evidence: readonly WriteEvidence[] };
 
 const NUM: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, üks: 1, kaks: 2, kolm: 3, neli: 4, viis: 5, kuus: 6, seitse: 7, kaheksa: 8, üheksa: 9, kümme: 10 };
@@ -99,13 +101,13 @@ export function taskReceipt(t: TaskIn): Receipt | null {
 }
 
 const WORD = {
-  en: { verified: "Verified", partly: "Partly done", unverified: "Not verified", failed: "Failed", need: "need", ok: "checked", claimed: "not checked", bad: "failed" },
-  et: { verified: "Kontrollitud", partly: "Osaliselt tehtud", unverified: "Kontrollimata", failed: "Ebaõnnestus", need: "vaja", ok: "kontrollitud", claimed: "kontrollimata", bad: "ebaõnnestus" },
+  en: { verified: "Verified", partly: "Partly done", unverified: "Not verified", failed: "Failed", need: "need", ok: "checked", claimed: "not checked", bad: "failed", vOk: "independent check passed", vBad: "independent check failed" },
+  et: { verified: "Kontrollitud", partly: "Osaliselt tehtud", unverified: "Kontrollimata", failed: "Ebaõnnestus", need: "vaja", ok: "kontrollitud", claimed: "kontrollimata", bad: "ebaõnnestus", vOk: "sõltumatu kontroll läbitud", vBad: "sõltumatu kontroll ebaõnnestus" },
 };
 /** One compact line: "Partly done · need 5 leads saved (got 3) · 1 checked · 1 failed". */
 export function receiptLine(r: Receipt, lang: Lang = "en"): string {
   const w = WORD[lang];
-  return [w[r.status], `${w.need} ${r.accept}`, r.verified.length && `${r.verified.length} ${w.ok}`, r.claimed.length && `${r.claimed.length} ${w.claimed}`, r.failed.length && `${r.failed.length} ${w.bad}`]
+  return [w[r.status], `${w.need} ${r.accept}`, r.verified.length && `${r.verified.length} ${w.ok}`, r.claimed.length && `${r.claimed.length} ${w.claimed}`, r.failed.length && `${r.failed.length} ${w.bad}`, r.check && (r.check.ok ? w.vOk : `${w.vBad}: ${r.check.reason}`)]
     .filter(Boolean).join(" · ");
 }
 
@@ -115,10 +117,28 @@ export function cleanReceipt(x: unknown): Receipt | null {
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string").slice(0, 20).map((s) => s.slice(0, 300)) : []);
   if (!r || typeof r !== "object" || !["verified", "partly", "unverified", "failed"].includes(r.status)) return null;
   return { asked: String(r.asked ?? "").slice(0, 160), accept: String(r.accept ?? "").slice(0, 160), status: r.status, verified: list(r.verified), claimed: list(r.claimed), failed: list(r.failed),
-    links: list(r.links).filter((l) => l.startsWith("/api/workspace?")) };
+    links: list(r.links).filter((l) => l.startsWith("/api/workspace?")),
+    ...(r.check && typeof r.check === "object" && { check: { ok: r.check.ok === true, reason: String(r.check.reason ?? "").slice(0, 200) } }) };
 }
 
 /** A task row's receipt: the one a background CORE turn stored in its trace, else derived from its actions. */
 export function rowReceipt(t: TaskIn & { trace?: { step: string; receipt?: unknown }[] | null }): Receipt | null {
   return t.status === "done" || t.status === "failed" ? cleanReceipt(t.trace?.find((s) => s?.step === "receipt")?.receipt) ?? taskReceipt(t) : taskReceipt(t);
+}
+
+export type Job = { id: string; agent?: string | null; status: string; created_at?: string | null; started_at?: string | null; finished_at?: string | null };
+const JOB_STATE: Record<string, string> = { queued: "queued", running: "running", awaiting_approval: "waiting for approval", done: "finished", failed: "failed", cancelled: "stopped" };
+/** W04: a receipt the owner can copy and paste anywhere. Job state comes from the task row; the receipt's lines are redacted;
+ *  the prompt (`asked`), the answer and tool inputs are never included. A running job copies as "running", with no receipt yet. */
+export function copyReceipt(job: Job, r: Receipt | null, origin: string, now = Date.now()): string {
+  const t = (s?: string | null) => (s ? Date.parse(s) : NaN), start = t(job.started_at ?? job.created_at), end = t(job.finished_at);
+  const secs = Number.isFinite(start) ? Math.max(0, Math.round(((Number.isFinite(end) ? end : now) - start) / 1000)) : null;
+  const lines = [
+    `ORBIT job ${job.id.slice(0, 8)} · ${JOB_STATE[job.status] ?? redact(job.status).slice(0, 20)}${job.agent ? ` · ${redact(job.agent).slice(0, 40)}` : ""}${secs === null ? "" : ` · ${secs} s${Number.isFinite(end) ? "" : " so far"}`}`,
+    r ? `Result: ${redact(receiptLine(r))}` : "Result: not ready yet",
+    ...(r ? ([["✓", r.verified], ["?", r.claimed], ["✗", r.failed]] as const).flatMap(([m, xs]) => xs.map((x) => `${m} ${redact(x).slice(0, 200)}`)) : []),
+    ...(r?.links ?? []).map((l) => origin + l),
+    `${origin}/#o=operations&k=task&id=${encodeURIComponent(job.id)}`,
+  ];
+  return lines.join("\n");
 }

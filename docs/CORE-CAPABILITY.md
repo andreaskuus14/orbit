@@ -52,3 +52,7 @@ Approval and policy rules (`decide`, `policy-pure.ts`) are unchanged.
 - Session mode is untested against a live, signed-in CLI here (none is signed in in this sandbox).
 - "prepared / executed / verified" states (1.6) need the mission record (batch item 4).
 - The readout repeats constants (8000 / 8 messages / 270 s) instead of importing them. Keep them in sync if they change.
+
+## Source check (cited links)
+
+Memory citations were already checked against the memories in the prompt, but web and news links were not. After every turn, `unseenLinks` (`core-sources-pure.ts`) compares each external link in the answer with this turn's prompt (memories, project notes, attachments, chat text) and tool results. A link found in none of them gets a visible note under the answer ("CORE didn't open this source this turn, so it is unchecked") and a failed `sources` trace row. When every link was seen, the row says so. Links are matched without www, a trailing slash or a fragment; the query and the path's case still count. This doesn't check that the page supports the claim, only that CORE saw it this turn.

@@ -1,4 +1,4 @@
-import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
+import { readStore, writeStore } from "./safe-file.ts";
 import { isCurrent } from "./memory-types-pure";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -21,11 +21,9 @@ import { MAX_CALLS, dupGroups, evidencePairs, parseConsolidation, parseEvidence,
 
 const file = () => path.join(orbitDataDir(), "sleep.json");
 const DAY = 86_400_000;
-const load = async (): Promise<SleepState> => parseSleep(await readFile(file(), "utf8").catch(() => ""));
+const load = async (): Promise<SleepState> => parseSleep(await readStore(file())); // missing = empty; locked/damaged throws
 async function store(s: SleepState) {
-  await mkdir(path.dirname(file()), { recursive: true });
-  await writeFile(file() + ".tmp", JSON.stringify(s));
-  await rename(file() + ".tmp", file());
+  await writeStore(file(), JSON.stringify(s));
 }
 
 export async function readSleepReport(userId: string) {

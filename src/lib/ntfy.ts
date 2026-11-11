@@ -1,12 +1,14 @@
 // ntfy phone notifications, IO side (rules + privacy: ntfy-pure.ts). Two feeds: every Web Push label (remote-push.ts deliver → ntfyPush),
 // and top-level agent tasks reaching done / failed / awaiting approval (tickNtfy, a durable events consumer: crash-safe, at most one
 // repeat). Stop-all drops everything but the Stop-all notice; quiet hours (ORBIT_QUIET_HOURS) hold back all but failures.
+import { pendingSeen } from "./approval-bind-pure";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ackEvent, claimEvents } from "./durable";
 import { stopAllOn } from "./stop-all";
 import { parseQuiet, type PushMessage } from "./remote-push-pure";
 import { fromPush, ntfyAllowed, ntfyConfig, publishBody, taskMsg, type NtfyConfig, type NtfyMsg } from "./ntfy-pure";
 import { rowReceipt } from "./receipt-pure";
+import { phoneActionable } from "./ntfy-action-pure";
 
 export const quietHours = () => parseQuiet(process.env.ORBIT_QUIET_HOURS);
 const cfg = () => ntfyConfig(process.env, quietHours());
@@ -15,16 +17,19 @@ export const ntfyReady = (): NtfyConfig | null => { const c = cfg(); return c &&
 /** The owner-facing problem line ("" = fine or simply off), for System health. */
 export const ntfyProblem = () => { const c = cfg(); return c && "problem" in c ? c.problem : ""; };
 
-/** Publish one message. Never throws; false when off, held (Stop-all / quiet hours) or refused. */
-export async function ntfySend(m: NtfyMsg, now = Date.now()): Promise<boolean> {
+/** Publish one message. Never throws. held: off, Stop-all or quiet hours (nothing sent); refused: the server answered no;
+ *  unknown: no answer (timeout, dropped connection), so it may have been delivered. */
+export async function ntfyPublish(m: NtfyMsg, now = Date.now()): Promise<"sent" | "held" | "refused" | "unknown"> {
   const c = ntfyReady();
-  if (!c || !ntfyAllowed(m.kind, now, c.quiet, stopAllOn())) return false;
+  if (!c || !ntfyAllowed(m.kind, now, c.quiet, stopAllOn())) return "held";
   try {
     const res = await fetch(c.server, { method: "POST", signal: AbortSignal.timeout(10_000), headers: { "Content-Type": "application/json" }, body: JSON.stringify(publishBody(c, m)) });
     if (!res.ok) console.error("[ntfy] refused:", res.status);
-    return res.ok;
-  } catch (e) { console.error("[ntfy]", e instanceof Error ? e.message : e); return false; }
+    return res.ok ? "sent" : "refused";
+  } catch (e) { console.error("[ntfy]", e instanceof Error ? e.message : e); return "unknown"; }
 }
+/** Publish one message. Never throws; false when off, held (Stop-all / quiet hours), refused or unanswered. */
+export const ntfySend = async (m: NtfyMsg, now = Date.now()) => (await ntfyPublish(m, now)) === "sent";
 
 /** A Web Push label, mirrored to ntfy. */
 export const ntfyPush = (m: PushMessage) => { const c = ntfyReady(); return c ? ntfySend(fromPush(m, c.open)) : Promise.resolve(false); };
@@ -38,7 +43,9 @@ export async function tickNtfy(sb: SupabaseClient) {
       const id = (e.payload as { taskId?: unknown } | null)?.taskId;
       if (typeof id === "string" && !stopAllOn()) {
         const { data: t } = await sb.from("tasks").select("status, parent_id, title, request, error, pending, trace").eq("id", id).maybeSingle();
-        const m = t && !t.parent_id ? taskMsg(t.status, rowReceipt(t)?.status ?? null, c.open) : null;
+        // A single reversible waiting action also gets Approve / Reject buttons (signed, 24 h, one use: ntfy-action-pure.ts).
+        const token = t?.status === "awaiting_approval" && c.open && phoneActionable(t.pending) ? await import("./ntfy-action").then((a) => a.actToken(id, e.user_id, pendingSeen(t.pending ?? [])), () => undefined) : undefined;
+        const m = t && !t.parent_id ? taskMsg(t.status, rowReceipt(t)?.status ?? null, c.open, token) : null;
         if (m) await ntfySend(m);
       }
       await ackEvent("ntfy", e.id);

@@ -65,6 +65,14 @@ test("dive: crosses the surface at DIVE_CROSS, speeds up on the way, settles ins
   assert.ok(Number.isFinite(diveRadii(NaN, NaN)));
 });
 
+test("dive: retarget starts at the exact camera distance even near or inside the new planet", () => {
+  for (const start of [0, 0.4, 0.99, 1.01]) {
+    assert.equal(diveRadii(0, start), start);
+    assert.ok(Math.abs(diveRadii(0.001, start) - start) < 0.001);
+    assert.equal(diveRadii(DIVE_CROSS, start), 1);
+  }
+});
+
 test("dive: reverse dolly zoom widens the FOV toward the surface, never past 90", () => {
   assert.equal(diveFov(0, 50), 50);
   assert.ok(diveFov(DIVE_CROSS / 2, 50) > 50);

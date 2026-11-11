@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { evalRunId } from "./eval-run.ts";
 import { zipStore } from "./zip-pure.ts";
 import { link, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -156,6 +157,8 @@ export function createWorkspace(uid: string, name: string): Promise<{ slug: stri
     if (n >= MAX_WORKSPACES) return { error: `you already have ${MAX_WORKSPACES} workspaces` };
     await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, NONCE), randomBytes(16).toString("base64url")); // new links for a recreated slug
+    const run = evalRunId();
+    if (run) await writeFile(path.join(dir, EVAL_MARK), `eval:${run}`); // eval-run.ts cleanup finds it
     return { slug, created: true };
   });
 }
@@ -238,4 +241,18 @@ export function trashWsFile(uid: string, slug: string, rel: string): Promise<{ t
     for (const n of old.slice(0, Math.max(0, old.length - TRASH_MAX))) await rm(path.join(trash, n), { force: true, recursive: true });
     return { trashed: name };
   });
+}
+
+const EVAL_MARK = ".eval-run";
+/** Removes the user's workspaces whose eval marker matches (only ones an eval run created); returns how many. */
+export async function deleteEvalWorkspaces(uid: string, match: (marker: string) => boolean): Promise<number> {
+  let n = 0;
+  for (const w of await listWorkspaces(uid)) {
+    const dir = await realWsDir(uid, w.slug);
+    const mark = dir && (await readFile(path.join(dir, EVAL_MARK), "utf8").catch(() => ""));
+    if (!dir || !mark || !match(mark.trim())) continue;
+    await serial(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
+    n++;
+  }
+  return n;
 }

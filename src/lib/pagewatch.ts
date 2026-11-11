@@ -5,8 +5,8 @@ import { orbitDataDir } from "./data-dir";
 import { safeFetch } from "./memory";
 import { UA, polite } from "./reach/net";
 import { stopAllOn } from "./stop-all";
-import { KEEP_CHANGES, MAX_WATCHES, applyCheck, changesSince, changesText, checkWatchInput, listText, pageText, parseStore, pickDue, robotsGate, watchBlocked,
-  type CheckResult, type Watch, type WatchStore } from "./pagewatch-pure";
+import { KEEP_CHANGES, KEEP_MISSED, KEEP_RUNS, MAX_WATCHES, applyCheck, changesSince, changesText, checkWatchInput, feedbackSummary, listText, pageText, parseStore, pickDue, robotsGate, watchBlocked,
+  type CheckResult, type Verdict, type Watch, type WatchStore } from "./pagewatch-pure";
 
 // INTELLIGENCE → Watches (page-change watch): <ORBIT data dir>/pagewatch.json. Checked by the server scheduler's minute tick (scheduler.ts),
 // at most PER_TICK due watches a tick. Read-only public pages: safeFetch (SSRF guard, 10 s timeout, 2 MB cap), no cookies or logins,
@@ -16,7 +16,8 @@ const FILE = () => path.join(orbitDataDir(), "pagewatch.json");
 const g = globalThis as unknown as { __orbitPageWatch?: Promise<unknown>; __orbitPageWatchBusy?: boolean; __orbitRobots?: Map<string, { at: number; txt: Promise<string | null> }> };
 const robotsCache = (g.__orbitRobots ??= new Map());
 
-const load = async (): Promise<WatchStore> => parseStore(await readFile(FILE(), "utf8").catch((e) => { if (e.code === "ENOENT") return "{}"; throw e; }));
+// A corrupt file throws (only a missing one is empty): the brief then says "couldn't be read" and update() never overwrites it.
+const load = async (): Promise<WatchStore> => { const raw = await readFile(FILE(), "utf8").catch((e) => { if (e.code === "ENOENT") return "{}"; throw e; }); JSON.parse(raw); return parseStore(raw); };
 function update<T>(fn: (s: WatchStore) => T): Promise<T> {
   const p = (g.__orbitPageWatch ?? Promise.resolve()).catch(() => {}).then(async () => {
     const s = await load(), out = fn(s);
@@ -33,7 +34,7 @@ const get = (url: string, accept: string, max: number) => polite(url, () => safe
 const msg = (e: unknown) => (e instanceof Error ? (e.name === "TimeoutError" ? "timed out" : e.message) : "request failed").slice(0, 160);
 
 /** robots.txt per origin, cached 6 h: "" = none (4xx), null = unreadable. */
-function robots(origin: string): Promise<string | null> {
+export function robots(origin: string): Promise<string | null> {
   const hit = robotsCache.get(origin);
   if (hit && Date.now() - hit.at < 6 * 3_600_000) return hit.txt;
   const txt = get(`${origin}/robots.txt`, "text/plain", 500_000).then(({ res }) => res.text(), (e: Error) => (/answered 4\d\d/.test(e.message) ? "" : null));
@@ -45,6 +46,10 @@ async function fetchWatch(w: Watch): Promise<CheckResult> {
   try {
     const blocked = robotsGate(await robots(new URL(w.url).origin), w.url);
     if (blocked) return { ok: false, error: blocked };
+    if (w.render) { // JavaScript page: same robots gate and polite per-host limits, rendered in the hidden browser
+      const p = await polite(w.url, async () => (await import("./browser")).renderPage(w.url, UA));
+      return p ? pageText(p.html, true, w.focus) : { ok: false, error: "the browser couldn't open the page (no Chrome/Edge, or it didn't load)" };
+    }
     const { res } = await get(w.url, "text/html,text/plain", 2_000_000);
     const type = res.headers.get("content-type") ?? "";
     if (!/text\/html|text\/plain|xhtml/.test(type)) return { ok: false, error: `not a web page (${type || "unknown type"})` };
@@ -60,6 +65,7 @@ async function check(w: Watch): Promise<void> {
     const { watch, change } = applyCheck(s.watches[i], r, now, randomUUID());
     s.watches[i] = watch;
     if (change) s.changes = [...s.changes, change].slice(-KEEP_CHANGES);
+    s.runs = [...(s.runs ?? []), { w: w.id, at: watch.lastChecked!, ok: r.ok }].slice(-KEEP_RUNS);
   });
 }
 
@@ -76,7 +82,8 @@ export async function tickWatches(): Promise<void> {
 /** The Watches list: watches without their snapshot text, plus recent changes. */
 export async function watchBoard() {
   const s = await load();
-  return { watches: s.watches.map(({ snaps, ...w }) => ({ ...w, versions: snaps.length })), changes: changesSince(s).slice(0, 60) };
+  return { watches: s.watches.map(({ snaps, ...w }) => ({ ...w, versions: snaps.length })), changes: changesSince(s).slice(0, 60),
+    week: feedbackSummary(s, Date.now() - 7 * 86_400_000) };
 }
 
 export async function addWatch(b: Record<string, unknown>): Promise<{ watch: Watch } | { error: string }> {
@@ -96,7 +103,24 @@ export const removeWatch = (id: string) => update((s) => {
   const n = s.watches.length;
   s.watches = s.watches.filter((w) => w.id !== id);
   s.changes = s.changes.filter((c) => c.watch !== id);
+  s.missed = (s.missed ?? []).filter((m) => m.watch !== id);
+  s.runs = (s.runs ?? []).filter((r) => r.w !== id);
   return n !== s.watches.length;
+});
+
+/** His review of one reported change: useful, noise, or null to clear. */
+export const markChange = (id: string, verdict: Verdict | null) => update((s) => {
+  const c = s.changes.find((x) => x.id === id);
+  if (!c) return false;
+  if (verdict) c.verdict = verdict; else delete c.verdict;
+  return true;
+});
+
+/** A change he noticed himself that the watcher didn't report (the review's "missed" count). */
+export const addMissed = (watch: string, note: string) => update((s) => {
+  if (!s.watches.some((w) => w.id === watch)) return false;
+  s.missed = [...(s.missed ?? []), { id: randomUUID(), watch, at: new Date().toISOString(), note: note.replace(/\s+/g, " ").trim().slice(0, 200) }].slice(-KEEP_MISSED);
+  return true;
 });
 
 /** important: owner-marked (its changes go to Needs you); seen: he looked at the latest change. */
@@ -128,7 +152,7 @@ export async function runWatchTool(tool: string, i: Record<string, unknown>, que
   }
   const no = watchBlocked(question, tainted);
   if (no) return `Error: ${no}`;
-  const r = await addWatch({ url: i.url, focus: i.selector, every: i.every, purpose: i.purpose });
+  const r = await addWatch({ url: i.url, focus: i.selector, every: i.every, purpose: i.purpose, render: i.render });
   if ("error" in r) return `Error: ${r.error}`;
   const w = r.watch;
   return `Watching ${w.url}${w.focus ? ` (focus: ${w.focus})` : ""} every ${w.everyH} h as "${w.purpose}". First check within a minute or two (if ORBIT's scheduler is on); changes show in INTELLIGENCE → Watches and the morning brief. He can mark it important there to get changes in Needs you.`;

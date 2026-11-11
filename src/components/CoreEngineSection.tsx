@@ -9,7 +9,7 @@ const OPTIONS = [
 
 /** Profile → CORE engine: which engine answers the next CORE message (core-engine.ts). */
 export function CoreEngineSection() {
-  const [v, setV] = useState<{ engine: string; fallback: string } | null>(null);
+  const [v, setV] = useState<{ engine: string; fallback: string; model?: string } | null>(null);
   const [err, setErr] = useState("");
   const call = async (init?: RequestInit) => {
     setErr("");
@@ -30,6 +30,15 @@ export function CoreEngineSection() {
           </button>
         ))}
       </div>
+      {v?.engine === "mcp" && (
+        <label className="block text-sm">Model{" "}
+          <select className="chip" value={v.model ?? "auto"} onChange={(e) => void call({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: e.target.value }) })}>
+            <option value="auto">Auto (Opus for builds and planning, Sonnet for routine steps, Haiku for quick chat)</option>
+            <option value="opus">Always Opus</option>
+            <option value="sonnet">Always Sonnet</option>
+          </select>
+        </label>
+      )}
       {v && v.engine !== v.fallback && <button className="btn text-xs" onClick={() => pick(null)}>Back to the default ({OPTIONS.find((o) => o.id === v.fallback)?.label})</button>}
       {err && <p role="alert" className="text-sm text-red-400">{err}</p>}
     </section>

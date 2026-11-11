@@ -3,6 +3,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { Canvas } from "@react-three/fiber";
 import { Bounds, OrbitControls, useGLTF } from "@react-three/drei";
 import { CAPTION_LANGS, CATALOG, MAX_CLONE_CHARS, START_CMD, VOICES, cloneBlocked, encodeWav, isMediaName, spacesCsv, toolState, totalArea, type Health, type IfcSummary, type ToolId } from "@/lib/local-ai-pure";
+import { comfySetup, type ComfyHealth, type ComfyModel } from "@/lib/comfy-pure";
 import type { Autostart } from "@/lib/autostart-pure";
 import type { LocalStatus } from "@/lib/local-model-pure";
 import { useT } from "./i18n";
@@ -346,7 +347,10 @@ function ThisPc() {
 }
 
 export function LocalAiTools() {
-  const [h, check] = useHealth();
+  const [h, checkAi] = useHealth();
+  const [comfy, setComfy] = useState<(ComfyHealth & { model: ComfyModel }) | null>(null); // ComfyUI is its own service (tools/comfyui)
+  const check = useCallback(() => { checkAi(); void fetch("/api/local-ai?service=comfy", { cache: "no-store" }).then((r) => r.json()).then(setComfy, () => setComfy(null)); }, [checkAi]);
+  useEffect(check, [check]);
   const { lang } = useT();
   return (
     <section className="grid gap-3 text-sm" aria-label="Local AI tools">
@@ -357,18 +361,19 @@ export function LocalAiTools() {
       </div>
       <p className="muted text-xs">Free models on this PC: nothing is uploaded and nothing costs credits. Results are saved in VAULT. One job runs at a time and each model leaves the GPU when done.</p>
       {CATALOG.map((c) => {
-        const live = c.id === "text3d" || c.id === "motion" ? null : toolState(h, c.id);
+        const nitro = c.id === "images" && comfy?.model === "nitrofusion2";
+        const live = c.id === "images" ? (comfy?.running ? { ok: true } : null) : c.id === "text3d" || c.id === "motion" ? null : toolState(h, c.id);
         return (
           <div key={c.id} className="glass grid gap-1 rounded-lg p-2 text-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <b>{lang === "et" && c.et ? c.et.name : c.name}</b>
               <span style={{ color: live ? (live.ok ? "#4ade80" : "#fbbf24") : undefined }} className={live ? undefined : "muted"}>
-                {live ? (live.ok ? "Ready" : h?.running ? "Not installed" : "Not running") : c.id === "text3d" ? "Uses Roblox Studio" : "Not available yet"}
+                {live ? (live.ok ? (nitro ? "ComfyUI running" : "Ready") : h?.running ? "Not installed" : "Not running") : c.id === "text3d" ? "Uses Roblox Studio" : c.id === "images" ? (comfy?.installed ? "Starting…" : "Not installed") : "Not available yet"}
               </span>
             </div>
             <p>{lang === "et" && c.et ? c.et.what : c.what}</p>
-            <p className="muted">Model: {c.model} · VRAM: {c.vram}{h?.gpu && c.vramGb > h.gpu.vramGb ? " (more than your GPU has)" : ""} · License: {c.license} · Where: {c.where}</p>
-            <p className="muted">Setup: <code className="select-all">{c.setup}</code></p>
+            <p className="muted">{nitro ? "Model: NitroFusion2 (1-step W4A8 in ComfyUI) · License: Apache-2.0" : <>Model: {c.model} · VRAM: {c.vram}{h?.gpu && c.vramGb > h.gpu.vramGb ? " (more than your GPU has)" : ""} · License: {c.license}</>} · Where: {c.where}</p>
+            <p className="muted">Setup: <code className="select-all">{nitro ? comfySetup("nitrofusion2") : c.setup}</code></p>
           </div>
         );
       })}

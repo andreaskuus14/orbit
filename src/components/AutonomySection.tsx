@@ -11,7 +11,7 @@ import { PredictionEligible } from "./OrbitThinks";
 import type { TrustSuggestion } from "@/lib/trust-pure";
 import type { Key } from "@/lib/i18n-pure";
 
-type View = { levels: Levels; limits: Limits; pending: Pending[]; today: { at: string; area: Area; action: string; ref: string }[]; stopAll: boolean; push: string | null; trust?: TrustSuggestion[] };
+type View = { levels: Levels; limits: Limits; pending: Pending[]; today: { at: string; area: Area; action: string; ref: string }[]; stopAll: boolean; push: string | null; trust?: TrustSuggestion[]; problem?: string | null };
 
 /** Profile → Autonomy: per-area level, limits for auto, today's auto actions (ledger), queued ones with Cancel, and Pause all (= Stop-all). */
 export function AutonomySection() {
@@ -61,6 +61,7 @@ export function AutonomySection() {
       <dl className="muted space-y-1 text-xs">
         {(["off", "ask", "do", "auto"] as const).map((l) => <div key={l}><dt className="inline font-semibold">{LEVEL_TEXT[l].label}: </dt><dd className="inline">{LEVEL_TEXT[l].means}</dd></div>)}
       </dl>
+      {v?.problem && <p className="error text-sm" role="alert">{v.problem}</p>}
       {v?.push && <p className="muted text-xs">Auto with limits can't be turned on yet: it needs phone pushes so you hear about every action ({v.push}). Pair your phone below and set up pushes (docs/PHONE.md).</p>}
       {!!v?.trust?.length && (
         <div className="space-y-2" role="region" aria-labelledby="trust-title">

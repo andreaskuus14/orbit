@@ -1,6 +1,6 @@
+import { readStore, writeStore } from "./safe-file.ts";
 import { foreground } from "./foreground-pure";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
@@ -29,14 +29,12 @@ const g = globalThis as unknown as { __orbitNight?: { ac: AbortController | null
 const N = (g.__orbitNight ??= { ac: null, write: Promise.resolve() });
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 200);
 
-const load = async (): Promise<NightState> => parseNight(await readFile(file(), "utf8").catch(() => ""));
+const load = async (): Promise<NightState> => parseNight(await readStore(file())); // missing = defaults; locked/damaged throws
 /** Serialized read → fn → atomic write, so the API and the runner never lose each other's changes. */
 function update<T>(fn: (s: NightState) => T): Promise<T> {
   const p = N.write.catch(() => {}).then(async () => {
     const s = await load(), out = fn(s);
-    await mkdir(path.dirname(file()), { recursive: true });
-    await writeFile(file() + ".tmp", JSON.stringify(s));
-    await rename(file() + ".tmp", file());
+    await writeStore(file(), JSON.stringify(s));
     return out;
   });
   N.write = p;
@@ -272,8 +270,13 @@ export async function runOne(sb: SupabaseClient, userId: string, t: NightTask, s
 export async function getNightReport(sb: SupabaseClient, userId: string, now = Date.now()) {
   const st = await load(), run = st.users[userId]?.run;
   const ids = (run?.items ?? []).flatMap((i) => (i.open && "task" in i.open ? [i.open.task] : []));
-  const { data } = ids.length ? await sb.from("tasks").select("id, status").eq("user_id", userId).in("id", ids) : { data: [] };
+  const { data } = ids.length ? await sb.from("tasks").select("id, status, pending").eq("user_id", userId).in("id", ids) : { data: [] };
   const r = nightReport(run, Object.fromEntries((data ?? []).map((t) => [t.id, t.status])), now, st.settings, nightRunning());
+  if (r) { // S02: a quick Approve on this card only runs the actions as they were when the card was served
+    const { pendingSeen } = await import("./approval-bind-pure");
+    const seen = new Map((data ?? []).map((t) => [t.id as string, pendingSeen(t.pending ?? [])]));
+    for (const i of r.approvals) if (i.open && "task" in i.open && seen.has(i.open.task)) i.seen = seen.get(i.open.task);
+  }
   if (r) { // one money line, same definitions as BUSINESS → Money (money-pure moneySplit/moneyLine)
     const line = await (await import("./money")).digestMoney(sb, now);
     if (line) r.invoices = line;

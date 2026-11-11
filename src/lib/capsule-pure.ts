@@ -97,13 +97,13 @@ export function openCapsule(buf: Buffer, pass: string): { header: Header; payloa
 export type Entry = { path: string; size: number }; // path: relative to the data dir, "/" separated
 export const CONFIG_FILE = "time-capsule.json"; // never backed up or restored: it holds the folder, the limit and the verifier
 
-/** Which files to back up: the *.json / *.jsonl stores and the vault index; no caches, temp files, vault contents or files over maxBytes. */
+/** Which files to back up: the *.json / *.jsonl stores, the vault index and the vault metadata (file ids); no caches, temp files, vault contents or files over maxBytes. */
 export function pickFiles(all: Entry[], maxBytes: number): { keep: Entry[]; skipped: Entry[] } {
   const keep: Entry[] = [], skipped: Entry[] = [];
   for (const e of all) {
     const parts = e.path.split("/"), name = parts[parts.length - 1];
     const store = /\.jsonl?$/i.test(name) && !parts.some((p) => /cache/i.test(p)) && e.path !== CONFIG_FILE
-      && (parts[0] !== "vault" || e.path === "vault/.index.json");
+      && (parts[0] !== "vault" || e.path === "vault/.index.json" || e.path === "vault/.meta.json");
     if (!store) continue;
     (e.size > maxBytes ? skipped : keep).push(e);
   }
@@ -174,3 +174,12 @@ export function rotate(names: string[]): string[] {
 }
 
 export const fmtMB = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${Math.round(bytes / (1024 * 1024))} MB`);
+
+/** The scheduler's safety net for a host that never runs the night shift (always on, or the night shift is off): back up when
+ *  no backup succeeded for 26 h (the night shift's 20 h rule goes first), and retry a failure (drive unplugged) every 6 h. */
+export function fallbackDue(last: { at: string; ok: boolean } | undefined, now: number): boolean {
+  if (!last) return true;
+  const age = now - Date.parse(last.at);
+  if (!(age >= 0)) return true; // unreadable or future date: back up (that rewrites it) rather than go without
+  return age >= (last.ok ? 26 : 6) * 3_600_000;
+}

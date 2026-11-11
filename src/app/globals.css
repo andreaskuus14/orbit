@@ -680,7 +680,7 @@ kbd { font-family: var(--font-mono); font-size: 0.68rem; padding: 0.05rem 0.4rem
 /* ---------- phone / installed-app (PWA) ---------- */
 /* Safe areas: env() is 0 on desktop and without viewport-fit=cover, so these keep the desktop layout identical. */
 main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
-.hud-menu { top: calc(3.6rem + env(safe-area-inset-top, 0px)); }
+.hud-menu { top: calc(3.6rem + env(safe-area-inset-top, 0px)); max-height: calc(100dvh - 4.6rem - env(safe-area-inset-top, 0px)); overflow-y: auto; overscroll-behavior: contain; } /* short screens (320 px, landscape): the menu scrolls so Sign out stays reachable */
 .cmdbar { bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); }
 @media (max-width: 1100px) { .globe-country { bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)); } }
 .globe-regions { bottom: calc(5.4rem + env(safe-area-inset-bottom, 0px)); }
@@ -705,7 +705,7 @@ main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
   /* The worlds' 0.9 zoom also scales offsets, which would misalign the sheets. */
   .globe-in > :not(:has(canvas)):not(.pointer-events-none) { zoom: 1; }
   /* Hands-free status shrinks to its dot (text stays for screen readers); the "Talking" button keeps its words. */
-  span.voice-wake { font-size: 0; gap: 0; padding: 0.3rem; left: 0.9rem; bottom: calc(100% + 0.2rem); }
+  .voice-wake.voice-status { font-size: 0; gap: 0; padding: 0.3rem; left: 0.9rem; bottom: calc(100% + 0.2rem); }
   .morning-card, .whats-new { top: var(--hdr); max-height: calc(100dvh - var(--hdr) - var(--bar) - 0.5rem); overflow-y: auto; }
   /* WHAT'S NEW is a modal top sheet here: full width, own scroll, dimmed backdrop. */
   .whats-new { left: 0.5rem; right: 0.5rem; width: auto; z-index: 26; overscroll-behavior: contain; }
@@ -826,6 +826,9 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .memory-star-label { display: flex; flex-direction: column; gap: 2px; max-width: 16rem; padding: 3px 0 3px 10px; border-left: 1px solid rgba(125, 211, 252, 0.6); white-space: nowrap; }
 .memory-star-label b { overflow: hidden; text-overflow: ellipsis; font-weight: 500; font-size: 0.78rem; color: #e6f1ff; text-shadow: 0 0 8px rgba(2, 3, 8, 0.9); }
 .memory-star-label span { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.18em; text-transform: uppercase; color: #7dd3fc; }
+/* PlanetWorld: zone names on the ground (piers, halls, kinds) and the scene line above the workspace panel */
+.planet-world-zone { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.14em; opacity: 0.75; white-space: nowrap; text-shadow: 0 0 8px rgba(2, 3, 8, 0.9); }
+.planet-world-head { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 2px solid; font-size: 0.78rem; }
 .chronicle-caption { font-size: 1.05rem; letter-spacing: 0.02em; color: #e6f1ff; text-shadow: 0 0 14px rgba(125, 211, 252, 0.55), 0 0 4px rgba(2, 3, 8, 0.9); animation: chronicle-cap 0.6s ease-out; }
 @keyframes chronicle-cap { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { .chronicle-caption { animation: none; } }
@@ -856,6 +859,16 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .mb-item { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; padding: 0.6rem 0.75rem; border: 1px solid var(--line); border-radius: 12px; animation: brief-in 0.8s ease-out both; animation-delay: calc(var(--i) * 0.35s + 0.3s); }
 .mb-icon { width: 1.6rem; text-align: center; font-size: 1.1rem; }
 @keyframes brief-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (max-width: 480px) {
+  .morning-brief .mb-head, .morning-brief .mb-actions { flex-wrap: wrap; }
+  .morning-brief .mb-actions { max-width: 100%; }
+  .morning-brief .mb-item .mb-actions { flex-basis: 100%; }
+  .morning-brief .mb-hello, .morning-brief .mb-item { overflow-wrap: anywhere; }
+  .morning-brief .mb-item b { white-space: normal; }
+}
+@media (max-width: 480px), (pointer: coarse) {
+  .morning-brief .mb-actions .chip { min-width: 44px; min-height: 44px; }
+}
 @media (prefers-reduced-motion: reduce) { .morning-brief, .mb-item { animation: none; } }
 
 /* Warp command palette (CommandPalette.tsx): a violet-cyan rim, an alien caption, a short "jump" in. */
@@ -902,10 +915,12 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 
 /* CORE chat (tests/core-readable): a solid reading surface, the scene dims behind a conversation, decorative serials stay off the text. */
 .orbit-shell .drawer.glass:has(.core-ws) { background-color: var(--core-surface); }
-.orbit-shell:has(.core-ws .bubble) div:has(> canvas) { filter: brightness(0.4) saturate(0.6); transition: filter 0.4s; }
+/* The scene dims behind CORE with an overlay that only fades (a CSS filter on the canvas re-filtered every WebGL frame). */
+.galaxy-layer::after { content: ""; position: absolute; inset: 0; background: rgb(0 0 4 / 0.62); opacity: 0; pointer-events: none; transition: opacity 0.4s; }
+.galaxy-layer[data-dim]::after { opacity: 1; }
 .orbit-shell .drawer:has(.core-ws .bubble)::after { display: none; }
 .core-ws .bubble { font-size: 15px; line-height: 1.5; color: #e6edf5; }
 .orbit-shell .core-ws .bubble.user { background: #123a52; border-color: #5cc8f0; color: #f2f9ff; }
 .orbit-shell .core-ws .bubble.core { background: #191530; border-color: #6f5fb8; border-left: 3px solid #a78bfa; }
 .core-ws form { border-top: 1px solid #b4d9e030; padding-top: 0.75rem; }
-@media (prefers-reduced-motion: reduce) { .orbit-shell:has(.core-ws .bubble) div:has(> canvas) { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .galaxy-layer::after { transition: none; } }

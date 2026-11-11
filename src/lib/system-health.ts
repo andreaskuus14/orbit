@@ -1,10 +1,12 @@
-import { mkdir, readFile, rename, statfs, writeFile } from "node:fs/promises";
+import { readStore, writeStore } from "./safe-file.ts";
+import { statfs } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { DEEP_MODEL, FAST_MODEL, LOCAL_MODEL, MODEL, SMART_MODEL } from "./claude";
 import { modelCalls, usageView } from "./usage-meter";
 import { redact } from "./health-pure";
+import { calFailure } from "./gcal-pure";
 import { quietAt } from "./remote-push-pure";
 import { OLLAMA_URL, localStatus } from "./local-model-pure";
 import { ackIncident, budget, failedJobs, mergeServices, modelRows, parseStore, problems, reconcile, sortIncidents, storageRow, type Failure, type Probe } from "./system-health-pure";
@@ -19,14 +21,12 @@ const g = globalThis as unknown as { __orbitSysHealth?: Promise<unknown> };
 const iso = (t: number | null | undefined) => (t ? new Date(t).toISOString() : null);
 const msg = (e: unknown) => redact(e instanceof Error ? e.message : String(e)).slice(0, 160);
 
-const load = async () => parseStore(await readFile(file(), "utf8").catch(() => null));
+const load = async () => parseStore((await readStore(file())) || null); // missing = empty; locked/damaged throws
 /** Store edits run one after another (the scheduler tick and the doctor view may overlap). */
 function update<T>(fn: (s: Awaited<ReturnType<typeof load>>) => T | Promise<T>): Promise<T> {
   const run = (g.__orbitSysHealth ?? Promise.resolve()).catch(() => {}).then(async () => {
     const s = await load(), r = await fn(s);
-    await mkdir(path.dirname(file()), { recursive: true });
-    await writeFile(file() + ".tmp", JSON.stringify(s));
-    await rename(file() + ".tmp", file());
+    await writeStore(file(), JSON.stringify(s));
     return r;
   });
   g.__orbitSysHealth = run;
@@ -44,11 +44,14 @@ async function free(dir: string): Promise<number | null> {
 
 const within = <T>(p: Promise<T>, ms = 6000) => Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`no answer within ${ms / 1000} s`)), ms).unref?.())]);
 
+const EXPIRED = "expired"; // Google refused the saved grant (gcal-oauth.json holds only the expiry marker)
+const calMsg = (e: unknown) => { const f = calFailure(e); return f.expired ? EXPIRED : redact(f.text); };
+
 async function probes(sb: SupabaseClient, events: { type: string; created_at: string; payload: Record<string, unknown> }[], now: number): Promise<Probe[]> {
   const u = usageView(), calls = modelCalls(), lastClaude = calls.filter((c) => c.ok).at(-1)?.at ?? null, lastCall = calls.at(-1);
   const [db, cal, local, push, stories] = await Promise.all([
     within(Promise.resolve(sb.from("profiles").select("id", { head: true }).limit(1))).then((r) => (r.error ? r.error.message : ""), msg),
-    import("./gcal").then(async (m) => ((await m.readCal()) ? within(m.calendarEvents(1, now), 12_000).then(() => "", msg) : null)).catch(msg),
+    import("./gcal").then(async (m) => ((await m.readCal()) ? within(m.calendarEvents(1, now), 12_000).then(() => "", calMsg) : (await m.calExpired()) ? EXPIRED : null)).catch(calMsg),
     LOCAL_MODEL ? fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(2000) }).then((r) => r.json(), () => null).then((t) => localStatus(LOCAL_MODEL, t)) : null,
     import("./remote-push").then(async (m) => ({ problem: m.pushProblem(), last: m.lastPushOk(), phones: (await (await import("./remote")).listDevices()).filter((d) => d.push).length })).catch(() => null),
     import("./clips/story").then((m) => m.listStories()).catch(() => []),
@@ -75,6 +78,7 @@ async function probes(sb: SupabaseClient, events: { type: string; created_at: st
       : push.problem ? { id: "push", label: "Phone push", state: "off", detail: push.problem }
       : { id: "push", label: "Phone push", state: push.phones ? "ok" : "off", detail: push.phones ? `${push.phones} phone${push.phones > 1 ? "s" : ""} subscribed` : "No phone subscribed (open Remote on the phone and turn notifications on)", okAt: iso(push.last) },
     cal === null ? { id: "calendar", label: "Google Calendar", state: "off", detail: "Not connected" }
+      : cal === EXPIRED ? { id: "calendar", label: "Google Calendar", state: "down", detail: "Google sign-in expired: reconnect it in LIFE → Calendar", okAt: null }
       : { id: "calendar", label: "Google Calendar", state: cal ? "down" : "ok", detail: cal ? `Read failed: ${cal}` : "Read works", okAt: cal ? null : nowIso },
   ];
 }
@@ -101,8 +105,8 @@ async function failures(sb: SupabaseClient, userId: string, events: { type: stri
 async function snapshot(sb: SupabaseClient, userId: string, now = Date.now()) {
   const since = iso(now - WEEK)!;
   const { data: ev } = await Promise.resolve(sb.from("events").select("type, created_at, payload").eq("user_id", userId).in("type", ["night.task", "business.stage"])
-    .gte("created_at", since).order("created_at", { ascending: true }).limit(1000)).catch(() => ({ data: null }));
-  const events = (ev ?? []) as { type: string; created_at: string; payload: Record<string, unknown> }[];
+    .gte("created_at", since).order("created_at", { ascending: false }).limit(1000)).catch(() => ({ data: null }));
+  const events = [...(ev ?? [])].reverse() as { type: string; created_at: string; payload: Record<string, unknown> }[];
   const [{ vaultDir }, { studioRoot }, { backupDir }, story, night] = await Promise.all([import("./vault"), import("./clips/factory"), import("./backup"),
     import("./clips/story").then((m) => m.weekUsage()).catch(() => null), import("./night").then((m) => m.lastNightRun(userId)).catch(() => null)]);
   const dirs: [string, string, string][] = [["data", "ORBIT data folder", orbitDataDir()], ["vault", "VAULT", vaultDir()], ["studio", "STUDIO folder", studioRoot()], ["backup", "Backup folder", backupDir()]];

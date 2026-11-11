@@ -28,13 +28,13 @@ const PUBLIC: Record<string, [string | null, string]> = {
   "remote/screen GET": ["deviceFromCookie", "read-only second screen; device-token cookie"],
   "remote/shortcut POST": ["findShortcut", "Apple Shortcuts; per-action Bearer token"],
   "remote/thumb GET": ["deviceFromCookie", "paired phone; device-token cookie"],
+  "remote/ntfy-act POST": ["spendAct", "ntfy Approve/Reject button: HMAC-signed, 24 h, one-use token per single reversible approval"],
 };
 // "route METHOD" -> why that write handler (last segment dynamic) doesn't call crossSiteBlocked. Empty: keep it that way.
 const NO_CSRF: Record<string, string> = {};
 // The CSRF rule above relies on this exact matcher; if you change it, re-check which routes the middleware can miss.
 const MATCHER = String.raw`"/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|svg|webp)$).*)"`;
 
-const SKIP = ["rea/"]; // owner's REA tool: not ours to edit (AGENTS.md rule 3)
 
 function routeFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
@@ -75,7 +75,7 @@ export function guardsByHandler(src: string): Map<string, Set<string>> {
   return out;
 }
 
-const routes = routeFiles(ROOT).filter((f) => !SKIP.some((s) => relative(ROOT, f).startsWith(s)));
+const routes = routeFiles(ROOT);
 
 test("route guards: parser follows same-file helpers, aliases and arrow exports", () => {
   const g = guardsByHandler(`

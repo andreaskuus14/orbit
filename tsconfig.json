@@ -36,7 +36,8 @@
     ".next-dev/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-orbital-update/types/**/*.ts"
+    ".next-orbital-update/types/**/*.ts",
+    ".next-isolated/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

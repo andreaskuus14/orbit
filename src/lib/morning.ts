@@ -15,6 +15,7 @@ import { readSleepReport } from "./sleep";
 import { alertText } from "./markets-pure";
 import { QUIET_MS, devBacklog, dropDone, goalDeadlines, morningCandidates, pickHero, rankCards, type Click, type Thumb } from "./morning-rank-pure";
 import { validateDevWorld } from "./devworld-pure";
+import { dayKey, safeZone } from "./agent-stats-pure";
 import { buildMorning, businessFollowupLine, localDay, overnightLine, lifeSection, pulseHeadlines, sinceSection, studioSection, type Morning, type MorningAgents, type MorningIntel, type MorningSince, type MorningStudio } from "./morning-pure";
 
 // Gathers the "Good morning" briefing: every section in parallel with a timeout, a failing source just drops its section.
@@ -161,16 +162,22 @@ async function gather(sb: SupabaseClient, userId: string, now: number): Promise<
   const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone; // LIFE and memory anniversaries use the PC's local days, not the publish timezone
   const today = localDay(new Date(now)); // markets' firedOn is a server-local day; goal deadlines are local days too
   const cardSources = Promise.allSettled([within(thumbs(sb, now)), within(import("./markets").then((x) => x.listAlerts())), within(import("./ideas").then((x) => x.listIdeas())),
-    within(clicks(sb, now)), within(devworld(sb, now)), within(deadlines(sb, userId, today)), within(archLesson(sb, now))]);
+    within(clicks(sb, now)), within(devworld(sb, now)), within(deadlines(sb, userId, dayKey(new Date(now), safeZone(tz)))), within(archLesson(sb, now))]);
   const [s, i, a, l, r, sn, c, w, ct, bf] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
     within(import("./life").then((m) => m.getLife()).then((st) => lifeSection(st, now, localTz))), within(recall(sb, now, localTz)),
     Promise.resolve(undefined), // since: per request, in getMorning
-    // Same cache entry as the LIFE card. No Google client configured → no calendar section at all.
+    // Same cache entry as the LIFE card. No Google client configured → no calendar section at all. A failed read shows as
+    // failed (never a silently missing section); a grant Google refused shows as expired, not as "not connected".
     within(Promise.all([import("./gcal"), import("./gcal-pure")]).then(async ([g, p]) => {
       if (!g.calEnv()) return undefined;
-      const ev = await g.calendarEvents(7, now);
-      return { connected: !!ev, today: ev ? p.todayEvents(ev, now) : [] };
-    })), within(getContinueWork(sb, userId)), within(contactedToday(sb, now, tz)),
+      try {
+        const ev = await g.calendarEvents(7, now);
+        return ev ? { connected: true, today: p.todayEvents(ev, now) } : { connected: false, today: [], ...((await g.calExpired()) && { expired: true }) };
+      } catch (e) {
+        const f = p.calFailure(e);
+        return f.expired ? { connected: false, today: [], expired: true } : { connected: true, today: [], error: f.text };
+      }
+    })).catch(() => ({ connected: true, today: [], error: "Couldn't reach Google Calendar" })), within(getContinueWork(sb, userId)), within(contactedToday(sb, now, tz)),
     within(Promise.resolve(sb.from("prospects").select("id,name,stage,updated_at,notes").eq("stage", "contacted")).then(({ data, error }) => {
       if (error) throw error;
       return import("./prospect-crm").then((c) => c.withTouch(data ?? [])).then((ps) => dueFollowups(ps, now));
@@ -193,5 +200,7 @@ async function gather(sb: SupabaseClient, userId: string, now: number): Promise<
   const mission = picks.length ? dailyMission({ ...base3, ...(await within(import("./daily-mission").then((d) => d.extraCounts(userId, picks, now))).catch(() => ({}))) }, picks)
     : st && work && ok(ct) !== undefined ? dailyMission(base3) : undefined;
   return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, calendar: ok(c), recall: rec?.length ? rec : undefined,
-    business: (await ovP) || [due && businessFollowupLine(due.length), await invP].filter(Boolean).join(". ") || undefined, overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), cards, ...(hero && { hero }), ...(since && { since }), ...((await nightP) && { night: (await nightP)! }) };
+    business: (await ovP) || [due && businessFollowupLine(due.length), await invP].filter(Boolean).join(". ") || undefined, overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), cards,
+    deadlines: ok(dl) ?? null, followups: due ? due.map((p) => ({ id: p.id, name: p.name })) : null, // the brief's Today section; null = the source failed, never "nothing due"
+    ...(hero && { hero }), ...(since && { since }), ...((await nightP) && { night: (await nightP)! }) };
 }

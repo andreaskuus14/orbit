@@ -32,7 +32,7 @@ import { armCount, boostCap, coreScale, overviewBoost, planetDetail, shellCount 
 import { lifeRingGlow, lifeRingStep } from "@/lib/galaxy-life-pure";
 import { cullLabels, damp, spreadLabels, fmtCoord, HOME_POS, INTRO_SECS, introLabelAlpha } from "@/lib/cinematic-pure";
 import {
-  CameraFeel, DevStats, Dust, GalaxyHud, MotionAberration, newFeel, newStory, Parallax, PointerFeel, StoryFocus, StoryRail, StoryReadout, StoryRig, useRim,
+  CameraFeel, DevStats, Dust, GalaxyHud, MotionAberration, newFeel, newStory, Parallax, PointerFeel, StoryFocus, StoryRail, StoryReadout, StoryRig, useRim, RIM_COLOR,
   type Feel, type HudEls, type Motion, type Story,
 } from "./Cinematic";
 import { expDamp, smoothDampVec } from "@/lib/smooth-damp-pure";
@@ -52,6 +52,8 @@ import { AlienScript } from "./AlienScript";
 import { hoverParts, planetLife, toolPlanet, QUIET, WARM, WORK } from "@/lib/living-galaxy-pure";
 import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
 import { arrivalSecs, arrivalSpread, easeInStop, offscreenEdge } from "@/lib/alien-behaviour-pure";
+
+import type { DiveRequest } from "@/lib/window-pure";
 
 export type GalaxyProps = {
   bloomScale?: number; // ambient night mode softens the glow
@@ -73,9 +75,9 @@ export type GalaxyProps = {
   lifeProgress?: { done: number; total: number } | null; // real: today's scheduled LIFE habits done / total
   universe?: UniverseData | null; // real: the ledger as light (live, or the day picked in Time travel)
   ships?: { tasks: ShipTask[]; onOpen: (id: string) => void }; // real: agent tasks flying as ships; click opens the task
-  dive?: PanelId | null;     // entering this world through its planet's surface (window planets: level > 0, no reduced motion)
-  onDiveCross?: () => void;  // the camera crossed the surface: mount the world now, it crossfades in
-  onDiveCancel?: () => void; // the user grabbed the view mid-dive
+  flight?: DiveRequest | null;     // entering this world through its planet's surface (window planets: level > 0, no reduced motion)
+  onDiveCross?: (request: DiveRequest) => void;  // the camera crossed the surface: mount the world now, it crossfades in
+  onDiveCancel?: (request: DiveRequest) => void; // the user grabbed the view mid-dive
   onIdle?: () => void;       // start-up and background shaders are compiled: a good moment for other idle work
   dilation?: { startAt: number; endAt: number } | null; // time dilation focus block: the galaxy's clock runs slow
 };
@@ -90,6 +92,7 @@ const glow = (pulses: RefObject<Record<string, number>>, id: string) =>
 const hits: Record<string, number> = {};
 const hitGlow = (id: string, now: number) => { const a = now - (hits[id] ?? -99); return a >= 0 && a < 1.2 ? (1 - a / 1.2) ** 2 : 0; };
 const QUIET_C = new THREE.Color(QUIET), WARM_C = new THREE.Color(WARM);
+const FRESH_RIM = new THREE.Color(WORK), COLD_RIM = new THREE.Color(RIM_COLOR); // "new today" warms the hover rim
 let auraTex: THREE.Texture | null = null; // one warm halo texture shared by every world
 const aura = () => (auraTex ??= glowTexture([[0, "rgba(255,214,150,0.9)"], [0.25, "rgba(255,170,80,0.35)"], [0.6, "rgba(255,140,60,0.08)"], [1, "rgba(255,120,40,0)"]]));
 
@@ -337,8 +340,9 @@ function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; f
   );
 }
 
-function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, vitality, shell = 0, level = 1, scales, feel, arrive }: {
-  p: PlanetDef; index: number; selected: boolean; onSelect: (id: PanelId) => void; onHover: (id: PlanetId, on: boolean) => void;
+function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, vitality, shell = 0, level = 1, scales, feel, arrive, fresh = false }: {
+  p: PlanetDef; fresh?: boolean; // something new in the last 24 h: the rim warms on hover
+  index: number; selected: boolean; onSelect: (id: PanelId) => void; onHover: (id: PlanetId, on: boolean) => void;
   positions: Positions; pulses: RefObject<Record<string, number>>; memoryCount: number; reduced: boolean;
   agentBusy?: number; failing?: boolean; // agentBusy = number of satellites to show
   life?: { done: number; total: number } | null; still?: boolean; // still = reduced motion or low quality: no animation
@@ -448,7 +452,9 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
       g.rotation.x = expDamp(g.rotation.x, f && on ? -f.y * 0.07 * on : 0, 0.5, dt);
       g.rotation.z = expDamp(g.rotation.z, f && on ? -f.x * 0.07 * on : 0, 0.5, dt);
     }
-    rim.u.uRim.value = expDamp(rim.u.uRim.value, hovered.current ? 0.7 : selected ? 0.35 : 0.1, 0.12, dt);
+    const warm = hovered.current && fresh;
+    rim.u.uRim.value = expDamp(rim.u.uRim.value, warm ? 1.2 : hovered.current ? 0.7 : selected ? 0.35 : 0.1, 0.12, dt);
+    rim.u.uRimColor.value.lerp(warm ? FRESH_RIM : COLD_RIM, Math.min(1, dt * 6));
     if (group.current) {
       const d = planetDetail(size, camera.position.distanceTo(group.current.position), level); // true size: the boost adds presence, not detail
       detail.current = d;
@@ -800,7 +806,7 @@ function LabelProjector({ positions, scales, labels, leaders, hover, selected, h
 // Low, oblique view like the reference illustration.
 const HOME = new THREE.Vector3(...HOME_POS); // pulled back to fit the wider outer orbits
 
-function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive }: { selected: PanelId | null; positions: Positions; reduced: boolean; panelOpen: boolean; fast?: boolean; story: RefObject<Story>; arrive: RefObject<Arrive> }) {
+function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive, diving }: { selected: PanelId | null; positions: Positions; reduced: boolean; panelOpen: boolean; fast?: boolean; story: RefObject<Story>; arrive: RefObject<Arrive>; diving: boolean }) {
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void; addEventListener: (t: string, f: () => void) => void; removeEventListener: (t: string, f: () => void) => void } | null;
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const size = useThree((s) => s.size);
@@ -859,7 +865,7 @@ function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive }: {
 
   useFrame((_, scaled) => {
     const dt = realDt(scaled); // camera flights keep real time, even dilated
-    if (!controls) return;
+    if (!controls || diving) return;
     if (story.current.owns) { flight.current = null; return; } // the intro / scroll journey is driving the camera
     const f = flight.current;
     if (f?.arr) {
@@ -966,6 +972,12 @@ function RenderScale({ max, onDpr }: { max: number; onDpr: (dpr: number) => void
   });
   return null;
 }
+/** Draws a "demand" canvas at a steady low rate (the dimmed scene behind an open panel). */
+function Throttle({ fps }: { fps: number }) {
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => { const id = setInterval(() => invalidate(), 1000 / fps); return () => clearInterval(id); }, [invalidate, fps]);
+  return null;
+}
 const SCALE_KEY = "orbit.render.scale";
 function loadScale(): ScaleState { try { const v = Number(localStorage.getItem(SCALE_KEY)); return newScale(v); } catch { return newScale(1); } }
 function saveScale(s: ScaleState) { try { localStorage.setItem(SCALE_KEY, String(s.scale)); } catch { /* storage off */ } }
@@ -996,6 +1008,14 @@ export default function Galaxy(props: GalaxyProps) {
     document.addEventListener("visibilitychange", update);
     return () => document.removeEventListener("visibilitychange", update);
   }, []);
+  // A panel covers most of the scene and dims it: once the camera has settled, draw at 30 fps instead of the screen's rate
+  // (audit 8 Nov: ~98 frames/s behind an open CORE chat; 16-22 fps while panels opened).
+  const [idle, setIdle] = useState(false);
+  useEffect(() => {
+    if (!props.panelOpen) { setIdle(false); return; }
+    const t = setTimeout(() => setIdle(true), 1500);
+    return () => clearTimeout(t);
+  }, [props.panelOpen]);
   const mode = props.quality ?? "auto";
   const level: QualityLevel = mode === "high" ? 3 : mode === "low" ? 0 : (Math.min(autoLevel, max) as QualityLevel);
   perfCtx.level = level; perfCtx.selected = props.selected ?? null; perfCtx.paused = !!props.paused; // read by the freeze log
@@ -1031,7 +1051,7 @@ export default function Galaxy(props: GalaxyProps) {
   const sizes = useMemo(() => Object.fromEntries(PLANETS.map((p) => [p.id, planetSize(p)])), []);
   const { onSelect, selected } = props;
   const u = props.universe;
-  const lines = useMemo(() => Object.fromEntries(PLANETS.map((p) => [p.id, hoverParts(p.id, { recent: u?.recent, stages: p.id === "business" ? u?.stages : null,
+  const lines = useMemo(() => Object.fromEntries(PLANETS.map((p) => [p.id, hoverParts(p.id, { recent: u?.recent, today: u?.today, stages: p.id === "business" ? u?.stages : null,
     memories: props.memoryCount, agents: props.agentsWorking, life: props.lifeProgress })
     .map((x) => (x.n !== undefined ? tn(x.key as Parameters<typeof tn>[0], x.n, x.vars) : t(x.key as Parameters<typeof t>[0], x.vars))).join(" · ")])),
   [u, props.memoryCount, props.agentsWorking, props.lifeProgress, t, tn]);
@@ -1047,7 +1067,7 @@ export default function Galaxy(props: GalaxyProps) {
   }, [stop, selected, onSelect]);
   return (
     <div className="relative h-full w-full">
-      <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={(props.paused && !staged) || !visible ? "never" : "always"} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={dpr ?? [1, dprMax]}
+      <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={(props.paused && !staged) || !visible ? "never" : idle && !staged ? "demand" : "always"} aria-hidden camera={{ position: HOME.toArray(), fov: 50 }} dpr={dpr ?? [1, dprMax]}
         gl={{ antialias: true, powerPreference: "high-performance", toneMapping: THREE.ACESFilmicToneMapping }}>
         <color attach="background" args={["#000003"]} />
         {/* Depth haze: far orbits and belts sink into the void (shader layers ignore it). */}
@@ -1072,7 +1092,7 @@ export default function Galaxy(props: GalaxyProps) {
             positions={positions} pulses={props.pulses} memoryCount={props.memoryCount} reduced={props.reduced}
             agentBusy={p.id === "intelligence" ? (props.pulseBusy ? 1 : 0) : p.id === "agents" ? props.agentsWorking : 0}
             failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)}
-            life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} vitality={props.universe?.vitality[p.id]} shell={shellCount(level)} level={level} scales={scales} feel={feel} arrive={arrive} />
+            life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} vitality={props.universe?.vitality[p.id]} fresh={!!props.universe?.today?.[p.id]} shell={shellCount(level)} level={level} scales={scales} feel={feel} arrive={arrive} />
         ))}
         <WarmIn> {/* both arrive with data after the start-up compile */}
           {props.universe && <Universe u={props.universe} positions={positions} scales={scales} still={props.reduced || level === 0} level={level} />}
@@ -1080,24 +1100,24 @@ export default function Galaxy(props: GalaxyProps) {
         </WarmIn>
         {/* a focused world may be approached until it nearly fills the view: its surface keeps resolving finer detail */}
         <OrbitControls makeDefault enabled={!staged} enablePan={false} minDistance={props.selected && props.selected in sizes ? sizes[props.selected] * 1.35 : 4} maxDistance={80} enableDamping />
-        {!props.reduced && <StoryRig story={story} positions={positions} sizes={sizes} selected={props.selected} intro={intro} onIntroEnd={onIntroEnd} onStop={setStop} />}
-        <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} arrive={arrive} />
-        {windows && <WindowDive dive={props.dive ?? null} positions={positions} sizes={sizes} scales={scales} onCross={props.onDiveCross} onCancel={props.onDiveCancel} />}
+        {!props.reduced && <StoryRig story={story} positions={positions} sizes={sizes} selected={props.flight?.id ?? props.selected} intro={intro} onIntroEnd={onIntroEnd} onStop={setStop} />}
+        <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} arrive={arrive} diving={!!props.flight} />
+        {windows && <WindowDive request={props.flight ?? null} positions={positions} sizes={sizes} scales={scales} onCross={props.onDiveCross} onCancel={props.onDiveCancel} />}
         {!props.paused && <ZoomRig home={HOME.length()} reduced={props.reduced} />} {/* zoom commands are for the world on screen */}
-        <CameraFeel motion={motion} reduced={props.reduced} home={props.selected === null} story={story} />
+        <CameraFeel motion={motion} reduced={props.reduced} home={!props.flight && props.selected === null} story={story} />
         <PointerFeel feel={feel} enabled={!props.reduced && !coarse && !staged} />
-        <Parallax feel={feel} on={!props.reduced && !staged} /> {/* after every rig: it offsets the camera they placed */}
+        <Parallax feel={feel} on={!props.flight && !props.reduced && !staged} /> {/* after every rig: it offsets the camera they placed */}
         <AmbientListener positions={positions} /> {/* after every rig: hears from where the camera ended up */}
         <LabelProjector positions={positions} scales={scales} labels={labels} leaders={leaders} hover={hover} selected={props.selected} hud={hud} story={story} reduced={props.reduced} lang={lang} />
-        {windows && <WindowPlanets hover={hover} dive={props.dive ?? null} positions={positions} sizes={sizes} scales={scales} />}
+        {windows && <WindowPlanets hover={hover} dive={props.flight?.id ?? null} positions={positions} sizes={sizes} scales={scales} />}
         {process.env.NODE_ENV === "development" && <><DevStats /><FrameMark name="galaxy" /></>}
         {/* Shaders compile in parallel before the first frame. No 4 s release here: releasing mid-compile compiled the rest
             synchronously in one 14 s frame (owner's PC); the loader stays up instead. Hidden parts warm after the first frames. */}
         <WarmCompile cap={20_000} defer onDone={compiled} onLater={props.onIdle} />
         <Dilation span={props.dilation} reduced={props.reduced} />
-        <RenderScale max={dprMax} onDpr={setDpr} />
+        {idle && !staged ? <Throttle fps={30} /> : <RenderScale max={dprMax} onDpr={setDpr} />} {/* throttled frames are not strain */}
         <FirstFrames onReady={onReady} />
-        {mode === "auto" && !staged && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
+        {mode === "auto" && !staged && !idle && <QualityMonitor level={level} max={max} onLevel={setAutoLevel} />}
         {/* Low quality drops post-processing entirely (the renderer's own ACES tone mapping still applies). */}
         {q.bloom > 0 && (
           <EffectComposer key={level} enabled={!staged} multisampling={q.msaa}>

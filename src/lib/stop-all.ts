@@ -2,7 +2,7 @@ import { readFileSync, statSync } from "node:fs";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { orbitDataDir } from "./data-dir.ts";
-import { STOP_OFF, parseStop, type StopState } from "./stop-all-pure.ts";
+import { STOP_OFF, stopFileState, type StopState } from "./stop-all-pure.ts";
 
 // Global Stop-all flag: <ORBIT data dir>/stop-all.json, cached on globalThis so every entry point can check it synchronously.
 // The cache is re-read whenever the file changes (mtime+size), so a second process or a restart sees the other's toggle.
@@ -17,9 +17,26 @@ export function stopAllState(): StopState {
   const st = stamp();
   if (!g.__orbitStopAll || st !== g.__orbitStopStamp) { // unchanged file: keep memory (it may be ahead of a pending/failed write)
     g.__orbitStopStamp = st;
-    try { g.__orbitStopAll = parseStop(readFileSync(file(), "utf8")); } catch { g.__orbitStopAll = STOP_OFF; }
+    g.__orbitStopAll = readStop();
   }
   return g.__orbitStopAll;
+}
+
+// Only a missing file means off. A file that can't be read (Windows antivirus lock at boot) or isn't valid (a power cut can leave
+// it empty) fails closed: on, so nothing starts before he looks; his Resume rewrites it. A read error is retried on the next check.
+function readStop(): StopState {
+  let raw: string;
+  try { raw = readFileSync(file(), "utf8"); }
+  catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return STOP_OFF;
+    g.__orbitStopStamp = ""; // re-read next time: a lock is usually brief
+    return failClosed(`couldn't be read (${(e as NodeJS.ErrnoException).code ?? e})`);
+  }
+  return stopFileState(raw) ?? failClosed("is damaged");
+}
+function failClosed(why: string): StopState {
+  console.error(`[orbit] stop-all.json ${why}: ORBIT stays paused until Resume`);
+  return { on: true, at: "" };
 }
 
 export const stopAllOn = () => stopAllState().on;

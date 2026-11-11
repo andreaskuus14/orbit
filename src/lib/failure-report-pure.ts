@@ -18,7 +18,7 @@ export type ReportInput = {
 };
 
 /** Not tools: bookkeeping steps the runners add around the tool calls. */
-const META = new Set(["search_memory", "think", "review", "fallback", "reflex", "local", "verify", "error", "budget", "cancelled", "answer_eval"]);
+const META = new Set(["search_memory", "think", "review", "fallback", "reflex", "local", "verify", "error", "budget", "cancelled", "answer_eval", "sources"]);
 const MAX_STEPS = 200; // bounded: a runaway trace can't make an unbounded package
 
 export const CATEGORIES = ["policy", "cancelled", "budget", "timeout", "rate_limit", "auth", "network", "model", "tool", "unknown"] as const;
@@ -65,7 +65,8 @@ export function traceChain(trace: unknown, hasIntent: boolean): TraceChain {
     const detail = String(s.detail ?? "");
     // The runner's verdict flag when the trace has it (core.ts); word match only for traces written before the flag existed.
     const flagged = s.policy?.verdict === "refuse" || (!s.policy && s.ok === false && errorCategory(detail) === "policy");
-    const pol = flagged ? redact(detail.split("→").pop()!.trim()).slice(0, 160) : undefined;
+    // Quoted text in a refusal is the private snippet that blocked it (policy-pure/agents.ts leak refusals): never in a report.
+    const pol = flagged ? redact(detail.split("→").pop()!.trim()).replace(/"[^"]*"/g, '"…"').slice(0, 160) : undefined;
     return { attempt: i + 1, tool: s.step, ok: s.ok !== false, ms: typeof s.ms === "number" && s.ms > 0 ? Math.round(s.ms) : 0,
       receipts: (s.evidence ?? []).map((e) => `${e.kind}:${e.id}`), ...(pol ? { policy: pol } : {}) };
   });

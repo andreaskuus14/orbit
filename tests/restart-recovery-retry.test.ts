@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import * as completion from "../src/lib/completion-pure.ts";
+import * as execution from "../src/lib/execution.ts"; // the real execution-evidence module agents.ts uses
 
 function harness(fail: "read" | "write" | null) {
   const pending = [
@@ -36,7 +37,7 @@ function harness(fail: "read" | "write" | null) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   vm.runInNewContext(source, { exports, crypto, console: { error: (...args: unknown[]) => errors.push(args) }, require: (name: string) =>
-    name === "./completion-pure" ? completion : name === "./memory" ? { KINDS: ["note"] } : name === "./stop-all" ? { stopAllOn: () => true } : {},
+    name === "./completion-pure" ? completion : name === "./memory" ? { KINDS: ["note"] } : name === "./stop-all" ? { stopAllOn: () => true } : name === "./execution" ? execution : {},
   });
   return { row, errors, counts: () => ({ reads, updates }), kick: () => exports.kickQueue(sb, "owner") };
 }

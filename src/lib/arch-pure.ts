@@ -2,7 +2,10 @@
 // the AI only turns words into edit ops, and every quantity and euro is computed here from the geometry and the price table.
 // Rules of thumb are for learning, not certification: anything built for real needs an engineer's sign-off.
 
-export const KINDS = ["foundation", "slab", "wall", "roof", "window", "door", "stair"] as const;
+export const KINDS = ["foundation", "slab", "wall", "roof", "window", "door", "stair", "prop"] as const;
+/** prop: a non-structural piece (furniture, planter, bench); no quantities, no daylight blocking, not in IFC. */
+export const GROUPS = ["structure", "interior", "exterior"] as const;
+export type Group = (typeof GROUPS)[number];
 export type Kind = (typeof KINDS)[number];
 export type OpeningKind = "window" | "door";
 export const isOpening = (k: Kind): k is OpeningKind => k === "window" || k === "door";
@@ -15,7 +18,7 @@ export type Ground = (typeof GROUNDS)[number];
 /** x, z = centre of the footprint on the plot; y = bottom. w (x) × d (z) × h (y), metres.
  *  Window/door: host wall id + face; off = offset of its centre from the face centre (+X on n/s, +Z on e/w); sill = height above
  *  the wall's base; w = width along the face, h = height. x, y, z are derived (centre of the opening on the face, y = its bottom). */
-export type Part = { id: string; kind: Kind; name: string; x: number; y: number; z: number; w: number; d: number; h: number; host?: string; face?: Face; off?: number; sill?: number };
+export type Part = { id: string; kind: Kind; name: string; x: number; y: number; z: number; w: number; d: number; h: number; host?: string; face?: Face; off?: number; sill?: number; group?: Group };
 export type Scene = { plot: { w: number; d: number; ground: Ground; trees: number }; parts: Part[] };
 
 export type Op =

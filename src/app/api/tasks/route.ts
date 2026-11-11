@@ -3,24 +3,18 @@ import { getAgent, kickQueue } from "@/lib/agents";
 import { str } from "@/lib/pure";
 import { capabilityStart } from "@/lib/capability";
 import { withHeadsUp } from "@/lib/capability-pure";
-import { interruptedPatch } from "@/lib/completion-pure";
+import { projectId } from "@/lib/project-desk-pure";
 
 const COLS = "id, parent_id, project_id, agent, title, request, status, result, error, trace, pending, created_at, started_at, finished_at";
-
-// Last stale-task sweep per user: the AGENTS station polls this every 3 s, the sweep only needs to run once a minute.
-const swept = new Map<string, number>();
 
 export async function GET(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
-  // Tasks left "running" by a server restart can never finish: mark them failed so they don't look stuck.
-  if (Date.now() - (swept.get(user.id) ?? 0) > 60_000) {
-    swept.set(user.id, Date.now());
-    const { data: stale } = await sb.from("tasks").select("id, pending").eq("status", "running").lt("started_at", new Date(Date.now() - 20 * 60_000).toISOString());
-    for (const t of stale ?? []) await sb.from("tasks").update(interruptedPatch(t.pending, "Interrupted (ORBIT restarted). Press Retry.")).eq("id", t.id).eq("status", "running");
-  }
+  // No sweep on read: a task's age doesn't prove its worker died. Tasks a restart orphaned are marked interrupted by the scheduler
+  // (kickQueue → reclaimInterrupted, keyed on this process's boot time), whether or not this screen is ever opened.
   const p = new URL(req.url).searchParams;
   let q = sb.from("tasks").select(COLS).is("parent_id", null).order("created_at", { ascending: false }).limit(60);
+  if (p.get("id")) q = q.eq("id", p.get("id")!);
   if (p.get("agent")) q = q.eq("agent", p.get("agent")!);
   if (p.get("project")) q = q.eq("project_id", p.get("project")!);
   const { data, error } = await q;
@@ -39,6 +33,12 @@ export async function POST(req: Request) {
   if (!(await getAgent(sb, agent))) return Response.json({ error: `Unknown agent "${agent}"` }, { status: 400 });
   const title = str(body.title, 200) || request.split("\n")[0].slice(0, 120);
   const project_id = typeof body.project_id === "string" && body.project_id ? body.project_id : null;
+  if (project_id) { // the foreign key only proves the project exists, not that it's this user's (sub-tasks inherit it)
+    if (!projectId(project_id)) return Response.json({ error: "Invalid project" }, { status: 400 });
+    const own = await sb.from("projects").select("id").eq("id", project_id).eq("user_id", user.id).maybeSingle();
+    if (own.error) return Response.json({ error: "Could not check project access" }, { status: 503 });
+    if (!own.data) return Response.json({ error: "Project not found" }, { status: 404 });
+  }
 
   // Check before promising: refuse only when Claude Code is known down; anything else missing goes on the task as a heads-up.
   const cap = await capabilityStart(request, body.lang === "et" || body.lang === "en" ? body.lang : undefined);

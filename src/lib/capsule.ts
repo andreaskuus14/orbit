@@ -1,12 +1,12 @@
-import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { orbitDataDir } from "./data-dir.ts";
-import { CONFIG_FILE, EXT, capsuleName, diffManifests, makeKeyring, manifest, openCapsule, packFiles, parseName, pickFiles, readHeader, rotate, seal, unpackFiles,
+import { CONFIG_FILE, EXT, capsuleName, diffManifests, fallbackDue, makeKeyring, manifest, openCapsule, packFiles, parseName, pickFiles, readHeader, rotate, seal, unpackFiles,
   type Entry, type Keyring, type Kind, type PackedFile } from "./capsule-pure.ts";
 
 // Time capsule (rules: capsule-pure.ts): encrypted backups of the local data dir into a folder the owner picks (external drive,
 // OneDrive folder, ...). Local filesystem only: ORBIT uploads nothing. Run nightly by the night shift (night.ts "backup"),
-// or by Profile → Time capsule → Back up now. Config: <data dir>/time-capsule.json (folder, size limit, keyring = verifier only).
+// by the scheduler when the night shift hasn't (fallbackDue), or by Profile → Time capsule → Back up now. Config: <data dir>/time-capsule.json (folder, size limit, keyring = verifier only).
 
 type Last = { at: string; ok: boolean; bytes?: number; file?: string; error?: string };
 type Config = { dir: string; maxMB: number; ring: Keyring; last?: Last };
@@ -47,8 +47,8 @@ async function currentFiles(maxMB: number, backupDir: string) {
   return { files, skipped };
 }
 
-async function writeCapsule(c: Config, kind: Kind) {
-  const { files, skipped } = await currentFiles(c.maxMB, c.dir);
+async function writeCapsule(c: Config, kind: Kind, maxMB = c.maxMB) {
+  const { files, skipped } = await currentFiles(maxMB, c.dir);
   const at = new Date(), bytes = files.reduce((n, f) => n + f.data.length, 0);
   const buf = seal(c.ring, packFiles(files), { at: at.toISOString(), kind, files: files.length, bytes });
   const name = capsuleName(kind, at);
@@ -61,6 +61,12 @@ async function writeCapsule(c: Config, kind: Kind) {
 export async function backupDue(now = Date.now()) {
   const c = await loadCfg();
   return !!c && !(c.last?.ok && now - Date.parse(c.last.at) < 20 * 3_600_000);
+}
+
+/** True when set up and the night shift hasn't kept it current (capsule-pure fallbackDue): the scheduler then runs one. */
+export async function fallbackBackupDue(now = Date.now()) {
+  const c = await loadCfg();
+  return !!c && fallbackDue(c.last, now);
 }
 
 /** One nightly backup now; records the result for Profile. Throws with a readable reason (e.g. the drive is unplugged). */
@@ -124,16 +130,56 @@ export async function previewRestore(name: unknown, pass: unknown) {
   return { at: header.at, ...diffManifests(manifest(now), manifest(files)) };
 }
 
-/** Restores `name` over the data dir after a pre-restore safety backup. Files not in the backup are left alone. */
+/** Restores `name` over the data dir after a pre-restore safety backup. Files not in the backup are left alone.
+ *  All or nothing: every file it will overwrite is read first (and kept in the safety backup, with no size limit);
+ *  if any write fails, the files already written are put back, files and folders it created are removed, and the error is rethrown. */
 export const restoreCapsule = (name: unknown, pass: unknown) => serial(async () => {
   const { c, files } = await openBackup(name, pass);
-  const safety = await writeCapsule(c, "pre-restore");
   const root = path.resolve(orbitDataDir());
+  const targets: { dest: string; data: Buffer }[] = [];
   for (const f of files) {
     const dest = path.resolve(root, f.path);
     if (!dest.startsWith(root + path.sep)) continue; // safeRel already refused these; belt and braces
     if (await lstat(dest).then((s) => s.isSymbolicLink(), () => false)) continue; // never write through a symlink
-    await atomicWrite(dest, f.data);
+    targets.push({ dest, data: f.data });
+  }
+  // Originals before any write: a file that can't be read (e.g. locked) stops the restore here, with nothing changed.
+  const originals = new Map<string, Buffer | null>();
+  for (const t of targets) originals.set(t.dest, await readFile(t.dest).catch((e: NodeJS.ErrnoException) => { if (e.code === "ENOENT") return null; throw e; }));
+  const safety = await writeCapsule(c, "pre-restore", Infinity); // oversized files too: this is the copy if a rollback fails
+  const done: string[] = [], madeDirs: string[] = [];
+  let current = "";
+  try {
+    for (const t of targets) {
+      current = t.dest;
+      const parent = path.relative(root, path.dirname(t.dest));
+      let dir = root;
+      for (const part of parent.split(path.sep).filter(Boolean)) {
+        dir = path.join(dir, part);
+        try { await mkdir(dir); madeDirs.push(dir); }
+        catch (e) { if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; }
+      }
+      await writeFile(t.dest + ".tmp", t.data);
+      await rename(t.dest + ".tmp", t.dest);
+      done.push(t.dest);
+    }
+  } catch (e) {
+    const left: string[] = [];
+    const undo = async (what: string, fn: () => Promise<unknown>) => { await fn().catch(() => left.push(path.relative(root, what))); };
+    await undo(current + ".tmp", () => rm(current + ".tmp", { force: true }));
+    for (const d of done.reverse()) {
+      const o = originals.get(d);
+      await undo(d, () => o === null || o === undefined ? rm(d, { force: true }) : atomicWrite(d, o));
+      await undo(d + ".tmp", () => rm(d + ".tmp", { force: true }));
+    }
+    // An unrelated writer may have added data while restore was running. Only remove directories that are still empty.
+    for (const d of madeDirs.reverse()) await undo(d, () => rmdir(d).catch((e: NodeJS.ErrnoException) => {
+      if (e.code !== "ENOENT") throw e;
+    }));
+    const why = e instanceof Error ? e.message : String(e);
+    throw new Error(left.length
+      ? `Restore failed (${why}) and could not undo ${left.join(", ")}. The data from before the restore is in ${safety.name}.`
+      : `Restore failed (${why}). Nothing was changed; the data is as it was before the restore.`);
   }
   return { restored: files.length, safety: safety.name };
 });

@@ -1,10 +1,11 @@
 // Embeddings for memory search, 1024 dims to match the DB column. Two providers (embeddings-pure.ts picks):
 // - local (default without a Voyage key): EmbeddingGemma-300M on this PC via transformers.js, q8, ~200 ms each. Free, offline.
 // - voyage: the hosted API, kept for existing installs so stored vectors stay comparable until re-embedded (POST /api/memories/reembed).
-import { gemmaInput, padTo, provider } from "./embeddings-pure";
+import { gemmaInput, journalsComparable, padTo, provider } from "./embeddings-pure";
 
 export const embeddingsEnabled = () => true; // the local model is always available; a load failure just returns null below
 export const embeddingProvider = () => provider({ ORBIT_EMBED: process.env.ORBIT_EMBED, VOYAGE_API_KEY: process.env.VOYAGE_API_KEY });
+export const journalVectorsComparable = () => journalsComparable({ ORBIT_EMBED: process.env.ORBIT_EMBED, VOYAGE_API_KEY: process.env.VOYAGE_API_KEY });
 
 type FE = (s: string, o: { pooling: "mean"; normalize: boolean }) => Promise<{ data: ArrayLike<number> }>;
 const G = globalThis as unknown as { __orbitEmbed?: Promise<FE | null> };
@@ -24,11 +25,12 @@ async function voyage(text: string, inputType: "document" | "query"): Promise<nu
   return vec && vec.length === 1024 ? vec : null;
 }
 
-export async function embed(text: string, inputType: "document" | "query"): Promise<number[] | null> {
+/** `kind` is the memory's kind when embedding a stored memory; a "journal" one never goes to the hosted provider. */
+export async function embed(text: string, inputType: "document" | "query", kind?: string): Promise<number[] | null> {
   // shortcut: embeds the first 8k chars only (EmbeddingGemma's window is 2k tokens); chunk long documents when deep document search arrives.
   const t = text.slice(0, 8_000);
   try {
-    if (embeddingProvider() === "voyage") return await voyage(t, inputType);
+    if (provider({ ORBIT_EMBED: process.env.ORBIT_EMBED, VOYAGE_API_KEY: process.env.VOYAGE_API_KEY }, kind) === "voyage") return await voyage(t, inputType);
     const fe = await local();
     if (!fe) return null;
     return padTo((await fe(gemmaInput(t, inputType), { pooling: "mean", normalize: true })).data);

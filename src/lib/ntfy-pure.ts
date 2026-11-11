@@ -5,7 +5,8 @@ import { quietAt, type PushMessage, type Quiet } from "./remote-push-pure.ts";
 import type { ReceiptStatus } from "./receipt-pure.ts";
 
 export type NtfyConfig = { server: string; topic: string; open: string; quiet: Quiet };
-export type NtfyMsg = { title: string; message: string; tags: string[]; priority: 2 | 3 | 4; click?: string; kind: string };
+// acts: http buttons (Approve / Reject) that POST `body` to `url` (ntfy-action-pure.ts decides which items may have them).
+export type NtfyMsg = { title: string; message: string; tags: string[]; priority: 2 | 3 | 4; click?: string; kind: string; acts?: { label: string; url: string; body: string }[] };
 export const MIN_TOPIC = 16; // a short topic on the public server is guessable
 
 /** ORBIT_NTFY_URL (empty = https://ntfy.sh), ORBIT_NTFY_TOPIC (empty = off), ORBIT_NTFY_OPEN_URL (his Tailscale address of ORBIT,
@@ -34,14 +35,17 @@ export function fromPush(m: PushMessage, open: string): NtfyMsg {
 
 const RECEIPT: Record<ReceiptStatus, string> = { verified: "verified", partly: "partly done", unverified: "not verified", failed: "check failed" };
 /** A top-level agent task reached a resting state. Its title is never sent; the receipt status is (read-back checks, receipt-pure). */
-export function taskMsg(status: string, receipt: ReceiptStatus | null, open: string): NtfyMsg | null {
+export function taskMsg(status: string, receipt: ReceiptStatus | null, open: string, token?: string): NtfyMsg | null {
   if (status === "done") return { kind: "done", title: `Task finished${receipt ? ` · ${RECEIPT[receipt]}` : ""}`, message: "Open ORBIT to see the result and its receipt.", tags: [receipt === "verified" ? "white_check_mark" : "ballot_box_with_check"], priority: 3, click: click(open, "/remote#r-queue") };
   if (status === "failed") return { kind: "failed", title: "A task failed", message: "Open ORBIT to see why and retry.", tags: ["warning"], priority: 4, click: click(open, "/remote#r-queue") };
-  if (status === "awaiting_approval") return { kind: "decide", title: "A task needs your decision", message: "Something waits for your approval. Nothing goes out without your click.", tags: ["raised_hand"], priority: 3, click: click(open, "/remote#r-appr") };
+  if (status === "awaiting_approval") return { kind: "decide", title: "A task needs your decision", message: "Something waits for your approval. Nothing goes out without your click.", tags: ["raised_hand"], priority: 3, click: click(open, "/remote#r-appr"),
+    ...(token && open ? { acts: (["approve", "reject"] as const).map((a) => ({ label: a === "approve" ? "Approve" : "Reject", url: `${open}/api/remote/ntfy-act`, body: JSON.stringify({ token, action: a }) })) } : {}) };
   return null;
 }
 
 /** ntfy JSON publish (POST to the server root): unicode-safe, unlike header publishing. */
 export function publishBody(c: NtfyConfig, m: NtfyMsg) {
-  return { topic: c.topic, title: m.title.slice(0, 120), message: m.message.slice(0, 300), tags: m.tags, priority: m.priority, ...(m.click ? { click: m.click, actions: [{ action: "view", label: "Open", url: m.click }] } : {}) };
+  const http = (m.acts ?? []).slice(0, 2).map((a) => ({ action: "http", label: a.label, url: a.url, method: "POST", headers: { "Content-Type": "application/json" }, body: a.body, clear: true }));
+  const actions = [...(m.click ? [{ action: "view", label: "Open", url: m.click }] : []), ...http];
+  return { topic: c.topic, title: m.title.slice(0, 120), message: m.message.slice(0, 300), tags: m.tags, priority: m.priority, ...(m.click ? { click: m.click } : {}), ...(actions.length ? { actions } : {}) };
 }

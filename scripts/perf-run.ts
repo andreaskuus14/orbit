@@ -1,5 +1,5 @@
 // Prints scripted perf runs (roadmap 1.2) from <ORBIT data dir>/perf-runs, each compared with the previous run at the
-// same window size (p95 more than 15% slower = REGRESSION). Used by scripts/perf-run.ps1 (npm run perf:run).
+// same visible viewport, GPU and render settings (p95 more than 15% slower = REGRESSION). Used by scripts/perf-run.ps1 (npm run perf:run).
 //   node --experimental-strip-types scripts/perf-run.ts                         latest run per window size
 //   node --experimental-strip-types scripts/perf-run.ts --wait 1536x864 --since <epoch ms> [--timeout 240]
 // Exit code: 0 ok, 2 a regression, 3 no run arrived in time.

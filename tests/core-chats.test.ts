@@ -110,7 +110,7 @@ test("pinned notes taint the chat's context; instructions alone don't", () => {
   addProject(s, "p1", "Site", "My own instructions", NOW);
   moveChat(s, "c1", "p1");
   assert.equal(chatContext(s, "c1").tainted, false);
-  assert.equal(chatContext(s, "c1").memoryProject, "Site", "retrieval gets the structured name, not instructions or pins");
+  assert.deepEqual(chatContext(s, "c1").memoryProject, { name: "Site", scope: "p:p1", legacy: { name: "Site", since: NOW } }, "retrieval gets the structured name and ID scope, not instructions or pins");
   assert.match(chatContext(s, "c1").text, /My own instructions/);
   addPin(s, "p1", "n1", "Draft", "from a web page", NOW);
   assert.equal(chatContext(s, "c1").tainted, true);

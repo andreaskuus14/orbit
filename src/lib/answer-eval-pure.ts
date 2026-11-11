@@ -18,6 +18,19 @@ const VERBS: Record<AnswerAction, string> = {
   update: "updated|changed|edited|renamed", schedule: "scheduled|booked", publish: "published|posted|uploaded",
   run: "ran|run|executed|tested", search: "searched|looked up", read: "read|opened",
 };
+// Estonian: first-person past ("salvestasin", "saatsime") or a passive after on/sai/oli ("fail on nüüd salvestatud").
+const ET_FORMS: Partial<Record<AnswerAction, [string, string]>> = { // reads ("lugesin sinu küsimuse") aren't claims of done work
+  save: ["salvesta(?:sin|sime)|kirjuta(?:sin|sime)|jätsi(?:n|me) meelde", "salvestatud|kirja pandud"],
+  send: ["saat(?:sin|sime)", "saadetud"], delete: ["kustuta(?:sin|sime)|eemalda(?:sin|sime)", "kustutatud|eemaldatud"],
+  create: ["lõi(?:n|me)|lisa(?:sin|sime)", "loodud|lisatud"], update: ["uuenda(?:sin|sime)|muut(?:sin|sime)", "uuendatud|muudetud"],
+  schedule: ["ajasta(?:sin|sime)|broneeri(?:sin|sime)", "ajastatud|broneeritud"],
+  publish: ["avalda(?:sin|sime)|postita(?:sin|sime)|laadi(?:sin|sime) üles", "avaldatud|postitatud|üles laaditud"],
+  run: ["käivita(?:sin|sime)", "käivitatud"],
+};
+const etForm = (active: string, passive: string) => `(?<!\\p{L})(?:${active}|(?:on|sai|said|oli|olid)\\s+(?:\\p{L}+\\s+){0,2}(?:${passive}))(?!\\p{L})`;
+const ET_VERBS = Object.fromEntries(Object.entries(ET_FORMS).map(([a, [x, p]]) => [a, new RegExp(etForm(x, p), "iu")])) as Partial<Record<AnswerAction, RegExp>>;
+const ET_CLAIM = new RegExp(etForm(Object.values(ET_FORMS).map((f) => f![0]).join("|"), Object.values(ET_FORMS).map((f) => f![1]).join("|")), "giu");
+const ET_NOT = /(?<!\p{L})(?:ei|pole|polnud|ära|kui|kas|võiksin|saaksin|peaksin|oleksin|võin|saan|enne|mitte|kunagi)(?!\p{L})/iu; // not done / conditional / question
 const verbs = Object.values(VERBS).join("|"), actionOf = (verb: string) => (Object.keys(VERBS) as AnswerAction[]).find((a) => new RegExp(`^(?:${VERBS[a]})$`, "i").test(verb))!;
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const normal = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, " ").trim();
@@ -84,6 +97,15 @@ function unsupportedActions(question: string, answer: string, evidence: readonly
       }
       asserted = true;
       if (!hasReceipt(action, tail, evidence)) flags.push(`unsupported_action:${action}`);
+    }
+  }
+  for (const clause of text.split(/[.!?;]\s+|\n+/)) { // Estonian answers (Atlas B12): "Salvestasin…", "Fail on salvestatud", "Saatsin e-kirja"
+    if (/\?\s*$/.test(clause)) continue;
+    for (const m of clause.matchAll(ET_CLAIM)) {
+      const prefix = clause.slice(0, m.index!).split(/[,:–-]/).pop()!;
+      if (ET_NOT.test(prefix)) continue;
+      const action = (Object.keys(ET_VERBS) as AnswerAction[]).find((a) => ET_VERBS[a]!.test(m[0]))!;
+      if (!hasReceipt(action, clause.slice(m.index! + m[0].length), evidence)) flags.push(`unsupported_action:${action}`);
     }
   }
   if (/^(?:done|all done|completed)[.!]?$/i.test(answer.trim())) {

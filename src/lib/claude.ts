@@ -112,7 +112,8 @@ export const WEB_TOOLS = "WebSearch,WebFetch";
 /** mcp: the call may use only these MCP tools (from the owner's own `claude mcp add` config), every call checked by the
  *  PreToolUse hook in `settings` (a settings JSON file). Built-in tools stay off. Used by the Higgsfield adapter (clips/higgsfield.ts). */
 /** config: a per-call --mcp-config file used alone (--strict-mcp-config, no user settings): CORE's MCP engine (core-mcp.ts). */
-export type McpAccess = { allow: string[]; settings: string; config?: string };
+/** env: extra CLI environment (MCP_TOOL_TIMEOUT, ENABLE_TOOL_SEARCH); tools/cwd/pluginDir: CORE's MCP engine boost (core-mcp-boost.ts): built-in tools, the workspace folder, ORBIT's skills plugin. */
+export type McpAccess = { allow: string[]; settings: string; config?: string; tools?: string[]; cwd?: string; env?: Record<string, string>; pluginDir?: string };
 /** A persistent CLI session (ORBIT_CORE_SESSION=resume): the first call creates it with --session-id, later ones --resume it.
  *  The CLI files sessions by working directory, so session calls all run in one fixed dir. */
 export type CliSession = { id: string; resume: boolean };
@@ -125,15 +126,15 @@ async function prepare(system: string, format: string[], model = MODEL, effort =
   const sysFile = join(dir, "system.txt");
   await writeFile(sysFile, system, "utf8");
   const q = (a: string) => (WIN ? `"${a}"` : a); // Windows needs a shell to run claude.cmd, so quote args there
-  const tools = mcp ? ["--tools", q(""), "--allowedTools", q(mcp.allow.join(",")), "--permission-mode", "dontAsk", "--settings", q(mcp.settings), ...(mcp.config ? ["--mcp-config", q(mcp.config)] : [])]
+  const tools = mcp ? ["--tools", q((mcp.tools ?? []).join(",")), ...(mcp.pluginDir ? ["--plugin-dir", q(mcp.pluginDir)] : []), "--allowedTools", q(mcp.allow.join(",")), "--permission-mode", "dontAsk", "--settings", q(mcp.settings), ...(mcp.config ? ["--mcp-config", q(mcp.config)] : [])]
     : web ? ["--tools", q(WEB_TOOLS), "--allowedTools", q(WEB_TOOLS), "--permission-mode", "dontAsk"] : ["--tools", q("")];
   if (session && !/^[0-9a-f-]{36}$/i.test(session.id)) throw new Error("Invalid CLI session id");
   if (session) await mkdir(SESSION_DIR, { recursive: true });
   const args = ["-p", ...format, ...tools, ...(session ? [session.resume ? "--resume" : "--session-id", session.id] : ["--no-session-persistence"]),
     // Ignore user-level plugins/hooks/skills and all MCP connectors (CORE gets no tools, or only the read-only web tools with `web`) but keep the login. Not --bare: it skips OAuth.
     // mcp: user settings are where `claude mcp add -s user` servers come from ("local" alone hides them, tested); the hook still gates every call.
-    "--setting-sources", mcp && !mcp.config ? "user" : "local", "--disable-slash-commands", ...(mcp && !mcp.config ? [] : ["--strict-mcp-config"]), "--model", model, ...(effort ? ["--effort", effort] : []), "--system-prompt-file", q(sysFile)];
-  const opts = { stdio: ["pipe", "pipe", "pipe"] as ("pipe")[], env: thinking ? { ...process.env, MAX_THINKING_TOKENS: String(thinking) } : process.env, cwd: session ? SESSION_DIR : dir, windowsHide: true }; // thinking: caps the CLI's extended-thinking budget
+    "--setting-sources", mcp && !mcp.config ? "user" : "local", ...(mcp?.pluginDir ? [] : ["--disable-slash-commands"]) /* skills plugin needs skills on */, ...(mcp && !mcp.config ? [] : ["--strict-mcp-config"]), "--model", model, ...(effort ? ["--effort", effort] : []), "--system-prompt-file", q(sysFile)];
+  const opts = { stdio: ["pipe", "pipe", "pipe"] as ("pipe")[], env: { ...process.env, ...mcp?.env, ...(thinking ? { MAX_THINKING_TOKENS: String(thinking) } : {}) }, cwd: mcp?.cwd ?? (session ? SESSION_DIR : dir), windowsHide: true }; // thinking: caps the CLI's extended-thinking budget
   // On Windows, claude may be claude.cmd, which needs a shell; pass one pre-quoted command string (args hold no user text).
   const start = () => (WIN ? spawn(`${q(CLAUDE_BIN)} ${args.join(" ")}`, { ...opts, shell: true }) : spawn(CLAUDE_BIN, args, opts));
   return { dir, start };

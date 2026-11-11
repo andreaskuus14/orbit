@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
+import { withEvalTag } from "./eval-run";
 import { lookup } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { pipeline } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { embed } from "./embeddings";
+import { embed, journalVectorsComparable } from "./embeddings";
 import { emit } from "./claude";
 import { verifyRow } from "./completion";
 import { htmlToText, pickPublicAddress, assertHttpUrl, redirectTarget, readCapped } from "./pure";
@@ -34,7 +35,7 @@ const SUGGEST_THRESHOLD = 0.6;
 export async function createMemory(sb: SupabaseClient, userId: string, input: MemoryInput) {
   // MEM04: every capture path (notes, links, voice memos, files, CORE) carries the same provenance tags.
   if (!input.tags?.some((t) => t.startsWith("fp:"))) input = { ...input, tags: [...(input.tags ?? []), ...provenanceTags(provenance(input))] };
-  const embedding = await embed(`${input.title}\n\n${input.content}`, "document");
+  const embedding = await embed(`${input.title}\n\n${input.content}`, "document", input.kind);
   const { data, error } = await sb
     .from("memories")
     .insert({ ...input, user_id: userId, embedding: embedding ? JSON.stringify(embedding) : null })
@@ -45,13 +46,14 @@ export async function createMemory(sb: SupabaseClient, userId: string, input: Me
   await verifyRow(sb, userId, "memories", data.id, { title: input.title, content: input.content });
 
   let suggested = 0;
-  if (embedding) {
+  const mixed = !journalVectorsComparable(); // journal vectors are local, the rest hosted: never compared with each other
+  if (embedding && !(mixed && input.kind === "journal")) {
     const { data: similar, error: simErr } = await sb.rpc("match_memories", {
       query_embedding: JSON.stringify(embedding), match_count: 3, exclude_id: data.id,
     });
     if (simErr) console.error("[orbit] link suggestion failed", simErr);
-    const links = ((similar ?? []) as { id: string; similarity: number }[])
-      .filter((s) => s.similarity >= SUGGEST_THRESHOLD)
+    const links = ((similar ?? []) as { id: string; kind?: string; similarity: number }[])
+      .filter((s) => s.similarity >= SUGGEST_THRESHOLD && !(mixed && s.kind === "journal"))
       .map((s) => ({ user_id: userId, from_id: data.id, to_id: s.id, score: s.similarity, reason: "semantic similarity" }));
     if (links.length) {
       const { error: linkErr } = await sb.from("memory_links").insert(links);
@@ -69,7 +71,7 @@ export async function createMemory(sb: SupabaseClient, userId: string, input: Me
  *  returns {duplicate, preview} and writes nothing until the owner picks keep (a marked separate version), merge or update
  *  (the old text is kept as a "superseded" history copy, like Correct). No model call besides the usual embedding. */
 export async function captureMemory(sb: SupabaseClient, userId: string, input: MemoryInput, opts: { vault?: string | null; fileHash?: string | null; onDuplicate?: DupChoice | null; attach?: () => Promise<string> } = {}) {
-  const make = async (extra: string[]) => ({ ...(await createMemory(sb, userId, { ...input, tags: [...tags, ...extra], ...(opts.attach ? { storage_path: await opts.attach() } : {}) })), duplicate: dup });
+  const make = async (extra: string[]) => ({ ...(await createMemory(sb, userId, { ...input, tags: withEvalTag([...tags, ...extra]), ...(opts.attach ? { storage_path: await opts.attach() } : {}) })), duplicate: dup });
   let dup: ReturnType<typeof findDuplicate> = null;
   const p = provenance({ ...input, ...opts });
   const tags = [...(input.tags ?? []), ...provenanceTags(p)];
@@ -95,7 +97,7 @@ export async function captureMemory(sb: SupabaseClient, userId: string, input: M
       if (isMissingColumn(r.error)) { delete ins.source_ref; delete ins.confirmation; r = await sb.from("memories").insert(ins); } // until 0019
       if (r.error) throw r.error;
     }
-    const e = await embed(`${cur.title}\n\n${plan.content}`, "document");
+    const e = await embed(`${cur.title}\n\n${plan.content}`, "document", input.kind); // duplicates are looked up within input.kind
     const { error } = await sb.from("memories").update({ content: plan.content, tags: [...new Set([...cur.tags, ...keys])], embedding: e ? JSON.stringify(e) : null }).eq("id", cur.id);
     if (error) throw error;
     await emit(sb, userId, "memory.updated", "memory", { id: cur.id });
@@ -111,29 +113,27 @@ export async function findSimilar(sb: SupabaseClient, text: string, min = 0.9, c
   if (!e) return [];
   const { data, error } = await sb.rpc("match_memories", { query_embedding: JSON.stringify(e), match_count: count });
   if (error) throw error;
-  return ((data ?? []) as { id: string; title: string; kind: string; similarity: number }[]).filter((m) => m.similarity >= min);
+  const mixed = !journalVectorsComparable();
+  return ((data ?? []) as { id: string; title: string; kind: string; similarity: number }[]).filter((m) => m.similarity >= min && !(mixed && m.kind === "journal"));
 }
 
 /** Hybrid search: Postgres full-text + pgvector similarity, fused by reciprocal rank. */
 /** userId is required when sb bypasses row-level security (background automations); harmless otherwise. */
 export async function searchMemories(sb: SupabaseClient, query: string, limit = 10, userId?: string, options: MemorySearchOptions = {}) {
-  return retrieveMemories(sb, query, limit, userId, embed, options);
+  return retrieveMemories(sb, query, limit, userId, embed, { ...options, journalVectors: journalVectorsComparable() });
 }
 
 type Pinned = { address: string; family: number };
 
 /** One GET connected to an already-validated IP (custom lookup), so DNS can't be re-answered between check and
  *  connect (rebinding). TLS still verifies the certificate for the real hostname. Reads at most maxBytes. */
-function pinnedGet(url: URL, ip: Pinned, headers: Record<string, string>, maxBytes: number, signal: AbortSignal) {
+export function pinnedGet(url: URL, ip: Pinned, headers: Record<string, string>, maxBytes: number, signal: AbortSignal) {
   return new Promise<{ status: number; headers: Headers; body: Uint8Array<ArrayBuffer> }>((resolve, reject) => {
     const req = (url.protocol === "https:" ? httpsRequest : httpRequest)(url, {
       method: "GET", headers, signal,
       lookup: ((_host: string, opts: { all?: boolean }, cb: (...a: unknown[]) => void) =>
         opts?.all ? cb(null, [ip]) : cb(null, ip.address, ip.family)) as never,
     }, (res) => {
-      const enc = String(res.headers["content-encoding"] ?? "").toLowerCase();
-      const decoder = enc === "gzip" || enc === "x-gzip" ? createGunzip() : enc === "br" ? createBrotliDecompress() : enc === "deflate" ? createInflate() : null;
-      const stream = decoder ? pipeline(res, decoder, () => {}) : res; // the cap counts decoded bytes (zip-bomb safe)
       const hdrs = new Headers();
       try {
         for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) hdrs.set(k, Array.isArray(v) ? v.join(", ") : v);
@@ -141,6 +141,10 @@ function pinnedGet(url: URL, ip: Pinned, headers: Record<string, string>, maxByt
       const status = res.statusCode ?? 0;
       // Redirects and errors: the body is never used, so don't download it.
       if (status < 200 || status >= 300) { req.destroy(); return resolve({ status, headers: hdrs, body: new Uint8Array() }); }
+      // Decode only a body we read: a decoder fed a dropped (destroyed) body threw Z_BUF_ERROR uncaught and killed the server.
+      const enc = String(res.headers["content-encoding"] ?? "").toLowerCase();
+      const decoder = enc === "gzip" || enc === "x-gzip" ? createGunzip() : enc === "br" ? createBrotliDecompress() : enc === "deflate" ? createInflate() : null;
+      const stream = decoder ? pipeline(res, decoder, () => {}) : res; // the cap counts decoded bytes (zip-bomb safe)
       readCapped(stream, maxBytes).then((r) => { req.destroy(); resolve({ status, headers: hdrs, body: r.bytes }); }, reject);
     });
     req.on("error", reject);

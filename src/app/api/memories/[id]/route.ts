@@ -37,9 +37,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (!Object.keys(patch).length) return Response.json({ error: "Nothing to update" }, { status: 400 });
 
   if ("title" in patch || "content" in patch) {
-    const { data: cur } = await sb.from("memories").select("title, content").eq("id", id).maybeSingle();
+    const { data: cur } = await sb.from("memories").select("title, content, kind").eq("id", id).maybeSingle();
     if (cur) {
-      const e = await embed(`${patch.title ?? cur.title}\n\n${patch.content ?? cur.content}`, "document");
+      const e = await embed(`${patch.title ?? cur.title}\n\n${patch.content ?? cur.content}`, "document", cur.kind);
       patch.embedding = e ? JSON.stringify(e) : null;
     }
   }

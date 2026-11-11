@@ -15,9 +15,6 @@ orbit-build.log
 orbit-launcher.log
 orbit-launcher.log.1
 
-.env.local.rea-backup-*
-.env.local.rea-*.tmp
-.orbit-rea-backups/
 
 # npm run smoke screenshots
 /smoke-shots/
@@ -27,3 +24,13 @@ orbit-launcher.log.1
 /tools/local-ai/service.log
 /tools/local-ai/models/
 /tools/local-ai/vendor/
+# tools/comfyui: portable ComfyUI + model (setup.ps1)
+/tools/comfyui/ComfyUI_windows_portable/
+/tools/comfyui/downloads/
+/tools/comfyui/service.log
+
+# npm run eval results (scripts/eval-core.ts)
+/evals/runs/
+
+# Strix pentest reports (scripts/isolated/strix.mjs): may hold the throwaway test password
+/strix-reports/

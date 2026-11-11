@@ -16,10 +16,10 @@ import { claim, wallTime, type Notice } from "./reminders-pure";
 export type { LifeState, Habit, Reminder };
 
 // The focus timer lives in the PC browser; it reports each change here (memory only) so the read-only /screen can show it.
-const lf = globalThis as unknown as { __orbitFocus?: FocusTimer };
+const lf = globalThis as unknown as { __orbitFocusTimerLive?: FocusTimer }; // not __orbitFocus: focus.ts keeps focus mode there
 /** Also kept in life.json so another device (or a restart) picks the running session up (LIF05). */
-export const setLiveFocus = (t: FocusTimer) => { lf.__orbitFocus = t; return update((s) => { if ((s.timer?.at ?? 0) <= (t.at ?? 0)) s.timer = t; }); };
-export const liveFocus = () => lf.__orbitFocus ?? null;
+export const setLiveFocus = (t: FocusTimer) => { lf.__orbitFocusTimerLive = t; return update((s) => { if ((s.timer?.at ?? 0) <= (t.at ?? 0)) s.timer = t; }); };
+export const liveFocus = () => lf.__orbitFocusTimerLive ?? null;
 
 const file = () => {
   const local = process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "orbit") : path.join(os.homedir(), ".orbit");

@@ -1,13 +1,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { rrfMerge, toOrQuery } from "./pure.ts";
 import { exactMatchIds, exactTerms, isMissingColumn, PROVENANCE_COLUMNS } from "./provenance-pure.ts";
-import { isCurrent } from "./memory-types-pure.ts";
+import { isCurrent, type Legacy } from "./memory-types-pure.ts";
 import { CANDIDATE_LIMIT, memoryLimit, memoryProject, memoryProjectFilter, selectCoreMemoryIds, type MemoryMetadata } from "./memory-retrieval-pure.ts";
 
 export const MEMORY_COLUMNS = "id, kind, title, content, source, url, storage_path, tags, folder, visibility, created_at, updated_at";
 // includeJournal: only the owner's own MEMORY search. CORE and agents never get journal entries (LIFE data; it would also leave
 // the turn untainted while private text is in context). The vector pool can't filter, so hydration drops them too.
-export type MemorySearchOptions = { projectName?: string; chatId?: string; coreSummariesOnly?: boolean; includeJournal?: boolean; kind?: string; exact?: boolean }; // kind: only that kind (episodes.ts recall); exact: names/ids first (CORE); chatId: the chat asking (chat-scoped memories)
+// journalVectors: false when journal vectors come from another model than the query's (embeddings journalVectorsComparable):
+// journals are then ranked by keyword only and the mode says so.
+export type MemorySearchOptions = { projectName?: string; projectScope?: string; projectLegacy?: Legacy; chatId?: string; coreSummariesOnly?: boolean; includeJournal?: boolean; kind?: string; exact?: boolean; journalVectors?: boolean }; // kind: only that kind (episodes.ts recall); exact: names/ids first (CORE); chatId: the chat asking (chat-scoped memories)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same untyped rows the client returned before
 type Hydrated = { data: any[] | null; error: { code?: string; message?: string } | null };
 type EmbedQuery = (text: string, type: "query") => Promise<number[] | null>;
@@ -51,11 +53,11 @@ export async function retrieveMemories(sb: SupabaseClient, query: string, limit:
   const projectRows = context?.error ? [] : (context?.data ?? []) as MemoryMetadata[];
   const ranked = rrfMerge([
     (fts.data ?? []).map((r) => r.id as string),
-    ((vec?.data ?? []) as { id: string }[]).map((r) => r.id),
+    ((vec?.data ?? []) as { id: string; kind?: string }[]).filter((r) => options.journalVectors !== false || r.kind !== "journal").map((r) => r.id), // never mixed models
   ]);
   const exactIds = exact?.error ? [] : exactMatchIds(terms, (exact?.data ?? []) as (MemoryMetadata & { kind: string })[]).slice(0, 3);
   const ids = [...new Set([...exactIds, ...selectCoreMemoryIds(ranked.map((r) => r.id), projectRows, query, count, project)])].slice(0, count);
-  const mode = vec ? "hybrid" : "fulltext";
+  const mode = !vec ? "fulltext" : options.includeJournal && options.journalVectors === false ? "hybrid-journal-keyword" : "hybrid";
   if (!ids.length) return { results: [], mode };
   const hydrate = (cols: string) => {
     let base = sb.from("memories").select(cols).in("id", ids);
@@ -72,6 +74,6 @@ export async function retrieveMemories(sb: SupabaseClient, query: string, limit:
   const candidates = ids.map((id) => byId.get(id)).filter((m): m is NonNullable<typeof m> => !!m)
     // Model-facing searches (CORE, agents, court, episodes) only get what is current HERE: never another chat's or project's
     // scoped instruction, an expired one or a superseded copy. The owner's own MEMORY search (includeJournal) sees everything.
-    .filter((m) => options.includeJournal || isCurrent(m, { now: Date.now(), project, chat: options.chatId }));
+    .filter((m) => options.includeJournal || isCurrent(m, { now: Date.now(), project: options.projectScope, chat: options.chatId, legacy: options.projectLegacy })); // projectName only ranks; scope decides
   return { results: candidates, mode };
 }

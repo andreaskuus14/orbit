@@ -58,7 +58,7 @@ export function toolPlanet(tool: string): PlanetId | "edge" | null {
 }
 
 export type LinePart = { key: string; n?: number; vars?: Record<string, string> }; // an i18n key; n = plural count
-export type LineData = { recent?: Record<string, number> | null; stages?: Partial<Record<Stage, number>> | null; memories?: number; agents?: number; life?: { done: number; total: number } | null };
+export type LineData = { recent?: Record<string, number> | null; today?: Record<string, number> | null; stages?: Partial<Record<Stage, number>> | null; memories?: number; agents?: number; life?: { done: number; total: number } | null };
 /** The hovered world's live line, as i18n parts (joined with " · "). [] = nothing known yet. */
 export function hoverParts(id: string, d: LineData): LinePart[] {
   const out: LinePart[] = [];
@@ -71,6 +71,7 @@ export function hoverParts(id: string, d: LineData): LinePart[] {
     if (cnt(d.stages.lead)) out.push({ key: "galaxy.toContact", vars: { n: String(cnt(d.stages.lead)) } });
     if (cnt(d.stages.paying)) out.push({ key: "galaxy.won", vars: { n: String(cnt(d.stages.paying)) } });
   }
+  if (cnt(d.today?.[id])) out.push({ key: "galaxy.today", n: cnt(d.today![id]) });
   if (d.recent) { const r = cnt(d.recent[id]); out.push(r ? { key: "galaxy.week", n: r } : { key: "galaxy.quiet" }); }
   return out;
 }

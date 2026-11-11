@@ -29,6 +29,9 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [err, setErr] = useState("");
   const [working, setWorking] = useState("");
+  const [idea, setIdea] = useState("");
+  const [made, setMade] = useState<{ name: string; preview: string; fill: string[]; assumed: string[] } | null>(null);
+  const [bump, setBump] = useState(0); // new local photos at the same paths: refetch the previews
   const load = useCallback(async () => {
     try {
       setJobs((await call<{ stories: Job[] }>(`${API}?section=${section}`)).stories);
@@ -47,6 +50,16 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
     setWorking(id); setErr("");
     try { const r = await call<{ story: Job }>(API, { id, ...body }); setJobs((x) => x && x.map((j) => (j.id === id ? r.story : j))); }
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setWorking(""); }
+  }
+  // Free and unlimited: ComfyUI on this PC makes every photo of the site now (no credits, so no approval card).
+  async function local(j: Job) {
+    setWorking(`local:${j.id}`); setErr("");
+    try {
+      const r = await call<{ made: string[]; failed: string[] }>("/api/local-ai", { action: "site-local", workspace: j.site!.workspace, slots: j.site!.slots });
+      setErr(r.failed.length ? `Made ${r.made.length} locally; failed: ${r.failed.join(", ")}` : "");
+      setBump((n) => n + 1); await load();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setWorking(""); }
   }
   const approve = async (j: Job) => act(j.id, { action: "approve", credits: total(j), seen: await contentHash(spendContent(j.quote?.fingerprint ?? "", total(j))) });
@@ -78,6 +91,21 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
           : "Pictures and videos CORE drafted that belong to neither a site nor YouTube. Nothing is generated before your Approve click."}</p>
         {err && <p className="error mt-1 text-xs" role="alert">{err}</p>}
       </header>
+      {section === "websites" && (
+        <form className="space-y-1" onSubmit={async (e) => {
+          e.preventDefault(); setErr(""); setMade(null); setWorking("idea");
+          try { setMade(await call<{ name: string; preview: string; fill: string[]; assumed: string[] }>("/api/sites/idea", { idea })); setIdea(""); }
+          catch (x) { setErr(String((x as Error).message ?? x)); } finally { setWorking(""); }
+        }}>
+          <label className="muted block text-xs" htmlFor="site-idea">New site from one sentence</label>
+          <div className="flex gap-2">
+            <input id="site-idea" className="input flex-1 text-xs" value={idea} onChange={(e) => setIdea(e.target.value)} placeholder="A site for my lake sauna in Lahemaa, for couples booking an evening" maxLength={600} />
+            <button className="btn text-xs" disabled={idea.trim().length < 8 || working === "idea"}>{working === "idea" ? "Building…" : "Build"}</button>
+          </div>
+          {made && <p className="text-xs"><a className="underline" href={made.preview} target="_blank" rel="noreferrer">Open {made.name}</a>{made.fill.length ? ` · fill in: ${made.fill.join(", ")}` : ""}</p>}
+          {made && made.assumed.length > 0 && <div className="muted text-xs"><p>ORBIT assumed (check these):</p><ul className="list-disc pl-4">{made.assumed.map((a) => <li key={a}>{a}</li>)}</ul></div>}
+        </form>
+      )}
       {!jobs && !err && <p className="muted text-xs">Loading…</p>}
       {jobs && !jobs.length && <p className="muted text-xs">{section === "websites" ? "No site pictures yet. Ask CORE for realistic photos on a site and they show up here." : "Nothing here yet."}</p>}
 
@@ -98,7 +126,7 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
                     return (
                       <li key={s.path} className="text-xs">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        {base && j.site?.slots && <img src={`${base}${s.path.split("/").map(encodeURIComponent).join("/")}?v=${encodeURIComponent(j.step.length + j.status)}`} alt={s.prompt} className="mb-1 aspect-video w-full rounded object-cover" loading="lazy" />}
+                        {base && j.site?.slots && <img src={`${base}${s.path.split("/").map(encodeURIComponent).join("/")}?v=${encodeURIComponent(j.step.length + j.status)}${bump}`} alt={s.prompt} className="mb-1 aspect-video w-full rounded object-cover" loading="lazy" />}
                         <b className="num">{s.path}</b>
                         <span className="muted num ml-2" title={it?.error}>{it?.status === "done" ? "✓ made" : it?.status === "failed" ? "⚠ failed" : it?.status === "pending" ? "⏳" : typeof it?.credits === "number" ? `${it.credits} cr` : ""}</span>
                         <span className="muted block">{s.prompt}</span>
@@ -107,6 +135,7 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
                   })}
                 </ul>
                 {status(j)}
+                {j.site?.slots && j.status !== "done" && !busy(j) && <button className="chip mt-2" disabled={!!working} onClick={() => void local(j)} title="Free: ComfyUI on this PC (tools/comfyui/setup.ps1)">{working === `local:${j.id}` ? "Making photos on this PC (≈10 s each)…" : "🖥 Generate locally (free)"}</button>}
                 <Actions j={j} label="Approve all" />
               </div>
             ))}

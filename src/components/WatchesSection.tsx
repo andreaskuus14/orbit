@@ -4,7 +4,7 @@ import { useT } from "./i18n";
 import type { Change, Watch } from "@/lib/pagewatch-pure";
 
 type Row = Omit<Watch, "snaps"> & { versions: number };
-type Board = { watches: Row[]; changes: (Change & { purpose: string; url: string })[] };
+type Board = { watches: Row[]; changes: (Change & { purpose: string; url: string })[]; week?: { useful: number; noise: number; unmarked: number; missed: number; checks: number; failedChecks: number } };
 const safeHref = (u: string) => (/^https?:\/\//i.test(u) ? u : "#");
 const EVERY = [1, 6, 24, 168] as const;
 
@@ -18,7 +18,7 @@ export async function postWatch(body: object): Promise<void> {
 export function WatchesSection() {
   const { t } = useT();
   const [b, setB] = useState<Board | null>(null);
-  const [f, setF] = useState({ url: "", focus: "", purpose: "", every: 24 });
+  const [f, setF] = useState({ url: "", focus: "", purpose: "", every: 24, render: false });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
   const when = (iso?: string) => (iso ? new Date(iso).toLocaleString() : t("pw.never"));
@@ -35,7 +35,7 @@ export function WatchesSection() {
 
   const act = async (key: string, body: object) => {
     setBusy(key);
-    try { await postWatch(body); setErr(""); if ((body as { action: string }).action === "add") setF({ url: "", focus: "", purpose: "", every: 24 }); }
+    try { await postWatch(body); setErr(""); if ((body as { action: string }).action === "add") setF({ url: "", focus: "", purpose: "", every: 24, render: false }); }
     catch (e) { setErr(e instanceof Error ? e.message : "Could not update"); }
     finally { setBusy(""); void load(); }
   };
@@ -50,6 +50,9 @@ export function WatchesSection() {
         <select className="chip" aria-label={t("pw.every")} value={f.every} onChange={(e) => setF({ ...f, every: Number(e.target.value) })}>
           {EVERY.map((h) => <option key={h} value={h}>{t(`pw.e.${h}` as const)}</option>)}
         </select>
+        <label className="chip flex items-center gap-1" title="For pages that only show their content with JavaScript: ORBIT checks them in its hidden browser">
+          <input type="checkbox" checked={f.render} onChange={(e) => setF({ ...f, render: e.target.checked })} /> JS page
+        </label>
         <button className="btn" disabled={busy === "add"}>{t("pw.add")}</button>
       </form>
       {err && <p className="error">{err}</p>}
@@ -66,6 +69,7 @@ export function WatchesSection() {
                   <label className="chip"><input type="checkbox" checked={w.important} onChange={(e) => void act(`imp:${w.id}`, { action: "important", id: w.id, on: e.target.checked })} /> {t("pw.important")}</label>
                   <button className="chip" disabled={!!busy} onClick={() => void act(`chk:${w.id}`, { action: "check", id: w.id })}>{busy === `chk:${w.id}` ? "…" : t("pw.check")}</button>
                   {unseen && <button className="chip" disabled={!!busy} onClick={() => void act(`seen:${w.id}`, { action: "seen", id: w.id })}>{t("pw.seen")}</button>}
+                  <button className="chip" disabled={!!busy} onClick={() => { const note = window.prompt(t("pw.missedAsk")); if (note?.trim()) void act(`miss:${w.id}`, { action: "missed", id: w.id, note }); }}>{t("pw.missed")}</button>
                   <button className="chip" disabled={!!busy} onClick={() => void act(`rm:${w.id}`, { action: "remove", id: w.id })}>{t("pw.remove")}</button>
                 </span>
               </div>
@@ -75,12 +79,21 @@ export function WatchesSection() {
           );
         })}
       </ul>
-      {!!b?.watches.length && <div className="pt-1"><b>{t("pw.recent")}</b></div>}
+      {!!b?.watches.length && <div className="pt-1"><b>{t("pw.recent")}</b>{b.week && <span className="muted ml-2 text-xs">{t("pw.week", b.week)}</span>}</div>}
       {b?.watches.length && !b.changes.length ? <p className="muted text-xs">{t("pw.noChanges")}</p> : null}
       <ul className="space-y-2">
         {b?.changes.slice(0, 20).map((c) => (
           <li key={c.id} className="rounded-md border border-white/10 p-2 text-xs">
-            <div><b>{c.purpose}</b> <span className="muted">· {when(c.at)}{c.live ? ` · ${t("pw.live")}` : ""}</span></div>
+            <div className="flex flex-wrap items-center gap-1">
+              <b>{c.purpose}</b> <span className="muted">· {when(c.at)}{c.live ? ` · ${t("pw.live")}` : ""}{c.reverted ? ` · ${t("pw.reverted", { at: when(c.reverted) })}` : ""}</span>
+              <a className="muted underline" href={safeHref(c.url)} target="_blank" rel="noopener noreferrer">{t("pw.source")}</a>
+              <span className="ml-auto flex gap-1">
+                {(["useful", "noise"] as const).map((v) => (
+                  <button key={v} className="chip" aria-pressed={c.verdict === v} disabled={!!busy} style={c.verdict === v ? { borderColor: "var(--cyan)" } : undefined}
+                    onClick={() => void act(`v:${c.id}`, { action: "verdict", id: c.id, verdict: c.verdict === v ? null : v })}>{t(`pw.${v}`)}</button>
+                ))}
+              </span>
+            </div>
             <pre className="mt-1 whitespace-pre-wrap break-words font-mono">
               {c.added.map((l, i) => <span key={`a${i}`} className="block" style={{ color: "var(--green, #4ade80)" }}>+ {l}</span>)}
               {c.removed.map((l, i) => <span key={`r${i}`} className="block" style={{ color: "var(--red, #f87171)" }}>− {l}</span>)}
