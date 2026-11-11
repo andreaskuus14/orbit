@@ -13,7 +13,7 @@ import {
   INDEX_FILE, INDEX_TEXT_MAX, PREVIEW_BYTES, extractType, kindOf, parseRange, renameTarget, sanitizeName, snippet, uniqueName, uploadError, type VaultFile,
 } from "./vault-pure.ts";
 import {
-  META_FILE, TRASH_DIR, byName, coverageOf, expired, expiresAt, fromTrash, newMeta, parseMeta, reconcile, recordSync, renamed, resolveRef, retryQueue,
+  META_FILE, TRASH_DIR, byName, coverageOf, nameIndex, expired, expiresAt, fromTrash, newMeta, parseMeta, reconcile, recordSync, renamed, resolveRef, retryQueue,
   syncState, toTrash, typeMismatch, type Coverage, type Meta, type SyncState,
 } from "./vault-meta-pure.ts";
 
@@ -219,8 +219,9 @@ export async function listDetailed(cloud: Map<string, number> | null): Promise<L
   let m = await readMeta();
   if (reconcile(structuredClone(m), files, () => "x", 0)) m = await updateMeta((mm) => { reconcile(mm, files, mkId, now()); return mm; }).catch(() => m);
   const idx = g.__orbitVaultIdx?.data ?? {};
+  const rec = nameIndex(m);
   return files.map((f) => {
-    const r = byName(m, f.name);
+    const r = rec.get(f.name);
     const cov = extractType(f.name, DOCX) ? idx[f.name]?.cov ?? (idx[f.name] ? "indexed" : null) : "unsupported";
     return { ...f, id: r?.id ?? "", version: r?.version ?? 1, hash: r?.hash ?? null, sync: syncState(r, cloud ? cloud.has(f.name) : undefined), lastSync: r?.lastSync ?? null, syncError: r?.syncError ?? null, cov };
   });
@@ -425,7 +426,7 @@ export async function syncToCloud(sb: SupabaseClient, uid: string) {
   const cloud = await cloudList(sb, uid, true);
   const files = await listVault();
   // Already in the cloud (e.g. an upload that timed out after it landed): mark it, never upload it again.
-  await updateMeta((m) => { for (const f of files) { const r = byName(m, f.name); if (r && cloud.has(f.name) && r.sync !== "cloud" && r.sync !== "restored") { r.sync = "cloud"; r.syncError = null; } } }).catch(() => {});
+  await updateMeta((m) => { const rec = nameIndex(m); for (const f of files) { const r = rec.get(f.name); if (r && cloud.has(f.name) && r.sync !== "cloud" && r.sync !== "restored") { r.sync = "cloud"; r.syncError = null; } } }).catch(() => {});
   const size = new Map(files.map((f) => [f.name, f.size]));
   const missing = retryQueue(files, await readMeta(), cloud).filter((n) => size.get(n)! <= CLOUD_MAX).map((name) => ({ name, size: size.get(name)! }));
   let uploaded = 0, failed = 0, firstError: string | null = null, tried = 0;
