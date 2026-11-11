@@ -794,6 +794,32 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
 /* ---------------- PROFILE ---------------- */
 const LIST_FIELDS = [["interests", "profile.interests"], ["projects", "profile.projects"], ["goals", "profile.goals"], ["news_topics", "profile.news_topics"], ["research_priorities", "profile.research_priorities"]] as const;
 
+/** Job fit: paste a posting → score, gaps and draft texts. Drafts only: ORBIT never applies or sends anything. */
+function JobFitSection() {
+  const { t } = useT();
+  const [posting, setPosting] = useState(""), [busy, setBusy] = useState(false), [err, setErr] = useState("");
+  const [r, setR] = useState<{ score: number; verdict: string; matches: string[]; gaps: string[]; cvSummary: string; coverLetter: string } | null>(null);
+  async function run() {
+    setBusy(true); setErr(""); setR(null);
+    try { setR(await api("/api/jobs/fit", { method: "POST", body: JSON.stringify({ posting }) })); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+  return (
+    <section className="space-y-2" aria-label={t("jobs.title")}>
+      <b className="text-sm">{t("jobs.title")}</b> <span className="muted text-xs">{t("jobs.hint")}</span>
+      <textarea aria-label={t("jobs.paste")} className="field h-24 w-full text-xs" value={posting} onChange={(e) => setPosting(e.target.value)} placeholder={t("jobs.paste")} maxLength={8000} />
+      <button className="btn" disabled={busy || posting.trim().length < 80} onClick={run}>{busy ? t("jobs.busy") : t("jobs.run")}</button>
+      {err && <p className="error text-xs" role="alert">{err}</p>}
+      {r && <div className="space-y-1 text-xs">
+        <p><b>{r.score}/100</b> · {t(r.verdict === "apply" ? "jobs.apply" : r.verdict === "stretch" ? "jobs.stretch" : "jobs.skip")}</p>
+        {r.matches.length > 0 && <ul className="list-disc pl-4">{r.matches.map((m) => <li key={m}>{m}</li>)}</ul>}
+        {r.gaps.length > 0 && <><p className="muted">{t("jobs.gaps")}</p><ul className="list-disc pl-4">{r.gaps.map((g) => <li key={g}>{g}</li>)}</ul></>}
+        <p className="muted">{t("jobs.cv")}</p><p className="whitespace-pre-wrap">{r.cvSummary}</p>
+        <p className="muted">{t("jobs.letter")}</p><p className="whitespace-pre-wrap">{r.coverLetter}</p>
+      </div>}
+    </section>
+  );
+}
+
 export function ProfilePanel() {
   const { t } = useT();
   const [p, setP] = useState<Record<string, string>>({});
@@ -826,6 +852,7 @@ export function ProfilePanel() {
       <label className="block text-sm">{t("profile.talk")}<textarea className="field mt-1 h-20 w-full" value={p.communication ?? ""} onChange={(e) => setP({ ...p, communication: e.target.value })} maxLength={1000} /></label>
       <button className="btn">{t("profile.save")}</button> {msg && <span className="muted text-sm">{msg}</span>}
     </form>
+    <JobFitSection />
     <PasswordSection />
     <AutonomySection />
     <CoreEngineSection />
