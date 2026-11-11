@@ -180,7 +180,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const logTiming = (tier: string) => { console.info(`[core] ${tier} ${Object.entries({ ...ms, total: Date.now() - t0 }).map(([k, v]) => `${k}=${v}ms`).join(" ")}`); recordCoreTurn(tier, ms, Date.now() - t0, trace); };
 
   // "be brief" / "lühidalt" / "normal": flips the saved brief-mode marker in the profile's communication text, no model call
-  const flip = attach ? null : briefCommand(question);
+  const flip = attach ? null : briefCommand(question, [...history].reverse().find((h) => h.role === "assistant")?.content);
   if (flip) {
     const out = await briefTurn(sb, userId, flip.on, flip.et, sendDelta).catch((e) => { console.error("[orbit] brief-mode switch failed; taking the full path", e); return null; });
     if (out) { logTiming("reflex:brief"); return out; }
@@ -566,7 +566,7 @@ async function briefTurn(sb: SupabaseClient, userId: string, on: boolean, et: bo
   const t = Date.now();
   const { data, error } = await sb.from("profiles").select("communication").eq("id", userId).maybeSingle();
   if (error) throw error;
-  const { error: upErr } = await sb.from("profiles").upsert({ id: userId, communication: withBrief(String(data?.communication ?? ""), on).slice(0, 1000) });
+  const { error: upErr } = await sb.from("profiles").upsert({ id: userId, communication: withBrief(String(data?.communication ?? ""), on) });
   if (upErr) throw upErr;
   forgetProfile(userId); // the next turn reads the new setting
   const text = briefReply(on, et);
