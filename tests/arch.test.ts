@@ -138,3 +138,12 @@ test("ARC03: no geometric drift after many nudges and a save/reopen round trip",
   assert.deepEqual(back, s);
   assert.equal(applyOps(s, [{ op: "set", id: "p3", x: 1.23456 }], id).scene.parts.find((q) => q.id === "p3")!.x, 1.235);
 });
+
+test("boqCsv: free-text cells can't run as spreadsheet formulas", () => {
+  const s = starterScene(), parts = s.parts.map((p, i) => (i === 0 ? { ...p, name: '=HYPERLINK("http://x","y")' } : p));
+  const prices = STARTER_PRICES.map((p) => (p.key === "concreteM3" ? { ...p, source: "@SUM(A1)" } : p));
+  const csv = boqCsv(costLines(boq(parts), prices, parts));
+  assert.ok(!/(^|,)"?[=@]/m.test(csv), csv);
+  assert.match(csv, /'@SUM\(A1\)/);
+  assert.match(csv, /"'=HYPERLINK\(""http/);
+});
