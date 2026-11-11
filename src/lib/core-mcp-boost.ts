@@ -32,7 +32,7 @@ type BoostIn = {
   userId: string; question: string; system: string; prompt: string; model: string; effort?: string; steps: string[]; trace: { step: string; detail: string; ms: number; ok: boolean }[];
   policy: () => { ws?: WsGate; attach?: boolean; pins?: boolean; carried?: boolean };
   record: (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number) => void;
-  signal?: AbortSignal; risky?: boolean;
+  signal?: AbortSignal; risky?: boolean; onRoute?: (model: string) => void;
 };
 const MODELS = { fast: FAST_MODEL, smart: MODEL, deep: DEEP_MODEL };
 const tierOf = (model: string) => (model === FAST_MODEL ? "fast" : model === DEEP_MODEL ? "deep" : "smart") as Route["tier"];
@@ -93,6 +93,7 @@ export async function boostTurn(t: BoostIn) {
     /** Runs the CLI on the routed model; a usage-limit failure retries once per tier down (Opus → Sonnet → Haiku), noted in Activity. */
     run: async <R>(go: (model: string, effort: string | undefined) => Promise<R>): Promise<R> => {
       for (;;) {
+        t.onRoute?.(route.model); // again after each usage-limit step-down
         try { return await go(route.model, route.effort); }
         catch (e) {
           const next = isLimitError(e) ? downTier(route, MODELS) : null;
