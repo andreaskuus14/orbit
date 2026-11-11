@@ -17,7 +17,7 @@ The [100-candidate catalog](MODULE-RESEARCH-2026-11-01.md) and [27-category map]
 
 Next audit order: CORE retrieval evidence; MEMORY current versus historical facts; AGENTS verified receipts; OPERATIONS connection failures; goal dependencies; bounded Night Shift scheduling. Then deterministic private LIFE planning, study progress, People identity, VAULT intake, GAME DEV checks, STUDIO quality, REACH source signals, THEATER queues, BUSINESS records, MONEY reconciliation, MARKETS research, ARCH analysis, ANALYTICS outcomes, local voice, phone access, Profile controls, Galaxy accessibility and daily reviews.
 
-Do not install overlapping frameworks merely to satisfy the candidate count. Reuse current storage, authority checks and run infrastructure. No REA changes. LIFE/journal content stays local and out of model inputs. Outside sends, uploads, publishing and spending retain exact-item owner approval.
+Do not install overlapping frameworks merely to satisfy the candidate count. Reuse current storage, authority checks and run infrastructure. LIFE/journal content stays local and out of model inputs. Outside sends, uploads, publishing and spending retain exact-item owner approval.
 
 ## Validation
 
