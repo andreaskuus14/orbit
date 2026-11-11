@@ -6,6 +6,7 @@ import { reflectOnTurn } from "@/lib/reflect";
 import { learnFacts } from "@/lib/facts";
 import { emit } from "@/lib/claude";
 import { liveTracker, ndjsonStream, type StepDone } from "@/lib/core-live-pure";
+import type { Tier } from "@/lib/core-steps-pure";
 import { MODULE_PRIVATE } from "@/lib/core-modules";
 import { coreSessionStore, coreTaintStore } from "@/lib/durable";
 import { doneSoFar, newBgTurn, stoppedNote } from "@/lib/bg-resume-pure";
@@ -81,6 +82,13 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
       void emit(sb, userId, "core.started", "core", { conversationId: cid, ...(opts.remote ? { source: "remote" } : {}) }); // never throws; the answer needn't wait for the event row
 
       // Shared by both response styles: answer, then save it once at the end.
+      let lastRoute: Tier | undefined;
+      const onRoute = (model: Tier) => {
+        if (model !== lastRoute) {
+          lastRoute = model;
+          send({ type: "route", model });
+        }
+      };
       const answer = async (onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void) => {
         // Older turns supply a compact recap and their saved attachments; only the latest nine stay in full.
         // The chat's checkpoint (constraints from his own typed words, decisions, artifacts, next action) rides apart from the sampled history.
@@ -105,7 +113,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
         const t0 = Date.now();
         const ctx = (checkpoint ? checkpointPrompt(checkpoint, isContinue(message)) : "") + record + project.text + contextLine(safeLink(body.here));
         let out: Awaited<ReturnType<typeof runCore>>;
-        try { out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, withSkill, ctx, project.tainted, project.memoryProject, cid, lang); }
+        try { out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, withSkill, ctx, project.tainted, project.memoryProject, cid, lang, onRoute); }
         catch (e) {
           // Out of interactive time on a long step: the turn continues server-side; reply now, notify when done (never "timed out").
           if (!(e instanceof CoreHandoff) || signal?.aborted) throw e;
@@ -113,7 +121,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
           onReset?.();
           // Not for the phone remote: its clients read "done" as the end. In-app, the open stream keeps showing the background work.
           const follow = !opts.remote;
-          const bg = await inBackground(sb, userId, cid, message, handoff.carry?.trace ?? [], lang, (sig) => runCoreFor(BACKGROUND_TURN_MS, handoff, sb, userId, history, follow ? onDelta : undefined, sig, follow ? onReset : undefined, voice, undefined, follow ? onStep : undefined, withSkill, ctx, project.tainted, project.memoryProject, cid, lang));
+          const bg = await inBackground(sb, userId, cid, message, handoff.carry?.trace ?? [], lang, (sig) => runCoreFor(BACKGROUND_TURN_MS, handoff, sb, userId, history, follow ? onDelta : undefined, sig, follow ? onReset : undefined, voice, undefined, follow ? onStep : undefined, withSkill, ctx, project.tainted, project.memoryProject, cid, lang, follow ? onRoute : undefined));
           const taskId = bg.taskId;
           if (follow) { background = bg.finished; send({ type: "background", taskId }); }
           out = { text: handoffReply(taskId, lang), citations: [], trace: [{ step: "fallback", detail: "turn time limit → background task", ms: 0, ok: false }], model: "smart" };

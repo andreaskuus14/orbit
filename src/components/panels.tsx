@@ -112,6 +112,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   const [speaking, setSpeaking] = useState(false);
   useEffect(() => onSpeakingChange(setSpeaking), []);
   const [rows, setRows] = useState<LiveRow[]>([]); // this turn's live steps (core-live-pure.ts)
+  const [route, setRoute] = useState<"fast" | "smart" | "deep" | null>(null);
   const [bgTask, setBgTask] = useState<string | null>(null); // handed off: still streaming from the background turn
   const since = useRef(0);
   const [heard, setHeard] = useState(""); // last spoken question, shown as the voice transcript
@@ -136,7 +137,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
   }, []);
   const newChat = useCallback((projectId: string | null = null) => {
     // A running turn is not stopped: it detaches and keeps going in its own chat (marked running in the list); this view starts fresh.
-    if (abort.current) { view.current++; abort.current = null; setBusy(false); setLive(null); setRows([]); setBgTask(null); }
+    if (abort.current) { view.current++; abort.current = null; setBusy(false); setLive(null); setRows([]); setBgTask(null); setRoute(null); }
     stopSpeech();
     opening.current++;
     setMsgs([]); setChatId(null); setNewProject(projectId); setSheet(false); lastQ.current = "";
@@ -145,7 +146,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
     setSheet(false);
     if (id === convo.current) return;
     // Like newChat: a running turn detaches and finishes in its own chat; only Stop/Esc cancel it.
-    if (abort.current) { view.current++; abort.current = null; setBusy(false); setLive(null); setRows([]); setBgTask(null); }
+    if (abort.current) { view.current++; abort.current = null; setBusy(false); setLive(null); setRows([]); setBgTask(null); setRoute(null); }
     stopSpeech();
     const mine = ++opening.current;
     try {
@@ -243,7 +244,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       return;
     }
     setBusy(true);
-    setRows([]); setBgTask(null);
+    setRows([]); setBgTask(null); setRoute(null);
     since.current = Date.now();
     let steps: LiveRow[] = []; // mirrors `rows` so "done" can keep them under the answer
     let handedOff = false, bgId = "";
@@ -276,7 +277,9 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
         if (ev.conversationId && !cid) { const id = cid = ev.conversationId; setRunning((r) => [...r, id]); }
         if (!here()) { if (ev.type === "done" || ev.type === "error") finished = true; return; } // detached by "+ New": the server finishes and saves it in its own chat
         if (ev.conversationId && ev.conversationId !== convo.current) { setChatId(ev.conversationId); void chats.reload(); }
-        if (ev.type === "delta" && ev.text) {
+        if (ev.type === "route" && (ev.model === "fast" || ev.model === "smart" || ev.model === "deep")) {
+          setRoute(ev.model);
+        } else if (ev.type === "delta" && ev.text) {
           partial += ev.text;
           say(voiceOut.push(ev.text));
           // One render per frame at most, and only the streaming bubble changes.
@@ -333,7 +336,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
       doc?.removeEventListener("visibilitychange", onVis);
       flush();
       if (cid) setRunning((r) => r.filter((x) => x !== cid));
-      if (here()) { setLive(null); setRows([]); setBgTask(null); setBusy(false); }
+      if (here()) { setLive(null); setRows([]); setBgTask(null); setRoute(null); setBusy(false); }
       if (abort.current === ac) abort.current = null;
       if (talk) dispatchEvent(new Event("orbit:core-done")); // voice conversation listens again only after this (bus.ts CORE_DONE)
       void chats.reload(); // Recents order + title
@@ -486,7 +489,7 @@ export function CorePanel({ initial, onConsumed, onOpenMemory, greeting, onGreet
               {/* Citation numbers arrive with the final answer; hide raw [m:id] markers until then. */}
               {live && <><Markdown text={numberCitations(live, [])} openMemory={onOpenMemory} />
               <span aria-hidden className="inline-block h-4 w-1.5 translate-y-0.5 rounded-sm bg-current opacity-60" style={{ animation: "blink 1s steps(2) infinite" }} /></>}
-              <CoreActivity rows={rows} running streaming={!!live} since={since.current} taskId={bgTask} projectName={chats.projects.find((p) => p.id === project)?.name} />
+              <CoreActivity rows={rows} running streaming={!!live} since={since.current} taskId={bgTask} route={route} projectName={chats.projects.find((p) => p.id === project)?.name} />
             </div>}
         <div ref={end} />
       </div>
