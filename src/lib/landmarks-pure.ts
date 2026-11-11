@@ -17,20 +17,26 @@ export function spots(seed: number, n: number, minDeg = 38): [number, number, nu
   return out;
 }
 
+/** Angular width (radians) of a scale-1 building on the unit sphere: Landmarks draws the biggest side at 0.3 of the radius. */
+export const GAP = 0.3;
 export type Building = { d: [number, number, number]; scale: number; turn: number };
 /** Towns: `n` town centres (spots), each a cluster of `per` buildings scattered within a few degrees of it, one big
  *  centrepiece and smaller neighbours, every one turned its own way. ~30 buildings a world by default. */
-export function towns(seed: number, n = 5, per = 6, spreadDeg = 9): Building[] {
+export function towns(seed: number, n = 5, per = 6, spreadDeg = 15): Building[] {
   const r = rng(Math.max(1, Math.floor(seed * 7919) % 2147483646)), out: Building[] = [], sp = (spreadDeg * Math.PI) / 180;
   for (const c of spots(seed, n, 32)) {
     // a tangent frame at the town centre
     const t = Math.abs(c[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
     const u = norm(cross(t, c)), v = cross(c, u);
-    for (let i = 0; i < per; i++) {
-      const a = r() * Math.PI * 2, rad = i === 0 ? 0 : sp * (0.35 + 0.65 * Math.sqrt(r()));
+    const town: Building[] = [];
+    for (let tries = 0; town.length < per && tries < per * 12; tries++) {
+      const i = town.length, a = r() * Math.PI * 2, rad = i === 0 ? 0 : sp * (0.3 + 0.7 * Math.sqrt(r()));
       const d = norm([0, 1, 2].map((k) => c[k] * Math.cos(rad) + (u[k] * Math.cos(a) + v[k] * Math.sin(a)) * Math.sin(rad)) as [number, number, number]);
-      out.push({ d, scale: i === 0 ? 1 : 0.35 + 0.4 * r(), turn: r() * Math.PI * 2 });
+      const scale = i === 0 ? 1 : 0.3 + 0.3 * r();
+      // footprints must not overlap: keep a gap of about one neighbour's width (angles in radians on the unit sphere)
+      if (town.every((t) => Math.acos(Math.min(1, t.d[0] * d[0] + t.d[1] * d[1] + t.d[2] * d[2])) > GAP * (t.scale + scale) / 2)) town.push({ d, scale, turn: r() * Math.PI * 2 });
     }
+    out.push(...town);
   }
   return out;
 }
