@@ -24,7 +24,7 @@ export type ItemStatus = (typeof ITEM_STATUSES)[number];
 // calls/minutes: the estimate the planner budgets with (the runner measures what was really used).
 export type NightTask = { kind: NightKind; ref: string; label: string; calls: number; minutes: number };
 export type Open = { task: string } | { goal: string; step?: number; stepId?: string } | { panel: "studio" | "business" | "memory" | "agents" | "markets" };
-export type NightItem = { kind: NightKind; ref: string; label: string; status: ItemStatus; why?: string; open?: Open; draft?: string; at: string;
+export type NightItem = { kind: NightKind; ref: string; label: string; status: ItemStatus; why?: string; open?: Open; draft?: string; at: string; seen?: string; // seen: approval fingerprint of the task's waiting actions when served (S02)
   pick?: Why; diff?: Diff }; // night-plan-pure: why tonight, and the counts it changed (before → after)
 export type NightRun = { id: string; key: string; startedAt: string; endedAt?: string; calls: number; ms: number; items: NightItem[]; stopped?: string; deferred?: number; pushed?: string; why?: string; planned?: Pick<NightTask, "kind" | "ref" | "label">[] };
 export type TonightItem = { id: string; text: string; agent: string; by: "owner" | "core"; at: string };

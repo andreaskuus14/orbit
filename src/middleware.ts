@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isAllowedEmail } from "@/lib/allow";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { publicOrigin } from "@/lib/origin-pure";
+import { csp, cspApplies, newNonce } from "@/lib/csp-pure";
 
 // /w = workspace previews: the route checks the signed link + session itself (sandboxed pages' CSS/JS requests carry no cookies).
 // /remote, /screen + /api/remote = the paired-phone remote and read-only screen: its routes check their own device token (or, for /api/remote/owner, the session).
@@ -16,6 +17,11 @@ export async function middleware(request: NextRequest) {
   if (request.nextUrl.pathname === "/api/health" || request.nextUrl.pathname === "/api/studio/busy") return NextResponse.next();
   // Public demo: static fixture page, no session work (it never calls /api; its fetch guard answers from fixtures).
   if (request.nextUrl.pathname === "/demo") return NextResponse.next();
+  // CSP with a fresh nonce per page: Next reads it from the request header and stamps its own inline scripts with it
+  const nonce = cspApplies(request.nextUrl.pathname) ? newNonce() : "";
+  const policy = nonce ? csp(nonce, process.env.NODE_ENV === "development", process.env.NEXT_PUBLIC_SUPABASE_URL ?? "") : "";
+  if (policy) request.headers.set("content-security-policy", policy);
+  const withCsp = (r: NextResponse) => { if (policy) r.headers.set("Content-Security-Policy", policy); return r; };
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -57,7 +63,7 @@ export async function middleware(request: NextRequest) {
     return redirectTo("/login");
   }
 
-  return response;
+  return withCsp(response);
 }
 
 export const config = {

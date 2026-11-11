@@ -9,6 +9,7 @@ export const BUILTIN_AGENT_NAMES: AgentName[] = [
   { slug: "nova", name: "Nova" }, { slug: "atlas", name: "Atlas" }, { slug: "pulse", name: "Pulse" },
   { slug: "echo", name: "Echo" }, { slug: "forge", name: "Forge" }, { slug: "vector", name: "Vector" },
   { slug: "sentinel", name: "Sentinel" }, { slug: "flow", name: "Flow" }, { slug: "qa", name: "Orbit QA" },
+  { slug: "scout", name: "Scout" }, { slug: "closer", name: "Closer" }, { slug: "prospector", name: "Prospector" }, { slug: "outreach", name: "Outreach" },
 ];
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

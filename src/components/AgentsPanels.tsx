@@ -1,4 +1,5 @@
 "use client";
+import { pendingSeen } from "@/lib/approval-bind-pure";
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { notifyProjectsChanged } from "@/lib/project-list";
 import { ProposalsPanel } from "./ProposalsPanel";
@@ -175,9 +176,9 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
         {!!waiting.length && <p className="text-xs" role="status">{t("task.blockedBy", { list: waiting.map((c) => `${c.agent} · ${c.title} (${c.status.replace("_", " ")})`).join("; ") })}</p>}
       </div>
 
-      {task.pending.some((p) => p.status === "pending") && task.status !== "done" && task.status !== "failed" && task.status !== "cancelled" && <Approval pending={task.pending} who={task.agent} ready={task.status === "awaiting_approval"} onAct={(a) => act(a)} />}
+      {task.pending.some((p) => p.status === "pending") && task.status !== "done" && task.status !== "failed" && task.status !== "cancelled" && <Approval pending={task.pending} who={task.agent} ready={task.status === "awaiting_approval"} onAct={(a) => act(a, id, a === "approve" ? { seen: pendingSeen(task.pending) } : {})} />}
       {children.filter((c) => c.pending.some((p) => p.status === "pending") && c.status !== "done" && c.status !== "failed" && c.status !== "cancelled").map((c) => (
-        <Approval key={c.id} pending={c.pending} who={c.agent} ready={c.status === "awaiting_approval"} onAct={(a) => act(a, c.id)} />
+        <Approval key={c.id} pending={c.pending} who={c.agent} ready={c.status === "awaiting_approval"} onAct={(a) => act(a, c.id, a === "approve" ? { seen: pendingSeen(c.pending) } : {})} />
       ))}
 
       {task.result && <div className="card"><Markdown text={task.result} openMemory={openMemory} /></div>}
@@ -200,6 +201,7 @@ function TaskView({ id, onBack, openMemory }: { id: string; onBack: () => void; 
       {task.status === "done" && !task.parent_id && !task.title.startsWith("Team: ") && <SaveRecipe task={task} />}
       {/* W04: job state + receipt, no prompt, redacted, for pasting anywhere */}
       <button className="chip" onClick={() => navigator.clipboard?.writeText(copyReceipt(task, rowReceipt(task as never), location.origin)).catch(() => {})}>{t("task.copyReceipt")}</button>
+      <a className="chip" href={`/api/tasks/${task.id}/trace`} download title={t("task.traceExportTitle")}>{t("task.traceExport")}</a>
 
       <details className="card text-sm"><summary className="cursor-pointer muted">{t("task.request")}</summary><p className="mt-2 whitespace-pre-wrap">{task.request}</p></details>
       {task.pending.some((p) => p.status === "approved") && (
