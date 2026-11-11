@@ -23,7 +23,7 @@ export async function getWeek(sb: SupabaseClient, now = Date.now()): Promise<Wee
       return data ?? [];
     }),
     soft<WeekIn["events"]>("events", () => import("./prospect-crm").then((m) => m.loadCrm())),
-    soft<WeekIn["invoices"]>("invoices", () => import("./invoices").then((m) => m.allInvoices())),
+    soft<WeekIn["invoices"]>("invoices", () => import("./invoices").then((m) => m.loadInvoices())),
   ]);
   return weekOutcome({ today, views, prospects, events, invoices });
 }

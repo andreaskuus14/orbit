@@ -61,6 +61,8 @@ export async function invoicesView() {
   return { seller: s.seller, invoices: [...s.invoices].sort((a, b) => b.created.localeCompare(a.created)), dashboard: dashboard(s.invoices, day), today: day };
 }
 /** For the morning brief / night report; never throws. */
+/** Throws when invoices.json cannot be read: for callers that must tell "no invoices" from "could not read" (weekly outcome). */
+export const loadInvoices = () => load().then((s) => s.invoices);
 export const allInvoices = () => load().then((s) => s.invoices, () => [] as Invoice[]);
 
 export const saveSeller = (b: Record<string, unknown>) => update((s) => { const r = parseSeller(b); if (typeof r === "string") return r; s.seller = r; return r; });
