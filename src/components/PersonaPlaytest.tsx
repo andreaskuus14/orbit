@@ -3,10 +3,11 @@ import { useEffect, useState } from "react";
 import { MAX_CONTEXT, PERSONAS, STAGES, STAGE_LABEL, funnel, heat, personaPlan, type Proposal } from "@/lib/personas-pure";
 import { importDrafts } from "@/lib/backlog-pure";
 import type { DevWorld as World } from "@/lib/devworld-pure";
-import type { PersonaReport } from "@/lib/personas";
+import type { Calibration, PersonaReport } from "@/lib/personas";
 import { PINK } from "./RobloxBuild";
+import PersonaCalibration from "./PersonaCalibration";
 
-type View = { context: string; report: PersonaReport | null; running: boolean };
+type View = { context: string; report: PersonaReport | null; calibration: Calibration | null; running: boolean };
 const HEAT = ["transparent", "rgba(251,191,36,0.25)", "rgba(249,115,22,0.45)", "rgba(244,63,94,0.7)"];
 
 async function api(body?: unknown): Promise<View> {
@@ -89,6 +90,8 @@ export default function PersonaPlaytest({ world, commit, gameId }: { world: Worl
                 </tbody>
               </table>
             </div>
+
+            <PersonaCalibration results={r.results} real={world?.retention?.find((x) => x.game === target)} saved={v?.calibration ?? null} busy={!!busy} onSave={() => act("cal", { action: "calibrate" })} />
 
             <details>
               <summary className="text-xs cursor-pointer">Why each persona quit</summary>
