@@ -136,18 +136,18 @@ const SL = (fam: SurfaceLook["fam"], seed: number, a: string, b: string, c: stri
 // Families: 0 banded, 1 marbled, 2 cratered, 3 oceanic, 4 crystal, 5 plated machine, 6 magma; glow = light in its veins/seams/cracks.
 const LOOKS: Record<PlanetId, { scale: number; ring?: string; obsidian?: boolean; surf?: SurfaceLook; orbital?: boolean; halo?: boolean }> = {
   memory: { scale: 0.75, surf: SL(4, 1, "#3b2a6e", "#6d4fc4", "#c9b8ff", "#b49bff", 0.9) },                   // violet crystal, thoughts sealed inside
-  intelligence: { scale: 0.85, surf: SL(3, 2, "#2d6e74", "#0b3f52", "#dff6f8") },                             // storm ocean
+  intelligence: { scale: 0.85, surf: SL(3, 2, "#3a8890", "#145870", "#dff6f8") },                             // storm ocean
   creation: { scale: 1.55, orbital: true, surf: SL(2, 3, "#d07aa2", "#8e3b66", "#4a1f38", "#ff8cc4", 0.35) }, // magenta rock being shaped
   operations: { scale: 1.9, ring: "#9fb3c8", surf: SL(5, 4, "#2a2f36", "#5b6470", "#9aa6b4", "#5cc8ff", 1.0) }, // titanium plates, lit seams
-  agents: { scale: 1.9, ring: "#c4b5fd", surf: SL(1, 5, "#2c2440", "#5a4a86", "#8f80c8") },                   // dark lavender, the night side full of cities
-  life: { scale: 0.63, orbital: true, surf: SL(3, 6, "#4f7f45", "#174a66", "#eef3f5") },                      // green living world
+  agents: { scale: 1.9, ring: "#c4b5fd", surf: SL(1, 5, "#3a3058", "#6e5ca4", "#a597dc") },                   // dark lavender, the night side full of cities
+  life: { scale: 0.63, orbital: true, surf: SL(3, 6, "#5f9652", "#1f5f80", "#eef3f5") },                      // green living world
   vault: { scale: 0.79, ring: "#e2e8ee", obsidian: true, surf: SL(4, 7, "#0b0a0c", "#1c1820", "#a0702a", "#ffb347", 0.8) }, // obsidian with amber seams
-  analytics: { scale: 1.0, ring: "#b3c6ea", surf: SL(0, 8, "#2f6fb8", "#a9c8ee", "#173b6e") },                // precise blue bands
+  analytics: { scale: 1.0, ring: "#b3c6ea", surf: SL(0, 8, "#3a80cc", "#b8d4f4", "#22508c") },                // precise blue bands
   studio: { scale: 1.1, orbital: true, surf: SL(6, 9, "#1c1110", "#4a2620", "#ff5a2a", "#ff6a2a", 1.4) },     // volcanic, magma rivers
   theater: { scale: 0.9, ring: "#e8c27a", surf: SL(0, 10, "#f2c27a", "#c46a26", "#6e3418") },                 // amber storm giant
   markets: { scale: 0.85, ring: "#34d399", surf: SL(1, 11, "#0f6b4f", "#2fae7f", "#e8c05a", "#ffd36a", 0.55) }, // jade with gold veins
-  business: { scale: 0.85, surf: SL(1, 12, "#e9eef4", "#9fb6cc", "#d6aa52", "#ffcf6a", 0.7) },                // pale marble, gold network
-  arch: { scale: 0.9, halo: true, surf: SL(2, 13, "#c3c7cf", "#8a909b", "#474c56") },
+  business: { scale: 0.85, surf: SL(1, 12, "#c9d2dc", "#6f88a3", "#d9a441", "#ffc94d", 1.0) },                // marble (toned down so it no longer blows out white), gold network
+  arch: { scale: 0.9, halo: true, surf: SL(2, 13, "#cfd3db", "#9aa1ad", "#5c626e") },
 };
 const CORE_RING = 3.7 * 0.62; // the CORE's outer ring at the overview (coreScale): worlds keep clear of it
 

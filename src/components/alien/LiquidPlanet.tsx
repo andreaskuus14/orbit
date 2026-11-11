@@ -453,7 +453,7 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
             totalEmissiveRadiance += mix(vec3(1.0), hc, 0.5) * gSpark * 2.0;
             totalEmissiveRadiance += hc * pow(f, 2.5) * 0.55 * mix(0.15, 1.0, uChrome);
             // identity colour from the overview: uIdent 1 = the legacy strong rim (worlds), 0 = a thin atmosphere rim (galaxy)
-            totalEmissiveRadiance += mix(mix(uTint, vec3(0.75, 0.82, 1.0), 0.35) * (pow(f, 2.6) * 1.1 + 0.04), uTint * (pow(f, 1.8) * 1.4 + 0.12), uIdent) * uFar;
+            totalEmissiveRadiance += mix(mix(uTint, vec3(0.75, 0.82, 1.0), 0.35) * pow(f, 3.4) * 0.6, uTint * (pow(f, 1.8) * 1.4 + 0.12), uIdent) * uFar;
             totalEmissiveRadiance += holo(gFlowA * 0.08 + gH * 2.0) * (1.0 - gPool) * 0.1 * uChrome; // thin-film edge sheen
             vec3 nq = normalize(vLq);
             #ifndef ${LITE}
@@ -554,7 +554,7 @@ export function planetStandIn(u: LiquidU, mat: THREE.MeshPhysicalMaterial, rim: 
         c += vec3(1.0, 0.95, 0.86) * pow(max(dot(r, L), 0.0), 40.0) * mix(0.15, 1.0, uChrome);
         vec3 hc = holo(q.y * 0.3 + uTime * 0.02);
         c += hc * pow(f, 2.5) * 0.55 * mix(0.15, 1.0, uChrome);
-        c += mix(mix(uTint, vec3(0.75, 0.82, 1.0), 0.35) * (pow(f, 2.6) * 1.1 + 0.04), uTint * (pow(f, 1.8) * 1.4 + 0.12), uIdent) * uFar;
+        c += mix(mix(uTint, vec3(0.75, 0.82, 1.0), 0.35) * pow(f, 3.4) * 0.6, uTint * (pow(f, 1.8) * 1.4 + 0.12), uIdent) * uFar;
         gl_FragColor = vec4(max(c, vec3(0.0)) + uRimColor * f * f * f * max(uRim, 0.0), opacity);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
