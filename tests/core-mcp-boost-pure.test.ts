@@ -139,3 +139,24 @@ test("stable prefix: two turns with different day, profile and memories share th
   assert.ok(n >= a.indexOf("Today is") && a.indexOf("Today is") > a.indexOf(SKILLS_NOTE), "only the day/profile tail differs");
   assert.ok(a.endsWith("Name: Andreas"));
 });
+
+test("modelForJob: guide table, owner pref wins, risky jobs never below Opus", async () => {
+  const { modelForJob, reviewerFor, riskFlags, JOB_MODELS } = await import("../src/lib/core-mcp-boost-pure.ts");
+  assert.deepEqual(["search", "build", "ui", "plan"].map((j) => modelForJob(j as never)), ["haiku", "sonnet", "opus", "fable"]);
+  assert.equal(modelForJob("build", {}, "opus"), "opus"); // owner pref wins
+  const risky = riskFlags("send the invoice email after login");
+  assert.deepEqual(risky, { auth: true, money: true, sending: true });
+  for (const pref of [undefined, "haiku", "claude-haiku-5-5", "sonnet", "x"]) assert.equal(modelForJob("search", risky, pref), JOB_MODELS.opus);
+  assert.equal(modelForJob("rename", { approvals: true }), "opus");
+  assert.equal(modelForJob("security", risky, "fable"), "fable"); // above the floor stays
+  assert.deepEqual([reviewerFor("sonnet"), reviewerFor("haiku"), reviewerFor("opus")], ["opus", "opus", "sonnet"]);
+});
+
+test("routeTurn: risky questions get the Opus floor and no limit fallback", () => {
+  const models = { fast: "haiku", smart: "sonnet", deep: "opus" };
+  for (const pref of ["auto", "sonnet"] as const) {
+    const r = routeTurn({ question: "approve and send that payment", tier: "fast", pref, build: false, models });
+    assert.equal(r.model, "opus");
+    assert.equal(downTier(r, models), null);
+  }
+});

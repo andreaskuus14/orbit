@@ -126,13 +126,43 @@ export function parseSkill(md: string): { name: string; description: string; bod
 export type ModelPref = "auto" | "opus" | "sonnet";
 export const parsePref = (v: unknown): ModelPref => (v === "opus" || v === "sonnet" ? v : "auto");
 export type Models = { fast: string; smart: string; deep: string };
-export type Route = { model: string; effort?: string; tier: "fast" | "smart" | "deep"; why: string };
+export type Route = { model: string; effort?: string; tier: "fast" | "smart" | "deep"; why: string; risky?: true };
+
+// ---- per-job model choice ("which model for which job"): one table, Claude Code CLI aliases as ORBIT_MODEL* use them ----
+export const JOB_MODELS = { haiku: "haiku", sonnet: "sonnet", opus: "opus", fable: "fable" } as const;
+const RANK = ["haiku", "sonnet", "opus", "fable"]; // cheapest first
+export type JobKind = "search" | "rename" | "boilerplate" | "build" | "test" | "ui" | "bug" | "review" | "plan" | "security";
+const BY_JOB: Record<JobKind, string> = {
+  search: JOB_MODELS.haiku, rename: JOB_MODELS.haiku, boilerplate: JOB_MODELS.haiku,
+  build: JOB_MODELS.sonnet, test: JOB_MODELS.sonnet,
+  ui: JOB_MODELS.opus, bug: JOB_MODELS.opus, review: JOB_MODELS.opus,
+  plan: JOB_MODELS.fable, security: JOB_MODELS.fable,
+};
+export type Risk = { auth?: boolean; money?: boolean; approvals?: boolean; sending?: boolean };
+const RISK: [keyof Risk, RegExp][] = [
+  ["auth", /\b(?:auth\w*|log ?in|passwords?|tokens?|credentials?|oauth|sessions?)\b|parool/i],
+  ["money", /\b(?:pay\w*|money|invoices?|billing|purchases?|buy|spend\w*|credits?|stripe|refunds?)\b|makse|raha/i],
+  ["approvals", /\b(?:approv\w*|propose_\w+|grants?)\b|kinnit/i],
+  ["sending", /\b(?:send\w*|emails?|publish\w*|post(?:s|ing)?|upload\w*|messages?)\b|saada/i],
+];
+/** Risk flags found in free text (a request, a tool list). */
+export const riskFlags = (text: string): Risk => Object.fromEntries(RISK.filter(([, re]) => re.test(text)).map(([k]) => [k, true]));
+export const isRisky = (r: Risk) => Object.values(r).some(Boolean);
+const rank = (m: string) => RANK.findIndex((n) => m.toLowerCase().includes(n));
+/** Model for one job. The owner's explicit pref wins, but a risky job never runs below Opus (an unknown id counts as below). */
+export function modelForJob(job: JobKind, risk: Risk = {}, pref?: string): string {
+  const want = pref?.trim() || BY_JOB[job];
+  return isRisky(risk) && rank(want) < RANK.indexOf("opus") ? JOB_MODELS.opus : want;
+}
+/** Reviews come from a different model than the writer: Opus, or Sonnet when Opus wrote it. */
+export const reviewerFor = (writer: string) => (rank(writer) === RANK.indexOf("opus") ? JOB_MODELS.sonnet : JOB_MODELS.opus);
 const PLAN = /\b(?:plan|roadmap|strategy|architect|design (?:a|the|my)|break (?:it|this) down)\b|planeeri|kava\b|strateegi/i;
 /** Model + effort for one mcp turn: site builds and planning → deep (Opus, high); routine tool work → smart (Sonnet); short chit-chat
  *  stays fast (Haiku; core.ts escalates it if it reaches for a tool). A Profile pref other than auto pins the model. */
 export function routeTurn(o: { question: string; tier: "fast" | "smart" | "deep"; pref: ModelPref; build: boolean; models: Models; effort?: string }): Route {
   const deep = (why: string): Route => ({ model: o.models.deep, effort: o.effort || "high", tier: "deep", why });
   if (o.pref === "opus") return deep("Profile: always Opus");
+  if (isRisky(riskFlags(o.question))) return { ...deep("auth/money/approvals/sending: Opus floor"), risky: true };
   if (o.pref === "sonnet") return { model: o.models.smart, tier: "smart", why: "Profile: always Sonnet" };
   if (o.build) return deep("site build");
   if (o.tier === "deep") return deep("hard request");
@@ -141,6 +171,7 @@ export function routeTurn(o: { question: string; tier: "fast" | "smart" | "deep"
 }
 /** One tier down after a usage-limit result (Opus → Sonnet → Haiku), else null. */
 export function downTier(r: Route, m: Models): Route | null {
+  if (r.risky) return null; // never below the Opus floor
   if (r.tier === "deep") return { model: m.smart, tier: "smart", why: `${r.why}; Opus limit → Sonnet` };
   if (r.tier === "smart") return { model: m.fast, tier: "fast", why: `${r.why}; Sonnet limit → Haiku` };
   return null;
