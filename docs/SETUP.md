@@ -143,7 +143,6 @@ No key in `.env.local`: Higgsfield runs through your own Claude Code connector (
 | `ORBIT_ROBLOX_MCP_COMMAND`, `ORBIT_ROBLOX_MCP_ARGS` | Roblox Studio connection for GAME DEV: copy `command` and `args` of `Roblox_Studio` from `%APPDATA%\Claude\claude_desktop_config.json` | off |
 | `GCAL_OAUTH_CLIENT_ID`, `GCAL_OAUTH_CLIENT_SECRET` | Own Google client for LIFE → Connect Google Calendar (read-only). Empty = uses the YouTube client | YouTube client |
 | `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` | Twitch clips in Reach | off |
-| `ORBIT_REA_ENABLED`, `ORBIT_REA_TARGETS_JSON`, `ORBIT_REA_ENTRYPOINT` | REA project analysis, see [REA.md](REA.md) | off |
 
 Don't set these yourself: `ORBIT_DIST_DIR` (the launcher sets it while building) and `ORBIT_REAL_CLAUDE_BIN` (only for a speed-test script).
 

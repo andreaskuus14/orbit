@@ -58,12 +58,12 @@ test("fallbackNote: session fallback is visible", () => {
 });
 
 test("selectModules loads only what the request needs", () => {
-  const mods = ["STUDIO", "LIFE", "DEALS", "WEEK", "REA", "IDEAS"].map((name) => ({ name, prompt: name, tools: [] }));
+  const mods = ["STUDIO", "LIFE", "DEALS", "WEEK", "NOHINT", "IDEAS"].map((name) => ({ name, prompt: name, tools: [] }));
   const names = (t: string) => selectModules(mods, t).map((m) => m.name);
-  assert.deepEqual(names("remind me at 6 to call mom"), ["LIFE", "REA"]);
-  assert.deepEqual(names("I want a used RTX 4070 under 400€"), ["DEALS", "REA"]);
-  assert.deepEqual(names("what slipped this week"), ["WEEK", "REA"]);
-  assert.deepEqual(names("explain quantum tunnelling"), ["REA"]); // no hint: always loads
+  assert.deepEqual(names("remind me at 6 to call mom"), ["LIFE", "NOHINT"]);
+  assert.deepEqual(names("I want a used RTX 4070 under 400€"), ["DEALS", "NOHINT"]);
+  assert.deepEqual(names("what slipped this week"), ["WEEK", "NOHINT"]);
+  assert.deepEqual(names("explain quantum tunnelling"), ["NOHINT"]); // no hint: always loads
   assert.ok(names("schedule the approved clips").includes("STUDIO"));
   assert.ok(Object.keys(MODULE_HINTS).length >= 10);
 });

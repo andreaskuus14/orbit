@@ -7,7 +7,6 @@ import { describeFailure } from "../src/lib/core-capability-pure.ts";
 import { STUDIO_TOOLS } from "../src/lib/core-studio.ts";
 import { LIFE_TOOLS } from "../src/lib/core-life.ts";
 import { WS_TOOLS } from "../src/lib/core-workspace.ts";
-import { REA_TOOLS } from "../src/lib/rea-pure.ts";
 import { OPS_TOOLS } from "../src/lib/core-operator-pure.ts";
 
 const base = (o: Partial<PolicyCtx> = {}) => () => ({ stopAll: false, attach: false, pins: false, question: "news about estonia", autonomy: { "operator-build": "ask" as const, "operator-organize": "ask" as const }, ...o }); // per-action ask path (operator grants off)
@@ -20,7 +19,7 @@ test("tool names round-trip through the SDK's mcp__orbit__ prefix; built-ins and
 });
 
 // core-modules.ts can't load under node --test, so its MODULES tool lists are read from source (spreads resolved from the pure lists).
-const SPREADS: Record<string, readonly string[]> = { STUDIO_TOOLS, LIFE_TOOLS, WS_TOOLS, REA_TOOLS, OPS_TOOLS };
+const SPREADS: Record<string, readonly string[]> = { STUDIO_TOOLS, LIFE_TOOLS, WS_TOOLS, OPS_TOOLS };
 const moduleTools = [...readFileSync("src/lib/core-modules.ts", "utf8").matchAll(/\btools: \[([^\]]*)\]/g)].flatMap((m) =>
   m[1].split(",").map((x) => x.trim()).filter(Boolean).flatMap((x) => (x.startsWith("...") ? [...SPREADS[x.slice(3)]] : [JSON.parse(x) as string])));
 const coreSrc = readFileSync("src/lib/core.ts", "utf8").replace(/\r\n/g, "\n");
@@ -32,7 +31,7 @@ test("tool parity: the SDK server registers exactly the tools core.ts's loop can
   assert.match(coreSrc, /const execRaw = [^\n]*tool === "navigate" \? navigateTool[^\n]*\n\s*: tool === "read_more" \? clips\.read/); // exec: navigate, read_more, then modules, then runCoreTool
   assert.deepEqual([...CORE_BUILTINS].sort(), prompted.sort());
   assert.deepEqual([...CORE_BUILTINS].sort(), dispatched.sort());
-  assert.ok(moduleTools.length > 30 && moduleTools.includes("goal_status") && moduleTools.includes("rea_cancel"));
+  assert.ok(moduleTools.length > 30 && moduleTools.includes("goal_status") && moduleTools.includes("ws_write"));
   const tools = sdkTools(moduleTools);
   assert.deepEqual([...tools].sort(), [...new Set([...CORE_BUILTINS, ...moduleTools])].sort()); // every CORE tool, none extra
   assert.deepEqual([...tools].sort(), Object.keys(TIERS).sort()); // and exactly the tools decide() has a tier for

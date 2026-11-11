@@ -7,8 +7,6 @@ import { STUDIO_TOOLS, runPlanTool, runStudioTool, type StudioTool } from "./cor
 import { LIFE_TOOLS, runLifeTool, type LifeTool } from "./core-life";
 import { checkpointBasis } from "./checkpoint-pure";
 import { WS_PROMPT, WS_TOOLS, loadWsGate, runWsTool, wsTainted, type WsTool } from "./core-workspace";
-import { REA_PROMPT, runReaTool } from "./core-rea";
-import { REA_TOOLS } from "./rea-pure";
 import { OPS_PROMPT, OPS_TOOLS, type OpsTool } from "./core-operator-pure";
 import { isPluginTool } from "./plugins-pure";
 import { pluginPromptNow, runPluginTool } from "./plugins";
@@ -54,10 +52,6 @@ const MODULES: CoreModule[] = [
     run: async (t, i, c) => runWsTool(c.userId, t as WsTool, i, c.question, c.pinned || wsTainted(c.steps, c.question), c.steps.filter((s) => /^You called ws_write [^\n]*\nRESULT:\n(?!Error:)/.test(s)).length, c.onEvidence,
       t === "ws_write" && c.chat ? await import("./checkpoint").then(async (m) => checkpointBasis(await m.getCheckpoint(c.userId, c.chat!)), () => []) : [],
       (p) => c.steps.some((s) => /^You called ws_(?:read|write)\b/.test(s) && s.split("\nRESULT:")[0].includes(JSON.stringify(p))), await loadWsGate(c.userId, c.chat)),
-  },
-  {
-    name: "REA", tools: [...REA_TOOLS], private: ["rea_read"], prompt: REA_PROMPT,
-    run: (t, i, c) => runReaTool(c.userId, t, i, c.question, c.tainted),
   },
   {
     name: "BUSINESS", tools: ["business_status"], private: true,
