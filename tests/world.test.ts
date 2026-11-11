@@ -134,3 +134,17 @@ test("render: an open goal's forecast sentence is shown inert; done goals drop i
   assert.match(s, /1000 subscribers.* · forecast: At your current pace you reach ~640 of 1,000 by Dec 31; you'd need \+12\/day, you're doing \+7\/day\./);
   assert.equal(s.includes("Target reached"), false);
 });
+
+test("worldCommitments: only his confirmed, non-private commitments reach the WORLD MODEL", async () => {
+  const { worldCommitments } = await import("../src/lib/world-pure.ts");
+  const c = (text: string, o: object = {}) => ({ text, owner: "me", status: "confirmed", source: { kind: "typed" }, ...o });
+  const out = worldCommitments([
+    c("Send portfolio draft", { due: "2026-10-25" }), c("Close loop", { source: { kind: "loop" } }),
+    c("Awaiting one", { status: "awaiting" }), c("Dismissed one", { status: "dismissed" }), c("Their promise", { owner: "them" }),
+    c("Journal secret", { source: { kind: "journal" } }), c("Life secret", { source: { kind: "life" } }), c("No source", { source: undefined }),
+  ]);
+  const text = render({ ...world(), commitments: out }, TODAY);
+  assert.match(text, /Send portfolio draft \(due 2026-10-25, in 2d\)/);
+  assert.match(text, /Close loop/);
+  for (const bad of ["Awaiting", "Dismissed", "Their promise", "Journal secret", "Life secret", "No source"]) assert.equal(text.includes(bad), false, bad);
+});

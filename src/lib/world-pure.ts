@@ -8,6 +8,13 @@ export type Commitment = { text: string; due?: string };
 export type World = { goals: WorldGoal[]; weekly: Weekly; constraints: string[]; commitments: Commitment[] };
 
 export const MAX_RENDER = 6000;
+
+/** Kinds whose text he typed or confirmed outside LIFE/journal. Allowlist so a new or unknown source kind fails closed. */
+export const SAFE_COMMIT_KINDS = new Set(["typed", "loop"]);
+/** His confirmed commitments from dayplan.json, private-free: only owner "me", status "confirmed", allowlisted source kind. */
+export const worldCommitments = (cs: { text: string; owner: string; status: string; due?: string; source?: { kind?: string } }[]): Commitment[] =>
+  cs.filter((c) => c.owner === "me" && c.status === "confirmed" && SAFE_COMMIT_KINDS.has(c.source?.kind ?? "") && typeof c.text === "string" && c.text.trim())
+    .slice(0, 50).map((c) => ({ text: c.text.trim().slice(0, 300), ...(c.due && isDay(c.due) ? { due: c.due } : {}) }));
 const WEEKLY_KEYS = ["shortsViews", "shortsPublished", "leadsContacted", "studyHours"] as const;
 const STATUSES: GoalStatus[] = ["active", "paused", "done"];
 const DAY_MS = 86_400_000;
