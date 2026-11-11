@@ -11,8 +11,9 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const problem = remoteProblem();
   if (problem) return Response.json({ error: problem }, { status: 503 });
-  const who = pairClientKey(req.headers); // per client, so one guesser can't rate-limit or lock out the owner's phone
-  if (!rateOk(who, RATE.pair) || !rateOk("pair:all", RATE.pairAll)) return Response.json({ error: "Too many tries: wait a minute" }, { status: 429 });
+  // Global cap first, so a client rotating x-forwarded-for can't mint unlimited per-client keys; the per-client key is best effort (spoofable).
+  const who = pairClientKey(req.headers);
+  if (!rateOk("pair:all", RATE.pairAll) || !rateOk(who, RATE.pair)) return Response.json({ error: "Too many tries: wait a minute" }, { status: 429 });
   const b = (await req.json().catch(() => null)) as { code?: unknown; name?: unknown; type?: unknown } | null;
   const p = S.pair;
   if (!p) return Response.json({ error: "No pairing code: press Pair phone on the PC first" }, { status: 400 });

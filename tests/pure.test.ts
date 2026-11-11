@@ -204,6 +204,7 @@ test("newsHours: no hours means the 7-day search, not the last hour", async () =
 
 test("isPrivateIp: NAT64, 6to4 and hex IPv4-mapped forms are refused; public mapped ones pass", () => {
   for (const ip of ["64:ff9b::7f00:1", "64:ff9b::a00:1", "64:ff9b::808:808", "2002:7f00:1::", "2002::1", "::ffff:7f00:1", "::ffff:a9fe:a9fe",
-    "0:0:0:0:0:ffff:7f00:1", "::FFFF:C0A8:0101", "[::1]", "::7f00:1", "fe80::1%eth0"]) assert.equal(isPrivateIp(ip), true, ip);
+    "0:0:0:0:0:ffff:7f00:1", "::FFFF:C0A8:0101", "[::1]", "::7f00:1", "fe80::1%eth0",
+    "::ffff:0:7f00:1", "fec0::1", "feff::1", "2001::1", "2001:0:4136:e378::1"]) assert.equal(isPrivateIp(ip), true, ip);
   for (const ip of ["::ffff:808:808", "2606:4700::1111", "2001:4860:4860::8888"]) assert.equal(isPrivateIp(ip), false, ip);
 });

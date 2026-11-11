@@ -137,7 +137,7 @@ export const deviceName = (v: unknown) => (typeof v === "string" ? v.replace(/[^
 
 /** The rate-limit / lockout key of a pairing request: the client IP from the proxy headers (Next sets x-forwarded-for from the
  *  socket when none came in). shortcut: a client can send its own x-forwarded-for, so per-IP keys alone don't bound guessing;
- *  the pair route's global pairAll limit does. Upgrade to the socket address if the server ever exposes it to routes. */
+ *  the global pairAll limit (checked first), the bounded rate map and verifyPair's PAIR_MAX_FAILS_ALL do. Upgrade to the socket address if the server ever exposes it to routes. */
 export function pairClientKey(h: Headers): string {
   const ip = (h.get("x-forwarded-for") ?? "").split(",")[0].trim() || (h.get("x-real-ip") ?? "").trim();
   return `pair:${ip.slice(0, 64) || "unknown"}`;

@@ -66,15 +66,16 @@ export function isPrivateIp(ip: string): boolean {
   }
   let v6 = ip.toLowerCase().replace(/^\[|\]$/g, "");
   try { v6 = new URL(`http://[${v6}]`).hostname.slice(1, -1); } catch { return true; } // canonical form; unparsable (zone ids too) fails closed
-  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(v6); // IPv4-mapped in hex form (::ffff:7f00:1)
+  const mapped = /^::ffff:(?:0:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(v6); // IPv4-mapped (::ffff:7f00:1) and IPv4-translated (::ffff:0:7f00:1)
   if (mapped) { const [h, l] = [parseInt(mapped[1], 16), parseInt(mapped[2], 16)]; return isPrivateIp(`${h >> 8}.${h & 255}.${l >> 8}.${l & 255}`); }
   return (
     v6 === "::" || v6 === "::1" ||
     v6.startsWith("64:ff9b:") || // NAT64 (64:ff9b::/96, and the local-use 64:ff9b:1::/48): reaches any IPv4, private ones too
     v6.startsWith("2002:") || // 6to4: embeds an IPv4 address
+    /^2001:0?:/.test(v6) || // Teredo 2001::/32: embeds an IPv4 address
     /^::(?:[0-9a-f]{1,4}:)?[0-9a-f]{1,4}$/.test(v6) || // deprecated IPv4-compatible ::a.b.c.d
     v6.startsWith("fc") || v6.startsWith("fd") || // unique local
-    v6.startsWith("fe8") || v6.startsWith("fe9") || v6.startsWith("fea") || v6.startsWith("feb") || // link-local
+    /^fe[89a-f]/.test(v6) || // link-local fe80::/10 and deprecated site-local fec0::/10
     v6.startsWith("ff") // multicast
   );
 }

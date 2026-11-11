@@ -197,3 +197,9 @@ test("verifyPair: a guesser's wrong codes lock only that client, never the owner
   assert.equal((verifyPair(p, "333333", T0, "pair:10.0.0.9") as { reason: string }).reason, "locked");
   assert.equal(verifyPair(p, "333333", T0, "pair:100.64.0.2").ok, true);
 });
+
+test("verifyPair: rotating the client key can't get more than PAIR_MAX_FAILS_ALL guesses at one code", () => {
+  let p = makePairCode(() => 333333, T0);
+  for (let i = 0; i < 15; i++) p = verifyPair(p, String(100000 + i), T0, `pair:spoof${i}`).pair;
+  assert.equal((verifyPair(p, "333333", T0, "pair:fresh") as { reason: string }).reason, "locked");
+});

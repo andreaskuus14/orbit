@@ -56,9 +56,12 @@ export function updateDevices(fn: (ds: Device[]) => Device[]): Promise<Device[]>
 export const newDeviceId = () => randomBytes(18).toString("base64url");
 export const newPair = (userId: string) => (S.pair = { ...makePairCode(randomInt), userId });
 
+const MAX_RATE_KEYS = 1000;
 export function rateOk(key: string, r: { limit: number; windowMs: number }) {
   const t = takeRate(S.hits.get(key) ?? [], Date.now(), r.limit, r.windowMs);
+  S.hits.delete(key); // re-insert so Map order is least-recently-used first
   S.hits.set(key, t.hits);
+  for (const k of S.hits.keys()) { if (S.hits.size <= MAX_RATE_KEYS) break; S.hits.delete(k); } // bounded: spoofed keys can't grow memory
   return t.ok;
 }
 

@@ -14,6 +14,8 @@ export function deviceForToken<D extends { id: string }>(token: unknown, secret:
 
 export const PAIR_TTL_MS = 2 * 60 * 1000;
 export const PAIR_MAX_FAILS = 5;
+/** Wrong tries over all clients before the code locks for everyone: the client key is a spoofable header, so this is the real bound. */
+export const PAIR_MAX_FAILS_ALL = 15;
 /** fails = wrong guesses in total (shown nowhere, kept for logs); failsBy = per client, which is what locks (see verifyPair). */
 export type PairCode = { code: string; expiresAt: number; fails: number; used: boolean; failsBy?: Record<string, number> };
 export type PairResult = { ok: true; pair: PairCode } | { ok: false; reason: "expired" | "locked" | "used" | "wrong"; pair: PairCode };
@@ -31,17 +33,16 @@ const sameBytes = (a: string, b: string) => {
 };
 
 /** Check an attempt from client `who`; returns the next pair state to store. One success consumes the code. Five wrong tries lock
- *  only that client, so someone guessing can't lock the owner's phone out of its real code (the route's global rate limit bounds
- *  how many guesses all clients together get in the code's 2 minutes). */
+ *  that client; PAIR_MAX_FAILS_ALL wrong tries from all clients lock the code (client keys are spoofable), and the owner makes a new one. */
 export function verifyPair(pair: PairCode, attempt: unknown, now: number, who = ""): PairResult {
   if (pair.used) return { ok: false, reason: "used", pair };
-  if ((pair.failsBy?.[who] ?? 0) >= PAIR_MAX_FAILS) return { ok: false, reason: "locked", pair };
+  if ((pair.failsBy?.[who] ?? 0) >= PAIR_MAX_FAILS || pair.fails >= PAIR_MAX_FAILS_ALL) return { ok: false, reason: "locked", pair };
   if (now >= pair.expiresAt) return { ok: false, reason: "expired", pair };
   const guess = typeof attempt === "string" && /^\d{6}$/.test(attempt) ? attempt : "------";
   if (sameBytes(pair.code, guess)) return { ok: true, pair: { ...pair, used: true } };
   const mine = (pair.failsBy?.[who] ?? 0) + 1;
   const next = { ...pair, fails: pair.fails + 1, failsBy: { ...pair.failsBy, [who]: mine } };
-  return { ok: false, reason: mine >= PAIR_MAX_FAILS ? "locked" : "wrong", pair: next };
+  return { ok: false, reason: mine >= PAIR_MAX_FAILS || next.fails >= PAIR_MAX_FAILS_ALL ? "locked" : "wrong", pair: next };
 }
 
 // ---- Session tokens ------------------------------------------------------
