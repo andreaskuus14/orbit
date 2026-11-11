@@ -174,7 +174,7 @@ const BASE = {
   "night.addPh": "Look into … tonight", "night.addAria": "Add a task for tonight", "night.viaCore": " · via CORE", "night.removeAria": "Remove {text}",
   "night.empty": "Nothing queued. Goal steps, follow-up drafts and Shorts packaging still run on their own.",
 
-  "task.back": "← All tasks", "task.request": "Request", "task.retry": "Retry", "task.cancel": "Cancel task", "task.copyReceipt": "Copy receipt", "task.delegated": "Delegated", "task.result": "result",
+  "task.back": "← All tasks", "task.request": "Request", "task.retry": "Retry", "task.cancel": "Cancel task", "task.copyReceipt": "Copy receipt", "task.traceExport": "Export redacted trace", "task.traceExportTitle": "Download this run for debugging: request and result text omitted, private output withheld, secrets and personal details replaced", "task.delegated": "Delegated", "task.result": "result",
   "task.blockedBy": "Blocked by: {list}", "task.issues": "Unresolved", "task.actions": "Completed actions",
   "task.retryStep": "Retry this step", "task.resume": "Resume (approve this step again)", "task.replaceInput": "Replace input", "task.rerun": "Rerun with this input", "task.abandon": "Abandon",
   "task.recoverHint": "Completed actions and their receipts stay as they are; a retried step reuses its attempt id, so a write that already landed is not repeated.",
@@ -1057,7 +1057,7 @@ export const ET: Partial<Record<Key, string>> = {
   "night.addPh": "Uuri täna öösel …", "night.addAria": "Lisa ülesanne tänaseks ööks", "night.viaCore": " · CORE'i kaudu", "night.removeAria": "Eemalda: {text}",
   "night.empty": "Järjekord on tühi. Eesmärkide sammud, järelkirjade mustandid ja Shortside pakendamine käivad ikka omasoodu.",
 
-  "task.back": "← Kõik ülesanded", "task.request": "Päring", "task.retry": "Proovi uuesti", "task.cancel": "Tühista ülesanne", "task.copyReceipt": "Kopeeri kviitung", "task.delegated": "Edasi antud", "task.result": "tulemus",
+  "task.back": "← Kõik ülesanded", "task.request": "Päring", "task.retry": "Proovi uuesti", "task.cancel": "Tühista ülesanne", "task.copyReceipt": "Kopeeri kviitung", "task.traceExport": "Ekspordi puhastatud logi", "task.traceExportTitle": "Laadi see käivitus silumiseks alla: päringu ja tulemuse tekst välja jäetud, privaatne väljund peidetud, saladused ja isikuandmed asendatud", "task.delegated": "Edasi antud", "task.result": "tulemus",
   "task.blockedBy": "Ootab: {list}", "task.issues": "Lahendamata", "task.actions": "Tehtud toimingud",
   "task.retryStep": "Proovi seda sammu uuesti", "task.resume": "Jätka (kinnita see samm uuesti)", "task.replaceInput": "Asenda sisend", "task.rerun": "Käivita selle sisendiga", "task.abandon": "Loobu",
   "task.recoverHint": "Tehtud toimingud ja nende kviitungid jäävad alles; uuesti proovitud samm kasutab sama katse-id-d, nii et juba tehtud kirjutust ei korrata.",

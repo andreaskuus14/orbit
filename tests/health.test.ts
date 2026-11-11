@@ -12,7 +12,7 @@ const SERVER = [
   "⨯ unhandledRejection: TypeError: Cannot read properties of undefined (reading 'clips') at C:\\Users\\Andreas\\orbit\\.next\\server\\chunks\\812.js:14:2201",
   "    at async listJobs (C:\\Users\\Andreas\\orbit\\src\\lib\\clips\\factory.ts:206:20)",
   "[orbit] usage meter not saved: SyntaxError: Unexpected end of JSON input in C:\\Users\\Andreas\\AppData\\Local\\orbit\\usage-meter.json",
-  "[orbit] deals hunt failed: 401 Unauthorized Authorization: Bearer sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA user andreas@example.com token=abc123secret",
+  "[orbit] deals hunt failed: 401 Unauthorized Authorization: Bearer sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA user andreas@example.com token=abc123secret", // secret-scan: allow (fake test value)
   "GET /api/brief 200 in 41ms",
   "Compiled with 0 errors",
 ].join("\n");
@@ -20,7 +20,7 @@ const LAUNCHER = "2026-10-25 02:13:05  [orbit] ORBIT server exited unexpectedly 
 
 test("redact strips keys, tokens, cookies, Bearer, JWTs and emails", () => {
   const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
-  const r = redact(`Bearer abc.def-ghi apikey=sk-ant-api03-XYZXYZXYZXYZXYZ mail andreas@example.com supabase ${jwt} ?token=zzz&q=1 "password": "hunter2" ghp_${"a".repeat(36)}\nCookie: sb-access=${jwt}; x=1`);
+  const r = redact(`Bearer abc.def-ghi apikey=sk-ant-api03-XYZXYZXYZXYZXYZ mail andreas@example.com supabase ${jwt} ?token=zzz&q=1 "password": "hunter2" ghp_${"a".repeat(36)}\nCookie: sb-access=${jwt}; x=1`); // secret-scan: allow (fake test value)
   for (const bad of ["abc.def-ghi", "sk-ant", "hunter2", "andreas@example.com", "eyJ", "zzz", "ghp_"]) assert.ok(!r.includes(bad), `${bad} leaked: ${r}`);
   assert.match(r, /Bearer <redacted>/);
   assert.match(r, /<email>/);

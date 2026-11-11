@@ -4,8 +4,8 @@ import { looksSecret, validateMemory, extractObject, parseReflection, allowedSav
 
 test("looksSecret catches passwords, keys, tokens and valid card numbers", () => {
   for (const s of [
-    "my password is hunter2", "API key: abc123", "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA", "ghp_abcdefghijklmnopqrstuvwxyz123456",
-    "AKIAIOSFODNN7EXAMPLE", "card 4111 1111 1111 1111", "-----BEGIN RSA PRIVATE KEY-----",
+    "my password is hunter2", "API key: abc123", "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA", "ghp_abcdefghijklmnopqrstuvwxyz123456", // secret-scan: allow (fake test value)
+    "AKIAIOSFODNN7EXAMPLE", "card 4111 1111 1111 1111", "-----BEGIN RSA PRIVATE KEY-----", // secret-scan: allow (fake test value)
   ]) assert.equal(looksSecret(s), true, s);
   for (const s of ["I prefer dark mode", "my phone is 555 1234", "order 1234567890123 shipped", "passwords should be long"])
     assert.equal(looksSecret(s), false, s);
@@ -34,7 +34,7 @@ test("parseReflection dedupes, caps, filters edits and summary", () => {
       { title: "Uses Godot", content: "Andreas builds games in Godot.", kind: "project" },
       { title: "uses godot!", content: "dup in batch", kind: "note" },
       { title: "Known one", content: "already saved", kind: "note" },
-      { title: "Token", content: "token = sk-live-AAAAAAAAAAAAAAAAAAAA", kind: "note" },
+      { title: "Token", content: "token = sk-live-AAAAAAAAAAAAAAAAAAAA", kind: "note" }, // secret-scan: allow (fake test value)
       { title: "Goal 2027", content: "Ship pet sim v1.", kind: "goal" },
       { title: "Fourth", content: "over the cap", kind: "note" },
     ],
