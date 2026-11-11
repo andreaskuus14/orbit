@@ -31,7 +31,7 @@ export function stepLabel(tool: string, input: Record<string, unknown> = {}): st
     ask_agent: `Asking ${agent}…`, save_memory: "Saving to memory…", navigate: "Flying there…",
     studio_status: "Checking the studio…", learned: "Checking what works…", run_scout: "Starting the scout…",
     run_niche: "Starting niche research…", schedule_approved: "Scheduling clips…",
-    rea_status: "Checking project analysis…", rea_analyze: "Starting project analysis…", rea_read: "Reading analysis evidence…", rea_cancel: "Stopping analysis…",
+
     suggestions: "Checking what needs attention…", plan_task: "Starting the plan…", create_goal: "Setting up the goal…", goal_status: "Checking your goals…", wishlist: "Checking your wishlist…", add_wish: "Adding to your wishlist…", propose_rule: "Writing up the rule…", review: "Double-checking the answer…",
   };
   return labels[tool] ?? progressLabel(tool, input) ?? "Working…";
@@ -40,8 +40,6 @@ export function stepLabel(tool: string, input: Record<string, unknown> = {}): st
 /** 2-3 follow-up chips from the tools used (first match wins) or the question; [] when nothing fits. */
 export function followUps(question: string, tools: string[]): string[] {
   const used = (t: string) => tools.includes(t);
-  if (used("rea_analyze")) return ["Check REA analysis status", "Read the REA findings"];
-  if (used("rea_read")) return ["Explain the findings", "What should I fix first?"];
   if (used("studio_status")) return ["Review clips", "Run the scout", "What has worked best?"];
   if (used("learned")) return ["Review clips", "Find my niche", "Studio status"];
   if (used("run_scout") || used("run_niche")) return ["Studio status", "Review clips"];

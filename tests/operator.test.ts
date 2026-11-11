@@ -57,7 +57,7 @@ test("AGENTS.md: operator rule present, core rules kept", () => {
   assert.match(md, /send, publish, upload or spend[\s\S]{0,200}exact item with his own click/);
   assert.match(md, /Never commit to `main`/);
   assert.match(md, /Never commit secrets/);
-  assert.match(md, /Do not edit REA files/);
+  assert.match(md, /REA .* was removed/);
   assert.match(md, /Journal\/LIFE text never goes to a model/);
 });
 
