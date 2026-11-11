@@ -20,12 +20,21 @@ export function WorkView({ tab, onTab, onOpenTask, onOpenGoal }: { tab: WorkTab;
     if (tab !== "goals" || agents.length) return;
     fetch("/api/agents").then((r) => (r.ok ? r.json() : null)).then((j) => { if (Array.isArray(j?.agents)) setAgents(j.agents); }).catch(() => { /* GoalsPanel still lists goals */ });
   }, [tab, agents.length]);
-  const move = (e: React.KeyboardEvent, i: number) => { // arrow keys between tabs (WAI-ARIA tabs pattern)
-    const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-    if (!d) return;
+  const move = (e: React.KeyboardEvent, i: number) => {
+    const last = WORK_TABS.length - 1;
+    let index: number;
+    switch (e.key) {
+      case "Home": index = 0; break;
+      case "End": index = last; break;
+      case "ArrowRight": index = i === last ? 0 : i + 1; break;
+      case "ArrowLeft": index = i === 0 ? last : i - 1; break;
+      default: return;
+    }
     e.preventDefault();
-    const next = WORK_TABS[(i + d + WORK_TABS.length) % WORK_TABS.length].id;
-    onTab(next); document.getElementById(`work-tab-${next}`)?.focus();
+    e.stopPropagation();
+    const next = WORK_TABS[index].id;
+    onTab(next);
+    document.getElementById(`work-tab-${next}`)?.focus();
   };
   return (
     <>
@@ -37,7 +46,7 @@ export function WorkView({ tab, onTab, onOpenTask, onOpenGoal }: { tab: WorkTab;
           </button>
         ))}
       </div>
-      <div id="work-tabpanel" role="tabpanel" aria-labelledby={`work-tab-${tab}`} className="space-y-4">
+      <div id="work-tabpanel" role="tabpanel" tabIndex={0} aria-labelledby={`work-tab-${tab}`} className="space-y-4">
         {tab === "work" ? <><ContinueWork onOpenTask={onOpenTask} onOpenGoal={onOpenGoal} /><MissionsPanel visible onOpenTask={onOpenTask} /></>
           : tab === "routines" ? <RulesView onOpenTask={onOpenTask} />
           : tab === "workflows" ? <><SkillsPanel /><RecipesPanel onOpenTask={onOpenTask} /></>
