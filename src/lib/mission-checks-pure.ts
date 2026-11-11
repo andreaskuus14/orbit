@@ -80,14 +80,13 @@ export function checkFile(path: string, text: string, step = 0): Check {
   return c(true, "readable text");
 }
 
-/** Opens a PDF with pdf.js (unpdf) after the structural check; ok only when it has at least one page. */
-export async function checkPdf(path: string, bytes: Uint8Array, step = 0): Promise<Check> {
+/** Opens a PDF after the structural check; ok only when it has at least one page. `pages` opens the bytes and returns the page count
+ *  (injected: pdf-open.ts, server-only, so pdf.js stays out of client bundles that import this file). */
+export async function checkPdf(path: string, bytes: Uint8Array, step = 0, pages: (bytes: Uint8Array) => Promise<number>): Promise<Check> {
   const s = checkFile(path, Buffer.from(bytes).toString("latin1"), step);
   if (!s.ok) return s;
   try {
-    const { getDocumentProxy } = await import("unpdf"); // lazy: keeps pdf.js out of client bundles that import this file
-    const doc = await getDocumentProxy(new Uint8Array(bytes));
-    const n = doc.numPages; void doc.cleanup?.();
+    const n = await pages(bytes);
     return n > 0 ? { ...s, what: `${path}: PDF opens, ${n} page(s)` } : { ...s, ok: false, what: `${path}: PDF has no pages` };
   } catch (e) { return { ...s, ok: false, what: `${path}: PDF does not open (${e instanceof Error ? e.message.slice(0, 80) : "error"})` }; }
 }

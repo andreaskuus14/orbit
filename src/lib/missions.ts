@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { cancelChain, createChain, drive, getChain } from "./chains";
 import { parseMeta, type ChainView } from "./chains-pure";
 import { checkContains, checkFile, checkPdf, checkResearch, evidenceLevels, evidenceLine, expected, fetchedFromTrace, plan, reviewStep, type Check } from "./mission-checks-pure";
+import { pdfPages } from "./pdf-open";
 import { createWorkspace, readWsFile, writeWsFile } from "./workspace";
 import { baselineMinutes, checkReport, closeMetrics, holdFor, section, PILOT_CONTRACT, RESEARCH_PILOT } from "./research-pilot-pure";
 import {
@@ -91,7 +92,7 @@ async function examine(sb: SupabaseClient, userId: string, chainId: string, chai
     const checks: Check[] = [], kid = kids.get(s.taskId ?? ""), result = kid?.result || s.result || "";
     for (const r of doc.receipts.filter((r) => r.step === s.index && r.kind === "file" && r.path)) {
       const f = await readWsFile(userId, r.ref, r.path!);
-      checks.push(!f ? { step: s.index, ok: false, kind: "readBack", what: `${r.path} can't be read back` } : /\.pdf$/i.test(r.path!) ? await checkPdf(r.path!, f.bytes, s.index) : checkFile(r.path!, f.text, s.index));
+      checks.push(!f ? { step: s.index, ok: false, kind: "readBack", what: `${r.path} can't be read back` } : /\.pdf$/i.test(r.path!) ? await checkPdf(r.path!, f.bytes, s.index, pdfPages) : checkFile(r.path!, f.text, s.index));
     }
     // Approved-action receipts only exist after completion.ts read the destination back and it matched (matchesStored).
     if (doc.receipts.some((r) => r.step === s.index && r.kind !== "task")) checks.push({ step: s.index, ok: true, kind: "readBack", what: "destination read back matches the approved action" });
