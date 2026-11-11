@@ -16,6 +16,7 @@ type Sort = "newest" | "name" | "size";
 const ICON: Record<Kind, string> = { image: "IMG", video: "VID", audio: "AUD", pdf: "PDF", text: "TXT", doc: "DOC", other: "FILE" };
 const cloudWarn = (r: unknown) => (typeof r === "string" && r.startsWith("failed") ? `Saved on this PC; cloud copy failed: ${r.replace(/^failed: /, "")}` : "");
 const JSON_POST = (body: unknown): RequestInit => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+const PODDABLE = /\.(pdf|docx?|txt|md)$/i;
 const raw = (name: string) => `/api/vault?file=${encodeURIComponent(name)}&raw=1`;
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
@@ -78,6 +79,16 @@ export function VaultPanel() {
     return () => ac.abort();
   }, [open, previewGate]);
 
+  const [pod, setPod] = useState("");
+  async function podcast(names: string[]) {
+    setErr(""); setBusy(`Making a podcast from ${names.length} file${names.length === 1 ? "" : "s"}… (a few minutes)`);
+    try {
+      const res = await fetch("/api/vault", JSON_POST({ action: "podcast", names }));
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Request failed (${res.status})`);
+      setPod((old) => { if (old) URL.revokeObjectURL(old); return ""; });
+      setPod(URL.createObjectURL(await res.blob()));
+    } catch (e) { setErr(e instanceof Error ? e.message : "Podcast failed"); } finally { setBusy(""); }
+  }
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const list = files.filter((f) => !needle || f.name.toLowerCase().includes(needle) || (hits && f.name in hits));
@@ -111,6 +122,15 @@ export function VaultPanel() {
     if (errors.length) setErr(errors.join("\n"));
     if (fileRef.current) fileRef.current.value = "";
     await load();
+  }
+
+  async function makeSkill(f: File2) {
+    setErr(""); setNote(`Making a skill from ${f.name}: one pass per chapter, this can take a few minutes…`);
+    try {
+      const r = await call<{ skill: string; chapters: number; skipped: number }>("/api/vault", JSON_POST({ action: "skill", name: f.name }));
+      await load();
+      setNote(`Saved ${r.skill}: ${r.chapters} chapters${r.skipped ? ` (${r.skipped} skipped)` : ""}. Agents can now load it with vault_skill.`);
+    } catch (e) { setNote(""); setErr(e instanceof Error ? e.message : "Couldn't make a skill"); }
   }
 
   async function rename(f: File2) {
@@ -219,13 +239,20 @@ export function VaultPanel() {
         <div className="flex flex-wrap gap-2">
           <a className="btn" href={src} download={open.name}>Download</a>
           <button className="btn" onClick={() => rename(open)}>Rename</button>
+          {/\.(pdf|docx?|txt|md|epub)$/i.test(open.name) && <button className="btn" title="Turn this book into compact study notes ORBIT's agents load on demand" onClick={() => makeSkill(open)}>Make a skill</button>}
           {memoryType(open.name) && <button className="btn" disabled={!!busy || open.size > MEMORY_MAX} title={open.size > MEMORY_MAX ? "MEMORY accepts files up to 4 MB" : undefined} onClick={() => toMemory(open)}>Save copy to MEMORY (cloud)</button>}
           {(open.type === "text" || open.type === "pdf" || open.type === "doc") && (
             <button className="btn" onClick={() => dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text: `Read my VAULT file "${open.name}" and give me a short summary.` } }))}>Ask CORE</button>)}
           {isDocName(open.name) && <ReadDocument name={open.name} onSaved={(n) => { setNote(`Saved ${n} next to it (Markdown, on this PC only). CORE can now search and read it.`); void load(); }} />}
           <button className="btn danger" onClick={() => remove(open)}>{t("vault.moveToTrash")}</button>
         </div>
-        {busy && <p className="muted">{busy}</p>}
+        {shown.some((f) => PODDABLE.test(f.name)) && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button className="btn" disabled={!!busy} onClick={() => void podcast(shown.filter((f) => PODDABLE.test(f.name)).slice(0, 6).map((f) => f.name))}
+            title="Two voices talk through the documents shown (up to 6). Filter the list to choose.">Podcast from these files</button>
+          {pod && <audio controls src={pod} className="h-8" />}
+        </div>)}
+      {busy && <p className="muted">{busy}</p>}
       </div>
     );
   }

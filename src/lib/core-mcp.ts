@@ -10,7 +10,7 @@ import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { askClaude, emit, recordUsage } from "./claude";
 import { MODULE_PROMPT, MODULE_TOOLS } from "./core-modules";
-import { pluginPromptNow, pluginToolNames } from "./plugins";
+import { pluginPromptNow, pluginSchemasNow, pluginToolNames } from "./plugins";
 import { authorizeTool } from "./authority";
 import { policyEvent } from "./policy-pure";
 import { stopAllOn } from "./stop-all";
@@ -67,7 +67,7 @@ export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: st
   // every tool is listed natively with its own description here, so the JSON loop's MODULE TOOLS pointer doesn't apply
   const native = nativeSystem(t.system).replace(/their instructions come in the request's MODULE TOOLS block[^;]*; call only tools described there or above/, "each one's input and rules are in its tool description; call only the tools offered to you");
   const b = await boostTurn({ ...t, system: `${native}\n\n${ACTION_BLOCK}` }); // model route, skills, native files, cache order
-  const list = mcpToolList(names, toolDocs(stripSkills(`${t.system}\n${MODULE_PROMPT}\n${pluginPromptNow()}`), names));
+  const list = mcpToolList(names, toolDocs(stripSkills(`${t.system}\n${MODULE_PROMPT}\n${pluginPromptNow()}`), names), pluginSchemasNow());
   const call = (name: string, raw: Record<string, unknown>) => one(async () => {
     if (!names.includes(name)) return toolResult(`Error: unknown tool "${name.slice(0, 60)}"; call only the tools listed for this turn`);
     if (t.escalate && b.route.tier === "fast") { escalated = true; ac.abort(); return toolResult("Error: stopped"); }

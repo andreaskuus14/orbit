@@ -14,7 +14,12 @@
     "eval": "node --no-warnings --experimental-strip-types scripts/eval-core.ts",
     "demo:build": "node scripts/demo-build.mjs",
     "smoke": "node scripts/smoke.mjs",
-    "gate": "tsc --noEmit -p . && npm test && npm run eval:ai && next build",
+    "check:watch-brief": "node --no-warnings --experimental-strip-types scripts/watch-brief-ui.mjs",
+    "check:team-status": "node --no-warnings --experimental-strip-types scripts/team-status-ui.mjs",
+    "check:continue-work": "node --no-warnings --experimental-strip-types scripts/continue-ui.mjs",
+    "secrets": "node scripts/secret-scan.mjs",
+    "deps:outdated": "node scripts/deps-update.mjs",
+    "gate": "node scripts/secret-scan.mjs && node -e \"require('fs').rmSync('.next/types',{recursive:true,force:true})\" && tsc --noEmit -p . && npm test && npm run eval:ai && next build",
     "textures": "node scripts/fetch-textures.mjs",
     "app:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-shortcut.ps1",
     "app:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/launch.ps1 -ServerOnly",
@@ -29,7 +34,6 @@
     "wake:debug": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wake/orbit-wake.ps1 -DebugRun",
     "night:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/night/install.ps1",
     "night:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/night/uninstall.ps1",
-    "rea:setup": "node scripts/setup-rea.mjs",
     "remote:vapid": "node --experimental-strip-types scripts/vapid-keys.ts",
     "perf:run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/perf-run.ps1",
     "perf:report": "node --no-warnings --experimental-strip-types scripts/perf-run.ts"
@@ -46,6 +50,7 @@
     "@react-three/postprocessing": "^3.0.4",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.75.0",
+    "ajv": "8.20.0",
     "ffmpeg-static": "^5.2.0",
     "kokoro-js": "^1.2.1",
     "mammoth": "^1.9.0",
@@ -57,6 +62,7 @@
     "sharp": "^0.34.3",
     "three": "^0.180.0",
     "unpdf": "^1.0.0",
+    "web-ifc": "0.0.78",
     "world-atlas": "^2.0.2",
     "zod": "4.6.7"
   },
@@ -69,5 +75,13 @@
     "hyperframes": "0.8.171",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.9.0"
+  },
+  "allowScripts": {
+    "ffmpeg-static@5.3.0": true,
+    "sharp@0.35.5": true,
+    "sharp@0.34.5": true,
+    "esbuild@0.25.12": true,
+    "onnxruntime-node@1.21.0": true,
+    "protobufjs@7.6.6": true
   }
 }

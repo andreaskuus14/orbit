@@ -9,7 +9,7 @@ import { askClaude, FAST_MODEL, recordUsage } from "./claude";
 import { localDay } from "./morning-pure";
 import { placeLines } from "./place-pure";
 import { briefEcho } from "./episodes-pure";
-import { POLISH_SYSTEM, briefDecisions, briefOpener, cleanPolish, composeBrief, polishPrompt, type Brief } from "./brief-pure";
+import { POLISH_SYSTEM, briefDecisions, briefOpener, cleanPolish, composeBrief, polishPrompt, type Brief, type ProjectTask, type ProjectsIn } from "./brief-pure";
 import { briefContracts } from "./contracts-pure";
 import { leadItems, morningPicks } from "./needs-you-pure";
 
@@ -41,10 +41,23 @@ async function replies(sb: SupabaseClient, now: number) {
   return (data ?? []) as { id: string; name: string }[];
 }
 
+/** The Today section's project changes: his top-level project tasks finished in the last day or waiting for his OK, with project names. */
+async function projectTasks(sb: SupabaseClient, userId: string, now: number): Promise<ProjectsIn> {
+  const cols = "id, project_id, title, status, finished_at, created_at", mine = () => sb.from("tasks").select(cols).eq("user_id", userId).not("project_id", "is", null).is("parent_id", null);
+  const [fin, wait, pr] = await Promise.all([
+    mine().gte("finished_at", new Date(now - DAY).toISOString()).in("status", ["done", "failed"]).order("finished_at", { ascending: false }).limit(60),
+    mine().eq("status", "awaiting_approval").limit(40),
+    sb.from("projects").select("id, name").eq("user_id", userId).limit(200),
+  ]);
+  const err = fin.error ?? wait.error ?? pr.error;
+  if (err) throw new Error(err.message);
+  return { tasks: [...(fin.data ?? []), ...(wait.data ?? [])] as ProjectTask[], names: Object.fromEntries(((pr.data ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name])) };
+}
+
 /** The deterministic brief for now (no AI call). */
 export async function composeToday(sb: SupabaseClient, userId: string, now = Date.now()): Promise<Brief> {
   const day = localDay(new Date(now)), hour = new Date(now).getHours();
-  const [u, m, rem, rep, les, dl, hl, ds, ct, eps, dr, di, pl, study, sc, gr, rc, hw, rv, lp, cf, ny, wt] = await Promise.all([
+  const [u, m, rem, rep, les, dl, hl, ds, ct, eps, dr, di, pl, study, sc, gr, rc, hw, rv, lp, cf, ny, wt, pj] = await Promise.all([
     load().then((s) => s.users[userId] ?? {}),
     import("./morning").then((x) => x.getMorning(sb, userId, now)),
     within(import("./remote").then((x) => x.pendingApprovals(sb))).catch(() => []),
@@ -67,12 +80,13 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
     within(import("./loops").then((x) => x.loopsBrief(now))).catch(() => null),
     within(import("./entity-graph").then((x) => x.entitiesBrief(userId))).catch(() => null),
     within(import("./needs-you").then((x) => x.gatherNeeds(sb, userId, now)), 6000).catch(() => []), // the lead: artifact, decision, next action
-    within(Promise.all([import("./pagewatch"), import("./pagewatch-pure")]).then(async ([w, p]) => p.briefWatch(await w.watchStore(), now))).catch(() => null),
+    within(Promise.all([import("./pagewatch"), import("./pagewatch-pure")]).then(async ([w, p]) => p.briefWatch(await w.watchStore(), now))).catch(() => ({ changes: [], more: 0, failed: [], unreadable: true })), // unreadable says so, never "no change"
+    within(projectTasks(sb, userId, now)).catch(() => null), // null: the card says it couldn't be read
   ]);
   const weather = pl ? await within(import("./weather").then((x) => x.briefWeather(pl, now)), 6000).catch(() => null) : null; // no saved place → none
   const inv = await within(import("./invoices").then((x) => x.allInvoices())).catch(() => []); // overdue reminders waiting for his approve
   // contracts only open: he signs on the PC
-  const decisions = [...briefDecisions(m.night?.approvals ?? [], m.work?.items ?? [], rem), ...briefContracts(ct), ...(await import("./invoices-pure")).briefInvoices(inv, day)];
+  const decisions = await (await import("./approval-bind")).stampSeen(sb, userId, [...briefDecisions(m.night?.approvals ?? [], m.work?.items ?? [], rem), ...briefContracts(ct), ...(await import("./invoices-pure")).briefInvoices(inv, day)]);
   // Tasks and goals can only be approved on the PC; phone-remote items (clips, spends, emails) can be done from the phone.
   const place = pl ? placeLines(pl, now, [...decisions.map((d) => d.title), ...(m.work?.items ?? []).map((w) => w.title), ...(m.hero ? [m.hero.title] : [])],
     decisions.filter((d) => /^(task|goal):/.test(d.id)).length) : [];
@@ -84,7 +98,8 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
     replies: rep, deal, ...(wt && { watch: wt }), ...(hl && { health: hl }), ...(ds && { devSession: ds }), ...(dr && { dream: { id: dr.key, question: dr.question } }), ...(di && { idea: di }), ...(sc && { school: sc }), ...(gr && { goalRisk: gr }), ...(rc && { recap: rc }), ...(rv && { review: rv }), ...(lp && { loops: lp }), ...(cf && { conflict: cf }), lesson: lesson && { id: lesson.id, text: lesson.text }, study,
     echo: { short: briefEcho(eps, "short", now, (m.studio?.yesterday ?? []).map((y) => y.title)), reply: briefEcho(eps, "reply", now, rep.map((r) => r.name)) },
     lead: leadItems(morningPicks(ny)), habits: hw, snoozed: Object.entries(u.snoozed ?? {}).filter(([, until]) => until > day).map(([id]) => id),
-  });
+    projects: pj,
+  }, now);
 }
 
 /** The brief with today's polished words when they still match (one model call a day at most; any failure keeps the plain words). */

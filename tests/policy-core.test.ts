@@ -46,7 +46,7 @@ function legacy(tool: string, input: Record<string, unknown>, c: PolicyCtx): str
   else if (tool === "add_wish") b = wishBlocked(question, dataIn()); // deal hunter: its runner's guard (deals.ts runDealTool)
   else if (tool === "propose_rule") b = ruleBlocked(question, dataIn()); // standing rules: its runner's guard (rules.ts runRuleTool)
   else if (tool === "watch_add") b = watchBlocked(question, dataIn()); // page watch: its runner's guard (pagewatch.ts runWatchTool)
-  else if (tool === "ask_agent") b = agentBlocked(question, input.agent, !!attach || steps.some((x) => ["fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes"].some((t) => x.startsWith(`You called ${t} `)))); // red-team 8.3: added after 1.3
+  else if (tool === "ask_agent") b = agentBlocked(question, input.agent, !!attach || steps.some((x) => ["fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes", "calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "ws_read"].some((t) => x.startsWith(`You called ${t} `)))); // red-team 8.3: added after 1.3; third-party-data reads added with the 2026-11 audit
   else if (tool === "save_checkpoint") b = checkpointBlocked(question); // chat checkpoint: its runner's guard (checkpoint.ts runCheckpointTool)
   else if (isOpsTool(tool)) b = c.stopAll ? PAUSED_MSG : opsBlocked(tool, question, dataIn(), input); // ORGANIZE (operator category B): its runner's guard (core-operator.ts)
   else if (tool === "save_memory" && !asksToRemember(question)) return "Error: only save when the user asks; reflection handles the rest";
@@ -56,7 +56,7 @@ function legacy(tool: string, input: Record<string, unknown>, c: PolicyCtx): str
 
 test("pinned: decide() refuses and allows exactly what the removed core.ts guards did, with the same tool result text", () => {
   const tools = [...Object.keys(TIERS), "send_email", "business.send", "post_tweet", ""];
-  const stepSets = [[], [step("navigate")], [step("fetch_url")], [step("read_news")], [step("life_journal")], [step("vault_read")], [step("ws_read")], [step("ws_write"), step("ws_create")], [step("business_status")], [step("rea_read")], [step("studio_status")]];
+  const stepSets = [[], [step("navigate")], [step("fetch_url")], [step("read_news")], [step("life_journal")], [step("vault_read")], [step("ws_read")], [step("ws_write"), step("ws_create")], [step("business_status")], [step("studio_status")]];
   const questions = ["hello", "run the scout", "did the scout run?", "schedule my approved clips", "make 5 shorts from today's stream", "make 2 images of a fox", "remind me to call mom at 6",
     "add a habit: read", "I did my run, mark it", "set a goal to reach 1000 subscribers", "remember I like tea", "build me a landing page site",
     "summarise https://my.site/post please", "ask the research agent to compare trailer tools", "find my niche", "don't build the site", "read this\n\n[attached: https://x.com/a]"];
@@ -100,7 +100,6 @@ const TABLE: [string, Record<string, unknown>, Partial<PolicyCtx>, "T0" | "T1" |
   ["life_remind", {}, { question: "remind me to call mom at 6" }, "T2", true],
   ["ws_write", {}, { question: "build me a landing page site", steps: [step("ws_read")] }, "T2", false, /workspace files/],
   ["create_goal", {}, { question: "set a goal to reach 1000 subscribers" }, "T2", true],
-  ["rea_analyze", {}, {}, "T2", true, /REA's own guard/],
   ["schedule_approved", {}, { question: "schedule my approved clips" }, "T3", true],
   ["schedule_approved", {}, { question: "what's scheduled?" }, "T3", false, /latest message/],
   ["schedule_approved", {}, { question: "schedule my approved clips", steps: [step("fetch_url")] }, "T3", false, /first tool/],

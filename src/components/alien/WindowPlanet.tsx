@@ -5,13 +5,13 @@
 // to the planet's screen box, shows through it with true parallax, and runs on past the sphere's edges. The stand-in
 // draws only while the portal is visible. Everything (target, scenes, materials) is built at mount and compiled for the
 // target's state there, so a hover never compiles a shader. Mounted only above quality 0 and without reduced motion.
-import { useEffect, useMemo, useRef, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { warmLater } from "../WarmCompile";
 import { PLANETS, type PanelId, type PlanetId } from "@/lib/planets";
-import { DIVE_CROSS, diveFov, diveRadii, stepWindow, windowCrop, windowTarget, type Crop, type WindowState } from "@/lib/window-pure";
+import { DIVE_CROSS, diveFov, diveRadii, stepWindow, windowCrop, windowTarget, type Crop, type DiveRequest, type WindowState } from "@/lib/window-pure";
 
 type Positions = Record<string, THREE.Vector3>;
 type Sizes = Record<string, number>;
@@ -322,41 +322,51 @@ export function WindowPlanets({ hover, dive, positions, sizes, scales }: {
 /** Bigger on the inside: a reverse dolly zoom into the planet (the FOV widens as the camera closes in), through the
  *  surface at DIVE_CROSS (onCross: the world mounts and crossfades in), then a settle inside the window's interior.
  *  Mount after the Rig and before Parallax. Grabbing the view cancels it. */
-export function WindowDive({ dive, positions, sizes, scales, onCross, onCancel }: {
-  dive: PanelId | null; positions: Positions; sizes: Sizes; scales: Sizes; onCross?: () => void; onCancel?: () => void;
+export function WindowDive({ request, positions, sizes, scales, onCross, onCancel }: {
+  request: DiveRequest | null; positions: Positions; sizes: Sizes; scales: Sizes; onCross?: (request: DiveRequest) => void; onCancel?: (request: DiveRequest) => void;
 }) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; addEventListener: (t: string, f: () => void) => void; removeEventListener: (t: string, f: () => void) => void } | null;
-  const st = useMemo(() => ({ id: null as string | null, t: 0, r0: 1, fov0: 50, dir: new THREE.Vector3(), crossed: false,
+  const st = useMemo(() => ({ request: null as DiveRequest | null, t: 0, r0: 1, fov0: 50, dir: new THREE.Vector3(), crossed: false,
     from: new THREE.Vector3(), look: new THREE.Vector3() }), []);
   const cb = useRef({ onCross, onCancel });
   cb.current = { onCross, onCancel };
-  useEffect(() => {
-    st.id = dive && dive in positions ? dive : null; st.t = 0; st.crossed = false;
-    if (!st.id) return;
-    const C = positions[st.id], R = Math.max(1e-3, sizes[st.id] * (scales[st.id] ?? 1));
+  useLayoutEffect(() => {
+    st.request = request && request.id in positions ? request : null;
+    st.t = 0;
+    st.crossed = false;
+    if (!st.request) return;
+    const { id } = st.request;
+    const C = positions[id], R = Math.max(1e-3, sizes[id] * (scales[id] ?? 1));
     const d = st.dir.copy(camera.position).sub(C).length();
     if (d < 1e-4) st.dir.set(0, 0, 1); else st.dir.multiplyScalar(1 / d);
     st.r0 = d / R; st.fov0 = camera.fov;
     camera.getWorldDirection(st.from).multiplyScalar(d).add(camera.position); // where the camera looks now, at the planet's distance
-  }, [dive, positions, sizes, scales, camera, st]);
+  }, [request, positions, sizes, scales, camera, st]);
   useEffect(() => {
     if (!controls) return;
-    const stop = () => { if (st.id && !st.crossed) { st.id = null; cb.current.onCancel?.(); } };
+    const stop = () => {
+      if (!st.request || st.crossed) return;
+      const stopped = st.request;
+      st.request = null;
+      cb.current.onCancel?.(stopped);
+    };
     controls.addEventListener("start", stop);
     return () => controls.removeEventListener("start", stop);
   }, [controls, st]);
   useFrame((_, dt) => {
-    if (!st.id) return;
+    const active = st.request;
+    if (!active) return;
+    const { id } = active;
     st.t += Number.isFinite(dt) ? Math.min(0.05, Math.max(0, dt)) : 0; // a hitch must not jump the camera through the planet
-    const C = positions[st.id], R = Math.max(1e-3, sizes[st.id] * (scales[st.id] ?? 1));
+    const C = positions[id], R = Math.max(1e-3, sizes[id] * (scales[id] ?? 1));
     camera.position.copy(C).addScaledVector(st.dir, R * diveRadii(st.t, st.r0));
     const k = Math.min(1, st.t / 0.3), turn = k * k * (3 - 2 * k); // the gaze swings onto the planet in 0.3 s: no snap
     camera.lookAt(st.look.lerpVectors(st.from, C, turn));
     controls?.target.copy(st.look);
     const fov = diveFov(st.t, st.fov0);
     if (Math.abs(fov - camera.fov) > 1e-4) { camera.fov = fov; camera.updateProjectionMatrix(); }
-    if (!st.crossed && st.t >= DIVE_CROSS) { st.crossed = true; cb.current.onCross?.(); }
+    if (!st.crossed && st.t >= DIVE_CROSS) { st.crossed = true; cb.current.onCross?.(active); }
   });
   return null;
 }

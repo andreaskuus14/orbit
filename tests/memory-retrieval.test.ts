@@ -74,7 +74,7 @@ function fakeStore(opts: { fts: string[]; semantic?: string[]; project?: MemoryM
         },
       }; return builder;
     },
-    rpc(name: string) { rpcs.push(name); return Promise.resolve({ data: (opts.semantic ?? []).map((id) => ({ id })), error: null }); },
+    rpc(name: string) { rpcs.push(name); return Promise.resolve({ data: (opts.semantic ?? []).map((id) => ({ id, kind: opts.rows.find((m) => m.id === id)?.kind })), error: null }); },
   };
   return { client: client as unknown as SupabaseClient, calls, rpcs };
 }
@@ -146,4 +146,34 @@ test("optional project errors fall back to baseline; hydration cannot return una
   const { client } = fakeStore(opts);
   assert.deepEqual((await retrieveMemories(client, "question", 8, "owner", async () => null, { projectName: "Nebula" })).results.map((m) => m.id), ["allowed"]);
   await assert.rejects(retrieveMemories(fakeStore({ ...opts, hydrateError: true }).client, "question", 8, "owner", async () => null), /hydrate failed/);
+});
+
+test("journal vectors are never compared with another model's query: with Voyage on, journals rank by keyword only and the mode says so", async () => {
+  const rows = [{ id: "diary", title: "Today in a minute", content: "Pet sim day", kind: "journal" }, { id: "note", title: "Pet sim plan", content: "Plan", kind: "note" }];
+  const store = () => fakeStore({ rows, fts: ["note"], semantic: ["diary", "note"] }); // the diary only matches by vector
+  const mixed = await retrieveMemories(store().client, "pet sim", 8, "owner", async () => [1], { includeJournal: true, journalVectors: false });
+  assert.deepEqual(mixed.results.map((m) => m.id), ["note"]);
+  assert.equal(mixed.mode, "hybrid-journal-keyword");
+  const local = await retrieveMemories(store().client, "pet sim", 8, "owner", async () => [1], { includeJournal: true, journalVectors: true });
+  assert.deepEqual(new Set(local.results.map((m) => m.id)), new Set(["diary", "note"])); // all local: same model, semantic journal search works
+  assert.equal(local.mode, "hybrid");
+  const kw = await retrieveMemories(fakeStore({ rows, fts: ["diary"], semantic: ["note"] }).client, "today", 8, "owner", async () => [1], { includeJournal: true, journalVectors: false });
+  assert.ok(kw.results.some((m) => m.id === "diary"), "a keyword hit still finds the journal");
+});
+
+test("CORE search keeps another same-named project's scoped memories out: the name only ranks, the ID scope decides", async () => {
+  const A = "p:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", B = "p:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const rows = [
+    { id: "mine", title: "Kitchen worktops", content: "Oak", kind: "note", tags: [`scope:${A}`] },
+    { id: "theirs", title: "Kitchen worktops", content: "Granite", kind: "note", tags: [`scope:${B}`] },
+    { id: "old", title: "Kitchen worktops", content: "Old name scope", kind: "note", tags: ["scope:kitchen"], created_at: "2026-11-02T00:00:00.000Z" },
+    { id: "global", title: "Kitchen worktops", content: "Measure twice", kind: "note", tags: [] },
+  ];
+  const meta = rows.map(({ id, title, tags }) => ({ id, title, tags, folder: null }));
+  const search = (o: object) => retrieveMemories(fakeStore({ rows, fts: rows.map((r) => r.id), project: meta }).client, "kitchen worktops", 8, "owner", async () => null, { projectName: "Kitchen", ...o });
+  assert.deepEqual((await search({ projectScope: A })).results.map((m) => m.id).sort(), ["global", "mine"]); // two "Kitchen"s: no legacy
+  assert.deepEqual((await search({ projectScope: B })).results.map((m) => m.id).sort(), ["global", "theirs"]);
+  assert.deepEqual((await search({ projectScope: A, projectLegacy: { name: "Kitchen", since: "2026-11-01T00:00:00.000Z" } })).results.map((m) => m.id).sort(), ["global", "mine", "old"]); // unique name only
+  assert.deepEqual((await search({})).results.map((m) => m.id), ["global"]); // a name alone opens no project scope
+  assert.deepEqual((await search({ projectScope: A, projectLegacy: { name: "Kitchen", since: "2026-11-05T00:00:00.000Z" } })).results.map((m) => m.id).sort(), ["global", "mine"]); // older than the project: a deleted namesake's
 });

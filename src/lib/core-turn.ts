@@ -8,7 +8,7 @@ import { emit } from "@/lib/claude";
 import { liveTracker, ndjsonStream, type StepDone } from "@/lib/core-live-pure";
 import { MODULE_PRIVATE } from "@/lib/core-modules";
 import { coreSessionStore, coreTaintStore } from "@/lib/durable";
-import { doneSoFar, newBgTurn } from "@/lib/bg-resume-pure";
+import { doneSoFar, newBgTurn, stoppedNote } from "@/lib/bg-resume-pure";
 import { str } from "@/lib/pure";
 import type { NavTarget } from "@/lib/nav-pure";
 import { parseAttachments, attachedSuffix, attachmentPrompt } from "@/lib/attach-pure";
@@ -22,6 +22,8 @@ import { noteOwnerTurn, noteReceipts, projectRecordFor } from "@/lib/checkpoint"
 import { checkpointPrompt, isContinue } from "@/lib/checkpoint-pure";
 import { chatQueue, onceById } from "@/lib/session-bound-pure";
 import { logActivity } from "@/lib/activity";
+import { stopAllOn } from "@/lib/stop-all";
+import { inlineTask } from "@/lib/task-claim-pure";
 import { receiptLine, type Receipt } from "@/lib/receipt-pure";
 import { evalMark, parseRunId } from "@/lib/eval-core-pure";
 import { evalRunId, inEvalRun } from "@/lib/eval-run";
@@ -173,12 +175,16 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
     // A deduped retry gets only the final done/error line.
     const ac = new AbortController();
     req.signal.addEventListener("abort", () => ac.abort(), { once: true }); // client went away: kill the CLI (a background turn keeps going)
+    liveTurns().add(ac); // Stop-all reaches a live answer too (stop-all-run.ts → abortCoreTurns)
     const stream = ndjsonStream(async (send) => {
+      try { await follow(send); } finally { liveTurns().delete(ac); }
+    }, () => ac.abort());
+    async function follow(send: (ev: Record<string, unknown>) => void) {
       const o = await once(send, ac.signal);
       send({ type: o.status === 200 ? "done" : "error", ...o.body });
       const bg = background && !ac.signal.aborted ? await background : null;
       if (bg) send({ type: "bg_done", ...bg });
-    }, () => ac.abort());
+    }
     return new Response(stream, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" } });
   }
 
@@ -190,29 +196,46 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
 /** Run a handed-off CORE turn as an OPERATIONS task: its answer lands in the chat, and agent.completed/failed gives the one notice. */
 async function inBackground(sb: SupabaseClient, userId: string, cid: string, message: string, trace: Parameters<typeof doneSoFar>[0], lang: string, run: (signal: AbortSignal) => ReturnType<typeof runCore>): Promise<{ taskId: string; finished: Promise<{ answer: string } | null> }> {
   const run0 = evalRunId(), title = `CORE: ${run0 ? `${evalMark(run0)} ` : ""}${message.replace(/\s+/g, " ").trim().slice(0, 80)}`;
-  const { data, error } = await sb.from("tasks").insert({ user_id: userId, agent: "nova", title, request: message, status: "running", started_at: new Date().toISOString() }).select("id").single();
+  const { data, error } = await sb.from("tasks").insert(inlineTask({ user_id: userId, agent: "nova", title, request: message }, Date.now())).select("id").single();
   if (error) throw error;
   const taskId: string = data.id;
   const rec = newBgTurn({ taskId, userId, chatId: cid, request: message, title, done: doneSoFar(trace), sessionId: coreSessionStore.get(cid)?.id, lang }, Date.now());
   const stop = await import("@/lib/bg-resume").then((m) => m.trackTurn(rec), () => undefined);
-  return { taskId, finished: finishBackground(sb, userId, cid, taskId, title, run, stop) };
+  return { taskId, finished: finishBackground(sb, userId, cid, taskId, title, run, stop, trace) };
 }
 
 /** The end of a background turn (fresh or resumed after a restart): answer or failure into the chat, task row, one notice. */
-export function finishBackground(sb: SupabaseClient, userId: string, cid: string, taskId: string, title: string, run: (signal: AbortSignal) => ReturnType<typeof runCore>, stop?: () => Promise<void>): Promise<{ answer: string } | null> {
+/** trace: the turn's shared trace (a fresh handoff's carry), so a cancel can say which steps had already run. */
+/** Abort controllers of CORE answers streaming right now (global: one registry even if the module loads twice). */
+// (not __orbitCoreTurns: perf-log.ts keeps its timing array under that name)
+const liveTurns = () => ((globalThis as { __orbitLiveCoreTurns?: Set<AbortController> }).__orbitLiveCoreTurns ??= new Set());
+/** Stop-all: abort every live CORE answer (its CLI ends). A handed-off background turn is a task and is cancelled by Stop-all itself. */
+export function abortCoreTurns(): number { const n = liveTurns().size; for (const ac of liveTurns()) ac.abort(); return n; }
+
+export function finishBackground(sb: SupabaseClient, userId: string, cid: string, taskId: string, title: string, run: (signal: AbortSignal) => ReturnType<typeof runCore>, stop?: (() => Promise<void>) & { lost?: AbortSignal; confirm?: () => Promise<boolean> }, trace: { step: string; ok?: boolean }[] = []): Promise<{ answer: string } | null> {
   return (async () => {
     let status = "done", result: string | null = null, err: string | null = null, rc: Receipt | undefined;
+    const lost = stop?.lost ?? new AbortController().signal; // bg-resume trackTurn: aborts when another ORBIT owns the turn now
+    const cancel = new AbortController(), untrack = (await import("@/lib/agents")).trackLive(taskId, cancel); // Cancel and Stop-all reach it
+    if (stopAllOn()) cancel.abort(); // handed off or resumed while Stop-all is on: nothing runs
     try {
-      const out = await run(new AbortController().signal);
+      const out = await run(AbortSignal.any([lost, cancel.signal]));
+      if (lost.aborted || (stop?.confirm && !(await stop.confirm()))) throw lost.reason; // still ours right before writing
+      if (cancel.signal.aborted) throw cancel.signal.reason;
       result = out.text; rc = receiptOf(out.trace);
       logReceipt(rc);
       await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: out.text, citations: out.citations, trace: out.trace });
       void noteReceipts(userId, cid, out.trace).catch(() => {});
     } catch (e) {
-      status = "failed"; err = (e as { orbitReason?: string } | null)?.orbitReason ?? BG_FAILED; // a resume that gave up says why
-      console.error("[orbit] background CORE turn failed:", e instanceof Error ? e.message : e);
+      if (lost.aborted || (stop?.confirm && !(await stop.confirm()))) { untrack(); await stop?.(); return null; } // the new owner finishes it and writes the answer; nothing from here
+      if (cancel.signal.aborted) { status = "cancelled"; err = stoppedNote(stopAllOn(), trace); } // Cancel or Stop-all
+      else {
+        status = "failed"; err = (e as { orbitReason?: string } | null)?.orbitReason ?? BG_FAILED; // a resume that gave up says why
+        console.error("[orbit] background CORE turn failed:", e instanceof Error ? e.message : e);
+      }
       await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: `_${err}_` }).then(() => {}, () => {});
     }
+    untrack();
     await sb.from("tasks").update({ status, result, error: err, finished_at: new Date().toISOString(), ...(rc && { trace: [{ step: "receipt", detail: receiptLine(rc), ms: 0, ok: rc.status === "verified", receipt: rc }] }) }).eq("id", taskId).then(() => {}, () => {});
     await emit(sb, userId, status === "failed" ? "agent.failed" : "agent.completed", "agents", { taskId, status, title });
     await stop?.();

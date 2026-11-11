@@ -16,6 +16,10 @@ export function claimable(row: ClaimRow, worker: string, now: number, handoff = 
   return row.claimed_by == null || (!!row.started_at && Date.parse(row.started_at) < now - LEASE_MS);
 }
 
+/** A task its creator runs right away (CORE's ask_agent through runTask, a background CORE turn): inserted "running" and unowned, so
+ *  kickQueue, which only takes "queued" rows, can't start a second copy first; runTask's own claim (claimable above) still takes it. */
+export const inlineTask = <T extends object>(row: T, now: number) => ({ ...row, status: "running" as const, started_at: new Date(now).toISOString() });
+
 /** PostgREST `.or()` filter for a non-handoff claim (same rule as claimable). */
 export const claimFilter = (now: number) =>
   `status.eq.queued,and(status.eq.running,claimed_by.is.null),and(status.eq.running,started_at.lt."${new Date(now - LEASE_MS).toISOString()}")`;

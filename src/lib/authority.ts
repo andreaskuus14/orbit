@@ -1,10 +1,9 @@
-import { readFileSync } from "node:fs";
-import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { readStoreSync, StoreUnreadable, writeStore } from "./safe-file.ts";
 import { orbitDataDir } from "./data-dir.ts";
 import { stopAllOn } from "./stop-all.ts";
 import { contentHash } from "./approval-pure.ts";
-import { authorize, consume, parseAuthority, type AuthCtx, type AuthorityState, type Verdict } from "./authority-pure.ts";
+import { authorityDefaults, authorize, consume, parseAuthority, type AuthCtx, type AuthorityState, type Verdict } from "./authority-pure.ts";
 import type { Decision } from "./policy-pure.ts";
 
 // The one action boundary (authority-pure.ts) wired to <ORBIT data dir>/authority.json and Stop-all.
@@ -13,19 +12,18 @@ import type { Decision } from "./policy-pure.ts";
 const file = () => path.join(orbitDataDir(), "authority.json");
 const g = globalThis as unknown as { __orbitAuthSave?: Promise<unknown> };
 
+/** Missing file = no grants or modes. Locked/damaged: left untouched, and nothing runs on its own (authorize refuses) until it reads again. */
 export function authorityState(): AuthorityState {
-  try { return parseAuthority(readFileSync(file(), "utf8")); } catch { return parseAuthority("{}"); }
+  try { return parseAuthority(readStoreSync(file()) || "{}"); }
+  catch (e) { return locked(e); }
 }
+const locked = (e: unknown): AuthorityState => ({ ...authorityDefaults(), unreadable: `Permissions couldn't be loaded (${e instanceof Error ? e.message : e}), so nothing runs on its own until that's fixed` });
 
-/** Serialized read-modify-write (tmp + rename). fn returns the new state, or a string = refused (nothing written). */
+/** Serialized read-modify-write (atomic save). Unreadable file: throws StoreUnreadable, nothing written. fn returns the new state, or a string = refused (nothing written). */
 export async function updateAuthority<T>(fn: (s: AuthorityState) => { state?: AuthorityState; out: T }): Promise<T> {
   const p = (g.__orbitAuthSave ?? Promise.resolve()).catch(() => {}).then(async () => {
-    const r = fn(authorityState());
-    if (r.state) {
-      await mkdir(path.dirname(file()), { recursive: true });
-      await writeFile(file() + ".tmp", JSON.stringify(r.state));
-      await rename(file() + ".tmp", file());
-    }
+    const r = fn(parseAuthority(readStoreSync(file()) || "{}")); // unreadable throws: never saved over
+    if (r.state) await writeStore(file(), JSON.stringify(r.state));
     return r.out;
   });
   g.__orbitAuthSave = p;
@@ -40,7 +38,7 @@ export const authorizeAction = (action: string, ctx: Ctx): Promise<Verdict> =>
   updateAuthority((state) => {
     const v = authorize(action, { ...ctx, state, now: Date.now(), stopAll: stopAllOn() });
     return { out: v, state: v.ok && v.by === "grant" && v.grantId ? consume(state, v.grantId, ctx) : undefined };
-  });
+  }).catch((e) => { if (!(e instanceof StoreUnreadable)) throw e; return authorize(action, { ...ctx, state: locked(e), now: Date.now(), stopAll: stopAllOn() }); }); // the refusing verdict, not a throw
 
 /** Consequential sends/spends/publishes/signs: "" = go, else why not. The content's hash must equal the one his click carried. */
 export async function authorizeApproval(action: string, approved: unknown, content: unknown, ctx: Partial<Ctx> = {}): Promise<string> {

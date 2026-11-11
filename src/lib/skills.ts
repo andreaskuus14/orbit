@@ -46,8 +46,9 @@ export async function scanSkills(sb: SupabaseClient, userId: string, now = Date.
   const st = await load();
   if (st.scannedAt && now - Date.parse(st.scannedAt) < SCAN_EVERY) return 0;
   const { data, error } = await sb.from("messages").select("id, conversation_id, role, content, trace, created_at").eq("user_id", userId)
-    .gte("created_at", new Date(now - LOOKBACK).toISOString()).order("created_at", { ascending: true }).limit(3000);
+    .gte("created_at", new Date(now - LOOKBACK).toISOString()).order("created_at", { ascending: false }).limit(3000);
   if (error) throw error;
+  data?.reverse(); // newest 3000 in time order: ascending + limit dropped the newest turns once a busy week passed the cap
   const { MODULE_PRIVATE } = await import("./core-modules"); // LIFE/journal-touching turns are never mined or shown to a model
   const fresh = detectRepeats(usagesFromMessages(data ?? []), { exclude: MODULE_PRIVATE }).filter((c) => !isKnown(c, st.proposals));
   const room = Math.max(0, PROPOSED_MAX - st.proposals.filter((p) => p.status === "proposed").length);

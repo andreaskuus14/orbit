@@ -122,9 +122,12 @@ export const historyOf = (id: string, rows: Pick<MemRecord, "id" | "tags" | "sou
 
 /** A correction keeps the old claim as history (never retrieved as current). With a project scope the original stays
  *  true elsewhere and a scoped correction replaces it only inside that project. */
-export function correctionRecords(cur: Pick<MemRecord, "id" | "kind" | "title" | "content">, newContent: string, scope?: string | null) {
+export function correctionRecords(cur: Pick<MemRecord, "id" | "kind" | "title" | "content"> & Partial<Pick<MemRecord, "created_at" | "tags">>, newContent: string, scope?: string | null) {
   const project = scope?.replace(/\s+/g, " ").trim().slice(0, 80);
-  if (project) return { scoped: true, insert: { kind: cur.kind, title: cur.title, content: newContent.trim(), source: "owner", source_ref: cur.id, confirmation: "confirmed" as const, tags: [`corrects:${cur.id}`, `scope:${project}`] } };
+  // origin: the corrected memory's own creation time (kept through corrections of corrections), so an old name-scoped
+  // memory can't look new to a later project of the same name just because it was corrected (memory-types-pure isCurrent).
+  const origin = (cur.tags ?? []).find((t) => t.startsWith("origin:")) ?? (cur.created_at && !Number.isNaN(Date.parse(cur.created_at)) ? `origin:${new Date(cur.created_at).toISOString()}` : null);
+  if (project) return { scoped: true, insert: { kind: cur.kind, title: cur.title, content: newContent.trim(), source: "owner", source_ref: cur.id, confirmation: "confirmed" as const, tags: [`corrects:${cur.id}`, `scope:${project}`, ...(origin ? [origin] : [])] } };
   return { scoped: false, insert: { kind: "note", title: `Before correction: ${cur.title}`.slice(0, 300), content: cur.content, source: "correction", source_ref: cur.id, confirmation: "suggested" as const, tags: ["superseded"] } };
 }
 

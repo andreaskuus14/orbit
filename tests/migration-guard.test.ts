@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { blockedMsg, migrationNeed } from "../src/lib/version-pure.ts";
+import * as agentDefsPure from "../src/lib/agent-defs-pure.ts";
 import { MigrationBlocked, missingGuarded, probeMarkers, refuse, requireMigration } from "../src/lib/migration-guard.ts";
 
 // Fake Supabase: a head select of table.column fails with 42703 when that column is in `gone`.
@@ -50,11 +51,12 @@ import * as proactivePure from "../src/lib/proactive-pure.ts";
 import * as completionPure from "../src/lib/completion-pure.ts";
 import * as clipStorePure from "../src/lib/clip-store-pure.ts";
 import * as pure from "../src/lib/pure.ts";
+import * as execution from "../src/lib/execution.ts"; // the real execution-evidence module agents.ts uses
 const stub = (missing: string[]) => ({ MigrationBlocked, requireMigration: async (_sb: unknown, id: "0021" | "0022" | "0023") => { if (missing.includes(id)) throw new MigrationBlocked(blockedMsg(id)); }, refuse: (id: "0021") => new MigrationBlocked(blockedMsg(id)) });
 function load(file: string, deps: Record<string, unknown>) {
   const exports: Record<string, any> = {};
   const src = ts.transpileModule(readFileSync(new URL(`../src/lib/${file}`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  vm.runInNewContext(src, { exports, require: (n: string) => deps[n] ?? {}, console: { ...console, error: () => {} }, crypto, AbortController, AbortSignal, setTimeout });
+  vm.runInNewContext(src, { exports, require: (n: string) => deps[n] ?? (n === "./execution" ? execution : {}), console: { ...console, error: () => {} }, crypto, AbortController, AbortSignal, setTimeout });
   return exports;
 }
 function rowsDb(tables: Record<string, Record<string, unknown>[]>) {
@@ -80,7 +82,7 @@ function rowsDb(tables: Record<string, Record<string, unknown>[]>) {
 
 test("task claiming refuses while 0021 is missing: the task stays queued (not failed)", async () => {
   const tasks = [{ id: "t1", user_id: "owner", status: "queued", parent_id: null }];
-  const a = load("agents.ts", { "./task-claim-pure": claimPure, "./completion-pure": completionPure, "./clip-store-pure": clipStorePure, "./pure": pure, "./memory": { KINDS: ["note"] }, "./claude": { createBudget: () => ({ signal: new AbortController().signal }) }, "./stop-all": { stopAllOn: () => false }, "./migration-guard": stub(["0021"]) });
+  const a = load("agents.ts", { "./task-claim-pure": claimPure, "./completion-pure": completionPure, "./clip-store-pure": clipStorePure, "./agent-defs-pure": agentDefsPure, "./pure": pure, "./memory": { KINDS: ["note"] }, "./claude": { createBudget: () => ({ signal: new AbortController().signal }) }, "./stop-all": { stopAllOn: () => false }, "./migration-guard": stub(["0021"]) });
   await a.kickQueue(rowsDb({ tasks }), "owner");
   assert.equal(tasks[0].status, "queued");
   const r = await a.runTask(rowsDb({ tasks }), "owner", "t1");

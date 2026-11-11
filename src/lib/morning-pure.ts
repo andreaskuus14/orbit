@@ -4,7 +4,7 @@ import type { Clip } from "./clips/types";
 import type { Recall } from "./resurface-pure";
 import type { WorkItem, WorkSummary } from "./work-continuation-pure";
 import { missionLine, type Mission } from "./daily-mission-pure.ts";
-import type { Card, Hero } from "./morning-rank-pure";
+import type { Card, Deadline, Hero } from "./morning-rank-pure";
 import type { NightReport } from "./night-pure";
 
 export type MorningNav = "review" | "news" | "tasks" | "agents" | "life" | "goals";
@@ -16,10 +16,12 @@ export type MorningStudio = { ready: number; approved: number; today: string[]; 
 export type MorningIntel = { title: string; at: string; headlines: string[] };
 export type MorningAgents = { done: string[]; failed: number; proposals: string[]; verified?: number }; // verified: done with read-back evidence
 export type MorningLife = { habits: number; done: number; next: { text: string; at: string } | null }; // next.at = "HH:MM" today
-export type MorningCalendar = { connected: boolean; today: { time: string; title: string }[] }; // titles: calendar data (invites), plain text only
+export type MorningCalendar = { connected: boolean; today: { time: string; title: string }[]; expired?: boolean; error?: string }; // titles: calendar data (invites), plain text only
 export type Morning = {
   greeting: string; business?: string; studio?: MorningStudio; intel?: MorningIntel; agents?: MorningAgents; life?: MorningLife; calendar?: MorningCalendar; recall?: Recall[]; since?: MorningSince; work?: WorkSummary; mission?: Mission;
   cards?: Card[]; // the ranked morning cards (morning-rank-pure.ts)
+  deadlines?: Deadline[] | null; // goals due within a week, overdue ones too (morning-rank-pure goalDeadlines); null = couldn't be read
+  followups?: { id: string; name: string }[] | null; // BUSINESS prospects due a follow-up (business-pure dueFollowups); null = couldn't be read
   hero?: Hero; // "Do this first": the single best action, kept out of cards
   overnight?: string; // the sleep loop's report for today (sleep.ts), shown as one line
   night?: NightReport; // "While you slept": last night's night shift (night.ts)
@@ -104,6 +106,8 @@ export function spokenBriefing(m: Omit<Morning, "spoken">): string {
     else if (a.failed) opt.push(`${n(a.failed, "agent task")} failed overnight.`);
   }
   const ev = m.calendar?.today ?? [];
+  if (m.calendar?.expired) must.push("Google Calendar sign-in expired, so I couldn't check today's events. Reconnect it in LIFE.");
+  else if (m.calendar?.error) must.push("I couldn't read your calendar this morning, so today's events are missing.");
   if (ev.length) must.push(`${n(ev.length, "event")} on your calendar today, first ${/^\d/.test(ev[0].time) ? `at ${ev[0].time}` : ev[0].time}: ${plain(ev[0].title)}.`);
   const l = m.life;
   if (l?.next) must.push(`Reminder at ${l.next.at}: ${l.next.text}.`);

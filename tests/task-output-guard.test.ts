@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as approvalBind from "../src/lib/approval-bind-pure.ts";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
@@ -29,15 +30,15 @@ function harness(mine: { data: unknown; error: unknown }, others: { data: unknow
   }).outputText;
   vm.runInNewContext(source, { exports, Response, require: (name: string) =>
     name.endsWith("supabase/server") ? { requireUser: async () => ({ sb, user: { id: "owner" } }) }
-      : name.endsWith("/csrf") ? { crossSiteBlocked: () => false }
+      : name.endsWith("approval-bind-pure") ? approvalBind : name.endsWith("/csrf") ? { crossSiteBlocked: () => false }
       : name.endsWith("tasks-recovery-pure") ? recovery
       : name.endsWith("/agents") ? { ConflictError: Error, kickQueue: () => {}, resolvePending: async () => { executions++; return []; } }
       : name.endsWith("/missions") ? { resumeMissions: async () => {} } : {},
   });
   return {
     stats: () => ({ reads, executions, writes, scopes }),
-    post: (action: string) => exports.POST(new Request("http://localhost/api/tasks/task", {
-      method: "POST", body: JSON.stringify({ action }),
+    post: (action: string, extra: object = {}) => exports.POST(new Request("http://localhost/api/tasks/task", {
+      method: "POST", body: JSON.stringify({ action, ...extra }),
     }), { params: Promise.resolve({ id: "task" }) }) as Promise<Response>,
   };
 }
@@ -81,4 +82,15 @@ test("a healthy output check preserves approval and rejects a real clash", async
   assert.equal(response.status, 409);
   assert.equal((await response.json()).blockedBy, "busy");
   assert.equal(clash.stats().executions, 0);
+});
+
+test("S02: approving with a fingerprint of different actions runs nothing; the matching fingerprint still approves", async () => {
+  const stale = approvalBind.pendingSeen([{ ...action, input: { title: "Report v1" } }]);
+  const h = harness(own, { data: [], error: null });
+  const res = await h.post("approve", { seen: stale });
+  assert.equal(res.status, 409);
+  assert.equal(h.stats().executions, 0);
+  const ok = harness(own, { data: [], error: null });
+  assert.equal((await ok.post("approve", { seen: approvalBind.pendingSeen([action]) })).status, 200);
+  assert.equal(ok.stats().executions, 1);
 });

@@ -1,10 +1,11 @@
 import { requireUser } from "@/lib/supabase/server";
-import { addWatch, checkNow, markWatch, removeWatch, watchBoard } from "@/lib/pagewatch";
+import { addMissed, addWatch, checkNow, markChange, markWatch, removeWatch, watchBoard } from "@/lib/pagewatch";
 
 export const dynamic = "force-dynamic";
 
 // INTELLIGENCE → Watches (pagewatch.ts). GET: watches + recent changes. POST {action:"add", url, focus?, every?, purpose?, lead?}
-// | {action:"remove"|"check"|"seen", id} | {action:"important", id, on: boolean}. Local records; checks read public pages only.
+// | {action:"remove"|"check"|"seen", id} | {action:"important", id, on: boolean}
+// | {action:"verdict", id: changeId, verdict: "useful"|"noise"|null} | {action:"missed", id: watchId, note}. Local records; checks read public pages only.
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
 export async function GET() {
@@ -25,5 +26,10 @@ export async function POST(req: Request) {
   if (b.action === "check") return (await checkNow(id)) ? Response.json({ ok: true }) : fail("Not checked (unknown watch, or Stop-all is on)");
   if (b.action === "seen") return Response.json({ ok: await markWatch(id, { seen: true }) });
   if (b.action === "important") return Response.json({ ok: await markWatch(id, { important: b.on === true }) });
-  return fail("action must be add, remove, check, seen or important");
+  if (b.action === "verdict") {
+    const v = b.verdict === "useful" || b.verdict === "noise" ? b.verdict : b.verdict === null ? null : undefined;
+    return v === undefined ? fail("verdict must be useful, noise or null") : Response.json({ ok: await markChange(id, v) });
+  }
+  if (b.action === "missed") return typeof b.note === "string" && b.note.trim() ? Response.json({ ok: await addMissed(id, b.note) }) : fail("note required");
+  return fail("action must be add, remove, check, seen, important, verdict or missed");
 }

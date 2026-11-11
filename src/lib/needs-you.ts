@@ -43,7 +43,7 @@ export async function gatherNeeds(sb: SupabaseClient, userId: string, now = Date
   const followups = dueFollowups(biz?.prospects?.data ?? [], now).map((p) => ({ id: p.id, name: p.name, since: p.touch?.last ?? p.updated_at }));
   return needsYou({
     approvals: rem, night,
-    decisions: [...briefDecisions(night?.approvals ?? [], work?.items ?? [], []), ...briefContracts(contracts), ...inv],
+    decisions: await (await import("./approval-bind")).stampSeen(sb, userId, [...briefDecisions(night?.approvals ?? [], work?.items ?? [], []), ...briefContracts(contracts), ...inv]),
     work: work?.items, missions, loops, conflict, trust, incident, migration, durable, tasks,
     overdue, followups, delivery: biz?.blockers?.data ?? [], watches, now,
   }, lang, snoozed);

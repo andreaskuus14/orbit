@@ -8,6 +8,8 @@ import * as chainsPure from "../src/lib/chains-pure.ts";
 import * as companyPure from "../src/lib/company-pure.ts";
 import * as missionsPure from "../src/lib/missions-pure.ts";
 import * as taskClaimPure from "../src/lib/task-claim-pure.ts";
+import * as recoveryPure from "../src/lib/tasks-recovery-pure.ts";
+import * as execution from "../src/lib/execution.ts"; // the real execution-evidence module agents.ts uses
 
 // Review of 1c4cd6c, findings 2/4/5: the real runner modules, loaded with fakes for the database and the agent/Claude imports.
 
@@ -17,7 +19,7 @@ function fakeDb(tables: Record<string, Row[]>) {
   const writes: { table: string; patch: object }[] = [];
   const sb = { from(table: string) {
     const rows = (tables[table] ??= []);
-    const filters: ((r: Row) => boolean)[] = []; let patch: object | null = null;
+    const filters: ((r: Row) => boolean)[] = []; let patch: object | null = null, added: Row | null = null;
     const q: any = {
       select() { return q; }, order() { return q; }, limit() { return q; }, like() { return q; },
       eq(k: string, v: unknown) { filters.push((r) => r[k] === v); return q; },
@@ -25,7 +27,9 @@ function fakeDb(tables: Record<string, Row[]>) {
       is(k: string, v: unknown) { filters.push((r) => (r[k] ?? null) === v); return q; },
       lt(k: string, v: string) { filters.push((r) => r[k] < v); return q; },
       update(p: object) { patch = p; return q; },
+      insert(r: Row) { added = { id: `${table}-${rows.length + 1}`, ...structuredClone(r) }; rows.push(added); return q; },
       exec(single = false) {
+        if (added) return { data: single ? structuredClone(added) : [structuredClone(added)], error: null };
         const hit = rows.filter((r) => filters.every((f) => f(r)));
         if (patch) { writes.push({ table, patch }); for (const r of hit) Object.assign(r, structuredClone(patch)); }
         return { data: single ? structuredClone(hit[0] ?? null) : structuredClone(hit), error: null };
@@ -41,7 +45,7 @@ function fakeDb(tables: Record<string, Row[]>) {
 function load(file: string, mods: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   const exports: Record<string, any> = {};
   const source = ts.transpileModule(readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  const ctx: Record<string, any> = { exports, console, setTimeout, AbortController, crypto, require: (n: string) => mods[n] ?? {}, ...extra };
+  const ctx: Record<string, any> = { exports, console, setTimeout, AbortController, crypto, require: (n: string) => mods[n] ?? (n === "./execution" ? execution : {}), ...extra };
   vm.runInNewContext(source, ctx);
   return { exports, ctx };
 }
@@ -55,6 +59,7 @@ test("(a) pause while waiting for a worker slot: freeing the slot does not start
   ] });
   let runs = 0;
   const { exports, ctx } = load("lib/chains.ts", {
+    "./foreground-pure": { foreground: { idle: async () => {} } },
     "./agents": { runTask: async () => { runs++; return { status: "done" }; }, kickQueue: () => {}, cancelTask: async () => false },
     "./stop-all": { stopAllOn: () => false }, "./claude": { emit: async () => {}, createBudget: () => ({}) },
     "./completion-pure": completionPure, "./company-pure": companyPure, "./chains-pure": chainsPure,
@@ -63,6 +68,7 @@ test("(a) pause while waiting for a worker slot: freeing the slot does not start
   let paused = false, gates = 0;
   const driving = exports.drive(sb, "owner", "chain", async () => { gates++; return !paused; });
   for (let i = 0; gates === 0 && i < 300; i++) await new Promise((r) => setTimeout(r, 10)); // passed the first pause check, now waiting for a slot
+  assert.ok(gates > 0, "the driver must reach the pause gate before this test frees a slot");
   paused = true;
   ctx.__orbitTaskQueue.clear(); // capacity frees up after the pause
   assert.equal(await driving, null);
@@ -144,4 +150,54 @@ test("successful approval saves the receipt over the attempt; no attempt → int
   const p = completionPure.interruptedPatch([{ status: "pending" }], "Interrupted (ORBIT restarted)");
   assert.equal(p.error, "Interrupted (ORBIT restarted)");
   assert.equal(p.pending[0].status, "pending");
+});
+
+test("an approved action that writes and then throws is uncertain with its attempt id; Retry this step finds the write instead of repeating it", async () => {
+  const { sb } = fakeDb({ projects: [], tasks: [{ id: "w", user_id: "owner", parent_id: null, project_id: null, status: "awaiting_approval", agent: "nova", title: "t", request: "",
+    pending: [{ tool: "create_project", input: { name: "Desk", description: "Shared desk" }, status: "pending" }] }] });
+  const db = sb as any, task = () => db.from("tasks").select().eq("id", "w").maybeSingle().then((r: any) => r.data);
+  let readBackFails = true; // the insert lands, then its read-back times out: the write happened but the action throws
+  const { exports } = load("lib/agents.ts", { "./completion-pure": completionPure, "./task-claim-pure": taskClaimPure, "./memory": { KINDS: ["note"] }, "./claude": { emit: async () => {} },
+    "./authority": { authorizeAction: async () => ({ ok: true }) }, "./stop-all": { stopAllOn: () => false },
+    "./migration-guard": { requireMigration: async () => {}, refuse: (id: string) => Object.assign(new Error(`migration ${id}`), { notRun: true }) },
+    "./completion": { verifyRow: async () => { if (readBackFails) throw new Error("read-back timed out"); } } });
+
+  await exports.resolvePending(sb, "owner", "w", true);
+  let t = await task();
+  const projects = () => db.from("projects").select().eq("user_id", "owner").then((r: any) => r.data);
+  assert.equal((await projects()).length, 1, "the write landed");
+  assert.deepEqual([t.pending[0].status, t.pending[0].attempt], ["uncertain", "w:0"], "outcome unknown, attempt id kept");
+  assert.match(t.pending[0].note, /started and then failed \(read-back timed out\), so it may or may not have happened/);
+  assert.equal(t.status, "failed");
+  assert.match(t.error, /may or may not have happened/);
+  assert.equal(completionPure.canRetryTask(t.pending), false, "the whole task can't be re-run on top of it");
+
+  // He presses "Retry this step" (the API applies retryStepPatch) and approves again; the read-back works now.
+  await db.from("tasks").update(recoveryPure.retryStepPatch(t.pending)).eq("id", "w").in("status", ["failed", "cancelled"]);
+  readBackFails = false;
+  await exports.resolvePending(sb, "owner", "w", true);
+  t = await task();
+  assert.equal((await projects()).length, 1, "Retry found the earlier write by its attempt id; nothing written again");
+  assert.deepEqual([t.pending[0].status, t.pending[0].attempt, t.pending[0].evidence[0].id], ["approved", "w:0", "projects-1"]);
+  assert.match(t.pending[0].note, /Already done by this approved action earlier: project projects-1/);
+  assert.equal(t.status, "done");
+});
+
+test("refusals before an approved action runs stay \"failed\" (nothing written), distinct from uncertain", async () => {
+  for (const [name, auth, run] of [
+    ["authority refused", { ok: false, why: "Consequential tool: not allowed from an agent" }, async () => "Created"],
+    ["migration missing", { ok: true }, async () => { throw Object.assign(new Error("Apply migration 0023 first"), { notRun: true }); }],
+    ["tool's own Error result", { ok: true }, async () => "Error: unknown agent \"x\""],
+  ] as const) {
+    const { sb } = fakeDb({ tasks: [{ id: "r", user_id: "owner", parent_id: null, project_id: null, status: "awaiting_approval", agent: "nova", title: "t", request: "",
+      pending: [{ tool: "save_memory", input: {}, status: "pending" }] }] });
+    const { exports } = load("lib/agents.ts", { "./completion-pure": completionPure, "./task-claim-pure": taskClaimPure, "./memory": { KINDS: ["note"] }, "./claude": { emit: async () => {} },
+      "./authority": { authorizeAction: async () => auth }, "./stop-all": { stopAllOn: () => false } });
+    let ran = 0;
+    exports.TOOLS.save_memory.run = async () => { ran++; return run(); };
+    const [p] = await exports.resolvePending(sb, "owner", "r", true);
+    assert.equal(p.status, "failed", name);
+    assert.doesNotMatch(p.note, /may or may not/, name);
+    assert.equal(ran, name === "authority refused" ? 0 : 1, name);
+  }
 });

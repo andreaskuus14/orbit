@@ -73,7 +73,7 @@ export function daylightPlan(parts: Part[]): Plan {
     }
     rooms.push(...mine);
   });
-  const boxes = parts.filter((p) => !isOpening(p.kind)).map((p) => ({ x0: p.x - p.w / 2, x1: p.x + p.w / 2, y0: p.y, y1: p.y + p.h, z0: p.z - p.d / 2, z1: p.z + p.d / 2 }));
+  const boxes = parts.filter((p) => !isOpening(p.kind) && p.kind !== "prop").map((p) => ({ x0: p.x - p.w / 2, x1: p.x + p.w / 2, y0: p.y, y1: p.y + p.h, z0: p.z - p.d / 2, z1: p.z + p.d / 2 }));
   return { rooms: rooms.sort((a, b) => a.floor - b.floor || a.name.localeCompare(b.name)), windows, boxes };
 }
 

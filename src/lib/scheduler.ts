@@ -23,7 +23,7 @@ import { beat } from "./host-heartbeat";
 // Missed slots (PC asleep) are caught up within a few hours, never twice.
 
 const TICK_MS = 60_000;
-const g = globalThis as unknown as { __orbitScheduler?: NodeJS.Timeout; __orbitTick?: unknown; __orbitBusy?: boolean; __orbitWarned?: boolean };
+const g = globalThis as unknown as { __orbitScheduler?: NodeJS.Timeout; __orbitTick?: unknown; __orbitBusy?: boolean; __orbitWarned?: boolean; __orbitCapsuleFallback?: boolean };
 
 async function tick(sb: SupabaseClient) {
   if (g.__orbitBusy) return;
@@ -87,6 +87,8 @@ async function tick(sb: SupabaseClient) {
     if (allows("research", "background").ok) void import("./pagewatch").then((m) => m.tickWatches());
     // Profile → Autonomy "auto with limits" (off by default: a no-op until the owner turns it on with the typed phrase).
     if (users?.[0]) await tickAutonomy(sb, users[0].id);
+    // Daily runs digest (daily.ts): once a day (ORBIT_DAILY_DIGEST, default 10:30) brief / clips / leads states to the phone, labels only. Never throws.
+    if (users?.[0]) await import("./daily").then((m) => m.maybeDailyDigest(sb, users[0].id));
     // System health (doctor's SYSTEM card): every 10 min, incidents open/resolve; one phone push per new one (quiet hours wait). Not awaited; never throws.
     if (users?.[0]) void import("./system-health").then((m) => m.tickSystemHealth(sb, users[0].id));
     // Invoices: a phone push when an overdue reminder draft is waiting, once per invoice per week (quiet hours and Stop-all skip it).
@@ -97,6 +99,14 @@ async function tick(sb: SupabaseClient) {
     await maybeArchDigest(sb, (users ?? []).map((u) => u.id)).catch((e) => console.error("[orbit] arch digest failed:", e instanceof Error ? e.message : e));
     // Weekly local backup (JSON export + uploaded files) to ORBIT_BACKUP_DIR, default ../orbit-backups.
     await maybeBackup(sb, (users ?? []).map((u) => u.id)).catch((e) => console.error("[orbit] backup failed:", e instanceof Error ? e.message : e));
+    // Time capsule safety net: the night shift writes it on a PC that sleeps; an always-on host (or night shift off) needs this.
+    // Not awaited (a backup can take a while); one at a time, and it records its own result for Profile and the next check.
+    if (!g.__orbitCapsuleFallback) {
+      g.__orbitCapsuleFallback = true;
+      void import("./capsule").then(async (m) => { if (await m.fallbackBackupDue()) await m.runBackup(); })
+        .catch((e) => console.error("[orbit] time capsule backup failed:", e instanceof Error ? e.message : e))
+        .finally(() => { g.__orbitCapsuleFallback = false; });
+    }
   } catch (e) {
     console.error("[orbit] scheduler tick failed:", e instanceof Error ? e.message : e);
   } finally {

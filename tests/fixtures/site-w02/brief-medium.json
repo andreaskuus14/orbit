@@ -1,0 +1,11 @@
+{
+  "name": "Holm Light",
+  "offer": "A rechargeable storm lantern with 72 hours of warm light, for sailors and cabin owners.",
+  "audience": "Sailors, cabin owners and anyone preparing for winter blackouts in the Nordics.",
+  "assets": [{ "path": "assets/hero.svg", "alt": "A lighthouse at dusk with its beam crossing the sea", "width": 1600, "height": 1000, "focal": { "x": 0.66, "y": 0.4 }, "safe": "left" }],
+  "sections": [
+    { "kind": "hero", "heading": "Steady light for the dark half of the year.", "body": ["Charge it once and it is ready for the next blackout."], "image": "hero", "cta": [{ "label": "Join the first run", "href": "#contact" }] },
+    { "kind": "features", "heading": "Built like a lighthouse", "items": [{ "title": "72 hours", "body": "On the low setting." }, { "title": "IP67", "body": "Sealed against the sea." }] },
+    { "id": "contact", "kind": "form", "heading": "Reserve your number", "body": ["Leave your email; no spam, one message when it ships."] }
+  ]
+}

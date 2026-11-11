@@ -38,6 +38,8 @@ export const attemptId = (taskId: string, index: number) => `${taskId}:${index}`
 /** The tag an approved save_memory carries, so a rerun of the same attempt finds its memory instead of saving it again. */
 export const attemptTag = (attempt: string) => `attempt:${attempt}`;
 export const UNCERTAIN_NOTE = "Needs inspection: ORBIT stopped while running this approved action and has no receipt, so it can't tell whether it happened. Check its result before doing it again.";
+/** An approved action that started and then threw: it may have written before the error, so its outcome is unknown. */
+export const startedThenFailed = (why: string) => `Needs inspection: this approved action started and then failed (${why.slice(0, 300)}), so it may or may not have happened. Check its result before doing it again; Retry this step finds an earlier write by its attempt id instead of repeating it.`;
 export const UNCERTAIN_ERROR = "Needs inspection: an approved action may or may not have happened (no receipt). Check its result before doing it again.";
 export const unsure = (actions: unknown) => Array.isArray(actions) && actions.some((a) => ["attempting", "uncertain"].includes((a as ActionResult)?.status));
 

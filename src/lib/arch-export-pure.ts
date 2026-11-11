@@ -131,7 +131,7 @@ export function checkIfc(text: string, scene: Scene, opt: { site?: { lat: number
 }
 
 /** Produce and check every export the ARCH panel offers. ok = all checks passed: only then is it offered as ready. */
-export function buildExports(scene: Scene, cost: ReturnType<typeof costLines>, site: { lat: number; lon: number }, time?: Date): ExportResult[] {
+export function buildExports(scene: Scene, cost: ReturnType<typeof costLines>, site: { lat: number; lon: number; north?: number }, time?: Date): ExportResult[] {
   const csv = boqCsv(cost), json = JSON.stringify(scene, null, 2), ifc = toIfc(scene, { site, time });
   const res = (format: ExportResult["format"], file: string, type: string, text: string, checks: Check[]): ExportResult => ({ format, file, type, text, checks, ok: checks.every((c) => c.ok) });
   return [

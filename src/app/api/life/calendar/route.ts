@@ -1,19 +1,20 @@
 import { requireUser } from "@/lib/supabase/server";
-import { calEnv, calendarEvents, disconnectCal } from "@/lib/gcal";
-import { calDays } from "@/lib/gcal-pure";
+import { calEnv, calExpired, calendarEvents, disconnectCal } from "@/lib/gcal";
+import { calDays, calFailure } from "@/lib/gcal-pure";
 
 export const dynamic = "force-dynamic";
 
-/** LIFE calendar card: { configured, connected, events? } (read-only, ?days=1..14, default 7). */
+/** LIFE calendar card: { configured, connected, expired?, events?, error? } (read-only, ?days=1..14, default 7). */
 export async function GET(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const configured = !!calEnv();
   try {
     const events = await calendarEvents(calDays(new URL(req.url).searchParams.get("days")));
-    return Response.json({ configured, connected: !!events, ...(events && { events }) });
+    return Response.json({ configured, connected: !!events, ...(events ? { events } : (await calExpired()) && { expired: true }) });
   } catch (e) {
-    return Response.json({ configured, connected: true, error: e instanceof Error ? e.message.slice(0, 160) : "Couldn't read the calendar" });
+    const f = calFailure(e);
+    return Response.json({ configured, connected: !f.expired, ...(f.expired && { expired: true }), error: f.text });
   }
 }
 

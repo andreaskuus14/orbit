@@ -24,7 +24,7 @@ export type ItemStatus = (typeof ITEM_STATUSES)[number];
 // calls/minutes: the estimate the planner budgets with (the runner measures what was really used).
 export type NightTask = { kind: NightKind; ref: string; label: string; calls: number; minutes: number };
 export type Open = { task: string } | { goal: string; step?: number; stepId?: string } | { panel: "studio" | "business" | "memory" | "agents" | "markets" };
-export type NightItem = { kind: NightKind; ref: string; label: string; status: ItemStatus; why?: string; open?: Open; draft?: string; at: string;
+export type NightItem = { kind: NightKind; ref: string; label: string; status: ItemStatus; why?: string; open?: Open; draft?: string; at: string; seen?: string; // seen: approval fingerprint of the task's waiting actions when served (S02)
   pick?: Why; diff?: Diff }; // night-plan-pure: why tonight, and the counts it changed (before → after)
 export type NightRun = { id: string; key: string; startedAt: string; endedAt?: string; calls: number; ms: number; items: NightItem[]; stopped?: string; deferred?: number; pushed?: string; why?: string; planned?: Pick<NightTask, "kind" | "ref" | "label">[] };
 export type TonightItem = { id: string; text: string; agent: string; by: "owner" | "core"; at: string };
@@ -263,3 +263,10 @@ export function nightPush(r: { done: number; approvals: number; failed: number }
 /** Why a run stopped, in the owner's words (stored as a code: stop-all / usage / window / budget / lease). */
 export const stoppedText = (why?: string, lang: Lang = "en") =>
   why === "stop-all" || why === "usage" || why === "window" || why === "budget" || why === "lease" ? translate(lang, `night.stop.${why}`) : why ?? "";
+
+/** Last night's follow-up draft for one prospect, if it's still new to him (not the message already on the card). BUSINESS offers it
+ *  instead of a second model call; he still reviews it and approves the exact send (business/route.ts sendDraft). */
+export function nightFollowupDraft(r: Pick<NightReport, "approvals"> | null | undefined, prospectId: string, current: string): string | null {
+  const d = r?.approvals.find((i) => i.kind === "business" && i.ref === prospectId && i.draft?.trim())?.draft?.trim();
+  return d && d !== current.trim() ? d.slice(0, 4000) : null;
+}

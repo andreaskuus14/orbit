@@ -27,7 +27,8 @@ export type Grant = {
   id: string; workflow: string; account?: string; project?: string; actions: string[]; limits: Limits; destinations: string[];
   policyVersion: string; expiresAt?: string; revoked: boolean; paused: boolean; used: { count: number; money: number; calls: number }; createdAt: string;
 };
-export type AuthorityState = { grants: Grant[]; modes: Record<string, Mode> };
+// unreadable: authority.json couldn't be loaded (locked/damaged). Every workflow is then treated as on hold: only his own click acts.
+export type AuthorityState = { grants: Grant[]; modes: Record<string, Mode>; unreadable?: string };
 export const authorityDefaults = (): AuthorityState => ({ grants: [], modes: {} });
 
 export type AuthCtx = {
@@ -77,6 +78,7 @@ export function authorize(action: string, c: AuthCtx): Verdict {
   if (effect === "read") return v(true, "read", "policy");
   if (c.stopAll) return v(false, "Stop-all is on", "policy");
   const mode = c.workflow ? c.state.modes[c.workflow] : undefined;
+  if (c.state.unreadable && !c.ownerClick) return v(false, c.state.unreadable, "none"); // a lost hold or grant must never fail open
   if (mode === "hold" && !c.ownerClick) return v(false, "workflow is on exception hold", "none");
 
   if (CONSEQUENTIAL.includes(effect)) { // never via a grant, whatever the mode or entry

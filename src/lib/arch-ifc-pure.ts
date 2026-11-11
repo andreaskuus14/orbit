@@ -51,7 +51,8 @@ export function wallPieces(p: Part): { face?: Face; side?: string; box: Box }[] 
   return SIDES.map(([face, side]) => ({ face, side, box: box[face] }));
 }
 
-export type IfcOptions = { name?: string; site?: { lat: number; lon: number }; time?: Date; seed?: string };
+/** site.north: true north's bearing in degrees clockwise from model −Z (= IFC +Y) seen from above, as arch-site-pure's Site.north. */
+export type IfcOptions = { name?: string; site?: { lat: number; lon: number; north?: number }; time?: Date; seed?: string };
 
 /** Scene → IFC4 STEP text. Openings whose host wall is missing are skipped. */
 export function toIfc(scene: Scene, opt: IfcOptions = {}): string {
@@ -63,7 +64,9 @@ export function toIfc(scene: Scene, opt: IfcOptions = {}): string {
   const origin = pt3(0, 0, 0), zUp = dir(0, 0, 1), world = add(`IFCAXIS2PLACEMENT3D(${origin},$,$)`);
   const place = (rel: string | null, x: number, y: number, z: number) => add(`IFCLOCALPLACEMENT(${rel ?? "$"},${add(`IFCAXIS2PLACEMENT3D(${pt3(x, y, z)},$,$)`)})`);
 
-  const ctx = add(`IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,${world},$)`);
+  // TrueNorth: the direction of true north in the model's XY plane; omitted when north is model +Y (the IFC default)
+  const n = ((opt.site?.north ?? 0) * Math.PI) / 180, trueNorth = opt.site?.north ? dir(Math.sin(n), Math.cos(n)) : "$";
+  const ctx = add(`IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,${world},${trueNorth})`);
   const body = add(`IFCGEOMETRICREPRESENTATIONSUBCONTEXT('Body','Model',*,*,*,*,${ctx},$,.MODEL_VIEW.,$)`);
   const units = ["LENGTHUNIT.,$,.METRE", "AREAUNIT.,$,.SQUARE_METRE", "VOLUMEUNIT.,$,.CUBIC_METRE", "PLANEANGLEUNIT.,$,.RADIAN"].map((u) => add(`IFCSIUNIT(*,.${u}.)`));
   const project = add(`IFCPROJECT(${guid("project")},$,${str(name)},$,$,$,$,(${ctx}),${add(`IFCUNITASSIGNMENT((${units.join(",")}))`)})`);

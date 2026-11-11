@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isAllowedEmail } from "@/lib/allow";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { publicOrigin } from "@/lib/origin-pure";
+import { csp, cspApplies, newNonce } from "@/lib/csp-pure";
 
 // /w = workspace previews: the route checks the signed link + session itself (sandboxed pages' CSS/JS requests carry no cookies).
 // /remote, /screen + /api/remote = the paired-phone remote and read-only screen: its routes check their own device token (or, for /api/remote/owner, the session).
@@ -10,11 +11,17 @@ const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/api
 
 export async function middleware(request: NextRequest) {
   if (crossSiteBlocked(request.method, request.nextUrl.pathname, { secFetchSite: request.headers.get("sec-fetch-site"), origin: request.headers.get("origin"), host: request.headers.get("host"), forwardedHost: request.headers.get("x-forwarded-host") }))
-    return NextResponse.json({ error: "Cross-site request refused" }, { status: 403 });
+  { console.warn(`[security] cross-site ${request.method} ${request.nextUrl.pathname} refused (origin ${request.headers.get("origin") ?? "none"})`);
+    return NextResponse.json({ error: "Cross-site request refused" }, { status: 403 }); }
   // Launcher / night run poll these; no session work. (busy checks its own Host header and returns only booleans.)
   if (request.nextUrl.pathname === "/api/health" || request.nextUrl.pathname === "/api/studio/busy") return NextResponse.next();
   // Public demo: static fixture page, no session work (it never calls /api; its fetch guard answers from fixtures).
   if (request.nextUrl.pathname === "/demo") return NextResponse.next();
+  // CSP with a fresh nonce per page: Next reads it from the request header and stamps its own inline scripts with it
+  const nonce = cspApplies(request.nextUrl.pathname) ? newNonce() : "";
+  const policy = nonce ? csp(nonce, process.env.NODE_ENV === "development", process.env.NEXT_PUBLIC_SUPABASE_URL ?? "") : "";
+  if (policy) request.headers.set("content-security-policy", policy);
+  const withCsp = (r: NextResponse) => { if (policy) r.headers.set("Content-Security-Policy", policy); return r; };
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -46,6 +53,7 @@ export async function middleware(request: NextRequest) {
   const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "/"));
 
   if (user && !isAllowedEmail(user.email)) {
+    console.warn(`[security] sign-in by an account that isn't allowed (${user.email?.split("@")[1] ?? "?"}) refused`); // domain only, no full address in logs
     await supabase.auth.signOut();
     return redirectTo("/login", "?error=not_allowed");
   }
@@ -55,7 +63,7 @@ export async function middleware(request: NextRequest) {
     return redirectTo("/login");
   }
 
-  return response;
+  return withCsp(response);
 }
 
 export const config = {

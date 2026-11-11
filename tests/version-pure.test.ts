@@ -25,3 +25,14 @@ test("migrations: missing, unprobeable and ok", () => {
   assert.match(bad.detail, /1 of 3 .*0021.*0009 can't be checked/);
   assert.equal(migrationCheck(files, { "0001": true, "0021": true }).detail, "2 of 3 confirmed applied; 0009 can't be checked without writing");
 });
+
+test("L02: missing evidence is visible, never a silent ok", () => {
+  const noGit = versionCheck({ ...refs, head: null, main: null, dirty: null }, {});
+  assert.equal(noGit.status, "warn");
+  assert.match(noGit.detail, /checked out unknown.*origin\/main unknown \(never fetched here\).*can't be proven/);
+  const unknownDirty = versionCheck({ ...refs, dirty: null }, {});
+  assert.equal(unknownDirty.status, "ok");
+  assert.match(unknownDirty.detail, /uncommitted changes unknown/);
+  assert.match(versionCheck({ ...refs, main: refs.running }, {}).detail, /the same as running/);
+  assert.doesNotMatch(versionCheck(refs, {}).detail, /the same as running/); // running abcdef1 is not origin/main 1234567
+});

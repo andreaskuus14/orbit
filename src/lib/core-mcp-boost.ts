@@ -32,6 +32,7 @@ type BoostIn = {
   userId: string; question: string; system: string; prompt: string; model: string; effort?: string; steps: string[]; trace: { step: string; detail: string; ms: number; ok: boolean }[];
   policy: () => { ws?: WsGate; attach?: boolean; pins?: boolean; carried?: boolean };
   record: (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number) => void;
+  signal?: AbortSignal;
 };
 const MODELS = { fast: FAST_MODEL, smart: MODEL, deep: DEEP_MODEL };
 const tierOf = (model: string) => (model === FAST_MODEL ? "fast" : model === DEEP_MODEL ? "deep" : "smart") as Route["tier"];
@@ -66,7 +67,7 @@ export async function boostTurn(t: BoostIn) {
     /** Bridge /pre: the PreToolUse verdict for one built-in call. */
     pre: (b: Record<string, unknown>) => {
       const tool = String(b.tool_name ?? ""), input = (b.tool_input && typeof b.tool_input === "object" ? b.tool_input : {}) as Record<string, unknown>;
-      const why = preCheck(dir, tool, input, tainted(), realish);
+      const why = t.signal?.aborted ? "the turn was stopped" : preCheck(dir, tool, input, tainted(), realish);
       if (why) t.trace.push({ step: "native", detail: `refused ${tool}: ${why}`.slice(0, 200), ms: 0, ok: false });
       else if (dir) { const p = editedPath(dir, tool, input); if (p) edited.add(p); }
       return hookOut(why);

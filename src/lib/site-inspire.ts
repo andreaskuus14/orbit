@@ -3,6 +3,7 @@
 // brief): checked (site-inspire-pure.ts), then queued as a priced Higgsfield draft: nothing is generated or spent before the
 // owner's Approve click (AGENTS.md rule 6). After the click story.ts generates it and saveGenerated puts it in assets/.
 import { readFile } from "node:fs/promises";
+import { comfyModelName } from "./comfy-pure.ts";
 import { checkBrief, generatedCredit, generatorOff, parseRefs, type Ref } from "./site-inspire-pure.ts";
 import { assetPath, creditsMd, parseCredits, sniffImage } from "./site-pipeline-pure.ts";
 import type { Draft } from "./higgsfield-pure.ts";
@@ -184,6 +185,6 @@ export async function freeSlot(user: string, workspace: string, s: Slot, localOn
   if ("error" in (await ws.writeWsFile(user, workspace, s.path, out))) return false;
   const cur = parseCredits((await ws.readWsFile(user, workspace, "assets/CREDITS.md"))?.text ?? "");
   await ws.writeWsFile(user, workspace, "assets/CREDITS.md", creditsMd(cur, { path: s.path, title: `Prompt: ${s.prompt.slice(0, 400)}`,
-    author: who === "Pollinations" ? "Pollinations (flux), free AI image" : "SDXL-Lightning (ComfyUI on this PC), free AI image", license: "AI-generated for this site", attribution: false, source: "generated in ORBIT", via: who }));
+    author: who === "Pollinations" ? "Pollinations (flux), free AI image" : `${comfyModelName(comfy.configuredComfyModel())} (ComfyUI on this PC), free AI image`, license: "AI-generated for this site", attribution: false, source: "generated in ORBIT", via: who }));
   return who;
 }

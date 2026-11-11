@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { MODEL, PHOTO, STEPS, checkImage, comfyUrl, parseHistory, parseQueued, parseStats, seedOf, sizeFor, viewPath, workflow } from "../src/lib/comfy-pure.ts";
+import { MODEL, PHOTO, STEPS, checkImage, comfyModel, comfyUrl, imageWorkflow, parseHistory, parseQueued, parseStats, seedOf, sizeFor, viewPath, workflow } from "../src/lib/comfy-pure.ts";
 import { decide } from "../src/lib/policy-pure.ts";
 import { coreToolRefusal } from "../src/lib/stop-all-pure.ts";
 import { EFFECTS } from "../src/lib/approval-pure.ts";
@@ -23,6 +23,21 @@ test("sizes and seed: SDXL buckets per aspect, odd aspect → 16:9; same text sa
   assert.deepEqual(sizeFor("7:3"), [1344, 768]);
   assert.equal(seedOf("img/hero.jpg"), seedOf("img/hero.jpg"));
   assert.notEqual(seedOf("a"), seedOf("b"));
+});
+
+test("model selection preserves the SDXL default and builds NitroFusion2's one-step API graph", () => {
+  const input = { prompt: 'A poster that reads "ORBIT"', width: 768, height: 1344, seed: 42 };
+  assert.deepEqual(imageWorkflow(comfyModel(undefined), input), workflow({ ...input, prompt: `${input.prompt}. ${PHOTO}` }));
+  const graph = imageWorkflow(comfyModel(" NitroFusion2 "), input);
+  assert.equal(graph["1"].inputs.unet_name, "nitrofusion2_w4a8_gptq.safetensors");
+  assert.deepEqual(graph["3"].inputs, { model: ["1", 0], shift: 3 });
+  assert.deepEqual(graph["5"].inputs, { clip_name: "qwen_3_4b.safetensors", type: "lumina2", device: "default" });
+  assert.equal(graph["6"].inputs.text, input.prompt);
+  assert.deepEqual(graph["9"].inputs, { width: 768, height: 1344, batch_size: 1 });
+  assert.deepEqual(graph["10"].inputs, { seed: 42, steps: 1, cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1,
+    model: ["3", 0], positive: ["6", 0], negative: ["7", 0], latent_image: ["9", 0] });
+  assert.deepEqual(graph["60"].inputs.images, ["12", 0]);
+  assert.match((parseQueued({ error: "clip_name: qwen_3_4b.safetensors is missing" }, "nitrofusion2") as { error: string }).error, /qwen_3_4b.*-Model nitrofusion2/);
 });
 
 test("service URL: this PC only, default 8188", () => {

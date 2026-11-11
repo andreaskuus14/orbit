@@ -43,6 +43,7 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 ## INTELLIGENCE
 
 - News globe and Pulse briefings, every story sourced. Faster and smoother now; no new actions.
+- **Watches:** public pages ORBIT re-reads on a schedule. Each change shows the lines that changed; the morning brief shows what changed, when and the source link, and says "check failed" when a watch couldn't be read. A return to an earlier version is labelled as a reversion (only the last 2 older versions are compared). Mark changes Useful/Noise, log "Missed a change"; Watches shows the last 7 days with failed checks out of all checks.
 
 ## GAME DEV
 
@@ -55,6 +56,7 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 ## OPERATIONS
 
 - Agent tasks, projects, automations. *Save as recipe* on a finished task; re-run it from AGENTS → Recipes or by saying "run recipe <name>".
+- **Team (Mission Control):** the coding agents' handoff board in four sections: Done, Working, Blocked, Needs you. Each item shows the agent, one sentence, the proof (*Test passed*, *Test failed*, *Merged* or *Deployed*; denials like "nothing merged" don't count) and a PR or test-run link. Updates for the same agent and PR are grouped; the latest one counts. On a phone, Needs you comes first. Reads the Notion board when `ORBIT_NOTION_TOKEN` and `ORBIT_TEAM_BOARD` are set (re-read every minute, or with Refresh); otherwise it shows a sample board labelled *live status unavailable* with the reason. Read-only. Browser check: `npm run check:team-status`.
 
 ## AGENTS
 
@@ -87,7 +89,7 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 ## ANALYTICS
 
 - **Operator report:** weekly card of what ORBIT did on its own.
-- **Make ORBIT better:** once a week, up to 5 improvement tasks with evidence (in 🩺 Check ORBIT). *Draft patch* on a task makes one Claude call with up to 4 relevant files and saves a diff + test + reason as a local `.patch` file, with *Copy* for Claude Code. Drafts survive a reload. A safety check refuses patches that touch AGENTS.md, approvals/autonomy/Stop-all, REA, `.env` or CI, weaken tests or remove guards. Nothing is ever applied, committed or pushed.
+- **Make ORBIT better:** once a week, up to 5 improvement tasks with evidence (in 🩺 Check ORBIT). *Draft patch* on a task makes one Claude call with up to 4 relevant files and saves a diff + test + reason as a local `.patch` file, with *Copy* for Claude Code. Drafts survive a reload. A safety check refuses patches that touch AGENTS.md, approvals/autonomy/Stop-all, `.env` or CI, weaken tests or remove guards. Nothing is ever applied, committed or pushed.
 - **Agent scorecard:** once a month ORBIT replays 10 fixed practice cases through the agents and grades them, with trend and worst case.
 - **Predictions:** before you decide on a clip, proposal, draft, tidy-up, niche or deal, ORBIT quietly guesses what you'll do and keeps score. The hint shows on the card. It never acts on a guess.
 - **PERF card:** frame rate and speed runs (open ORBIT with `?perfrun=1` or press Shift+Alt+P).
@@ -134,7 +136,7 @@ Clip Factory tabs: Pipeline · Find videos · Clips · AI Story · Long-form · 
 
 ## ARCH
 
-- **Project desk:** choose an OPERATIONS project to keep a separate ARCH model/history alongside local brief/decision notes, reference links and its existing tasks. The unassigned model remains available. CORE chat projects and visual reference boards are not unified yet; see [scope and storage](ARCH-PROJECT-DESK.md).
+- **Project desk:** choose an OPERATIONS project to keep its ARCH model, history, notes and tasks together. The same desk opens the project’s CORE chat and holds VAULT image references, a color palette and STUDIO clip links. See [scope and storage](ARCH-PROJECT-DESK.md).
 
 - **Scans:** import a .ply/.splat scan, walk around it, and **measure** inside it (two clicks, calibrate on a known length).
 - **Sketch critique:** photo of your sketch → feedback on proportion, circulation, light, structure, saved to MEMORY.

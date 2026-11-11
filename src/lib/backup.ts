@@ -79,9 +79,11 @@ export async function buildExport(sb: SupabaseClient, user: { id: string; email?
     user: { id: user.id, email: user.email ?? null },
     tables,
     missing_tables: missing,
-    local: { // LIFE and CORE projects live in local files, not Supabase
+    local: { // LIFE, CORE projects and project desks live in local files, not Supabase
+      note: "Export only: ORBIT has no importer for this file, including local.project_desks. To restore ORBIT's local files (project desks among them), use Profile → Time capsule.",
       life: await import("./life").then((m) => m.exportLife()).catch((e) => ({ error: `life.json could not be read: ${e instanceof Error ? e.message : e}` })),
       core_projects: await import("./core-chats").then((m) => m.getChats(user.id)).catch((e) => ({ error: `core-chats.json could not be read: ${e instanceof Error ? e.message : e}` })),
+      project_desks: await import("./project-desk").then((m) => m.exportDesks(user.id)).catch((e) => ({ error: `project-desks.json could not be read: ${e instanceof Error ? e.message : e}` })),
     },
     files: {
       note: signFiles

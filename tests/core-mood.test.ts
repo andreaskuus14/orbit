@@ -8,7 +8,6 @@ test("tools map to planets, web tools to the beam, the rest to plain thinking", 
   assert.equal(toolTarget("web_search"), "web");
   assert.equal(toolTarget("fetch_url"), "web");
   assert.equal(toolTarget("search_memory"), "memory");
-  assert.equal(toolTarget("rea_read"), "creation");
   assert.equal(toolTarget("run_scout"), "studio");
   assert.equal(toolTarget("think"), null);
   assert.equal(toolTarget("nonsense"), null);

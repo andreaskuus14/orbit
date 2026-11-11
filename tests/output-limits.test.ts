@@ -48,5 +48,7 @@ test("latency check: medians of first token and total", () => {
   assert.match(latencyCheck([]).detail, /No CORE turns/);
   const c = latencyCheck([{ ms: { first_token: 1000, total: 4000 } }, { ms: { first_token: 3000, total: 9000 } }, { ms: { total: 5000 } }]);
   assert.equal(c.status, "ok");
-  assert.match(c.detail, /3 turns: first words 1\.0 s, full answer 5\.0 s/);
+  assert.match(c.detail, /3 turns: first sign of work n\/a, first words 1\.0 s, full answer 5\.0 s/);
+  const b01 = latencyCheck([{ ms: { ack: 300, first_token: 2000, total: 8000 } }, { ms: { ack: 500, first_token: 4000, total: 12000 } }]);
+  assert.match(b01.detail, /first sign of work 0\.3 s, first words 2\.0 s, full answer 8\.0 s/); // B01: three separate numbers
 });

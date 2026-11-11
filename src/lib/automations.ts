@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { kickQueue } from "./agents";
-import { automationDue, type Schedule } from "./pure";
+import { automationDue, lastDue, type Schedule } from "./pure";
 import { ackEvent, claimEvents, type EventRow } from "./durable";
 import { stopAllOn } from "./stop-all";
 import { authorizeAction } from "./authority";
@@ -24,18 +24,31 @@ export async function startAutomation(sb: SupabaseClient, a: Automation, trigger
   const auth = await authorizeAction("automations.start", { entry: "automation", workflow: `automation:${a.id}`, ownerClick: trigger === "run manually" });
   if (!auth.ok) throw new Error(auth.why);
   const request = `${a.prompt}\n\n(Automation "${a.name}", triggered: ${trigger}.)${key ? ` [${key}]` : ""}`;
-  if (key) { // idempotency: an event replayed after a crash finds the task it already created
+  // last_run_at is a separate write after the task insert; if it fails (or the server dies between them) the run is still
+  // recorded by its task, and the key lookup below finds it instead of starting the same slot again.
+  const ran = async (count: number) => {
+    const { error } = await sb.from("automations").update({ last_run_at: new Date().toISOString(), run_count: count }).eq("id", a.id).eq("user_id", a.user_id);
+    if (error) console.error(`[orbit] automation "${a.name}": last run not saved:`, error.message);
+  };
+  if (key) { // idempotency: an event replayed after a crash, or a schedule slot already started, finds the task it created
     const { data: had, error } = await sb.from("tasks").select("id").eq("user_id", a.user_id).eq("automation_id", a.id).like("request", `%[${key}]`).limit(1);
     if (error) throw error;
-    if (had?.length) return had[0].id as string;
+    if (had?.length) { await ran(a.run_count); return had[0].id as string; } // re-mark it run so the slot stops being due
   }
-  const { data, error } = await sb.from("tasks").insert({
-    user_id: a.user_id, agent: a.agent, title: `⚙ ${a.name}`.slice(0, 200), request, automation_id: a.id,
-  }).select("id").single();
+  const row: Record<string, string> = { user_id: a.user_id, agent: a.agent, title: `⚙ ${a.name}`.slice(0, 200), request, automation_id: a.id };
+  // The lookup above and this insert aren't atomic: two ORBITs on one database (PC + a host) can both pass the lookup. The slot's
+  // attempt_id (unique per user, migration 0023) lets only one insert win; the loser finds the winner's task. Before 0023: plain insert.
+  const slot = key ? `slot:${a.id}:${key}` : null;
+  let { data, error } = await sb.from("tasks").insert(slot ? { ...row, attempt_id: slot } : row).select("id").single();
+  if (error && slot && (error.code === "42703" || error.code === "PGRST204")) ({ data, error } = await sb.from("tasks").insert(row).select("id").single());
+  if (error?.code === "23505" && slot) {
+    const { data: won } = await sb.from("tasks").select("id").eq("user_id", a.user_id).eq("attempt_id", slot).limit(1);
+    if (won?.length) { await ran(a.run_count); return won[0].id as string; }
+  }
   if (error) throw error;
-  await sb.from("automations").update({ last_run_at: new Date().toISOString(), run_count: a.run_count + 1 }).eq("id", a.id).eq("user_id", a.user_id);
+  await ran(a.run_count + 1);
   void kickQueue(sb, a.user_id);
-  return data.id as string;
+  return data!.id as string;
 }
 
 /** Start every scheduled automation whose time has come. */
@@ -45,7 +58,7 @@ export async function runDueAutomations(sb: SupabaseClient, userId: string, now 
   for (const a of (data ?? []) as Automation[]) {
     if (a.schedule && automationDue(a.schedule, a.last_run_at, a.created_at, now)) {
       console.log(`[orbit] automation "${a.name}" starting (scheduled)`);
-      await startAutomation(sb, a, "schedule").catch((e) => console.error(`[orbit] automation "${a.name}" failed to start:`, e?.message ?? e));
+      await startAutomation(sb, a, "schedule", `schedule:${a.id}:${lastDue(a.schedule, now).toISOString()}`).catch((e) => console.error(`[orbit] automation "${a.name}" failed to start:`, e?.message ?? e));
     }
   }
 }

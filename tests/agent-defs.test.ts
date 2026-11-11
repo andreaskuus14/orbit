@@ -73,3 +73,26 @@ test("eval suite: 5-8 tasks per agent, readiness never drops, recorded answers a
   assert.equal(r.pending.length, AGENT_SUITE.length - 2);
   assert.throws(() => scoreRuns(BUILTIN_AGENTS, AGENT_SUITE, [{ id: "x" }]), /string id and answer/);
 });
+
+test("selfCheck: an English request gets an English answer; Estonian place names alone don't trip it", () => {
+  const forge = BUILTIN_AGENTS.find((a) => a.slug === "forge")!;
+  const et = "Kokkuvõte: meeskond otsustas, et demo ilmub 1. detsembril ja Mia vastutab treileri eest, kuid mobiil on lahtine ning eelarve on 300 €.";
+  assert.match(selfCheck(forge.contract, et, { request: "Summarise these notes in 3 bullets.", seen: "" }).join(), /request is in English/);
+  const en = "The studio in Pärnu ships the demo on 1 Dec; Mia owns the trailer and the music budget is capped at €300.";
+  assert.doesNotMatch(selfCheck(forge.contract, en, { request: "Summarise these notes in 3 bullets.", seen: "" }).join(), /request is in English/);
+});
+
+test("team: Nova hands work to leads, leads to their own team, specialists don't delegate", async () => {
+  const { delegateProblem, delegateTargets, DEPTS } = await import("../src/lib/agent-defs-pure.ts");
+  for (const a of BUILTIN_AGENTS) assert.ok(a.dept && DEPTS.includes(a.dept), `${a.slug} has a department`);
+  for (const d of DEPTS) assert.equal(BUILTIN_AGENTS.filter((a) => a.dept === d && a.lead).length, 1, `${d} has exactly one lead`);
+  assert.equal(delegateProblem("nova", "closer"), "");
+  assert.equal(delegateProblem("nova", "custom-agent-123"), "", "Nova keeps custom agents");
+  assert.match(delegateProblem("nova", "prospector"), /closer/, "Nova is pointed at the business lead");
+  assert.equal(delegateProblem("closer", "prospector"), "");
+  assert.notEqual(delegateProblem("closer", "scout"), "", "a lead stays in its department");
+  assert.notEqual(delegateProblem("prospector", "outreach"), "", "specialists don't delegate");
+  assert.deepEqual(delegateTargets("closer").sort(), ["outreach", "prospector", "qa"]);
+  for (const a of BUILTIN_AGENTS) assert.equal(a.tools.includes("delegate"), a.slug === "nova" || !!a.lead, `${a.slug}: only Nova and leads get delegate`);
+  for (const t of ["send_email", "spend"]) assert.ok(!BUILTIN_AGENTS.some((a) => a.tools.includes(t)), `no agent has ${t}`);
+});

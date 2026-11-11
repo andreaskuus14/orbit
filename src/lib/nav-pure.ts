@@ -40,6 +40,8 @@ command({ voice: true }, "unmute, lülita heli sisse");
 command({ morning: true }, "status report, olukord");
 command({ weekly: true }, "weekly review, my week, how was my week, nädala ülevaade");
 command({ mission: true }, "mission control, bridge, the bridge, open mission control, open the bridge, missioonijuhtimine");
+// C05: pending approvals live on the bridge (bridgeApprovals); whole phrases only, so "approve the invoice" still goes to CORE
+command({ mission: true }, "approvals, my approvals, pending approvals, show approvals, show my approvals, open approvals, what needs me, what needs my approval, whats waiting for me, what is waiting for me, kinnitused, minu kinnitused, ootel kinnitused, näita kinnitusi, mis vajab mind, mis ootab mind");
 command({ evening: true }, "today in a minute, evening capture, log my day, log today, päev minutiga");
 command({ continueWork: true }, "show my work, continue my work, näita minu tööd, jätka minu tööd");
 for (const w of WORK_TABS) command({ continueWork: true, workTab: w.id }, `${w.say}, ${w.sayEt}`);
@@ -74,7 +76,7 @@ put({ panel: "vault" }, "vault, files, my files, file vault, documents, my docum
 put({ panel: "studio", view: "stats" }, "stats, my stats, statistics, stats in the studio, stats of the studio, the stats of the studio, stats of the soda, the stats of the soda, statistics in the studio, channel stats, youtube stats, video stats, studio stats, my analytics, channel analytics, youtube analytics");
 put({ panel: "studio", view: "clips" }, "clips, my clips, clip factory, the clip factory, clip maker, shorts, studio clips, clips in the studio, clips in studio, clips of the studio, the clips of the studio, clips of the soda, the clips in the studio, eclipse, eclipses, the eclipse, the eclipses");
 put({ panel: "studio", view: "review" }, "review, the review, morning review, clip review, clips review, review queue, review clips, review my clips, review the clips, review new clips, review new");
-put({ panel: null, morning: true }, "good morning, morning briefing, my morning briefing, morning brief, daily briefing, my daily briefing, daily brief, whats new today, brief me, morning card");
+put({ panel: null, morning: true }, "tere hommikust, hommikune ülevaade, hommikune kokkuvõte, päeva ülevaade, mis täna uut, good morning, morning briefing, my morning briefing, morning brief, daily briefing, my daily briefing, daily brief, whats new today, brief me, morning card");
 put({ panel: "memory", beliefs: true }, "what do you know about me, what you know about me, what does orbit know about me, what orbit knows about me, what do you believe about me, what does orbit believe, what orbit believes, what orbit believes about me");
 put({ panel: null, doctor: true }, "check orbit, check on orbit, orbit doctor, doctor, the doctor, run diagnostics, run a diagnostic, run diagnostic, diagnostics, run the diagnostics, is everything working, is everything ok, is everything okay, is everything alright, system check, run a system check, health check, run a health check, check everything, check the system");
 

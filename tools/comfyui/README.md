@@ -30,10 +30,21 @@ several times slower on 8 GB; it can be added later as a second workflow.
 By hand: `tools\comfyui\start.ps1`, then open http://127.0.0.1:8188. `workflow-txt2img.json` is the exact graph ORBIT
 sends (API format); it is copied into ComfyUI's `user` folder so you can look at it.
 
+## NitroFusion2 (optional)
+
+NitroFusion2 is a local text-to-image model. ORBIT runs its upstream one-step recipe in the same ComfyUI service, using the [W4A8 GPTQ weights](https://huggingface.co/PedroMarinhoDev/NitroFusion2-ComfyUI) linked by the [NitroFusion2 authors](https://github.com/ChenDarYen/NitroFusion2). This workflow uses stock ComfyUI nodes. The weights, Qwen encoder and VAE take about 12 GB of disk space in total, in addition to ComfyUI. Use a current ComfyUI build with support for the W4A8 weights. GPU memory use and generation times on the ORBIT PC still need to be measured.
+
+1. In the ORBIT folder, run `powershell -ExecutionPolicy Bypass -File tools\comfyui\setup.ps1 -Model nitrofusion2`.
+2. Add `ORBIT_COMFY_MODEL=nitrofusion2` to `.env.local` and restart ORBIT.
+3. Ask CORE for a local picture. Confirm it opens from VAULT and that **OPERATIONS → Local AI** shows NitroFusion2.
+
+The model choice also applies to local website pictures. To switch back, clear `ORBIT_COMFY_MODEL`, run the regular setup if SDXL-Lightning is missing, and restart. Each setup command installs only the selected model files.
+
 ## Settings (`.env.local`, all optional)
 
 - `ORBIT_COMFY_URL` — default `http://127.0.0.1:8188`; must be this PC.
 - `ORBIT_COMFY_AUTOSTART=0` — don't start ComfyUI automatically.
+- `ORBIT_COMFY_MODEL=nitrofusion2` — select NitroFusion2 for local image generation. Empty uses SDXL-Lightning.
 - `ORBIT_LOCAL_PICTURES=0` — website photos skip ComfyUI and use the online free service.
 
 ## Browser for CORE
