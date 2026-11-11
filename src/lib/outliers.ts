@@ -76,7 +76,10 @@ type RunState = { v: 1; checkedAt: string; status: string; added: number };
 const runProblem = (x: unknown) => (x as RunState)?.v === 1 && typeof (x as RunState).checkedAt === "string" ? "" : "not an outliers state";
 export const outliersView = () => readState<RunState>(studioRoot(), "outliers", runProblem);
 
+const g = globalThis as unknown as { __orbitOutliersBusy?: boolean }; // global like niche.ts's busy flag: survives hot reloads
 export async function maybeWeeklyOutliers(now = Date.now()): Promise<void> {
+  if (g.__orbitOutliersBusy) return; // a run takes minutes and the tick fires every minute: no second set of searches while one runs
+  g.__orbitOutliersBusy = true;
   try {
     const key = process.env.YOUTUBE_API_KEY?.trim();
     if (!key) return;
@@ -100,4 +103,5 @@ export async function maybeWeeklyOutliers(now = Date.now()): Promise<void> {
     const status = `${queries.length} search${queries.length === 1 ? "" : "es"} · ${added} new idea${added === 1 ? "" : "s"}${errors.length ? ` · ${errors.length} failed: ${errors[0]}` : ""}`.slice(0, 300);
     await saveState("outliers", path.join(studioRoot(), "outliers.json"), { v: 1, checkedAt: new Date(now).toISOString(), status, added } satisfies RunState);
   } catch (e) { console.error("[orbit] weekly outliers failed:", e instanceof Error ? e.message : String(e)); }
+  finally { g.__orbitOutliersBusy = false; }
 }
