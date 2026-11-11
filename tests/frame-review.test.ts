@@ -51,10 +51,11 @@ test("reviewFrames with real ffmpeg: a black scene stops before assembly, a norm
   const good = make("good.mp4", "testsrc2"), black = make("black.mp4", "color=c=black");
   const { spawnSync } = await import("node:child_process");
   const run = async (args: string[], cwd: string) => spawnSync(ff, args, { cwd, encoding: "utf8" }).stderr; // runFfmpeg also returns the log
+  const LOGS: string[] = [];
   const { parseStats: ps } = await import("../src/lib/clips/frame-review-pure.ts");
-  const deps = { ffmpeg: async (a: string[], cwd: string) => { const l = await run(a, cwd); const pts = /pts_time:([\d.]+)/.exec(await run(a.map((x) => x.startsWith("scale=") ? "showinfo" : x === "-i" ? "-copyts\u0000-i" : x).flatMap((x) => x.split("\u0000")), cwd))?.[1]; console.log("FRAMESTAT", process.platform, a.join(" ").slice(0, 60), "pts", pts, JSON.stringify(ps(l))); return l; }, duration: async () => 3, save: async () => {} };
+  const deps = { ffmpeg: async (a: string[], cwd: string) => { const l = await run(a, cwd); const pts = /pts_time:([\d.]+)/.exec(await run(a.map((x) => x.startsWith("scale=") ? "showinfo" : x === "-i" ? "-copyts\u0000-i" : x).flatMap((x) => x.split("\u0000")), cwd))?.[1]; LOGS.push(["FRAMESTAT", process.platform, a.join(" ").slice(0, 60), "pts", pts, JSON.stringify(ps(l))].join(" ")); return l; }, duration: async () => 3, save: async () => {} };
   const job = (files: string[]) => ({ story: { scenes: files.map(() => ({ sec: 3 })) }, items: files.map((file, scene) => ({ kind: "video", scene, file })), warnings: [] as string[] }) as never;
   const ok = job([good]); await reviewFrames(ok, dir, deps, new AbortController().signal);
-  assert.deepEqual((ok as { warnings: string[] }).warnings, []);
+  assert.deepEqual((ok as { warnings: string[] }).warnings, [], LOGS.join("\n"));
   await assert.rejects(reviewFrames(job([good, black]), dir, deps, new AbortController().signal), /Scene 2 is blank/);
 });
