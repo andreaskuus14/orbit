@@ -23,19 +23,19 @@ export default function CalendarCard() {
     setTErr(r.error ?? ""); void load();
   };
   const upload = async (f?: File) => { if (f) await post({ action: "timetable", text: await f.text() }); };
-  const addUrl = () => { const u = prompt("Link to your timetable (.ics or webcal://)"); if (u?.trim()) void post({ action: "timetable", url: u.trim() }); };
+  const addUrl = () => { const u = prompt(t("cal.linkPrompt")); if (u?.trim()) void post({ action: "timetable", url: u.trim() }); };
   if (!s) return null;
   const events = (s.events ?? []).slice(0, 12);
   return (
     <div className="card space-y-2 text-sm">
       <div className="flex items-center justify-between gap-2">
         <b>📅 Calendar</b>
-        {s.timetable && <button className="chip text-xs" onClick={() => void post({ action: "timetable-remove" })}>Remove timetable</button>}
+        {s.timetable && <button className="chip text-xs" onClick={() => void post({ action: "timetable-remove" })}>{t("cal.removeTt")}</button>}
         {s.connected && <button className="chip text-xs" onClick={() => void disconnect()}>Disconnect</button>}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <label className="chip cursor-pointer">Import timetable (.ics)<input type="file" accept=".ics,text/calendar" className="sr-only" onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} /></label>
-        <button className="chip" onClick={addUrl}>From link</button>
+        <label className="chip cursor-pointer">{t("cal.import")}<input type="file" accept=".ics,text/calendar" className="sr-only" onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} /></label>
+        <button className="chip" onClick={addUrl}>{t("cal.fromLink")}</button>
         {tErr && <span className="error" role="alert">{tErr}</span>}
       </div>
       {!s.connected && !events.length ? (
