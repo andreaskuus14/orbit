@@ -6,6 +6,7 @@ import { timeAgo } from "@/lib/mission-pure";
 import { evidenceLine } from "@/lib/mission-checks-pure";
 import { useT } from "./i18n";
 import { OpsStatus } from "./OpsStatus";
+import { MissionBriefForm } from "./MissionBriefForm";
 import type { MissionView } from "@/lib/missions";
 
 // MISSIONS: CORE's multi-step jobs. State, the one next action, steps, receipts (what ORBIT verified) and the plain-language log.
@@ -16,6 +17,7 @@ const ACTIONS: OwnerAction[] = ["pause", "resume", "retry", "accept", "cancel"];
 export default function MissionsPanel({ visible, onOpenTask }: { visible: boolean; onOpenTask?: (id: string) => void }) {
   const [list, setList] = useState<MissionView[] | null>(null);
   const [err, setErr] = useState("");
+  const [creating, setCreating] = useState(false);
   const { t } = useT();
   const load = useCallback(() => { api<{ missions: MissionView[] }>("/api/missions").then((r) => { setList(r.missions); setErr(""); }, (e) => setErr(e.message)); }, []);
   usePoll(load, 5_000, visible);
@@ -24,6 +26,9 @@ export default function MissionsPanel({ visible, onOpenTask }: { visible: boolea
   return (
     <div className="space-y-2 text-xs">
       <p className="muted">Ask CORE for work that needs several steps and it becomes a mission here. It keeps going in the background and after restarts.</p>
+      {creating
+        ? <MissionBriefForm onCreated={() => { setCreating(false); load(); }} onCancel={() => setCreating(false)} />
+        : <button type="button" className="chip" onClick={() => setCreating(true)}>{t("mission.brief.new")}</button>}
       {err && <p role="alert" style={{ color: "#fb7185" }}>{err}</p>}
       {!list ? <p className="muted">{err ? "" : "Loading…"}</p> : !list.length ? <p className="muted">No missions yet.</p> : (
         <ul className="space-y-2">
@@ -62,6 +67,16 @@ export default function MissionsPanel({ visible, onOpenTask }: { visible: boolea
                     </li>
                   ))}
                 </ol>
+              )}
+              {m.doc.brief && (
+                <details>
+                  <summary className="cursor-pointer">{t("mission.brief.title")}</summary>
+                  <dl className="mt-1 space-y-1 break-words">
+                    {m.doc.brief.output && <div><dt className="muted">{t("mission.brief.output")}</dt><dd className="whitespace-pre-wrap">{m.doc.brief.output}</dd></div>}
+                    {m.doc.brief.evidence && <div><dt className="muted">{t("mission.brief.evidence")}</dt><dd className="whitespace-pre-wrap">{m.doc.brief.evidence}</dd></div>}
+                    {m.doc.brief.approvalPoints && <div><dt className="muted">{t("mission.brief.approvals")}</dt><dd className="whitespace-pre-wrap">{m.doc.brief.approvalPoints}<p className="muted">{t("mission.brief.approvalsHint")}</p></dd></div>}
+                  </dl>
+                </details>
               )}
               {m.doc.receipts.length > 0 && (
                 <details><summary className="cursor-pointer">Receipts ({m.doc.receipts.length})</summary>
