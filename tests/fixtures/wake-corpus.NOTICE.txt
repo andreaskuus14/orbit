@@ -1,0 +1,4 @@
+wake-corpus.txt: 10,000 sentences from Tatoeba (https://tatoeba.org), downloaded from
+https://downloads.tatoeba.org/exports/per_language/{eng,est}/ in November 2026.
+Licensed CC BY 2.0 FR (https://creativecommons.org/licenses/by/2.0/fr/). Attribution: Tatoeba contributors.
+Selection: 2,000 Estonian, up to 300 English containing "orbit", the rest random English (fixed seed). Unmodified text.
