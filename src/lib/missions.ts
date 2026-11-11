@@ -41,7 +41,7 @@ export async function createMission(sb: SupabaseClient, userId: string, body: un
   if ("error" in c) return c;
   // Saved workflow: the contract is the server's own constant, never taken from the request body.
   const wf = (body as { workflow?: unknown } | null)?.workflow === RESEARCH_PILOT ? { workflow: RESEARCH_PILOT, contract: PILOT_CONTRACT, metrics: { startedAt: now(), interventions: 0 } } : {};
-  const fresh = () => newDoc(m.objective, m.constraints, now(), { acceptance: m.acceptance, assumptions: m.assumptions, effort: plan(m.steps, MAX_RETRIES), ...wf });
+  const fresh = () => newDoc(m.objective, m.constraints, now(), { acceptance: m.acceptance, assumptions: m.assumptions, ...(m.brief && { brief: m.brief }), effort: plan(m.steps, MAX_RETRIES), ...wf });
   const { data, error } = await sb.from("missions").insert({ user_id: userId, chain_id: c.chainId, status: "queued", doc: cap.headsUp ? logged(fresh(), now(), cap.headsUp) : fresh() }).select(COLS).single();
   if (error) { await cancelChain(sb, c.chainId); return { error: error.message }; }
   await reconcile(sb, userId, data as Row);

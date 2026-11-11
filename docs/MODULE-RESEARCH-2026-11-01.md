@@ -235,7 +235,7 @@ Code inspected directly during this research and the preceding video comparison:
 5. **Improve agent verification** (#43–44, #56). Extend current evals and restore checks before adding more autonomy or background volume.
 6. **Add specialist adapters according to actual use**: distribution (#31), attribution (#32–33), finance imports (#13), GitHub (#49), BIM (#53). Do not install the entire catalog.
 
-Each implementation should have one owner-visible acceptance example, a source-of-truth decision, failure/freshness behavior, resource estimate, and required tests. New pure logic belongs in `*-pure.ts` with tests in `tests/`. No REA changes. Work on a new branch, pass `npm run gate` before a PR, and leave merge/deploy to Claude.
+Each implementation should have one owner-visible acceptance example, a source-of-truth decision, failure/freshness behavior, resource estimate, and required tests. New pure logic belongs in `*-pure.ts` with tests in `tests/`. Work on a new branch, pass `npm run gate` before a PR, and leave merge/deploy to Claude.
 
 ## Non-negotiable integration boundaries
 

@@ -37,7 +37,7 @@ export async function runLifeTool(tool: LifeTool, input: Record<string, unknown>
         const habit = str(input.habit, 60);
         if (!habit) return "Error: habit is required";
         const r = await (await life()).checkHabit(habit, input.done !== false);
-        return "error" in r ? `Error: ${r.error}` : `Done: ${r.name} marked ${input.done === false ? "not done" : "done"} (streak ${r.streak}).`;
+        return "error" in r ? `Error: ${r.error}` : `Done: marked ${input.done === false ? "not done" : "done"} (streak ${r.streak}).`; // no habit name: stored LIFE text never reaches the model;
       }
       case "life_add_habit": {
         const name = str(input.name, 60);

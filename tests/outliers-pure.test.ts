@@ -78,3 +78,36 @@ test("the success output is fenced as third-party data, including empty results"
   assert.match(outlierReport("L", [], new Map(), NOW, 5), /^<untrusted[^\n]*\nNo outliers found: no videos to score\./);
   assert.match(outlierReport("L", [v("n", 5, 1)], new Map(), NOW, 5), /No outliers found: no comparable uploads\./);
 });
+
+import { mergeOutlierIdeas, outlierQueries, outliersDue, type Outlier } from "../src/lib/outliers-pure.ts";
+import { readFileSync } from "node:fs";
+const o = (id: string, score: number, lowConfidence = false): Outlier => ({ ...v(id, 1000 * score, 10), median: 1000, score, lowConfidence, n: 12 });
+
+test("weekly run: due after 7 days, queries are the owner's keywords capped at 2", () => {
+  assert.ok(outliersDue(undefined, NOW));
+  assert.ok(!outliersDue(new Date(NOW - 6 * DAY).toISOString(), NOW));
+  assert.ok(outliersDue(new Date(NOW - 7 * DAY).toISOString(), NOW));
+  assert.ok(outliersDue("garbage", NOW));
+  assert.deepEqual(outlierQueries([" roblox ", "", "roblox", "stickman", "third"]), ["roblox", "stickman"]);
+});
+
+test("outliers become IDEA RADAR ideas: only strong, confident ones; refreshed in place, dismissal kept", () => {
+  let n = 0;
+  const now = new Date(NOW).toISOString();
+  const r1 = mergeOutlierIdeas([], [{ query: "roblox", list: [o("a", 8), o("b", 2.5), o("c", 9, true)] }], now, () => `id${++n}`);
+  assert.equal(r1.added, 1);
+  assert.deepEqual(r1.ideas.map((i) => [i.video, i.origin, i.area]), [["a", "outliers", "studio"]]);
+  assert.ok(r1.ideas[0].score >= 60 && r1.ideas[0].score <= 95, "visible on the board");
+  const dismissed = r1.ideas.map((i) => ({ ...i, dismissed: true }));
+  const r2 = mergeOutlierIdeas(dismissed, [{ query: "roblox", list: [o("a", 10)] }], now, () => `id${++n}`);
+  assert.equal(r2.added, 0);
+  assert.equal(r2.ideas.length, 1);
+  assert.equal(r2.ideas[0].id, "id1");
+  assert.equal(r2.ideas[0].dismissed, true);
+});
+
+test("the weekly run is registered in the scheduler and skips quietly without a key", () => {
+  assert.match(readFileSync(new URL("../src/lib/scheduler.ts", import.meta.url), "utf8"), /maybeWeeklyOutliers/);
+  const src = readFileSync(new URL("../src/lib/outliers.ts", import.meta.url), "utf8");
+  assert.match(src, /if \(!key\) return;\n\s+const prev/, "key check comes before any state write or API call");
+});

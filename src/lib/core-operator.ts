@@ -7,7 +7,7 @@ import { withEvalNote } from "./eval-run.ts";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir.ts";
-import { automationInput, createdLeads, keepSnaps, leadChange, leadInputs, leadNotes, newOpId, OP_ID, opsBlocked, ownLeadsIn, pickByName, receipt, rememberOwnLeads, tallinnTimes, type OpsSnap, type OpsTool } from "./core-operator-pure.ts";
+import { automationInput, createdLeads, keepSnaps, leadChange, leadInputs, leadNotes, newOpId, OP_ID, opsBlocked, ownLeadsIn, pickByName, resolvedBlocked, receipt, rememberOwnLeads, tallinnTimes, type OpsSnap, type OpsTool } from "./core-operator-pure.ts";
 import type { DayPlan } from "./dayplan-pure.ts";
 import type { PlanSnap } from "./dayplan.ts";
 
@@ -84,6 +84,8 @@ export async function runOpsTool(tool: OpsTool, input: Record<string, unknown>, 
         const rows = ((await c.sb.from("prospects").select("id,name,contact,notes,stage").limit(500)).data ?? []) as { id: string; name: string; contact: string; notes: string; stage: string }[];
         const p = pickByName(rows, str(input.lead, 120), "lead");
         if (typeof p === "string") return `Error: ${p}`;
+        const pb = c.operator ? null : resolvedBlocked(p.name, str(input.lead, 120), c.tainted); // check the record acted on, not the model's string
+        if (pb) return `Error: ${pb}`;
         const notes = leadNotes(p.notes ?? "", ch.note, ch.next);
         const patch = validatePatch({ ...(ch.stage && ch.stage !== p.stage ? { stage: ch.stage } : {}), ...(notes !== (p.notes ?? "") ? { notes } : {}) });
         if (typeof patch === "string" && patch !== "Nothing to change") return `Error: ${patch}`;
@@ -138,6 +140,8 @@ export async function runOpsTool(tool: OpsTool, input: Record<string, unknown>, 
         const rows = ((await c.sb.from("automations").select("id,name,enabled").eq("user_id", c.userId)).data ?? []) as { id: string; name: string; enabled: boolean }[];
         const a = pickByName(rows, str(input.automation, 100), "automation");
         if (typeof a === "string") return `Error: ${a}`;
+        const ab = c.operator ? null : resolvedBlocked(a.name, str(input.automation, 100), c.tainted);
+        if (ab) return `Error: ${ab}`;
         const enabled = input.paused === false;
         if (a.enabled === enabled) return `Nothing to do: "${a.name}" is already ${enabled ? "running" : "paused"}.`;
         const was = { id: a.id, enabled: a.enabled };

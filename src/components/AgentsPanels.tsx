@@ -270,16 +270,15 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   const [newProject, setNewProject] = useState("");
   const [filter, setFilter] = useState<string>("");
   const [tab, setTab] = useState<"tasks" | "team" | "automations" | "plans" | "rules" | "activity" | "localai">("tasks");
-  const [shown, setShown] = useState<Record<string, number>>({});
   const [inbox, setInbox] = useState(INITIAL_INBOX);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const loadSequence = useRef(0);
   const [err, setErr] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => { // silent: background poll must not flip the Refresh button
     const sequence = ++loadSequence.current;
-    setLoading(true);
+    if (!silent) setLoading(true);
     const failures: string[] = [];
     // Independent lists, with a sequence guard so a slow previous project cannot overwrite the selected inbox.
     const current = () => sequence === loadSequence.current;
@@ -289,7 +288,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
       api<{ projects: Project[] }>("/api/projects").then((r) => { if (current()) setProjects(r.projects ?? []); }, fail),
       api<{ agents: Agent[] }>("/api/agents").then((r) => { if (current()) setAgents(r.agents ?? []); }, fail),
     ]);
-    if (current()) { if (!failures.length) setLoadError(""); setLoading(false); }
+    if (current()) { if (!failures.length) setLoadError(""); if (!silent) setLoading(false); }
   }, [filter]);
   useEffect(() => { setTasks([]); void load(); return () => { loadSequence.current++; }; }, [load]);
   useEffect(() => { setOpen(focusTask); }, [focusTask]); // Back to a link without the task closes it
@@ -298,7 +297,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   const paused = useWorldPaused();
   useEffect(() => {
     if (!active || open || paused || loading) return;
-    const h = setInterval(() => { if (!document.hidden) void load(); }, 3000);
+    const h = setInterval(() => { if (!document.hidden) void load(true); }, 3000);
     return () => clearInterval(h);
   }, [active, open, paused, loading, load]);
 

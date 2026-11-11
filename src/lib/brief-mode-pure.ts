@@ -3,6 +3,9 @@
 // change and travels with the profile. Tests: tests/brief-mode.test.ts.
 export const BRIEF_MARK = "[brief]";
 export const isBrief = (communication: string | null | undefined) => (communication ?? "").trimStart().toLowerCase().startsWith(BRIEF_MARK);
+/** The owner's own words may be 1000 characters; the stored field also holds the marker, so it is never cut to make room for it. */
+export const COMMUNICATION_MAX = 1000;
+export const COMMUNICATION_STORED_MAX = COMMUNICATION_MAX + BRIEF_MARK.length + 1;
 /** The communication text with brief mode switched on or off (the owner's own words are kept). */
 export const withBrief = (communication: string, on: boolean) => {
   const rest = isBrief(communication) ? communication.trimStart().slice(BRIEF_MARK.length).trimStart() : communication;
@@ -27,9 +30,14 @@ export function briefProblems(reply: string): string[] {
 
 const BRIEF_ON = /^(?:(?:core|orbit)[,: ]+)?(?:be brief|brief mode(?: on)?|lühidalt|ole lühike|lühirežiim(?: sisse)?)$/;
 const BRIEF_OFF = /^(?:(?:core|orbit)[,: ]+)?(?:normal|normal mode|brief mode off|tavaline|tavarežiim|lühirežiim välja)$/;
-/** A typed or spoken "be brief" / "lühidalt" (on) or "normal" (off) as the whole message; null for anything else. */
-export function briefCommand(text: string): { on: boolean; et: boolean } | null {
+const BARE_OFF = /^(?:(?:core|orbit)[,: ]+)?(?:normal|tavaline)$/;
+/** CORE's last reply ended on a question or a Choices line: the next short message is probably the answer to it. */
+export const asksQuestion = (reply: string | null | undefined) => /\?[\s"'”)*_`]*$/.test((reply ?? "").trim()) || /^\s*choices\s*:/im.test(reply ?? "");
+/** A typed or spoken "be brief" / "lühidalt" (on) or "normal" (off) as the whole message; null for anything else.
+ *  A bare "normal" / "tavaline" is an answer, not the off-command, while CORE waits on its own question (prevReply). */
+export function briefCommand(text: string, prevReply?: string | null): { on: boolean; et: boolean } | null {
   const t = text.trim().toLowerCase().replace(/[\s.!]+$/, "").replace(/\s+/g, " ");
+  if (BARE_OFF.test(t) && asksQuestion(prevReply)) return null;
   const on = BRIEF_ON.test(t) ? true : BRIEF_OFF.test(t) ? false : null;
   return on === null ? null : { on, et: /lühi|tava/.test(t) };
 }
