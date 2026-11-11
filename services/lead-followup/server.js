@@ -14,11 +14,18 @@ const save = (db) => { fs.writeFileSync(DB + '.tmp', JSON.stringify(db, null, 2)
 // Read-modify-write with no await in between, so a lead saved while an email was sending is never overwritten.
 const setLead = (id, patch) => { const db = load(); if (db[id]) { Object.assign(db[id], patch); save(db); } };
 
-async function api(url, body, headers = {}) {
-  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
-  if (!r.ok) throw new Error(`${new URL(url).host} -> ${r.status}`); // host only: the Telegram URL path holds the bot token
+async function api(url, body, headers = {}, signal) {
+  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body), signal });
+  if (!r.ok) throw Object.assign(new Error(`${new URL(url).host} -> ${r.status}`), { status: r.status }); // host only: the Telegram URL path holds the bot token
   return r.json();
 }
+
+// Same rule as mailOutcome in src/lib/business-pure.ts (PR #398); plain JS here, so it can't import the TS.
+// No answer, 409, 429 or 5xx may still have delivered the email, so only a clear 4xx refusal counts as failed.
+export const mailOutcome = (status) => (status >= 200 && status < 300 ? 'sent'
+  : !status || status === 409 || status === 429 || status >= 500 ? 'unknown' : 'failed');
+// Same approved lead + same text = same key, so Resend (keeps keys 24 h) returns the first result instead of sending twice.
+export const idempotencyKey = (id, draft) => `lead-${id}-${crypto.createHash('sha256').update(draft).digest('hex').slice(0, 32)}`;
 const tg = (method, body) => api(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, body);
 
 // Public form = anyone can call it, and each lead costs a Claude call. Caps keep a spam loop from running up the bill.
@@ -91,7 +98,7 @@ export async function telegramUpdate(update) {
   if (!q || String(q.message?.chat?.id) !== String(env.TELEGRAM_CHAT_ID) || String(q.from?.id) !== String(env.TELEGRAM_CHAT_ID)) return;
   const [action, id] = String(q.data).split(':');
   const lead = load()[id];
-  let note = 'Already handled.';
+  let note = lead?.status === 'unknown' ? 'Delivery unknown: check your Resend log before replying manually.' : 'Already handled.';
   if (lead?.status === 'pending') {
     if (action === 'a') {
       setLead(id, { status: 'sending' }); // marked first so a double tap can't send twice
@@ -99,10 +106,13 @@ export async function telegramUpdate(update) {
         await api('https://api.resend.com/emails', {
           from: env.FROM_EMAIL, to: lead.email, reply_to: env.REPLY_TO || undefined,
           subject: `Re: your message to ${env.BUSINESS_NAME || 'us'}`, text: lead.draft,
-        }, { authorization: `Bearer ${env.RESEND_API_KEY}` });
+        }, { authorization: `Bearer ${env.RESEND_API_KEY}`, 'idempotency-key': idempotencyKey(id, lead.draft) }, AbortSignal.timeout(20_000));
         setLead(id, { status: 'sent' }); note = `Sent to ${lead.email}.`;
       } catch (e) {
-        setLead(id, { status: 'failed', error: String(e.message).slice(0, 300) }); note = 'Sending failed — reply manually.';
+        // 'unknown' is final like 'failed': only 'pending' can be sent, so it is never resent automatically.
+        const status = mailOutcome(e.status), error = String(e.message).slice(0, 300);
+        setLead(id, { status, error });
+        note = status === 'unknown' ? 'May or may not have been sent — check your Resend log before replying manually.' : 'Sending failed — reply manually.';
       }
     } else if (action === 'r') { setLead(id, { status: 'rejected' }); note = 'Rejected. Nothing sent.'; }
   }

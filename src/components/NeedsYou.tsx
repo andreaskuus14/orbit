@@ -10,6 +10,8 @@ import { MARKETS_TAB, type BriefOpen } from "@/lib/brief-pure";
 import { groupNeeds, type Digest, type Need } from "@/lib/needs-you-pure";
 import { useT } from "./i18n";
 import { OpsStatus } from "./OpsStatus";
+import { GalaxyActivityRail } from "./GalaxyActivityRail";
+import styles from "./GalaxyActivityRail.module.css";
 
 const SHOWN = 5;
 const nav = (detail: NavTarget) => dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail }));
@@ -29,11 +31,16 @@ export function openTarget(o: BriefOpen, onOpenTask: (id: string) => void, onOpe
   else nav({ panel: o.panel, ...(o.view && { view: o.view }) });
 }
 
-export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) => void; onOpenGoal: (id: string) => void }) {
+export type GalaxyTasks = { running: { id: string; title: string } | null; latest: { id: string; title: string } | null };
+export function NeedsYou({ onOpenTask, onOpenGoal, tasks, tasksFailed, inline = false }: {
+  onOpenTask: (id: string) => void; onOpenGoal: (id: string) => void;
+  tasks: GalaxyTasks | null; tasksFailed: boolean; inline?: boolean;
+}) {
   const { t, lang } = useT();
   const titleId = useId();
   const [items, setItems] = useState<Need[] | null>(null);
   const [err, setErr] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
   const [snooze, setSnooze] = useState<{ ref: string; why: string } | null>(null);
   const [open, setOpen] = useState(false); // quiet open (#352): the galaxy stays uncovered; the count waits in a chip until clicked
   const [digest, setDigest] = useState<Digest | null>(null);
@@ -42,8 +49,8 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
   const [since] = useState(() => { try { return Number(localStorage.getItem("orbit.lastSeen")) || 0; } catch { return 0; } });
 
   const load = useCallback(() => fetch(`/api/needs-you?lang=${lang}${since ? `&since=${since}` : ""}`, { cache: "no-store" }).then((r) => r.json())
-    .then((j: { items?: Need[]; digest?: Digest | null; error?: string }) => { if (!j.items) throw new Error(j.error); setItems(j.items); setDigest(j.digest ?? null); setErr(""); })
-    .catch(() => setErr(t("needs.loadFailed"))), [lang, t, since]);
+    .then((j: { items?: Need[]; digest?: Digest | null; error?: string }) => { if (!j.items) throw new Error(j.error); setItems(j.items); setDigest(j.digest ?? null); setLoadFailed(false); })
+    .catch(() => setLoadFailed(true)), [lang, since]);
   const poll = useCallback(() => void load(), [load]);
   usePoll(poll, pollMs(60_000));
 
@@ -58,19 +65,26 @@ export function NeedsYou({ onOpenTask, onOpenGoal }: { onOpenTask: (id: string) 
   const label = (n: Need) => t(n.kind === "decide" ? "needs.review" : "common.open"); // Decide opens the exact content and its Approve
   const list = useMemo(() => groupNeeds(items ?? []), [items]); // similar approvals (22 Shorts from one video) → one card
 
-  if (!open) return <button type="button" className="chip needs-you-chip" aria-expanded={false} onClick={() => setOpen(true)}>
-    {t("needs.title")}{items?.length ? ` · ${items.length}` : ""}</button>;
-  return <section className="continue-work continue-work-float needs-you" aria-labelledby={titleId}>
+  const attention = items?.find((item) => item.kind === "decide" || item.kind === "unblock");
+  const taskEntry = (task: GalaxyTasks["running"]) => task && { title: task.title, open: () => onOpenTask(task.id) };
+  const taskState = tasksFailed ? (tasks ? "stale" : "unavailable") : tasks ? "fresh" : "loading";
+  const attentionState = loadFailed ? (items ? "stale" : "unavailable") : items ? "fresh" : "loading";
+  if (!open) return <GalaxyActivityRail inline={inline} onMore={() => setOpen(true)} slots={[
+    { entry: taskEntry(tasks?.running ?? null), state: taskState },
+    { entry: attention ? { title: attention.title, open: () => openTarget(attention.act.open, onOpenTask, onOpenGoal) } : null, state: attentionState },
+    { entry: taskEntry(tasks?.latest ?? null), state: taskState },
+  ]} />;
+  return <section className={inline ? "continue-work needs-you" : `continue-work needs-you ${styles.detail}`} aria-labelledby={titleId}>
     <div className="continue-heading"><h2 id={titleId}>{t("needs.title")}{items?.length ? ` · ${items.length}` : ""}</h2>
       <span className="flex items-center gap-2">
         <button type="button" className="link" aria-expanded onClick={() => setOpen(false)}>{t("common.close")}</button>
         <button type="button" className="link" onClick={() => nav({ panel: null, continueWork: true })}>{t("needs.work")}</button>
         <button type="button" className="link" onClick={() => nav({ panel: null, mission: true })}>{t("needs.mission")}</button>
       </span></div>
-    {err && <p className="error" role="alert">{err}</p>}
+    {(err || loadFailed) && <p className="error" role="alert">{err || t("needs.loadFailed")}</p>}
     {digest && <ul className="muted text-xs" aria-label="Digest">{digest.lines.map((l) => <li key={l}>{l}</li>)}</ul>}
-    {!items && !err && <p className="muted" role="status">{t("needs.loading")}</p>}
-    {items && !items.length && <p className="muted">{t("needs.empty")}</p>}
+    {!items && !err && !loadFailed && <p className="muted" role="status">{t("needs.loading")}</p>}
+    {items && !loadFailed && !items.length && <p className="muted">{t("needs.empty")}</p>}
     {!!list.length && <ul>{list.slice(0, SHOWN).map((n) => <li key={n.ref} data-status={n.kind === "decide" ? "awaiting_approval" : n.kind === "unblock" ? "failed" : "done"}>
       <span><small className="continue-kind">{t(`needs.kind.${n.kind}`)}{n.status && <> · <OpsStatus raw={n.status} at={n.at} /></>}</small><b>{n.title}{n.group && ` · ${n.group.length}`}</b>{n.detail && <small>{n.detail}</small>}
         <small>{t(`needs.ask.${n.cause}`)}</small>

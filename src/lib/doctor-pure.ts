@@ -1,11 +1,55 @@
 // ORBIT doctor: pure verdicts and the plain-English summary. No I/O; tested in tests/doctor.test.ts.
 // Every check says ok/warn/fail plus one line on what to do. Never put a secret value in detail or fix.
 
+import { CAPS, type Missing } from "./capability-pure.ts";
+import type { FailedGroup, ModelRow, Svc } from "./system-health-pure.ts";
 import { plural, translate, type Lang } from "./i18n-pure.ts";
 
 export type Status = "ok" | "warn" | "fail";
 export type Check = { id: string; label: string; status: Status; detail: string; fix?: string; retry?: { key: string; label: string }[] }; // retry: dead-letter events (durable-pure durableCheck)
 export type Report = { status: Status; headline: string; speech: string; checks: Check[]; ms: number; at: string };
+
+// Clipboard output crosses the support boundary. Select known IDs and states instead of redacting free text.
+const SHARE_CHECKS = ["doctor", "claude", "models", "supabase", "ytkey", "quota", "oauth", "tools", "ffmpeg", "ytdlp", "whisper",
+  "hyperframes", "disk", "build", "version", "migrations", "launcher", "night", "life", "vault", "facts", "durable", "drill", "latency", "wake", "env", "allow"];
+const SHARE_SERVICES = ["supabase", "claude", "resend", "higgsfield", "ollama", "push", "calendar"];
+const SHARE_ROLES = ["main", "fast", "smart", "deep"];
+const SHARE_JOB_KINDS = ["task", "mission", "night", "clip"];
+
+export function doctorShareText(report: Report & {
+  system?: { services: Svc[]; models: ModelRow[]; failed: FailedGroup[] } | null;
+  cantDo?: Missing[] | null;
+}): string {
+  const state = (value: string | undefined, allowed: readonly string[]) => allowed.find((entry) => entry === value) ?? "unknown";
+  const version = report.checks.find((c) => c.id === "version")?.detail;
+  const commit = /^Running ([0-9a-f]{7}) \(built /i.exec(version ?? "")?.[1] ?? "unknown";
+  const at = new Date(report.at);
+  const sections = [
+    "ORBIT Doctor · support snapshot",
+    `Checked at: ${Number.isFinite(at.getTime()) ? at.toISOString() : "unknown"}`,
+    `Running commit: ${commit}`,
+    `Overall: ${state(report.status, ["ok", "warn", "fail"])}`,
+    `Checks: ${SHARE_CHECKS.flatMap((id) => {
+      const row = report.checks.find((c) => c.id === id);
+      return row ? [`${id}=${state(row.status, ["ok", "warn", "fail"])}`] : [];
+    }).join(", ") || "unavailable"}`,
+  ];
+  const system = report.system;
+  if (system) {
+    sections.push(
+      `Services: ${SHARE_SERVICES.map((id) => `${id}=${state(system.services.find((row) => row.id === id)?.state, ["ok", "down", "off"])}`).join(", ")}`,
+      `Models: ${SHARE_ROLES.map((role) => `${role}=${state(system.models.find((row) => row.role === role)?.state, ["ok", "failing", "unused", "limited"])}`).join(", ")}`,
+      `Failed jobs (7 days): ${SHARE_JOB_KINDS.map((kind) => {
+        const count = system.failed.find((row) => row.kind === kind)?.count;
+        return `${kind}=${typeof count === "number" && Number.isSafeInteger(count) && count >= 0 ? count : "unknown"}`;
+      }).join(", ")}`,
+    );
+  } else {
+    sections.push("Services, models and failed jobs: unavailable");
+  }
+  sections.push(`Missing capabilities: ${report.cantDo ? CAPS.filter((cap) => report.cantDo?.some((row) => row.id === cap.id)).map((cap) => cap.id).join(", ") || "none reported" : "unavailable"}`);
+  return sections.join("\n");
+}
 
 const GB = 1024 ** 3;
 const DAY = 86_400_000;

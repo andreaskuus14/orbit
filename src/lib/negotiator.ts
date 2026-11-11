@@ -8,7 +8,7 @@ import { orbitDataDir } from "./data-dir";
 import { stopAllOn } from "./stop-all";
 import { usageHardHold } from "./usage-meter";
 import { allows } from "./autonomy";
-import { emailIn, sendSubject, LANGS } from "./business-pure";
+import { emailIn, mailOutcome, sendSubject, LANGS } from "./business-pure";
 import { negoContent } from "./approval-pure";
 import {
   NEGO_SYSTEM, addReply, applyApproval, approveProblem, editDraft, makeDraft, negoPrompt, newNegotiation, parseLimits, replan, refSide, waiting,
@@ -209,7 +209,7 @@ export async function approveNegotiation(sb: SupabaseClient, userId: string, id:
       signal: AbortSignal.timeout(20_000),
     });
   } catch { return fail("No answer from the email service: it may or may not have been sent. Check your Resend log.", 504); }
-  if (r.status >= 500 || r.status === 429) return fail(`The email service had a problem (${r.status}): it may or may not have been sent. Check your Resend log.`, 502);
+  if (mailOutcome(r.status) === "unknown") return fail(`The email service had a problem (${r.status}): it may or may not have been sent. Check your Resend log.`, 502);
   if (!r.ok) { // a clear refusal: nothing went out, so it is his to copy instead
     const back = await done("copy");
     return Response.json({ ok: true, negotiation: back, message: `Email refused (Resend ${r.status}): marked approved, copy it and send it yourself.` });

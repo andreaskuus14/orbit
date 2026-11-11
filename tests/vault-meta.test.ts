@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  TRASH_DAYS, coverageOf, emptyMeta, expired, fromTrash, newMeta, parseMeta, reconcile, recordSync, renamed, resolveRef, retryQueue, searchVerdict, syncState, toTrash, typeMismatch,
+  TRASH_DAYS, byName, coverageOf, emptyMeta, expired, nameIndex, fromTrash, newMeta, parseMeta, reconcile, recordSync, renamed, resolveRef, retryQueue, searchVerdict, syncState, toTrash, typeMismatch,
 } from "../src/lib/vault-meta-pure.ts";
 
 let n = 0;
@@ -87,4 +87,15 @@ test("import type check: bytes must match the extension", () => {
   assert.equal(typeMismatch("a.docx", b("PK\x03\x04")), null);
   assert.equal(typeMismatch("notes.txt", b("anything")), null);
   assert.equal(typeMismatch("empty.pdf", b("")), null);
+});
+
+test("nameIndex: first record wins like byName; reconcile stays fast at the 2000-file cap", () => {
+  const m = emptyMeta(), files = [];
+  for (let i = 0; i < 2000; i++) { const n = `file-${i}.pdf`; m.files[`id${i}`] = newMeta(`id${i}`, n, 1, null, 0); files.push({ name: n, size: 1 }); }
+  m.files.dup = newMeta("dup", "file-0.pdf", 1, null, 0);
+  assert.equal(nameIndex(m).get("file-0.pdf")?.id, byName(m, "file-0.pdf")?.id);
+  const t = performance.now();
+  assert.equal(reconcile(m, [...files, { name: "new.pdf", size: 2 }], () => "fresh", 0), true);
+  assert.ok(performance.now() - t < 200, "reconcile must not scan every record per file");
+  assert.equal(byName(m, "new.pdf")?.id, "fresh");
 });

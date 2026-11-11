@@ -57,7 +57,7 @@ import { useStageActive } from "./stage-slot";
 import { ContinueWork } from "./ContinueWork";
 import { WorkView } from "./WorkView";
 import type { WorkTab } from "@/lib/work-vocab-pure";
-import { NeedsYou } from "./NeedsYou";
+import { NeedsYou, type GalaxyTasks } from "./NeedsYou";
 import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 import { TimeTravel, useLivingUniverse } from "./TimeTravel";
 import type { ShipTask } from "@/lib/ships-pure";
@@ -139,6 +139,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [pulseBusy, setPulseBusy] = useState(false);
   const [pulseFailed, setPulseFailed] = useState(false);
   const [runningTasks, setRunningTasks] = useState<string[]>([]); // real: tasks agents are working on right now
+  const [galaxyTasks, setGalaxyTasks] = useState<GalaxyTasks | null>(null);
+  const [galaxyTasksFailed, setGalaxyTasksFailed] = useState(false);
   const [shipTasks, setShipTasks] = useState<ShipTask[]>([]); // running + just-finished tasks, drawn as ships in the galaxy
   const [focusTask, setFocusTask] = useState<string | null>(null);
   const [focusGoal, setFocusGoal] = useState<string | null>(null);
@@ -224,6 +226,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const has = (id: PanelId) => at(id) || kept.includes(id);
   // A full-screen world (or a game) covers the galaxy: it stays mounted but paused, so coming back is instant.
   const covered = gameOpen || isWorld(shown);
+  const activityHome = boot >= 2 && view !== null && !shown && !panel && !approach && !dive && !gameOpen;
   const galaxyGone = covered && !dive; // through the surface: the galaxy keeps drawing under the world's crossfade
   const living = useLivingUniverse(view === "3d" && !covered);
   const staged = useStageActive(); // one-canvas spike: STUDIO draws in the galaxy canvas, so keep it on screen
@@ -494,23 +497,35 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   useEffect(() => { if (quiet && shown !== quiet) setQuiet(null); }, [shown, quiet]);
   const openTask = useCallback((id: string) => { setWorkOpen(false); setFocusTask(id); setFocusGoal(null); setPanel("operations"); }, []);
   const ships = useMemo(() => ({ tasks: shipTasks, onOpen: openTask }), [shipTasks, openTask]);
-  useEffect(() => { // agent events change runningTasks → refresh the fleet; a slow poll catches approvals and finishes without events
-    if (view !== "3d" || covered) return;
+  useEffect(() => { // agent events refresh the fleet and home rail; polling catches changes without events
+    const fleetVisible = view === "3d" && !covered;
+    if (!fleetVisible && !activityHome) return;
     let off = false;
+    let pending = false;
     const load = () => {
+      if (pending || document.hidden) return;
+      pending = true;
       const since = new Date(Date.now() - 60_000).toISOString();
-      // Live tasks and recent finishes in separate queries: newer finished tasks must never push a running one out of the
-      // snapshot (a missing task reads as "done", so its ship would fly home and relaunch).
       const cols = "id,title,agent,status,request";
       void Promise.all([
-        sb.from("tasks").select(cols).is("parent_id", null).in("status", ["running", "awaiting_approval"]).order("created_at", { ascending: false }).limit(12),
-        sb.from("tasks").select(cols).is("parent_id", null).gte("finished_at", since).order("finished_at", { ascending: false }).limit(6),
-      ]).then(([live, fin]) => { if (!off && live.data) setShipTasks([...live.data, ...(fin.data ?? [])].slice(0, 12) as ShipTask[]); });
+        fleetVisible ? sb.from("tasks").select(cols).is("parent_id", null).in("status", ["running", "awaiting_approval"]).order("created_at", { ascending: false }).limit(12) : null,
+        fleetVisible ? sb.from("tasks").select(cols).is("parent_id", null).gte("finished_at", since).order("finished_at", { ascending: false }).limit(6) : null,
+        activityHome ? sb.from("tasks").select("id,title").is("parent_id", null).eq("status", "running").order("created_at", { ascending: false }).limit(1) : null,
+        activityHome ? sb.from("tasks").select("id,title").is("parent_id", null).eq("status", "done").not("finished_at", "is", null).order("finished_at", { ascending: false }).limit(1) : null,
+      ]).then(([live, fin, running, latest]) => {
+        if (off) return;
+        if (live?.data) setShipTasks([...live.data, ...(fin?.data ?? [])].slice(0, 12) as ShipTask[]);
+        if (running && latest) {
+          setGalaxyTasksFailed(!!running.error || !!latest.error);
+          if (running.data && latest.data) setGalaxyTasks({ running: running.data[0] ?? null, latest: latest.data[0] ?? null });
+        }
+      }).catch(() => { if (!off && activityHome) setGalaxyTasksFailed(true); }).finally(() => { pending = false; });
     };
     load();
-    const t = setInterval(() => { if (!document.hidden) load(); }, 20_000);
-    return () => { off = true; clearInterval(t); };
-  }, [sb, runningTasks, view, covered]);
+    const t = setInterval(load, 20_000);
+    document.addEventListener("visibilitychange", load);
+    return () => { off = true; clearInterval(t); document.removeEventListener("visibilitychange", load); };
+  }, [sb, runningTasks, view, covered, activityHome]);
   useEffect(() => { // SYSTEM rail's Higgsfield readout, only while the rail is on screen
     if (shown || view !== "3d") return;
     let off = false;
@@ -692,6 +707,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
         <nav aria-label={t("overview.aria")} inert={covered || undefined} className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <div className="overview-heading"><p>{t("overview.kicker")}</p><h1>{t("overview.title1")}<br />{t("overview.title2")}</h1><span>{t("overview.lede")}</span></div>
+          {activityHome && <NeedsYou inline tasks={galaxyTasks} tasksFailed={galaxyTasksFailed} onOpenTask={openTask} onOpenGoal={openGoal} />}
           {!shown && <ContinueWork onOpenTask={openTask} onOpenGoal={openGoal} />}
           <ul className="overview-worlds">
             <li><button className={`planet-card${warning ? " warn" : ""}`} onClick={() => select("core")} style={{ borderColor: "#7dd3fc" }}>
@@ -774,7 +790,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <WhatsNew home={!shown && !approach} />
         <MorningBrief home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
       </>}
-      {boot >= 2 && !shown && !approach && view === "3d" && <NeedsYou onOpenTask={openTask} onOpenGoal={openGoal} />}{/* Continue my work: the overview, its command and NeedsYou's link */}
+      {activityHome && view === "3d" && <NeedsYou tasks={galaxyTasks} tasksFailed={galaxyTasksFailed} onOpenTask={openTask} onOpenGoal={openGoal} />}
       {boot >= 2 && !shown && !approach && <HalEye />}
       {!shown && view === "3d" && (
         <aside ref={statusDrag.ref} className="glass hud-panel status-hud" aria-label={t("sys.aria")}>

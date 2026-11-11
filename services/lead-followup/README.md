@@ -22,7 +22,7 @@ Copy `.env.example` to fill these in. Optional: `DAILY_LEAD_LIMIT` (default 100 
 ## Run
 
 ```bash
-npm test          # 8 safety checks, no keys needed
+npm test          # safety checks, no keys needed
 npm start         # needs the env variables above
 ```
 
@@ -60,7 +60,7 @@ lead.onsubmit = async (e) => {
 - Errors never log the Telegram URL, which contains the bot token.
 - Form input is length-limited and checked; the model only writes the body — the recipient is always the address the customer typed.
 - Every reply ends with a line saying it was drafted with an AI assistant (EU AI Act Art. 50).
-- A failed send is marked `failed` and you are told to reply by hand; it never retries on its own.
+- A refused send (4xx) is marked `failed` and you are told to reply by hand. A timeout, 409, 429 or 5xx is marked `unknown`: the email may have gone out, so check the Resend log before replying by hand. Neither ever retries on its own; each send carries an `Idempotency-Key`, so a repeat of the same approved reply within 24 h is not sent twice.
 
 ## Legal checklist per client (not legal advice)
 
