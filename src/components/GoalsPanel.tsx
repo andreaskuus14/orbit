@@ -11,6 +11,7 @@ import { EVIDENCE, EVIDENCE_KINDS, type EvidenceKind } from "@/lib/goal-autopilo
 import type { GoalTrack } from "@/lib/goal-autopilot";
 import { DreamsList } from "./DreamsList";
 import { useT } from "./i18n";
+import { localDay } from "@/lib/morning-pure";
 
 // 🎯 GOALS in the Agents Station: list, new-goal form, goal detail (plan editor, step timeline, metric sparkline, learned, log).
 // Polling GET /api/goals is itself one of the events that advances a goal (there is no schedule). Goal text and results are untrusted:
@@ -223,7 +224,7 @@ function Detail({ g, busy, err, act, name, color, agents, onBack, onOpenTask }: 
       <button className="chip" onClick={onBack}>{tr("goal.back")}</button>
       <div className="flex items-start justify-between gap-2"><h3 className="break-words text-sm font-semibold">🎯 {g.title}</h3><StatusPill status={g.status} /></div>
       {g.why && <p className="muted break-words">{g.why}</p>}
-      <p className="muted">{g.deadline ? `${tr("goal.deadline", { d: g.deadline })}${g.deadline < new Date().toISOString().slice(0, 10) && g.status !== "done" ? tr("goal.passed") : ""} · ` : ""}{tr("goal.budget", { left: g.runsLeft, max: g.budget.runsPerDay, calls: g.budget.callsPerStep })}</p>
+      <p className="muted">{g.deadline ? `${tr("goal.deadline", { d: g.deadline })}${g.deadline < localDay(new Date()) && g.status !== "done" ? tr("goal.passed") : ""} · ` : ""}{tr("goal.budget", { left: g.runsLeft, max: g.budget.runsPerDay, calls: g.budget.callsPerStep })}</p>
       {g.waitingFor && <p style={{ color: "#fbbf24" }}>{tr("goal.waiting", { who: g.waitingFor })}</p>}
       {g.blocker && <p className="error break-words">{tr("goal.blocker")} {g.blocker}</p>}
       {g.planning && <p className="muted" role="status">{tr("goal.drafting")}</p>}
