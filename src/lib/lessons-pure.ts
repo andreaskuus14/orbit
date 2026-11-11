@@ -3,6 +3,7 @@
 // recent patterns become lessons phrased the way a human assistant would note them. Lessons are only proposals: he keeps or rejects
 // each one; rejected ones are never proposed again; kept ones are additions next to his playbook rules and never edit or remove them.
 // No LIFE or journal data is ever a signal (see MINED_EVENTS). I/O: lessons.ts.
+import { PRIVATE_TOOLS } from "./policy-pure.ts";
 
 export type Signal = { id: string; at: string; area: string; key: string; label: string; ok?: boolean }; // ok undefined = a one-sided count
 export type Lesson = { id: string; text: string; planet: string; area: string; key: string; sign: 1 | -1 | 0; tags: string[];
@@ -156,9 +157,13 @@ export function correctionLesson(userText: string, prevReply: string, messageId:
 /** A kept correction as a golden regression case for the eval runner (evals/corrections/*.json): the request, what CORE got wrong,
  *  and the behaviour he expects (the kept rule). null without the request or when any part looks like a secret. */
 export type CorrectionCase = { id: string; kind: "correction"; created: string; input: string; wrong_output_summary: string; correction: string; expected_behaviour: string; source: string };
-export function correctionCase(l: Stored, input: string, isSecret: (s: string) => boolean): CorrectionCase | null {
+const PRIVATE_WORDS = /\b(?:journal|diary|p[äa]evik|habits?|harjumus\w*)\b/i;
+/** Journal/LIFE turns never become eval cases: the chat's earlier steps called a private tool, or the words themselves name the journal/LIFE. */
+export const touchesPrivate = (texts: string[], steps: string[]) => steps.some((s) => PRIVATE_TOOLS.includes(s)) || texts.some((t) => PRIVATE_WORDS.test(t));
+/** steps: tool names the chat ran up to the correction (messages.trace); a case is skipped when any is a private tool. */
+export function correctionCase(l: Stored, input: string, isSecret: (s: string) => boolean, steps: string[] = []): CorrectionCase | null {
   const req = input.replace(/\s+/g, " ").trim().slice(0, 1000);
-  if (l.area !== "correction" || l.status !== "kept" || !req || !l.wrong || [req, l.wrong, l.said ?? ""].some(isSecret)) return null;
+  if (l.area !== "correction" || l.status !== "kept" || !req || !l.wrong || [req, l.wrong, l.said ?? "", l.text].some(isSecret) || touchesPrivate([req, l.wrong, l.said ?? "", l.text], steps)) return null;
   return { id: `correction-${l.key.replace(/[^\w-]/g, "").slice(0, 60) || normText(l.text).replace(/ /g, "-").slice(0, 60)}`, kind: "correction", created: l.decidedAt ?? l.at,
     input: req, wrong_output_summary: l.wrong, correction: l.said ?? "", expected_behaviour: l.text, source: l.evidence[0] ?? "" };
 }
