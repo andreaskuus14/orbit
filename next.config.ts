@@ -25,10 +25,6 @@ const nextConfig: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "camera=(), geolocation=()" },
-          // Only what can't break the app: no <base> hijack, forms post only to ORBIT. (Framing: X-Frame-Options above; object-src stays
-          // open for VAULT's PDF preview.) shortcut: no script-src yet; R3F workers, blob: textures and Next's inline bootstrap need a
-          // nonce-based policy first, tested in the browser suite.
-          { key: "Content-Security-Policy", value: "base-uri 'self'; form-action 'self'" },
         ],
       },
       { source: "/api/business/shop/:id", headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }, { key: "Permissions-Policy", value: "camera=(), geolocation=()" }] },
