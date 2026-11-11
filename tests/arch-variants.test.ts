@@ -56,6 +56,8 @@ test("exports: a file that differs from the model fails validation", () => {
   fail(checkIfc(ifc, moved), "orientation + position");
   fail(checkIfc(ifc, applyOps(bigger, [{ op: "set", id: wall.id, h: wall.h + 1 }], id).scene), "dimensions (m)");
   assert.equal(checkIfc("garbage", bigger)[0].ok, false);
+  const noWalls = { ...bigger, parts: bigger.parts.filter((p) => p.kind === "slab") }; // a slab-only study still exports
+  assert.ok(checkIfc(toIfc(noWalls, { site: { lat: 59.4, lon: 24.7 } }), noWalls).every((c) => c.ok), "wall-less scene exports");
   // A2 structure checks: each broken link is caught on the file alone
   const S = { tree: "spatial tree: project → site → building → storey", walls: "walls: body geometry + in a storey", open: "openings: void a wall + filled by a window/door", units: "IFC4 units assigned (length, area, volume, angle)" };
   for (const k of Object.values(S)) assert.equal(checkIfc(ifc, bigger).find((c) => c.name === k)?.ok, true, k);

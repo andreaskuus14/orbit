@@ -74,6 +74,8 @@ test("invalid coordinates and dates are rejected by every public function", () =
 // Independent reference: NOAA "General Solar Position Calculations" (Spencer Fourier series, a different method from the
 // Meeus series in sun-pure): https://gml.noaa.gov/grad/solcalc/solareqns.PDF. Azimuth clockwise from north,
 // cos(az) = (sin δ − sin φ_lat cos θz) / (cos φ_lat sin θz), mirrored for afternoon (hour angle > 0).
+// Deliberately not the PDF's literal cos(180 − θ) form: as printed it gives 0° (north) at solar noon; this is the same
+// spherical-triangle relation rearranged to give azimuth clockwise from north directly.
 function noaaGeneral(lat: number, lon: number, date: Date) {
   const r = Math.PI / 180, doy = (date.getTime() - Date.UTC(date.getUTCFullYear(), 0, 1)) / 86_400_000 + 1;
   const hour = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600;

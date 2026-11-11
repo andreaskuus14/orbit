@@ -156,7 +156,7 @@ export function ifcStructure(ents: Map<string, Ent>): Check[] {
   return [
     { name: "IFC4 units assigned (length, area, volume, angle)", ok: ["LENGTHUNIT", "AREAUNIT", "VOLUMEUNIT", "PLANEANGLEUNIT"].every((u) => unitTypes.includes(`.${u}.`)) },
     { name: "spatial tree: project → site → building → storey", ok: treeOk, detail: `${storeys.length} storey(s)` },
-    { name: "walls: body geometry + in a storey", ok: walls.length > 0 && badWalls === 0, detail: `${walls.length - badWalls}/${walls.length}` },
+    { name: "walls: body geometry + in a storey", ok: badWalls === 0, detail: `${walls.length - badWalls}/${walls.length}` },
     { name: "openings: void a wall + filled by a window/door", ok: badOpen === 0, detail: `${openings.length - badOpen}/${openings.length}` },
   ];
 }
