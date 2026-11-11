@@ -2,6 +2,7 @@
 // ARCH planet: a study workspace for small buildings. Blocks in metres on a plot; edit by typing to CORE or directly with the numbers.
 // Quantities and euros are computed in arch-pure.ts from the geometry, never by the AI. Learning tool, not certification.
 import { WorldEmblem } from "./WorldEmblem";
+import { WorldHeaderArt } from "./WorldHeaderArt";
 import { WarmCompile } from "./WarmCompile";
 import { memo, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import * as THREE from "three";
@@ -499,7 +500,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
       )}
 
       <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[45dvh] space-y-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label={tr("arch.controls")}>
-        <h2 className="brand flex items-center gap-2 text-base"><WorldEmblem id="arch" size={28} />{"ARCH"}</h2>
+        <h2 className="brand world-header flex items-center gap-2 text-base"><WorldEmblem id="arch" size={28} />{"ARCH"}<WorldHeaderArt id="arch" /></h2>
         <ProjectDesk key={project || "unassigned"} project={project} onSelect={onProject} active={!paused} disabled={!ready || busy || lessonBusy || !!lesson || ["saving", "failed", "conflict"].includes(save.status)} />
         <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void send(); }}>
           <input className="field flex-1" placeholder={tr("arch.cmdPh")} value={cmd} maxLength={500} onChange={(e) => setCmd(e.target.value)} aria-label={tr("arch.cmd")} />
