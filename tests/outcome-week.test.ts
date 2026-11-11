@@ -1,4 +1,4 @@
-process.env.TZ = "Europe/Tallinn"; // before any Date use: the owner's day, not UTC
+process.env.TZ = "UTC"; // server zone must not matter: days are Europe/Tallinn
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { weekOutcome, type WeekIn } from "../src/lib/outcome-week-pure.ts";
