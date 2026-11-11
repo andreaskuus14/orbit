@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
-import { evalMark, evalTag, evalTagged, gradeRun, newRunId, parseRunId, passTable, summarize, validateTask, type EvalTask } from "../src/lib/eval-core-pure.ts";
+import { correctionTask, evalMark, evalTag, evalTagged, gradeRun, newRunId, parseRunId, passTable, summarize, validateTask, type EvalTask } from "../src/lib/eval-core-pure.ts";
 
 test("every golden task file is valid and ids are unique", () => {
   const dir = new URL("../evals/tasks/", import.meta.url);
@@ -75,4 +75,19 @@ test("pass^k table: per-trial marks, pass@1, pass^k and per-set totals", () => {
   assert.match(t, /navigate\s+regression\s+✓ ✓\s+100%\s+yes/);
   assert.match(t, /regression: pass@1 100% · pass\^2 1\/1/);
   assert.match(t, /capability: pass@1 50% · pass\^2 0\/1/);
+});
+
+test("correction cases become capability tasks that fail a repeated reply; journal/LIFE ones are refused", () => {
+  const c = { id: "correction-Msg_1", kind: "correction", input: "How is my channel doing?", wrong_output_summary: "Here are 5 bullet points about your channel", correction: "no bullets", expected_behaviour: "Don't use bullet points" };
+  const t = correctionTask(c) as EvalTask;
+  assert.equal(t.id, "correction-msg-1");
+  assert.equal(t.set, "capability");
+  assert.deepEqual(gradeRun(t, { answer: "Here are 5 bullet points about your channel: ...", trace: [] }).fails, ["repeated the reply he corrected"]);
+  assert.ok(gradeRun(t, { answer: "Your channel grew 4% this week.", trace: [] }).ok);
+  assert.equal(correctionTask({ ...c, input: "What did I write in my journal?" }), "touches journal/LIFE");
+  assert.equal(correctionTask({ id: "x" }), "not a correction case");
+});
+
+test("eval-core reads evals/corrections next to evals/tasks", () => {
+  assert.match(readFileSync(new URL("../scripts/eval-core.ts", import.meta.url), "utf8"), /files\("corrections"\)/);
 });

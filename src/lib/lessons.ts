@@ -149,7 +149,9 @@ async function saveCorrectionCase(sb: SupabaseClient, userId: string, l: Stored)
   if (!msg) return;
   const { data: prev } = await sb.from("messages").select("content").eq("user_id", userId).eq("conversation_id", msg.conversation_id).eq("role", "user")
     .lt("created_at", msg.created_at).order("created_at", { ascending: false }).limit(1).maybeSingle();
-  const c = correctionCase(l, String(prev?.content ?? ""), looksSecret);
+  const { data: asst } = await sb.from("messages").select("trace").eq("user_id", userId).eq("conversation_id", msg.conversation_id).eq("role", "assistant").lte("created_at", msg.created_at);
+  const steps = (asst ?? []).flatMap((m) => (Array.isArray(m.trace) ? m.trace : []).map((t: { step?: unknown }) => String(t?.step ?? "")));
+  const c = correctionCase(l, String(prev?.content ?? ""), looksSecret, steps);
   if (!c) return;
   const dir = path.join(process.cwd(), "evals", "corrections");
   await mkdir(dir, { recursive: true });
