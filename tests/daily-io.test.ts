@@ -86,3 +86,17 @@ test("leads: an enabled scheduled copy wins over a paused one; a weekly loop fol
   assert.equal(none.state, "missed");
   assert.match(none.evidence, /Every \w+ at 09:15/);
 });
+
+test("status event: one per day across ticks and restarts (state on disk), emitted after the brief catches up", async () => {
+  await rm(path.join(DATA, "daily-status.json"), { force: true });
+  const got: Record<string, unknown>[] = [];
+  const emit = async (d: Record<string, unknown>) => { got.push(d); };
+  assert.equal(await D.maybeDailyStatus(empty, "u1", T("10:00"), emit), false, "before 10:30");
+  const brief = sb({ briefings: [{ kind: "morning", created_at: new Date(T("13:01")).toISOString(), article_count: 7 }] });
+  assert.equal(await D.maybeDailyStatus(brief, "u1", T("13:02"), emit), true, "PC woke at 13:00: the caught-up brief is in it");
+  for (const t of ["13:03", "18:00", "23:00"]) await D.maybeDailyStatus(brief, "u1", T(t), emit);
+  assert.equal(got.length, 1, "never twice a day");
+  assert.equal(got[0].brief, "done");
+  assert.ok(["done", "needs-you", "running"].includes(String(got[0].clips)) && ["done", "needs-you", "running"].includes(String(got[0].leads)));
+  assert.equal(got[0].day, "2026-11-05");
+});

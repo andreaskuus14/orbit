@@ -20,7 +20,7 @@ import { beat } from "./host-heartbeat";
 
 // Server-side scheduler (briefings + automations): runs inside the ORBIT server process (npm run dev / npm start), so briefings
 // happen without a browser open. It needs SUPABASE_SECRET_KEY to act for the user with no session.
-// Missed slots (PC asleep) are caught up within a few hours, never twice.
+// Missed slots (PC asleep) are caught up within a few hours (the morning brief: any time that day), never twice.
 
 const TICK_MS = 60_000;
 const g = globalThis as unknown as { __orbitScheduler?: NodeJS.Timeout; __orbitTick?: unknown; __orbitBusy?: boolean; __orbitWarned?: boolean; __orbitCapsuleFallback?: boolean };
@@ -47,6 +47,7 @@ async function tick(sb: SupabaseClient) {
       void import("./approval-expiry").then((m) => m.expireApprovals(sb, id)); // agent approvals unanswered for 48 h → rejected, never approved
       void import("./plan-jobs").then((m) => m.tickPlanJobs(sb, id)); // plan-file jobs: one step per session, resumed from their plan file
       void nightOwnsCompany().then((night) => resumeChains(sb, id, night)).catch((e) => console.error("[orbit] agent teams resume failed:", e?.message ?? e)); // continue after approvals/restarts
+      void import("./goals").then((m) => m.resumeGoals(sb, id)).catch((e) => console.error("[orbit] goals resume failed:", e?.message ?? e)); // no browser needed; advance() keeps one driver per goal
       void import("./missions").then((m) => m.resumeMissions(sb, id)).catch((e) => console.error("[orbit] missions resume failed:", e?.message ?? e));
       const since = new Date(Date.now() - 8 * 86400_000).toISOString();
       const { data: recent } = await sb.from("briefings").select("kind, created_at").eq("user_id", id).gte("created_at", since).order("created_at", { ascending: false });
@@ -91,6 +92,7 @@ async function tick(sb: SupabaseClient) {
     if (users?.[0]) await tickAutonomy(sb, users[0].id);
     // Daily runs digest (daily.ts): once a day (ORBIT_DAILY_DIGEST, default 10:30) brief / clips / leads states to the phone, labels only. Never throws.
     if (users?.[0]) await import("./daily").then((m) => m.maybeDailyDigest(sb, users[0].id));
+    if (users?.[0]) await import("./daily").then((m) => m.maybeDailyStatus(sb, users[0].id)); // one daily.status event a day; never throws
     // System health (doctor's SYSTEM card): every 10 min, incidents open/resolve; one phone push per new one (quiet hours wait). Not awaited; never throws.
     if (users?.[0]) void import("./system-health").then((m) => m.tickSystemHealth(sb, users[0].id));
     // Invoices: a phone push when an overdue reminder draft is waiting, once per invoice per week (quiet hours and Stop-all skip it).

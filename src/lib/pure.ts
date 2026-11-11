@@ -208,10 +208,14 @@ export function lastSlotTime(slot: (typeof SLOTS)[number], now: Date): Date {
 }
 
 /** Slots whose latest time has passed (within `graceHours`) with no briefing since. Catches up if the PC was asleep. */
+const tallinnDay = (t: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Tallinn", year: "numeric", month: "2-digit", day: "2-digit" }).format(t);
+
+/** Slots due now. A missed slot catches up within graceHours; the morning brief catches up any time the same day (his day,
+ *  Europe/Tallinn), so a PC that slept through 07:30 still gets it once. A run (or failed try) after the slot means not due. */
 export function dueSlots(now: Date, lastRun: Partial<Record<BriefingKind, string>>, graceHours = 4): BriefingKind[] {
   return SLOTS.filter((s) => {
     const t = lastSlotTime(s, now);
-    if (now.getTime() - t.getTime() > graceHours * 3600_000) return false;
+    if (s.kind === "morning" ? tallinnDay(t) !== tallinnDay(now) : now.getTime() - t.getTime() > graceHours * 3600_000) return false;
     const last = lastRun[s.kind];
     return !last || Date.parse(last) < t.getTime();
   }).map((s) => s.kind);
