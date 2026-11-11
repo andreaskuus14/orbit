@@ -14,6 +14,7 @@ import NicheCards from "./NicheCards";
 import InvoicesPanel from "./InvoicesPanel";
 import MoneyPanel from "./MoneyPanel";
 import BusinessOverview from "./BusinessOverview";
+import WeeklyOutcome from "./WeeklyOutcome";
 import ContractsPanel from "./ContractsPanel";
 import NegotiatorBox from "./NegotiatorBox";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
@@ -78,6 +79,7 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
         : !st && <StateNote state="loading" action={{ label: t("state.retry"), run: () => void load() }} />}
       {missing && <p className="muted" role="status">{t("link.missingClient")} <button className="chip" onClick={() => onFocus?.(null)}>{t("link.back")}</button></p>}
       <BusinessOverview onClient={pick} onMoney={() => setView("money")} />
+      <WeeklyOutcome />
 
       {view === "today" && st && (
         <section className="space-y-2" aria-label={t("bizws.today")}>
