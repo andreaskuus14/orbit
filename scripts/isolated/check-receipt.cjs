@@ -7,7 +7,7 @@ const L = require("./lib.cjs");
   const { browser, page } = await L.session();
   await page.emulateMedia({ reducedMotion: "reduce" }); // headless software GL starves the page otherwise
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: L.BASE });
-  const t = L.tag(), KEY = "sk-ant-FAKEFAKEFAKE0123456789";
+  const t = L.tag(), KEY = "sk-ant-FAKEFAKEFAKE0123456789"; // secret-scan: allow (fake test value)
   const copied = async (id) => {
     await page.goto("about:blank"); // a hash-only change on an open task view can be missed: load fresh
     await page.goto(`${L.BASE}/#o=operations&k=task&id=${id}`); // the deep link a CORE answer or Needs you uses
