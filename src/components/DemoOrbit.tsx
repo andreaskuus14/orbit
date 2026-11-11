@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { PanelId } from "@/lib/planets";
 import { coreReply, DEMO_NOTE, DEMO_PROMPTS, DEMO_WORLDS, installDemoGuard, type DemoData, type DemoWorld } from "@/lib/demo-shell-pure";
 import { GalaxyLoader } from "./GalaxyLoader";
+import { WorldEmblem } from "./WorldEmblem";
 
 const Loading = () => <div className="world-loading" role="status"><span className="world-loading-ring" aria-hidden="true" /><p>Opening world…</p></div>;
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
@@ -65,7 +66,7 @@ export default function DemoOrbit({ data, memoryCount }: { data: DemoData; memor
 
       {core && !world && (
         <section className="glass hud-panel absolute bottom-24 right-3 z-[30] flex max-h-[60dvh] w-[min(26rem,calc(100vw-1.5rem))] flex-col gap-2 overflow-y-auto p-3 text-sm" aria-label="CORE (scripted demo)">
-          <div className="flex items-center justify-between"><h2 className="brand text-base">CORE <span className="muted text-xs font-normal">scripted demo</span></h2>
+          <div className="flex items-center justify-between"><h2 className="brand flex items-center gap-2 text-base"><WorldEmblem id="core" size={28} />CORE <span className="muted text-xs font-normal">scripted demo</span></h2>
             <button className="chip" onClick={() => setCore(false)}>Close</button></div>
           <ul className="space-y-2" aria-live="polite">{chat.map((m, i) => <li key={i}><p className="font-medium">{m.q}</p><p className="muted">{m.a}</p></li>)}</ul>
           <div className="flex flex-wrap gap-1.5">{DEMO_PROMPTS.map((p) => <button key={p} className="chip" onClick={() => ask(p)}>{p}</button>)}</div>
@@ -78,8 +79,8 @@ export default function DemoOrbit({ data, memoryCount }: { data: DemoData; memor
 
       <nav className="glass absolute bottom-3 left-1/2 z-[40] flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto whitespace-nowrap rounded-2xl px-3 py-2 [scrollbar-width:none]" aria-label="Demo tour">
         {world ? <button className="chip" onClick={close}>← Galaxy</button>
-          : <button className="chip" aria-pressed={core} onClick={() => setCore((c) => !c)}>CORE</button>}
-        {DEMO_WORLDS.map((w) => <button key={w} className="chip" aria-pressed={world === w} onClick={() => select(w)}>{LABEL[w]}</button>)}
+          : <button className="chip" aria-pressed={core} onClick={() => setCore((c) => !c)}><WorldEmblem id="core" size={20} />CORE</button>}
+        {DEMO_WORLDS.map((w) => <button key={w} className="chip" aria-pressed={world === w} onClick={() => select(w)}><WorldEmblem id={w} size={20} />{LABEL[w]}</button>)}
       </nav>
       {hint && !world && <p className="glass absolute bottom-16 left-1/2 z-[40] -translate-x-1/2 rounded-xl px-3 py-1.5 text-xs max-sm:bottom-24" role="status">{hint}</p>}
     </main>

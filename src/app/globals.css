@@ -923,3 +923,19 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .orbit-shell .core-ws .bubble.core { background: #191530; border-color: #6f5fb8; border-left: 3px solid #a78bfa; }
 .core-ws form { border-top: 1px solid #b4d9e030; padding-top: 0.75rem; }
 @media (prefers-reduced-motion: reduce) { .galaxy-layer::after { transition: none; } }
+
+/* World emblems (public/ui/emblems): transform/opacity only. */
+.world-emblem { flex: none; display: inline-block; vertical-align: middle; border-radius: 50%; transition: transform .35s var(--ease-glide), opacity .35s; }
+.chip .world-emblem { margin-right: .4rem; margin-left: -.2rem; }
+.planet-card-emblem { position: absolute; top: .8rem; right: .9rem; opacity: .9; }
+.planet-card:hover .planet-card-emblem, .planet-card:focus-visible .planet-card-emblem { transform: scale(1.12) rotate(-8deg); opacity: 1; }
+.explore-grid button:hover .world-emblem, .explore-core:hover .world-emblem { transform: scale(1.1); }
+.planet-card::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .3s;
+  box-shadow: 0 0 32px -4px currentColor, inset 0 0 24px -12px currentColor; color: rgba(125, 211, 252, .35); }
+.planet-card:hover::after, .planet-card:focus-visible::after { opacity: 1; }
+.ambient-loop { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; opacity: .55; pointer-events: none; animation: fade-in 1.2s ease-out; }
+@media (prefers-reduced-motion: reduce) { .world-emblem, .planet-card::after { transition: none; } .planet-card:hover .planet-card-emblem { transform: none; } .ambient-loop { animation: none; } }
+.planet-card:has(.planet-card-emblem) { padding-right: 4.2rem; }
+.explore-grid button .world-emblem { float: left; margin: .1rem .7rem .2rem 0; }
+.explore-core .world-emblem { margin-right: .9rem; }
+.explore-core > span:not([aria-hidden]) { flex: 1; }
