@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { headlineOf, type Report, type Status } from "@/lib/doctor-pure";
+import { doctorShareText, headlineOf, type Report, type Status } from "@/lib/doctor-pure";
 import type { BootResult } from "@/lib/doctor-boot-pure";
 import { builderText, type Issue } from "@/lib/health-pure";
 import { builderBrief, type Improve } from "@/lib/self-improve-pure";
@@ -208,12 +208,13 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
   const [report, setReport] = useState<(Report & { boot?: BootResult | null; health?: Health | null; improve?: Improve | null; system?: System | null; selfEval?: Trend | null; cantDo?: Missing[] | null; outcome?: { now: WeekOutcomes; prev: WeekOutcomes } | null }) | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const spoke = useRef(false);
   const box = useRef<HTMLElement>(null);
   useDialogFocus(box, true, onClose);
 
   const run = useCallback(async () => {
-    setBusy(true); setErr("");
+    setBusy(true); setErr(""); setCopyState("idle");
     try {
       const res = await fetch("/api/doctor", { cache: "no-store" });
       if (res.status === 401 || res.status === 403) throw new Error("ORBIT couldn't confirm your sign-in. Either the database (Supabase) is unreachable or you were signed out. Check your internet, then reload the page and sign in.");
@@ -228,6 +229,15 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
     } finally { setBusy(false); }
   }, [speak]);
   useEffect(() => { void run(); }, [run]);
+  const copyReport = async () => {
+    if (!report) return;
+    try {
+      await navigator.clipboard.writeText(doctorShareText(report));
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+  };
   const ack = async (key: string) => {
     const res = await fetch("/api/doctor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ack: key }) }).catch(() => null);
     // On failure the button just stays (try again); setErr would hide the whole report.
@@ -249,6 +259,11 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
           : !report ? <p className="muted text-sm">{t("doc.loading")}</p>
           : <>
             <p className="mb-3 text-sm" style={{ color: COLOR[report.status] }}><b>{headlineOf(report.checks, lang)}</b></p>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <button type="button" className="chip" onClick={copyReport} disabled={busy}>{t("doc.copyReport")}</button>
+              {copyState === "copied" && <span className="muted text-xs" role="status">{t("common.copied")}</span>}
+              {copyState === "error" && <span className="error text-xs" role="alert">{t("doc.copyReportError")}</span>}
+            </div>
             {report.cantDo && <section className="mb-3 rounded-lg border border-white/10 p-2 text-sm" aria-label={capTitle(lang)}>
               <b>{capTitle(lang)}</b>
               {!report.cantDo.length ? <p className="muted text-xs">{capNone(lang)}</p> : <ul className="mt-1 grid gap-1">
