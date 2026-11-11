@@ -49,6 +49,8 @@
 .entry > span:last-child { color: #a3d6e9; }
 .entry:hover, .entry:focus-visible { background: #1c2e3c; }
 .entry:focus-visible { outline: 2px solid #a3d6e9; outline-offset: 2px; }
+.inline .list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.inline .slot + .slot { border-top: 0; }
 .inline .heading h2 { font-size: 1rem; }
 .inline .heading button:global(.needs-you-chip),
 .inline .entry, .inline .empty { min-height: 44px; }
@@ -67,4 +69,6 @@
   .rail .list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .rail .slot + .slot { border-top: 0; }
   .entry { min-height: 2rem; }
+  .inline .list { display: block; }
+  .inline .slot + .slot { border-top: 1px solid #253642; }
 }
