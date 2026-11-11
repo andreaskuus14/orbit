@@ -217,4 +217,5 @@ test("AGENTS.md rule 6 as code: under-cap send passes, the 4th is held, spend is
   const on: AutonomyState = { ...autonomyDefaults(), levels: auto, pending: [{ id: "1", area: "business-send", ref: "p", seen: "v", label: "", at: "", dueAt: "" }] };
   const off = setLevel(on, "business-send", "ask", "") as AutonomyState;
   assert.deepEqual(off.pending, []); // turning Auto off drops what was queued, right away
+  assert.deepEqual(AREAS.filter(a => AREA_INFO[a].levels.includes("auto")).sort(), ["business-send", "studio-publish"]); // rule 6 scope: a new Auto area fails here
 });
