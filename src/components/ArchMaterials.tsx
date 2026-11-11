@@ -5,12 +5,13 @@
 import { Fragment, useEffect, useState } from "react";
 import type { Boq } from "@/lib/arch-pure";
 import { loadLab, priceChanges, schemeTotals, SLOTS, type Layer, type Material, type PriceChange, type Scheme, type Slot } from "@/lib/arch-materials-pure";
+import { localDay } from "@/lib/morning-pure";
 
 const KEY = "orbit.arch.lab.v1";
 const eur = (n: number) => n.toLocaleString("et-EE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 const kg = (n: number) => `${Math.round(n).toLocaleString("en")} kg`;
 const SLOT_LABEL: Record<Slot, string> = { wall: "Walls", slab: "Slabs", roof: "Roof", window: "Windows" };
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localDay(new Date());
 
 export function ArchMaterials({ q }: { q: Boq }) {
   const [lab, setLab] = useState(() => loadLab(null));
