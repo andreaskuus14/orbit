@@ -63,6 +63,7 @@ float famSite(vec3 n) {
     float rad = 0.18 + 0.22 * h13(id * 1.7), d = sqrt(d1) / rad;
     return exp(-pow((d - 1.08) * 5.0, 2.0)) * step(0.45, h13(id + 3.1)) + 0.12;
   }
+  if (uFam > 3.5) return smoothstep(-0.1, 0.35, fbm(q * 2.6, 0.0, 3.0)) * (1.0 - smoothstep(0.75, 0.95, abs(n.y))); // c9 families: broad regions
   float land = fbm(q * 1.9, 0.0, 5.0); // oceanic: on land, off the ice
   return smoothstep(0.05, 0.14, land) * (1.0 - smoothstep(0.66, 0.78, abs(n.y) + land * 0.15));
 }
@@ -144,12 +145,12 @@ float surf(vec3 p, float fw) {
 // Surface identity (c8): each world gets a pattern family and a 3-colour palette. -1 = the legacy liquid chrome.
 // 0 banded gas giant, 1 marbled, 2 cratered, 3 oceanic. Far: palette + silhouette; mid: the pattern; close: the
 // circuitry above takes over. Every high-frequency term fades by its pixel footprint (fw), so nothing shimmers.
-uniform vec3 uPA; uniform vec3 uPB; uniform vec3 uPC;
-float gOcean;
+uniform vec3 uPA; uniform vec3 uPB; uniform vec3 uPC; uniform vec3 uGlowC; uniform float uGlowK;
+float gOcean; float gGlow;
 #ifndef ORBIT_BARE
 vec3 famColor(vec3 p, float fw) {
   vec3 n = normalize(p), q = n + uSeed;
-  gOcean = 0.0;
+  gOcean = 0.0; gGlow = 0.0;
   if (uFam < 0.5) { // banded: latitude bands bent by a slow warp, finer belts fading out with distance, one storm oval
     float wv = fbm(q * 2.4, fw * 2.4, 3.0);
     float y = n.y + wv * 0.13;
@@ -168,7 +169,9 @@ vec3 famColor(vec3 p, float fw) {
     vec3 w2 = vec3(fbm(q * 1.7, fw * 1.7, 3.0), fbm(q * 1.7 + 5.2, fw * 1.7, 3.0), 0.0);
     float m = fbm(q * 2.1 + vec3(w2.xy, 0.0) * 2.4, fw * 2.1, 4.0);
     vec3 col = mix(uPA, uPB, smoothstep(-0.28, 0.28, m));
-    col = mix(col, uPC, (1.0 - smoothstep(0.0, 0.07, abs(m - 0.08))) * 0.7);
+    float vein = 1.0 - smoothstep(0.0, 0.07, abs(m - 0.08));
+    col = mix(col, uPC, vein * 0.7);
+    gGlow = vein * vein * 0.6; // gold veins carry light where uGlowK > 0
     gH = m * 0.35;
     return col;
   }
@@ -192,6 +195,44 @@ vec3 famColor(vec3 p, float fw) {
       hh += (rim * 0.08 - fl * 0.12) * fade * (o == 0 ? 1.0 : 0.5);
     }
     gH = hh;
+    return col;
+  }
+  if (uFam > 3.5) { // c9 families share a Voronoi pass over the sphere (cells, nearest two distances)
+    float S = uFam < 4.5 ? 5.0 : uFam < 5.5 ? 3.4 : 7.5;
+    vec3 vp = q * S, vi = floor(vp), vf = fract(vp); float d1 = 8.0, d2 = 8.0; vec3 id = vec3(0.0);
+    for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+      vec3 o3 = vec3(x, y, z), r = o3 + h33(vi + o3) - vf; float d = dot(r, r);
+      if (d < d1) { d2 = d1; d1 = d; id = vi + o3; } else if (d < d2) d2 = d;
+    }
+    float edge = sqrt(d2) - sqrt(d1), ew = max(fw * S * 1.5, 0.02), r1 = h13(id), r2 = h13(id + 7.7);
+    if (uFam < 4.5) { // crystal: faceted plates of the two colours, each facet tilted (flat shading), light points sealed inside
+      vec3 col = mix(uPA, uPB, r1 * 0.8 + 0.2 * smoothstep(-0.3, 0.3, fbm(q * 6.0, fw * 6.0, 3.0)));
+      float cut = (1.0 - smoothstep(ew * 0.3, ew * 0.8, edge)) * smoothstep(0.05, 0.3, gnoise(q * 3.1 + 11.0));
+      col = mix(col, uPC, cut * 0.55);
+      gH = dot(n, normalize(h33(id) - 0.5)) * 0.35 - (1.0 - smoothstep(0.0, ew * 2.0, edge)) * 0.05;
+      vec3 sg = n * 140.0, sc = floor(sg); float pt = pow(h13(sc + id), 40.0) * (1.0 - smoothstep(0.2, 0.55, length(fract(sg) - 0.5))) * (1.0 - smoothstep(0.3, 0.8, fwidth(sg.x) + fwidth(sg.y)));
+      gGlow = pt * 1.6 + cut * 0.5;
+      return col;
+    }
+    if (uFam < 5.5) { // plated machine: panels on a cube projection, every panel its own grey, seams lit in lines
+      vec3 a = abs(n); vec2 uv = a.x > a.y && a.x > a.z ? n.yz / a.x : a.y > a.z ? n.xz / a.y : n.xy / a.z;
+      vec2 g = uv * (4.0 + floor(r1 * 3.0)), gi = floor(g), gf = fract(g);
+      float pid = h12(gi + uSeed.xy * 13.0), lw = max((fwidth(g.x) + fwidth(g.y)) * 0.9, 0.035);
+      float seam = 1.0 - smoothstep(lw * 0.5, lw, min(min(gf.x, 1.0 - gf.x), min(gf.y, 1.0 - gf.y)));
+      vec3 col = mix(uPA, uPB, pid * 0.7 + 0.15 * fbm(q * 20.0, fw * 20.0, 3.0));
+      col *= 1.0 - seam * 0.55;
+      gH = pid * 0.06 - seam * 0.05 + smoothstep(ew, 0.0, edge) * 0.04;
+      gGlow = seam * step(0.55, h12(gi * 1.9 + 4.0)) * (0.5 + 0.5 * sin(uTime * 0.8 + pid * 30.0)); // only some seams carry light
+      return col;
+    }
+    // magma: dark basalt crust (PA, PB) broken by glowing cracks (PC) that brighten on the night side
+    float crust = fbm(q * 3.2, fw * 3.2, 4.0);
+    vec3 col = mix(uPA, uPB, smoothstep(-0.1, 0.45, crust) * (0.5 + 0.5 * r2));
+    float river = smoothstep(-0.05, 0.25, fbm(q * 1.6 + 3.3, fw * 1.6, 3.0)); // magma runs in regions, the rest is cold crust
+    float crack = (1.0 - smoothstep(ew * 0.2, ew * 0.9, edge)) * river;
+    col = mix(col, uPC * 0.45, crack * 0.7);
+    gH = crust * 0.3 - crack * 0.12;
+    gGlow = crack * (0.6 + 0.2 * sin(uTime * 0.6 + r1 * 40.0)) + river * smoothstep(0.2, -0.2, crust) * 0.06; // a faint ember glow under the crust
     return col;
   }
   // oceanic: deep water, continents, ice caps and thin cloud wisps
@@ -296,13 +337,16 @@ vec3 xray(vec3 p, vec3 rd, float w, float t, float cw) {
  *  set `uDetail` (0 overview .. 1 close-up, see planetDetail) every frame. */
 const LAG = 0.45; // s: the hover's delayed time at the lens centre
 /** A world's surface identity: pattern family (see famColor) and palette. Omit for the legacy liquid chrome. */
-export type SurfaceLook = { fam: 0 | 1 | 2 | 3; pal: readonly [string, string, string]; seed: number };
+export type SurfaceLook = { fam: 0 | 1 | 2 | 3 | 4 | 5 | 6; pal: readonly [string, string, string]; seed: number; glow?: string; glowK?: number }; // glow: light in veins/seams/cracks
 // per family: metalness, roughness, clearcoat, env reflection, iridescence, bump scale
 const FAM = [
   { metal: 0.0, rough: 0.6, coat: 0.25, env: 0.18, iri: 0.12, bump: 0.25 }, // banded gas giant: soft, matte
   { metal: 0.25, rough: 0.38, coat: 0.5, env: 0.35, iri: 0.25, bump: 0.5 },  // marbled: polished stone
   { metal: 0.05, rough: 0.85, coat: 0.0, env: 0.12, iri: 0.0, bump: 1.4 },   // cratered rock
   { metal: 0.0, rough: 0.55, coat: 0.4, env: 0.25, iri: 0.1, bump: 0.6 },   // oceanic (water is glossier, below)
+  { metal: 0.1, rough: 0.22, coat: 0.0, env: 0.18, iri: 0.0, bump: 0.9 },   // crystal: glossy facets
+  { metal: 0.45, rough: 0.42, coat: 0.3, env: 0.12, iri: 0.0, bump: 0.7 },  // plated machine: brushed titanium
+  { metal: 0.0, rough: 0.9, coat: 0.0, env: 0.04, iri: 0.0, bump: 1.2 },    // magma: rough basalt
 ] as const;
 
 // `lite` (the galaxy): start on a variant without the night-side cities and the x-ray lens (they are off at start: no
@@ -331,6 +375,7 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
     const sd = look?.seed ?? 0;
     const u = { uTime: { value: 0 }, uLq: { value: size }, uDetail: { value: 0 }, uOct: { value: 3 }, uFar: { value: 1 }, uTint: { value: new THREE.Color(color) }, uPoolTint: { value: new THREE.Color(color).multiplyScalar(obsidian ? 0.4 : 0.025) },
       uFam: { value: look ? look.fam : -1 }, uSeed: { value: new THREE.Vector3((sd * 1.37) % 7, (sd * 2.71) % 5, (sd * 0.61) % 3) },
+      uGlowC: { value: new THREE.Color(look?.glow ?? color) }, uGlowK: { value: look?.glowK ?? 0 },
       uPA: { value: new THREE.Color(look?.pal[0] ?? color) }, uPB: { value: new THREE.Color(look?.pal[1] ?? color) }, uPC: { value: new THREE.Color(look?.pal[2] ?? color) },
       uIdent: { value: 1 }, // 1 legacy strong identity rim; the galaxy sets 0 (thin atmosphere)
       uBump: { value: f?.bump ?? 1 }, uChrome: { value: f ? 0 : 1 }, uIri: { value: !f || f.iri > 0 ? 1 : 0 }, uCoat: { value: !f || f.coat > 0 ? 1 : 0 },
@@ -401,6 +446,10 @@ export function useLiquidMetal(color: string, obsidian: boolean, size: number, e
             totalEmissiveRadiance += mix(hc, uTint, 0.3) * gSeam * (0.03 + 0.9 * pow(wave, 6.0)) * seamK;       // glyph seams
             totalEmissiveRadiance += hc * gCirc * (0.02 + 0.5 * pow(wave, 8.0)) * uDetail;          // circuitry: a pulse runs through it
             totalEmissiveRadiance += vec3(0.75, 0.95, 1.0) * gGlyph * 0.9 * uDetail;
+            #ifndef ORBIT_BARE
+            if (uFam > -0.5 && uGlowK > 0.0) { vec3 Lg = normalize(viewMatrix[3].xyz + vViewPosition); float nightG = smoothstep(0.2, -0.3, dot(nonPerturbedNormal, Lg));
+              totalEmissiveRadiance += uGlowC * clamp(gGlow, 0.0, 2.0) * uGlowK * (0.35 + 0.65 * nightG); } // c9: veins, seams, cracks, crystal lights
+            #endif
             totalEmissiveRadiance += mix(vec3(1.0), hc, 0.5) * gSpark * 2.0;
             totalEmissiveRadiance += hc * pow(f, 2.5) * 0.55 * mix(0.15, 1.0, uChrome);
             // identity colour from the overview: uIdent 1 = the legacy strong rim (worlds), 0 = a thin atmosphere rim (galaxy)
@@ -492,7 +541,7 @@ export function planetStandIn(u: LiquidU, mat: THREE.MeshPhysicalMaterial, rim: 
         } else if (uFam < 1.5) { // marbled
           float m = fb * 1.4;
           col = mix(mix(uPA, uPB, smoothstep(-0.28, 0.28, m)), uPC, (1.0 - smoothstep(0.0, 0.07, abs(m - 0.08))) * 0.7);
-        } else if (uFam < 2.5) col = mix(mix(uPA, uPB, smoothstep(-0.3, 0.35, fb)), uPC, 0.12); // cratered: mottled, crater floors on average
+        } else if (uFam < 2.5 || uFam > 3.5) col = mix(mix(uPA, uPB, smoothstep(-0.3, 0.35, fb)), uPC, 0.12); // cratered and the c9 families: mottled at first light
         else { // oceanic
           float coast = smoothstep(0.02, 0.06, fb);
           col = mix(uPB * (0.6 + 0.4 * smoothstep(-0.4, 0.02, fb)), uPA * (0.8 + 0.4 * fb), coast);
