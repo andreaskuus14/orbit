@@ -165,16 +165,34 @@ test("riskFlags/turnRisk: ordinary phrasings, Estonian, tool names, confirmation
   assert.equal(isRisky(turnRisk("yes, go ahead", "Want me to summarise the article?")), false);
 });
 
-test("routeTurn: risky questions get the Opus floor and no limit fallback", () => {
+test("routeTurn: a keyword hint starts on Opus but may step down; only a real T2/T3 tool holds the floor", () => {
   const models = { fast: "haiku", smart: "sonnet", deep: "opus" };
-  for (const pref of ["auto", "sonnet"] as const) {
+  for (const pref of ["auto", "sonnet", "opus"] as const) {
     const r = routeTurn({ question: "approve and send that payment", tier: "fast", pref, build: false, models });
     assert.equal(r.model, "opus");
-    assert.equal(downTier(r, models), null);
+    assert.equal(r.risky, undefined);
+    assert.equal(downTier(r, models)?.model, "sonnet"); // hint only: a usage limit continues on Sonnet
   }
-  const always = routeTurn({ question: "send the invoice", tier: "fast", pref: "opus", build: false, models });
-  assert.equal(always.risky, true); // "always Opus" keeps the floor through a usage limit
-  assert.equal(downTier(always, models), null);
-  assert.equal(routeTurn({ question: "send it", tier: "fast", pref: "auto", build: false, models: { ...models, deep: "sonnet" } }).model, "opus"); // ORBIT_MODEL_DEEP below Opus
-  assert.equal(routeTurn({ question: "yes", tier: "fast", pref: "sonnet", build: false, models, risky: true }).model, "opus");
+  const held = routeTurn({ question: "yes", tier: "fast", pref: "sonnet", build: false, models, risky: true });
+  assert.deepEqual([held.model, held.risky, downTier(held, models)], ["opus", true, null]);
+  assert.equal(routeTurn({ question: "yes", tier: "fast", pref: "auto", build: false, models: { ...models, deep: "sonnet" }, risky: true }).model, "opus"); // ORBIT_MODEL_DEEP below Opus
+});
+
+test("needsOpus: the misses route through the tool-tier check, not keywords; ordinary turns stay on their model", async () => {
+  const { needsOpus, riskFlags, turnRisk, isRisky } = await import("../src/lib/core-mcp-boost-pure.ts");
+  // what the model would call for each; unknown names (a plugin send, an account delete) are T3 by policy-pure
+  const misses: [string, string][] = [["forward this to Mari", "gmail_forward"], ["book the flight", "browser_book"], ["order 20 more boxes", "higgsfield_draft"],
+    ["delete my account", "account_delete"], ["osta see ära", "shop_buy"], ["kirjuta Jaanile, et tehing jääb ära", "lead_update"]];
+  for (const [q, tool] of misses) {
+    assert.ok(["T2", "T3", undefined].includes(TIERS[tool]), tool);
+    for (const m of ["haiku", "sonnet", "claude-sonnet-5-5", "opusplan"]) assert.equal(needsOpus(tool, m), true, `${q}: ${tool} on ${m}`);
+    for (const m of ["opus", "claude-opus-5-5", "claude-fable-5-1"]) assert.equal(needsOpus(tool, m), false, `${q}: ${tool} on ${m}`);
+  }
+  // "please do" on a proposal with no keyword: no hint, the tool the model then calls is what holds the floor
+  assert.equal(isRisky(turnRisk("please do", "Shall I forward this to Mari?")), false);
+  assert.equal(isRisky(turnRisk("please do", "Shall I send the invoice?")), true);
+  assert.equal(needsOpus("gmail_forward", "sonnet"), true);
+  for (const t of ["vault_search", "web_search", "read_more"]) assert.equal(needsOpus(t, "haiku"), false, t); // T0/T1 never escalate
+  for (const q of ["summarize this blog post", "what was the last message in this chat", "how many tokens did I use today", "pay attention to the tone", "explain oauth to me", "rename the file to post.md"])
+    assert.equal(isRisky(riskFlags(q)), false, q);
 });

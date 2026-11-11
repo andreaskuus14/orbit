@@ -217,16 +217,18 @@ const BY_JOB: Record<JobKind, string> = {
 export type Risk = { auth?: boolean; money?: boolean; approvals?: boolean; sending?: boolean };
 // Word edges that also split on "_", so tool names (gmail_send, lead_email, ws_publish) flag the job by themselves.
 const w = (src: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${src})(?![\\p{L}\\p{N}])`, "iu");
+// A light pre-hint only (routes the turn to Opus up front, may still step down on a usage limit). The floor itself comes from
+// the tool actually called: a T2/T3 tool from a model below Opus redoes the turn on Opus (needsOpus, core-mcp-boost-pure).
 const RISK: [keyof Risk, RegExp][] = [
-  ["auth", w("auth\\w*|log ?in|sign ?in|passwords?|tokens?|credentials?|oauth|sessions?|api ?keys?|secrets?|parool\\w*|logi sisse|sisselogi\\w*")],
-  ["money", w("pay\\w*|paid|money|invoices?|bills?|billing|bank\\w*|transfer\\w*|wire\\w*|charge\\w*|purchases?|buy|spend\\w*|credits?|stripe|refunds?|eur|usd|€|maks\\w*|raha\\w*|arve\\w*|ülekan\\w*|pank\\w*")],
-  ["approvals", w("approv\\w*|propose|grants?|kinnit\\w*")],
-  ["sending", w("send\\w*|e-?mails?|gmail|publish\\w*|post(?:s|ing)?|upload\\w*|messages?|reply to|repl(?:y|ies)|dm|tweet\\w*|text (?:him|her|them)|saada\\w*")],
+  ["auth", w("passwords?|credentials?|api ?keys?|secrets?|log ?in|sign ?in|parool\\w*|logi sisse")],
+  ["money", w("pay (?:for|the|him|her|them|it|this|that)|payments?|paid|invoices?|bills?|bank\\w*|transfer\\w*|wire|charge (?:the|my|his|her)|purchases?|buy|refunds?|stripe|eur|usd|€|maks\\w*|arve\\w*|ülekan\\w*|pank\\w*")],
+  ["approvals", w("approv\\w*|kinnit\\w*")],
+  ["sending", w("send\\w*|e-?mails?|gmail|publish\\w*|upload\\w*|reply to|dm|tweet\\w*|saada\\w*")],
 ];
 /** Risk flags found in free text (a request, a tool list). */
 export const riskFlags = (text: string): Risk => Object.fromEntries(RISK.filter(([, re]) => re.test(text)).map(([k]) => [k, true]));
 export const isRisky = (r: Risk) => Object.values(r).some(Boolean);
-const CONFIRM = /^\W*(?:yes|yep|yeah|ok(?:ay)?|sure|go(?: ahead)?|do it|confirm(?:ed)?|approved?|send it|jah|jaa|ok|tee (?:ära|seda)|kinnita\w*|saada)\b/i;
+const CONFIRM = /^\W*(?:yes|yep|yeah|ok(?:ay)?|sure|go(?: ahead)?|do it|confirm(?:ed)?|approved?|please do|go for it|send it|jah|jaa|ok|tee (?:ära|seda)|kinnita\w*|saada)\b/i;
 /** Risk of one chat turn: his message, plus the previous answer when he only confirms it ("yes, go ahead" on a pending approval). */
 export function turnRisk(question: string, prev = "", pending = false): Risk {
   const own = riskFlags(question);
@@ -237,6 +239,8 @@ export function turnRisk(question: string, prev = "", pending = false): Risk {
 // Exact alias, or a full id with the family as its own part (claude-opus-5-5): "opusplan" executes on Sonnet, so it ranks as unknown.
 const rank = (m: string) => { const id = m.trim().toLowerCase(); return RANK.findIndex((n) => id === n || new RegExp(`^claude-${n}(?:-|$)`).test(id)); };
 const OPUS = RANK.indexOf("opus");
+/** Below Opus (an unknown id counts as below). */
+export const belowOpus = (m: string) => rank(m) < OPUS;
 /** m, or Opus when m is below Opus (an unknown id counts as below). */
 export const atLeastOpus = (m: string) => (rank(m) < OPUS ? JOB_MODELS.opus : m);
 /** Model for one job. The owner's explicit pref wins, but a risky job never runs below Opus. */

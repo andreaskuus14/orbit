@@ -309,7 +309,7 @@ export function acceptReview(draft: string, revised: string): boolean {
 
 /** One self-check pass (tools stay off, as on every call): the revised answer when acceptReview allows it,
  *  else the draft (also when the review fails). `reviewed` says which. A Stop (abort) still throws. */
-export async function reviewDraft(request: string, draft: string, context: string, opts: AskOpts & { onUsage?: (r: ClaudeResult) => unknown } = {}): Promise<{ text: string; reviewed: boolean }> {
+export async function reviewDraft(request: string, draft: string, context: string, opts: AskOpts & { onUsage?: (r: ClaudeResult) => unknown; onFail?: (e: unknown) => unknown } = {}): Promise<{ text: string; reviewed: boolean }> {
   try {
     const r = await askClaude(`${context ? `CONTEXT (data the draft was built from):\n${context.slice(0, 40_000)}\n\n` : ""}REQUEST:\n${request}\n\nDRAFT:\n${draft}\n\nThe final revised answer:`, REVIEW_SYSTEM, opts);
     if (r.local) return { text: draft, reviewed: false }; // a local model never rewrites Claude's draft
@@ -320,6 +320,7 @@ export async function reviewDraft(request: string, draft: string, context: strin
   } catch (e) {
     if (opts.signal?.aborted) throw e;
     console.error("[orbit] self-review failed; keeping the draft", e);
+    await Promise.resolve(opts.onFail?.(e)).catch(() => {}); // e.g. the reviewer id was rejected: a visible event, not only the console
     return { text: draft, reviewed: false };
   }
 }

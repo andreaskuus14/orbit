@@ -11,6 +11,7 @@ import { emit, recordUsage, type CliSession, type PromptImage } from "./claude";
 import { authorizeTool } from "./authority";
 import { policyEvent, TIERS, type PolicyCtx } from "./policy-pure";
 import type { WriteEvidence } from "./completion-pure";
+import { needsOpus } from "./core-mcp-boost-pure";
 import { authMode, gated, readMessage, sdkFailure, sdkOptions, sdkTools, serial, toolResult, userMessage, SERVER } from "./core-sdk-pure";
 import type { TraceStep } from "./core";
 import type { StepDone } from "./core-live-pure";
@@ -20,6 +21,7 @@ export type Turn = {
   policy: () => Omit<PolicyCtx, "steps">; attachBlock: string; images?: PromptImage[]; steps: string[]; trace: TraceStep[]; signal?: AbortSignal; turnId?: string;
   risky?: boolean; // auth/money/approvals/sending turn (core.ts turnRisk): never below Opus
   session?: CliSession; escalate?: boolean; // escalate: the fast model reached for a tool → stop, core.ts redoes the turn on the main model
+  // (any model below Opus reaching for a T2/T3 tool stops too, opus: true → core.ts redoes it on Opus, once)
   /** core.ts's dispatch for an allowed call (navigate / module / runCoreTool) and its eval/trace/activity record, shared with the CLI loop. */
   exec: (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[], operator?: boolean) => Promise<string>;
   record: (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number, operator?: boolean) => void;
@@ -30,13 +32,14 @@ export type Turn = {
 
 /** Runs the turn; returns the answer and the SDK session id (escalated: nothing answered, redo on the main model).
  *  Throws on an SDK error (core-turn.ts's describeFailure names it). */
-export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: string; escalated?: boolean }> {
+export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: string; escalated?: boolean; opus?: boolean }> {
   const { query, tool, createSdkMcpServer } = await import("@anthropic-ai/claude-agent-sdk");
   const abortController = new AbortController();
-  let escalated = false;
+  let escalated = false, opus = false;
   const one = serial();
   const handler = (name: string) => (input: Record<string, unknown>) => one(async () => {
-    if (t.escalate) { escalated = true; abortController.abort(); return toolResult("Error: stopped"); }
+    opus = !t.risky && needsOpus(name, t.model ?? "");
+    if (t.escalate || opus) { escalated = true; abortController.abort(); return toolResult("Error: stopped"); }
     t.onReset?.(); t.onStep?.(name, input); // text before a tool call is not the answer (as in core.ts)
     const at = Date.now(), evidence: WriteEvidence[] = [];
     const { out, verdict, operated } = await gated(name, input, t.policy, t.steps, (op) => t.exec(name, input, evidence, op), t.attachBlock, authorizeTool);
@@ -75,5 +78,5 @@ export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: strin
   } catch (e) {
     if (!escalated || t.signal?.aborted) throw e;
   }
-  return escalated ? { text: "", sessionId, escalated } : { text: answer, sessionId };
+  return escalated ? { text: "", sessionId, escalated, opus } : { text: answer, sessionId };
 }
