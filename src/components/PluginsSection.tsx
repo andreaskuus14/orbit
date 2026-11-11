@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { pollMs } from "@/lib/poll-pure";
 import { usePoll } from "./use-poll";
 import type { Gate, Mode, Pending, SUGGESTED } from "@/lib/plugins-pure";
@@ -18,6 +18,13 @@ export async function pluginsCall(body?: object): Promise<PluginsView> {
 
 const TIER_TEXT: Record<string, string> = { T0: "reads", T1: "reads the web", T2: "changes things on this PC", T3: "acts outside / destructive" };
 
+const SIGNIN: Record<string, string> = {
+  "signed-in": "Signed in to the plugin. Test connection to load its tools.",
+  "signin-cancelled": "Sign-in was cancelled or refused on the plugin's page.",
+  "signin-state": "Sign-in didn't match the one you started (or took over 10 minutes). Click Sign in again.",
+  "signin-exchange": "The plugin's server didn't accept the sign-in. Click Sign in again.",
+};
+
 /** Profile → Plugins: MCP servers CORE may use, per-tool trust (auto / ask / off), Test connection, and calls waiting for his Run click. */
 export function PluginsSection() {
   const [v, setV] = useState<PluginsView | null>(null);
@@ -31,6 +38,11 @@ export function PluginsSection() {
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); return false; } finally { if (body) setBusy(""); }
   }, []);
   const poll = useCallback(() => void call(), [call]);
+  useEffect(() => { // the sign-in route comes back to /?plugins=<result>
+    const q = new URLSearchParams(location.search).get("plugins");
+    const m = q && SIGNIN[q];
+    if (m) { if (q === "signed-in") setOut(m); else setErr(m); }
+  }, []);
   usePoll(poll, pollMs(30_000));
 
   async function add() {

@@ -19,6 +19,8 @@ export async function GET(req: NextRequest) {
     const r = await finishOAuth(state ?? "", code ?? "");
     return back(r.error ? `signin-${r.error}` : "signed-in");
   }
+  // start only from ORBIT's own page (his click) or a typed URL, never from a link on another site
+  if (!["same-origin", "none"].includes(req.headers.get("sec-fetch-site") ?? "")) return Response.json({ error: "Start the sign-in from Profile → Plugins" }, { status: 403 });
   const r = await startOAuth(sp.get("name") ?? "", redirect);
   if (r.error) return Response.json({ error: r.error }, { status: 400 });
   return r.url ? NextResponse.redirect(r.url) : back("signed-in");
