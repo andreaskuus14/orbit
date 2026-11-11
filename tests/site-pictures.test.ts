@@ -108,11 +108,13 @@ test("after approval: each photo is saved at its slot's exact path", async () =>
 test("depth lint: no pictures, thin text, a form that saves nothing, a back end asked for but static", () => {
   const thin = { html: [{ path: "index.html", text: "<html><body><h1>Fairway</h1><form><input name=a></form></body></html>" }], css: [{ path: "css/style.css", text: "header{background:linear-gradient(#0a0,#060)}" }], images: [] };
   const issues = lintDepth({ ...thin, wantsBackend: wantsBackend("build a golf site with a booking system that saves to a database") });
-  for (const re of [/no pictures, SVG or illustration/, /only \d+ characters of visible text/, /<form> has no handler/, /fullstack/]) assert.ok(issues.some((i) => re.test(i)), String(re));
+  for (const re of [/no pictures, SVG or illustration/, /<form> has no handler/, /fullstack/]) assert.ok(issues.some((i) => re.test(i)), String(re));
   assert.equal(factsLine(thin), "0 pictures/SVG, 7 chars of text, 1 form (no handler)");
-  const rich = { html: [{ path: "index.html", text: `<html><body><img src="img/hero.jpg" alt=""><svg></svg><p>${"Real words about the club. ".repeat(120)}</p><form id=f></form><script>f.addEventListener("submit", e => e.preventDefault())</script></body></html>` }], css: [], images: [], fullstack: true, wantsBackend: true };
+  const rich = { html: [{ path: "index.html", text: `<html><body><img src="img/hero.jpg" alt=""><svg></svg><h1>Fairway golf club</h1><p>${"Real words about the club. ".repeat(80)}</p><form id=f></form><script>f.addEventListener("submit", e => e.preventDefault())</script></body></html>` }], css: [], images: [], fullstack: true, wantsBackend: true };
   assert.deepEqual(lintDepth(rich), []);
   assert.match(factsLine(rich), /^2 pictures\/SVG, \d{4} chars of text, 1 form$/);
+  const long = lintDepth({ ...rich, html: [{ path: "index.html", text: `<h1>The best golf club you will ever play on</h1><section><p>${"word ".repeat(120)}</p></section><p>${"more ".repeat(400)}</p>` }] });
+  for (const re of [/hero headline has 9 words/, /1 section over about 80 words \(120\)/, /529 visible words/]) assert.ok(long.some((i) => re.test(i)), String(re));
   assert.equal(wantsBackend("make me a simple landing page for a bakery"), false);
   assert.equal(nextSiteStep(["plan.md", "css/style.css", "index.html", "img/hero.jpg"]), "check"); // slot photos count as images
 });
