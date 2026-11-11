@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Skill } from "@/lib/skills-pure";
 import { CORE_OPEN_SKILL_CHAT, queueSkillRun, useSkillReceipts } from "./skill-run-receipts";
 import { ACTIVE_CHAT_KEY } from "@/lib/core-chats-pure";
+import { skillRunLabel } from "@/lib/skill-run-pure";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { VOICE_ASK } from "./voice/bus";
 
@@ -55,11 +56,7 @@ export function PinnedSkills({ onRun, tasks }: { onRun: () => void; tasks?: unkn
     const label = version.card?.inputs || "Optional skill input";
     const receipt = receipts[skill.id];
     const task = receipt?.taskId ? rows.find((row) => row.id === receipt.taskId) : undefined;
-    const status = task?.status === "awaiting_approval" ? "Needs approval"
-      : task?.status === "done" || receipt?.state === "completed" ? "Completed"
-      : task?.status === "failed" || task?.status === "cancelled" || receipt?.state === "failed" ? "Stopped or failed"
-      : receipt?.state === "queued" ? "Queued"
-      : receipt?.state === "started" ? "Started" : "";
+    const status = skillRunLabel(receipt, task?.status);
     const openReceipt = () => {
       if (!receipt) return;
       onRun();

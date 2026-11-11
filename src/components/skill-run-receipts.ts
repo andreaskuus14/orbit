@@ -1,10 +1,11 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import type { SkillRunState } from "@/lib/skill-run-pure";
 
 export type SkillLaunch = { skillId: string; runId: string };
 export type SkillReceipt = SkillLaunch & {
-  state: "queued" | "started" | "completed" | "failed";
+  state: SkillRunState;
   chatId?: string;
   taskId?: string;
 };

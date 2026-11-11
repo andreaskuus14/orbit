@@ -35,7 +35,7 @@ import { GalaxyLoader } from "./GalaxyLoader";
 import { HudFrame } from "./HudFrame";
 import { WeeklyCard } from "./WeeklyCard";
 import { EveningCapture } from "./EveningCapture";
-import { type SkillLaunch } from "./skill-run-receipts";
+import { updateSkillRun, type SkillLaunch } from "./skill-run-receipts";
 import { MissionControl } from "./MissionControl";
 import { StatusRail } from "./StatusRail";
 import { Ticker } from "./Ticker";
@@ -279,6 +279,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       const detail = (e as CustomEvent<{ text?: string; skill?: SkillLaunch }>).detail;
       const text = detail?.text?.trim();
       if (!text) return;
+      if (detail.skill) updateSkillRun(detail.skill, { state: "handled" }); // an instant command below may take it; CORE gets it back to "queued"
       setCmdErr("");
       setCmdReply("");
       let nav = parseNavCommand(text, { current: shown });
@@ -301,6 +302,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       if (ar) { stopSpeech(); if (speechSettings().speak) speakChunk(ar); return; }
       if (runWatchCommand(text, shown, (msg) => { stopSpeech(); if (msg && speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); })) return; // "show me Jynxzi's latest videos", then "the second one"
       dispatchEvent(new CustomEvent(VOICE_ASKED));
+      if (detail.skill) updateSkillRun(detail.skill, { state: "queued" });
       setPending({ text, skill: detail.skill }); openCore();
     };
     addEventListener(VOICE_ASK, onAsk);

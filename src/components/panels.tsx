@@ -11,6 +11,7 @@ import { takeLines } from "@/lib/streamjson";
 import { followUps } from "@/lib/core-ui";
 import { dropNote, handoffTask } from "@/lib/long-work-pure";
 import { applyLive, type LiveEvent, type LiveRow } from "@/lib/core-live-pure";
+import { turnRunState } from "@/lib/skill-run-pure";
 import { CORE_OPEN_SKILL_CHAT, updateSkillRun, type SkillLaunch } from "./skill-run-receipts";
 import { CoreActivity } from "./CoreActivity";
 import { CoreWorkspace } from "./CoreWorkspace";
@@ -286,7 +287,8 @@ export function CorePanel({ initial, initialSkill, onConsumed, onOpenMemory, gre
         if (skill) {
           if (ev.type === "start" && cid) updateSkillRun(skill, { state: "started", chatId: cid });
           else if (ev.type === "background" && ev.taskId) updateSkillRun(skill, { taskId: ev.taskId });
-          else if (ev.type === "bg_done" || (ev.type === "done" && !handedOff && !bgId)) updateSkillRun(skill, { state: "completed" });
+          else if (ev.type === "bg_done") updateSkillRun(skill, { state: "finished" }); // fires on failure and cancel too: the task row says which
+          else if (ev.type === "done" && !handedOff && !bgId) updateSkillRun(skill, { state: turnRunState(ev.trace) });
           else if (ev.type === "error") updateSkillRun(skill, { state: "failed" });
         }
         if (!here()) {
@@ -335,7 +337,7 @@ export function CorePanel({ initial, initialSkill, onConsumed, onOpenMemory, gre
       if (!finished) throw new Error("Connection to CORE was lost");
       if (navTo && here()) fly(navTo); // after the stream closed: leaving the panel aborts the request, which mustn't land mid-read
     } catch (e) {
-      if (skill && !bgId) updateSkillRun(skill, { state: "failed" });
+      if (skill && !bgId) updateSkillRun(skill, { state: ac.signal.aborted ? "cancelled" : "failed" });
       const stopped = ac.signal.aborted;
       if (talk) stopSpeech();
       if (!stopped) ac.abort(); // e.g. a malformed line: stop the server-side CLI too
@@ -380,7 +382,7 @@ export function CorePanel({ initial, initialSkill, onConsumed, onOpenMemory, gre
     // Busy: never drop the new question (e.g. a voice follow-up).
     // A cancel stops the job; any other follow-up (talking over CORE included) waits for it to finish.
     if (busy) { if (cancelsJob(initial)) { abort.current?.abort(); stopSpeech(); } else {
-      if (queued.current?.skill) updateSkillRun(queued.current.skill, { state: "failed" });
+      if (queued.current?.skill) updateSkillRun(queued.current.skill, { state: "cancelled" }); // replaced by a newer question before it ran
       queued.current = { text: initial, skill: initialSkill };
     } }
     else void send(initial, undefined, undefined, initialSkill);
