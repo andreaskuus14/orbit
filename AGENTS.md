@@ -22,8 +22,8 @@ ORBIT is Andreas's personal AI OS (Next.js 15, React 19, R3F, Supabase). The liv
    own Shorts to YouTube (`studio-publish`). Every other send, publish and upload still needs his click. With Auto on, a
    draft ORBIT wrote and he has not read is sent if it passes the checks. Guards: Auto is enabled only with the typed
    phrase and working phone pushes; each item waits in a 10-minute cancel window; nothing goes out in quiet hours
-   (23:00-08:00); nothing with numbers, prices, payments, dates, contracts or promises; only drafts or clips made after
-   Auto was switched on. These limits live in autonomy-pure.ts and may be tightened but not loosened without the owner.
+   (23:00-08:00); nothing with numbers, prices, payments, dates, contracts or promises; only drafts (their own drafted_at
+   stamp, not the prospect's last edit) or clips made after Auto was switched on. These limits live in autonomy-pure.ts and may be tightened but not loosened without the owner.
    Spending money or credits is never automatic. There is no Undo for an auto action: there is a cancel window, then
-   it is logged and pushed to his phone. He can turn Auto off at any time, and that also cancels anything still queued.
+   it is written to the ledger (also when its result is unknown) and, if pushes still work, pushed to his phone. He can turn Auto off at any time, and that also cancels anything still queued.
    Never log in to outside platforms or use their cookies. Journal/LIFE text never goes to a model or out of ORBIT.

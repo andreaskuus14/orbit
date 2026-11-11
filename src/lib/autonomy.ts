@@ -9,7 +9,7 @@ import { orbitDataDir } from "./data-dir";
 import { WINDOW_DAYS, snoozeTrust, taskDecisions, type TrustDecision } from "./trust-pure";
 import { stopAllOn } from "./stop-all";
 import { emit } from "./claude";
-import { DONE_KEEP_MS, UNDO_MS, autoApprove, lockedAutonomy, autoClock, cancelPending, clipVersion, sendOutcome, undoAutoApprove, type Fired, autoPush, autonomyAllows, quietAuto, doneToday, parseAutonomy, patchLimits, pickAuto, setLevel,
+import { DONE_KEEP_MS, UNDO_MS, autoApprove, lockedAutonomy, autoClock, cancelPending, clipVersion, sendOutcome, undoAutoApprove, autoLedger, draftCandidate, type Fired, autoPush, autonomyAllows, quietAuto, doneToday, parseAutonomy, patchLimits, pickAuto, setLevel,
   type Action, type AllowCtx, type Area, type AutoArea, type AutonomyState, type Candidate, type Levels } from "./autonomy-pure";
 
 const file = () => path.join(orbitDataDir(), "autonomy.json");
@@ -85,8 +85,7 @@ export async function tickAutonomy(sb: SupabaseClient, userId: string, now = Dat
       const r: Fired = await (p.area === "business-send" ? fireSend(sb, userId, p) : firePublish(p)).catch((e): Fired => { console.error("[orbit] auto action failed:", msg(e)); return "skip"; });
       if (r === "skip") continue;
       await update((s) => ({ ...s, done: [...s.done, { area: p.area, ref: p.ref, at: new Date().toISOString() }] })); // counts toward the cap either way
-      if (r === "done" || p.area === "business-send") // an unknown-result email may have gone out: it's in the ledger too
-        await emit(sb, userId, "autonomy.act", "core", { area: p.area, action: p.area === "business-send" ? "send" : "publish", ref: p.ref.slice(0, 128) });
+      await emit(sb, userId, "autonomy.act", "core", autoLedger(p.area, p.ref, r)); // an unknown result may have gone out: it's in the ledger too
       await push(autoPush(p.area, r));
     }
     for (const area of ["business-send", "studio-publish"] as const) {
@@ -104,9 +103,9 @@ export async function tickAutonomy(sb: SupabaseClient, userId: string, now = Dat
 // The filter sees subject + body (exactly what goes out); the version is the draft stamp sendDraft claims.
 async function sendCandidates(sb: SupabaseClient, userId: string): Promise<Candidate[]> {
   const { emailIn, sendSubject } = await import("./business-pure");
-  const { data } = await sb.from("prospects").select("id, name, contact, draft, updated_at").eq("user_id", userId).eq("stage", "lead").neq("draft", "").limit(100);
-  return (data ?? []).filter((p) => p.draft?.trim() && emailIn(p.contact ?? ""))
-    .map((p) => ({ ref: p.id, seen: p.updated_at, changedAt: p.updated_at, label: `Email to ${String(p.name).slice(0, 80)}`, text: `${sendSubject(p.name, p.draft)}\n${p.draft}` }));
+  // No drafted_at column yet (before 0026): an error, so nothing qualifies.
+  const { data } = await sb.from("prospects").select("id, name, contact, draft, updated_at, drafted_at").eq("user_id", userId).eq("stage", "lead").neq("draft", "").limit(100);
+  return (data ?? []).filter((p) => p.draft?.trim() && emailIn(p.contact ?? "")).map((p) => draftCandidate(p, sendSubject(p.name, p.draft)));
 }
 
 async function fireSend(sb: SupabaseClient, userId: string, p: { ref: string; seen: string }): Promise<Fired> {
