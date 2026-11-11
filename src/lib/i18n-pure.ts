@@ -568,7 +568,9 @@ const BASE = {
   "pb.reverted": "Reverted to v{n}.", "pb.revert": "Revert", "an.period": "Usage period", "an.lastDays": "Last {n} days", "an.memories": "memories",
   "an.messages": "chat messages", "an.calls": "AI calls · {n} days", "an.tokens": "tokens used · {n} days",
   "an.tableAria": "AI usage by model and purpose, last {n} days", "an.model": "Model / purpose", "an.callsCol": "Calls", "an.tokensCol": "Tokens",
-  "an.noUsage": "No usage in this period.", "an.subscription": "CORE runs on your Claude subscription, so there is no per-token cost to track.",
+  "an.noUsage": "No usage in this period.",
+  "mr.title": "MODEL LOG · last 7 days", "mr.none": "No CORE turns or agent tasks logged yet.", "mr.perModel": "Runs per model", "mr.risky": "Risky jobs (auth, money, approvals, sending)",
+  "mr.noRisky": "No risky jobs in this period.", "mr.below": "{n} risky job(s) ran below Opus", "mr.ok": "No risky job ran below Opus.", "mr.job": "Job", "mr.held": "held by", "mr.down": "limit step-down from {m}", "an.subscription": "CORE runs on your Claude subscription, so there is no per-token cost to track.",
   "an.recent": "Recent activity", "an.nothing": "Nothing yet.",
 
   "arch.region": "ARCH: architecture study workspace", "arch.controls": "ARCH controls",
@@ -1452,6 +1454,8 @@ export const ET: Partial<Record<Key, string>> = {
   "an.lastDays": "Viimased {n} päeva", "an.memories": "mälukirjet", "an.messages": "vestlussõnumit", "an.calls": "tehisaru päringut · {n} päeva",
   "an.tokens": "kasutatud tokenit · {n} päeva", "an.tableAria": "Tehisaru kasutus mudeli ja eesmärgi järgi, viimased {n} päeva",
   "an.model": "Mudel / eesmärk", "an.callsCol": "Päringud", "an.tokensCol": "Tokenid", "an.noUsage": "Sel perioodil kasutust polnud.",
+  "mr.title": "MUDELILOGI · viimased 7 päeva", "mr.none": "CORE'i vestlusi ega agendi ülesandeid pole veel logitud.", "mr.perModel": "Käivitusi mudeli kohta", "mr.risky": "Riskantsed tööd (autentimine, raha, kinnitused, saatmine)",
+  "mr.noRisky": "Sel perioodil riskantseid töid polnud.", "mr.below": "{n} riskantset tööd jooksis Opusest madalamal mudelil", "mr.ok": "Ükski riskantne töö ei jooksnud Opusest madalamal.", "mr.job": "Töö", "mr.held": "põhjus", "mr.down": "limiidi tõttu madalamale: {m}",
   "an.subscription": "CORE töötab sinu Claude'i tellimuse peal, seega tokenipõhist kulu jälgida pole vaja.", "an.recent": "Viimane tegevus",
   "an.nothing": "Veel midagi pole.",
 
