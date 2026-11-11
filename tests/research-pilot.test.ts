@@ -19,6 +19,7 @@ import * as outboundPure from "../src/lib/outbound-pure.ts";
 import * as missionChecksPure from "../src/lib/mission-checks-pure.ts";
 import * as pilot from "../src/lib/research-pilot-pure.ts";
 import * as agentDefsPure from "../src/lib/agent-defs-pure.ts";
+import * as modelLogPure from "../src/lib/model-log-pure.ts";
 import * as execution from "../src/lib/execution.ts"; // the real execution-evidence module agents.ts uses
 
 const { checkReport, closeMetrics, parseResearchPlan, pilotMission, section, baselineMinutes } = pilot;
@@ -175,7 +176,7 @@ function boot(w: World) {
     "./claude": claude, "./stop-all": stopAll, "./stop-all-pure": stopAllPure, "./completion-pure": completionPure, "./answer-call-pure": answerCallPure, "./task-claim-pure": taskClaimPure,
     "./company-pure": companyPure, "./chains-pure": chainsPure, "./missions-pure": missionsPure, "./durable": { noteWrite: () => {} }, "./pure": pure, "./research-pilot-pure": pilot,
     "./memory": { KINDS: ["note"] }, "./core-ui": { needsSelfReview: () => false }, "./completion": { verifyRow: async () => {} },
-    "./foreground-pure": foregroundPure, "./clip-store-pure": clipStorePure, "./outbound-pure": outboundPure, "./mission-checks-pure": missionChecksPure, "./agent-defs-pure": agentDefsPure,
+    "./foreground-pure": foregroundPure, "./clip-store-pure": clipStorePure, "./outbound-pure": outboundPure, "./mission-checks-pure": missionChecksPure, "./agent-defs-pure": agentDefsPure, "./model-log-pure": modelLogPure,
     "./capability": { capabilityStart: async () => ({ block: "", headsUp: "" }) }, "./workspace": ws,
     "./verify": { verifyAnswer: async (_sb: unknown, _u: string, text: string) => ({ text, trace: [] }) }, // the real cross-check is a model call
     "./agents": p.agents, "./chains": p.chains, "./migration-guard": { requireMigration: async () => {}, MigrationBlocked: class extends Error {} },
