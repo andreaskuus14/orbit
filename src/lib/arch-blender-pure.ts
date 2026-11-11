@@ -112,7 +112,7 @@ export function blenderScript(scene: Scene, o: Opts): string {
     L.push(`bo = obj[${JSON.stringify(host.id)}].modifiers.new('cut-${p.id}', 'BOOLEAN'); bo.operation = 'DIFFERENCE'; bo.object = cut`);
     const pane: V3 = [b.s[0], b.s[1], b.s[2]], thin = p.kind === "window" ? 0.02 : 0.05;
     if (p.face === "n" || p.face === "s") pane[1] = thin; else pane[0] = thin;
-    L.push(`box(${JSON.stringify(p.name)}, ${v(b.c)}, ${v(pane)}, mat('${p.kind}', ${v(m.rgb)}, ${m.rough}, ${m.glass ? "True" : "False"}), 0)`);
+    L.push(`obj[${JSON.stringify(p.id)}] = box(${JSON.stringify(p.name)}, ${v(b.c)}, ${v(pane)}, mat('${p.kind}', ${v(m.rgb)}, ${m.rough}, ${m.glass ? "True" : "False"}), 0)`);
   }
   const d = sunVector(sun.azimuthDeg, Math.max(sun.elevationDeg, 2));
   L.push(
@@ -176,13 +176,16 @@ export function flyPath(scene: Scene, n: number, room?: { x: number; z: number }
     return { cam: mix(a.cam, b.cam, u), look: mix(a.look, b.look, u), roof: t < 0.5, lift };
   });
 }
-/** A Blender script that builds the scene (blenderScript) and renders each pose to <out>/f001.png …; roof hidden where !roof. */
-export function blenderSequence(scene: Scene, o: Opts, poses: Pose[]): string {
+/** A Blender script that builds the scene (blenderScript) and renders each pose to <out>/f001.png …; roof hidden where !roof.
+ *  extra: Python lines run once after the scene is built, before the first frame (a presentation variant: wireframe, exploded).
+ *  keepRoof: leave the roof alone (shown, not lifted) for every pose. */
+export function blenderSequence(scene: Scene, o: Opts, poses: Pose[], extra: string[] = [], keepRoof = false): string {
   const base = blenderScript(scene, o).replace("S.render.filepath = out; bpy.ops.render.render(write_still=True)\n", "");
-  const roofs = scene.parts.filter((p) => p.kind === "roof").map((p) => JSON.stringify(p.id));
+  const roofs = scene.parts.filter((p) => p.kind === "roof" && !keepRoof).map((p) => JSON.stringify(p.id));
   return base + [
     "import os; os.makedirs(out, exist_ok=True)",
     "c.data.shift_y = 0; c.data.lens = 28",
+    ...extra,
     `P = ${JSON.stringify(poses.map((p) => [p.cam.map((x) => +x.toFixed(3)), p.look.map((x) => +x.toFixed(3)), p.roof ? 1 : 0, +p.lift.toFixed(3)]))}`, // 1/0: valid Python
     `roofs = [obj[k] for k in [${roofs.join(", ")}] if k in obj]`,
     "base = {r.name: r.location.z for r in roofs}",

@@ -1,41 +1,45 @@
-import { blenderScript, flyPath, type Opts } from "./arch-blender-pure.ts";
+import { blenderSequence, flyPath, type Opts } from "./arch-blender-pure.ts";
 import type { Scene } from "./arch-pure.ts";
 
 export const presentationModes = ["finished", "wireframe", "exploded"] as const;
 export type PresentationMode = typeof presentationModes[number];
 
+// Exploded view, metres: each part moves from its own base. Walls drift away from the building centre, every layer lifts (the slab only
+// ever goes up, so it never sinks below the ground box), and an opening's glass or door leaf moves exactly with its host wall.
+const LIFT = { slab: 0.3, wall: 1, roof: 2.2 };
+const explode = (scene: Scene) => {
+  const parts = Object.fromEntries(scene.parts.flatMap((p) => p.kind === "slab" || p.kind === "wall" || p.kind === "roof" ? [[p.id, [p.kind, ""]]]
+    : (p.kind === "window" || p.kind === "door") && p.host ? [[p.id, ["opening", p.host]]] : []));
+  return [
+    "depsgraph = bpy.context.evaluated_depsgraph_get()",
+    `PARTS = ${JSON.stringify(parts)}; LIFT = ${JSON.stringify(LIFT)}`,
+    "def mid(o): return sum((o.matrix_world @ Vector(c) for c in o.bound_box), Vector()) / 8  # the box() helper bakes location into the mesh, so measure the geometry",
+    "shell = [mid(obj[k]) for k, (kind, host) in PARTS.items() if k in obj and kind in ('wall', 'slab')]",
+    "centre = sum(shell, Vector()) / max(1, len(shell))",
+    "move = {}",
+    "for k, (kind, host) in PARTS.items():",
+    "    if k not in obj or kind == 'opening': continue",
+    "    d = mid(obj[k]) - centre; d.z = 0",
+    "    move[k] = d * 0.22 + Vector((0, 0, LIFT[kind]))",
+    "for k, (kind, host) in PARTS.items():",
+    "    if k not in obj: continue",
+    "    part = obj[k]",
+    "    part.data = bpy.data.meshes.new_from_object(part.evaluated_get(depsgraph))  # bake the window and door cut-outs before the cutters stop mattering",
+    "    part.modifiers.clear()",
+    "    part.location = part.location + move.get(host if kind == 'opening' else k, Vector())",
+  ];
+};
+const wireframe = [
+  "for part in obj.values():",
+  "    wire = part.modifiers.new('Presentation wireframe', 'WIREFRAME')",
+  "    wire.thickness = 0.025",
+];
+
+/** One Blender script per mode, all on the same camera path. The roof stays in place for the whole path (the film's lift-away is off). */
 export function archPresentation(scene: Scene, options: Opts, frames: number, mode: PresentationMode) {
-  const poses = flyPath(scene, frames).map(({ cam, look }) => [cam, look]);
-  if (poses.length < 2 || poses.some((pose) => pose.flat().some((value) => !Number.isFinite(value)))) {
+  const path = flyPath(scene, frames);
+  if (path.length < 2 || path.some(({ cam, look }) => [...cam, ...look].some((value) => !Number.isFinite(value)))) {
     throw new Error("The presentation needs at least two finite camera poses and a wall or slab.");
   }
-  const offsets = Object.fromEntries(scene.parts.filter(({ kind }) => kind === "wall" || kind === "slab" || kind === "roof")
-    .map(({ id, kind, x, z }) => [id, kind === "roof" ? [0, 0, 2] : kind === "slab" ? [0, 0, -0.3] : [x * 0.22, -z * 0.22, 0]]));
-  const base = blenderScript(scene, options).replace("S.render.filepath = out; bpy.ops.render.render(write_still=True)\n", "");
-  const variant = mode === "wireframe" ? [
-    "for part in obj.values():",
-    "    wire = part.modifiers.new('Presentation wireframe', 'WIREFRAME')",
-    "    wire.thickness = 0.025",
-  ] : mode === "exploded" ? [
-    "depsgraph = bpy.context.evaluated_depsgraph_get()",
-    `for key, offset in ${JSON.stringify(offsets)}.items():`,
-    "    part = obj[key]",
-    "    part.data = bpy.data.meshes.new_from_object(part.evaluated_get(depsgraph))",
-    "    part.modifiers.clear()",
-    "    part.location += Vector(offset)",
-  ] : [];
-  return base + [
-    "import os",
-    "os.makedirs(out, exist_ok=True)",
-    "c.data.shift_y = 0; c.data.lens = 28",
-    ...variant,
-    `poses = ${JSON.stringify(poses)}`,
-    "for index, (cam, look) in enumerate(poses, 1):",
-    "    c.location = cam",
-    "    c.rotation_euler = (Vector(look) - Vector(cam)).to_track_quat('-Z', 'Y').to_euler()",
-    "    S.render.image_settings.file_format = 'PNG'",
-    "    S.render.filepath = os.path.join(out, 'f%03d.png' % index)",
-    "    if not os.path.exists(S.render.filepath) or os.path.getsize(S.render.filepath) == 0:",
-    "        bpy.ops.render.render(write_still=True)",
-  ].join("\n") + "\n";
+  return blenderSequence(scene, options, path, mode === "wireframe" ? wireframe : mode === "exploded" ? explode(scene) : [], true);
 }
