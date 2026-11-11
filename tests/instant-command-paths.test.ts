@@ -137,7 +137,7 @@ test("spoken commands run directly; longer spoken questions are handed to CORE",
     h.effects.find((f) => f.toString().includes("VOICE_ASK, onAsk"))!();
     await h.listeners.get("orbit:voice-ask")!(new CustomEvent("orbit:voice-ask", { detail: { text } }));
     assert.equal(h.requests.length, 0);
-    if (text.startsWith("how")) { assert.equal(h.calls.length, 0); assert.ok(h.state.includes(text)); assert.ok(h.state.includes("core")); }
+    if (text.startsWith("how")) { assert.equal(h.calls.length, 0); assert.ok(h.state.some((value) => value?.text === text)); assert.ok(h.state.includes("core")); }
     else { assert.deepEqual(h.calls, [nav.parseNavCommand(text, { current: null })]); assert.ok(h.state.includes(nav.navReply(h.calls[0]))); }
   }
 });

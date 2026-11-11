@@ -2,11 +2,17 @@
 
 import { useEffect, useState } from "react";
 import type { Skill } from "@/lib/skills-pure";
+import { CORE_OPEN_SKILL_CHAT, queueSkillRun, useSkillReceipts } from "./skill-run-receipts";
+import { ACTIVE_CHAT_KEY } from "@/lib/core-chats-pure";
+import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { VOICE_ASK } from "./voice/bus";
 
 const PIN_KEY = "orbit.mission.pinned-skills";
 
-export function PinnedSkills({ onRun }: { onRun: () => void }) {
+export function PinnedSkills({ onRun, tasks }: { onRun: () => void; tasks?: unknown }) {
+  const receipts = useSkillReceipts();
+  const taskRows = (tasks as { tasks?: { id: string; status: string }[] } | null)?.tasks;
+  const rows = Array.isArray(taskRows) ? taskRows : [];
   const [skills, setSkills] = useState<Skill[] | null>(null);
   const [pins, setPins] = useState<string[]>([]);
   const [failed, setFailed] = useState(false);
@@ -47,16 +53,39 @@ export function PinnedSkills({ onRun }: { onRun: () => void }) {
     const pinned = pins.includes(skill.id);
     const input = inputs[skill.id] ?? "";
     const label = version.card?.inputs || "Optional skill input";
+    const receipt = receipts[skill.id];
+    const task = receipt?.taskId ? rows.find((row) => row.id === receipt.taskId) : undefined;
+    const status = task?.status === "awaiting_approval" ? "Needs approval"
+      : task?.status === "done" || receipt?.state === "completed" ? "Completed"
+      : task?.status === "failed" || task?.status === "cancelled" || receipt?.state === "failed" ? "Stopped or failed"
+      : receipt?.state === "queued" ? "Queued"
+      : receipt?.state === "started" ? "Started" : "";
+    const openReceipt = () => {
+      if (!receipt) return;
+      onRun();
+      if (receipt.taskId) {
+        dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: "operations", open: { kind: "task", id: receipt.taskId } } }));
+      } else if (receipt.chatId) {
+        try { localStorage.setItem(ACTIVE_CHAT_KEY, receipt.chatId); } catch { /* CORE can still be open already. */ }
+        dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: "core" } }));
+        dispatchEvent(new CustomEvent(CORE_OPEN_SKILL_CHAT, { detail: receipt.chatId }));
+      }
+    };
     return <li key={skill.id}>
       <div className="mc-row">
         <b>{version.name}</b>
         <button type="button" className="chip" aria-label={`Pin ${version.name}`} aria-pressed={pinned} onClick={() => toggle(skill.id)}>{pinned ? "Pinned" : "Pin"}</button>
       </div>
+      {pinned && status && <div className="mc-actions">
+        <span role="status">{status}</span>
+        {(receipt?.taskId || receipt?.chatId) && <button type="button" className="chip" onClick={openReceipt}>{receipt.taskId ? "Open task" : "Open CORE chat"}</button>}
+      </div>}
       {pinned && <form className="mc-actions" onSubmit={(e) => {
         e.preventDefault();
         const text = `run skill @${skill.id}${input.trim() ? `: ${input.trim()}` : ""}`;
+        const run = queueSkillRun(skill.id);
         onRun();
-        dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text } }));
+        dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text, skill: run } }));
       }}>
         <label>{label}<input className="field w-full" maxLength={2000} value={input} onChange={(e) => setInputs({ ...inputs, [skill.id]: e.target.value })} /></label>
         <button className="chip" type="submit">Run in CORE</button>

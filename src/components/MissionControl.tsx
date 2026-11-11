@@ -125,7 +125,7 @@ export function MissionControl() {
             </> : <p className="mc-dim">Self-test not ready.</p>}
           </Panel>
 
-          <Panel label="Pinned skills" code="CORE"><PinnedSkills onRun={close} /></Panel>
+          <Panel label="Pinned skills" code="CORE"><PinnedSkills onRun={close} tasks={d.tasks} /></Panel>
 
           <OpenLoops go={go} />
 
