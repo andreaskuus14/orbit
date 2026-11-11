@@ -4,13 +4,14 @@ import { randomBytes } from "node:crypto";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { readState, saveState, studioRoot, withJobLock } from "@/lib/clips/factory";
+import { fileSha, generateForTrack, refreshShas } from "@/lib/clips/track";
 import { STAGES, advance, approve, newTrack, revise, submit, summary, trackProblem, type StageId, type Track } from "@/lib/clips/track-pure";
 
 // STUDIO Production track (Y2, track-pure.ts). GET = every track with its one-page state; POST { action, ... } = his clicks.
-// Nothing here spends or publishes: paid generation is AI Story's story.approve, publishing is the Clip Factory publish click.
+// generate = his click on an AI Story quote (seen hash), through approveStory's guards; publishing stays the Clip Factory publish click.
 const dir = () => path.join(studioRoot(), "tracks");
 const isId = (x: unknown): x is string => typeof x === "string" && /^[a-z0-9]{6,12}-[a-f0-9]{6}$/.test(x);
-const get = (id: string) => readState<Track>(dir(), id, trackProblem);
+const get = async (id: string) => { const t = await readState<Track>(dir(), id, trackProblem); if (t) await refreshShas(t); return t; };
 const save = (t: Track) => saveState(t.id, path.join(dir(), `${t.id}.json`), t);
 
 export async function GET() {
@@ -42,7 +43,13 @@ export async function POST(req: Request) {
     const t = await get(b.id);
     if (!t) return Response.json({ error: "Track not found" }, { status: 404 });
     const stage = b.stage as StageId;
-    const why = b.action === "submit" ? submit(t, stage, { ref: b.ref, note: b.note, sec: b.sec }, at)
+    if (b.action === "generate") {
+      const r = await generateForTrack(t, stage, String(b.story ?? ""), b.credits, b.seen, Array.isArray(b.frames) ? b.frames.map(String) : []);
+      if ("error" in r) return Response.json({ error: r.error }, { status: 409 });
+      await save(t);
+      return Response.json({ track: t, state: await summary(t) });
+    }
+    const why = b.action === "submit" ? submit(t, stage, { ref: b.ref, sha: typeof b.ref === "string" ? await fileSha(b.ref.trim()) : "", note: b.note, sec: b.sec }, at)
       : b.action === "approve" ? await approve(t, stage, String(b.ref ?? ""), b.hash, at)
       : b.action === "advance" ? await advance(t)
       : b.action === "revise" ? revise(t) : "Unknown action";
