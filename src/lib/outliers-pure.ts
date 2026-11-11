@@ -1,6 +1,7 @@
 // CORE's find_outliers: videos that did far better than their own channel's normal (views / channel median of recent uploads).
 // Pure scoring and formatting; the YouTube calls live in outliers.ts. Tests: tests/outliers-pure.test.ts.
 import { fenceUntrusted } from "./reach/pure.ts";
+import type { Idea } from "./ideas-pure.ts";
 export type OutlierVideo = { id: string; title: string; channelId: string; channel: string; views: number; publishedAt: string };
 export type Baseline = { median: number | null; n: number; lowConfidence: boolean };
 export type Outlier = OutlierVideo & { median: number; score: number; lowConfidence: boolean; n: number };
@@ -69,4 +70,29 @@ export function parseOutlierInput(i: Record<string, unknown>): OutlierInput | { 
   const raw = i.limit == null || i.limit === "" ? NaN : Number(i.limit);
   const limit = Number.isFinite(raw) ? Math.max(1, Math.min(25, Math.floor(raw))) : 10;
   return { ...(channel ? { channel } : { query }), limit };
+}
+
+// ---- weekly run into IDEA RADAR (outliers.ts: maybeWeeklyOutliers) ----
+export const OUTLIERS_EVERY_MS = 7 * 86_400_000;
+export const OUTLIER_MIN_SCORE = 3; // views / channel median: under 3x is normal variation, not an idea
+export const OUTLIER_QUERIES = 2; // 100 quota units a search: at most 2 a week
+export const outliersDue = (lastAt: string | undefined, now: number) => !lastAt || !(now - Date.parse(lastAt) < OUTLIERS_EVERY_MS);
+/** The owner's own scout keywords (his own words first, then the AI ones), trimmed, each once, capped. */
+export const outlierQueries = (keywords: string[]) => [...new Set(keywords.map((k) => (typeof k === "string" ? k.trim().slice(0, 100) : "")).filter(Boolean))].slice(0, OUTLIER_QUERIES);
+
+/** Strong, low-doubt outliers → IDEA RADAR ideas. A video already on the board is refreshed in place (id and dismissal kept). */
+export function mergeOutlierIdeas(ideas: Idea[], found: { query: string; list: Outlier[] }[], now: string, makeId: () => string): { ideas: Idea[]; added: number } {
+  const out = [...ideas];
+  let added = 0;
+  for (const { query, list } of found) for (const v of list) {
+    if (v.score < OUTLIER_MIN_SCORE || v.lowConfidence) continue;
+    const i = out.findIndex((x) => x.origin === "outliers" && x.video === v.id);
+    const idea: Idea = { id: i >= 0 ? out[i].id : makeId(), origin: "outliers", video: v.id, videoTitle: v.title.slice(0, 120),
+      title: `Outlier on "${query.slice(0, 60)}": ${v.score.toFixed(1)}x its channel's normal`.slice(0, 120),
+      summary: `${v.channel} got ${Math.round(v.views).toLocaleString("en-US")} views, ${v.score.toFixed(1)}x the channel's median of ${Math.round(v.median).toLocaleString("en-US")}.`,
+      area: "studio", score: Math.min(95, Math.round(50 + 10 * Math.log2(v.score))), next: "Watch why it worked (title, hook, topic) and test your own angle on it.",
+      at: i >= 0 ? out[i].at : now, sourceAt: v.publishedAt, dismissed: i >= 0 ? out[i].dismissed : undefined };
+    if (i >= 0) out[i] = idea; else { out.unshift(idea); added++; }
+  }
+  return { ideas: out, added };
 }

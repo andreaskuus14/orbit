@@ -33,7 +33,7 @@ export type Area = keyof typeof AREA_INFO;
 export const AREAS = Object.keys(AREA_INFO) as Area[];
 export type Idea = { id: string; video: string; videoTitle: string; title: string; summary: string; area: Area; score: number; next: string; at?: string; sourceAt?: string; dismissed?: boolean;
   // Comment-to-idea (comment-ideas-pure.ts): recurring viewer questions, linked to the source comments.
-  origin?: "comments" | "devsession" | "transcript"; commentKey?: string; askers?: number; comments?: { id: string; videoId: string; text: string }[];
+  origin?: "comments" | "devsession" | "transcript" | "outliers"; commentKey?: string; askers?: number; comments?: { id: string; videoId: string; text: string }[];
   sessionId?: string; transcriptKey?: string }; // non-video sources have video=""; transcriptKey deduplicates repeated public transcripts
 export const SHOW_AT = 60; // below this an idea is saved but hidden from the board
 export const TRANSCRIPT_MAX = 60_000;
