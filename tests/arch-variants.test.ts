@@ -56,6 +56,14 @@ test("exports: a file that differs from the model fails validation", () => {
   fail(checkIfc(ifc, moved), "orientation + position");
   fail(checkIfc(ifc, applyOps(bigger, [{ op: "set", id: wall.id, h: wall.h + 1 }], id).scene), "dimensions (m)");
   assert.equal(checkIfc("garbage", bigger)[0].ok, false);
+  // A2 structure checks: each broken link is caught on the file alone
+  const S = { tree: "spatial tree: project → site → building → storey", walls: "walls: body geometry + in a storey", open: "openings: void a wall + filled by a window/door", units: "IFC4 units assigned (length, area, volume, angle)" };
+  for (const k of Object.values(S)) assert.equal(checkIfc(ifc, bigger).find((c) => c.name === k)?.ok, true, k);
+  fail(checkIfc(ifc.replace(/IFCRELAGGREGATES\(([^;]*?),(#\d+),\((#\d+)\)\);/, "IFCRELAGGREGATES($1,$2,());"), bigger), S.tree);
+  fail(checkIfc(ifc.replace(/IFCRELVOIDSELEMENT\(([^;]*?),#\d+,(#\d+)\)/, "IFCRELVOIDSELEMENT($1,#1,$2)"), bigger), S.open);
+  fail(checkIfc(ifc.replace(/IFCRELFILLSELEMENT\([^;]*\);/, "IFCRELFILLSELEMENT('x',$,$,$,#1,#1);"), bigger), S.open);
+  fail(checkIfc(ifc.replace(/IFCSHAPEREPRESENTATION\((#\d+),'Body'/g, "IFCSHAPEREPRESENTATION($1,'Axis'"), bigger), S.walls);
+  fail(checkIfc(ifc.replace("IFCSIUNIT(*,.VOLUMEUNIT.", "IFCSIUNIT(*,.MASSUNIT."), bigger), S.units);
   assert.equal(checkJson("{", bigger)[0].ok, false);
   fail(checkJson(JSON.stringify(base), bigger), "same model");
   const csv = parseCsv("a,\"b,\"\"c\"\"\"\n1,2\n");

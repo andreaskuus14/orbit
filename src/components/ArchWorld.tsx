@@ -655,7 +655,8 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
               </div>
               <details><summary className="cursor-pointer muted">{tr("arch.exportChecks")}</summary>
                 <ul className="muted pl-4">{x.checks.map((c) => <li key={c.name}>{c.ok ? "✓" : "✗"} {c.name}{c.detail ? `: ${c.detail}` : ""}</li>)}</ul>
-                <p className="muted text-[11px]">{EXPORT_LIMITS[x.format]}</p></details>
+                <p className="muted text-[11px]">{EXPORT_LIMITS[x.format]}</p>
+                {x.format === "ifc" && <a className="underline text-[11px]" href="https://validate.buildingsmart.org" target="_blank" rel="noopener noreferrer">{tr("arch.ifcValidate")} ↗</a>}</details>
             </div>;
           })}
           <p className="muted text-[11px]">{tr("arch.exportHow")}</p>

@@ -70,3 +70,31 @@ test("invalid coordinates and dates are rejected by every public function", () =
     ] as const) assert.throws(() => fn(lat, lon, date), RangeError);
   }
 });
+
+// Independent reference: NOAA "General Solar Position Calculations" (Spencer Fourier series, a different method from the
+// Meeus series in sun-pure): https://gml.noaa.gov/grad/solcalc/solareqns.PDF. Azimuth clockwise from north,
+// cos(az) = (sin δ − sin φ_lat cos θz) / (cos φ_lat sin θz), mirrored for afternoon (hour angle > 0).
+function noaaGeneral(lat: number, lon: number, date: Date) {
+  const r = Math.PI / 180, doy = (date.getTime() - Date.UTC(date.getUTCFullYear(), 0, 1)) / 86_400_000 + 1;
+  const hour = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600;
+  const g = (2 * Math.PI / 365) * (Math.floor(doy) - 1 + (hour - 12) / 24);
+  const eqtime = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
+  const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g) - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
+  const ha = ((((hour * 60 + eqtime + 4 * lon) / 4) % 360) + 360) % 360 - 180, la = lat * r;
+  const cz = Math.sin(la) * Math.sin(decl) + Math.cos(la) * Math.cos(decl) * Math.cos(ha * r), z = Math.acos(cz);
+  const a = Math.acos(Math.max(-1, Math.min(1, (Math.sin(decl) - Math.sin(la) * cz) / (Math.cos(la) * Math.sin(z))))) / r;
+  return { elevationDeg: 90 - z / r, azimuthDeg: ha > 0 ? 360 - a : a };
+}
+// Local clock 9:00 and 12:00 on both solstices, with each city's legal UTC offset that day (DST where it applies).
+for (const c of [
+  { name: "Tallinn", lat: 59.437, lon: 24.754, jun: 3, dec: 2 },
+  { name: "Sydney", lat: -33.8688, lon: 151.2093, jun: 10, dec: 11 },
+  { name: "New York", lat: 40.7128, lon: -74.006, jun: -4, dec: -5 },
+]) for (const [day, off] of [["2025-06-21", c.jun], ["2025-12-21", c.dec]] as const) for (const clock of [9, 12]) {
+  test(`${c.name} ${day} ${clock}:00 local matches NOAA general solar position within 0.5°`, () => {
+    const at = new Date(Date.parse(`${day}T00:00:00Z`) + (clock - off) * 3_600_000);
+    const got = sunPosition(c.lat, c.lon, at), ref = noaaGeneral(c.lat, c.lon, at);
+    near(got.elevationDeg, ref.elevationDeg, 0.5);
+    near(((got.azimuthDeg - ref.azimuthDeg + 540) % 360) - 180, 0, 0.5);
+  });
+}
