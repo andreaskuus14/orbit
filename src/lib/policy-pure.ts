@@ -224,7 +224,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   else if (tool === "propose_rule") blocked = ruleBlocked(question, dataIn);
   else if (tool === "watch_add") blocked = watchBlocked(question, dataIn);
   else if (tool === "ask_agent") blocked = agentBlocked(question, input?.agent, ctx.attach || untrustedIn(ctx.steps));
-  else if (tool === "save_decision" && input?.confirmed === true) blocked = !dataIn && confirmsDecision(typedText(question)) ? "" : "save a decision only after his latest message is a plain yes to the preview"; // the preview call writes nothing
+  else if (tool === "save_decision" && input?.confirmed === true) blocked = !dataIn && !privateIn && confirmsDecision(typedText(question)) ? "" : "save a decision only after his latest message is a plain yes to the preview"; // the preview call writes nothing
   else if (tool === "save_checkpoint") blocked = checkpointBlocked(question);
   else if (isOpsTool(tool)) { if (ctx.stopAll) return no(PAUSED_MSG); blocked = opsBlocked(tool, question, dataIn, input, ctx.attach || ctx.pins ? [] : [...createdLeads(ctx.steps), ...(ctx.ownLeads ?? [])]) ?? ""; } // Stop-all halts operator writes outright
   else if (tool === "save_memory" && !asksToRemember(question)) blocked = "only save when the user asks; reflection handles the rest"; // core.ts:287

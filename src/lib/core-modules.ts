@@ -8,7 +8,7 @@ import { LIFE_TOOLS, runLifeTool, type LifeTool } from "./core-life";
 import { checkpointBasis } from "./checkpoint-pure";
 import { WS_PROMPT, WS_TOOLS, loadWsGate, runWsTool, wsTainted, type WsTool } from "./core-workspace";
 import { OPS_PROMPT, OPS_TOOLS, type OpsTool } from "./core-operator-pure";
-import { decisionMemory, decisionPreview, parseDecision } from "./decisions-pure";
+import { decisionMemory, decisionPreview, parseDecision, rememberPreview, takePreview } from "./decisions-pure";
 import { validateMemory } from "./reflect-pure";
 import { saveCoreMemory } from "./reflect";
 import { isPluginTool } from "./plugins-pure";
@@ -153,9 +153,10 @@ const MODULES: CoreModule[] = [
     name: "DECISIONS", tools: ["save_decision"], writes: ["save_decision"],
     prompt: "- save_decision {\"text\": string, \"confirmed\"?: boolean}: when he says \"I decided\" / \"otsustasin\" (what, why, and when to revisit it), call it with his sentence to get a preview, show him the what / why / revisit day and ask \"Save this decision?\". Only after his next message is a plain yes (jah), call it again with the same text and confirmed:true. Never confirm for him. Due decisions come back in Needs you on their revisit day.",
     run: async (_t, i, c) => {
-      const p = parseDecision(String(i.text ?? ""), Date.now());
+      const now = Date.now(), key = `${c.userId}:${c.chat ?? ""}`, p = parseDecision(String(i.text ?? ""), now);
       if (!p) return "Error: that isn't a decision sentence (it should start with \"I decided\" / \"Otsustasin\" and say what he decided)";
-      if (i.confirmed !== true) return decisionPreview(p);
+      if (i.confirmed !== true) { rememberPreview(key, p, now); return decisionPreview(p); }
+      if (!takePreview(key, p, now)) return "Error: this is not the decision he was shown (or the preview expired). Call save_decision without confirmed to show a fresh preview and ask him again";
       const v = validateMemory(decisionMemory(p));
       if ("error" in v) return `Error: ${v.error}`;
       const r = await saveCoreMemory(c.sb, c.userId, v.draft, "core");

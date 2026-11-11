@@ -2,6 +2,7 @@
 // memory row (kind "decision"): no new table. what/why/dates live in the row's title, content and tags:
 //   decided:YYYY-MM-DD, revisit:YYYY-MM-DD (the owner's Europe/Tallinn calendar day), "revisited" = closed (he edits tags in MEMORY).
 // Due logic: dueDecisions → needs-you-pure (cause "revisit"). Saving: CORE's save_decision, preview first, written only after he confirms.
+import { createHash } from "node:crypto";
 const TZ = "Europe/Tallinn", DAY = 86_400_000;
 export type Parsed = { what: string; why: string; decided: string; revisit: string | null };
 export type DecisionRow = { id: string; kind?: string | null; title: string; tags?: string[] | null };
@@ -76,4 +77,18 @@ export function dueDecisions(rows: DecisionRow[], now: number): Due[] {
     if (day && day <= today) out.push({ id: r.id, what: r.title.replace(/^Decision:\s*/, ""), revisit: day, daysLate: Math.round((utc(today) - utc(day)) / DAY) });
   }
   return out.sort((a, b) => a.revisit.localeCompare(b.revisit) || a.id.localeCompare(b.id));
+}
+
+// The save is bound to the exact preview he saw: the preview stores a hash of what/why/revisit per chat, the confirmed call must match it
+// (one use, 1 h). shortcut: in-memory, so a server restart between preview and "yes" asks for a fresh preview; upgrade if that bites.
+const pending = new Map<string, { h: string; at: number }>();
+const hashOf = (p: Parsed) => createHash("sha256").update(JSON.stringify([p.what, p.why, p.revisit])).digest("hex");
+export function rememberPreview(key: string, p: Parsed, now: number) {
+  pending.delete(key); pending.set(key, { h: hashOf(p), at: now });
+  while (pending.size > 200) pending.delete(pending.keys().next().value!);
+}
+/** True once, and only for the very preview shown (same what/why/revisit, under an hour old). */
+export function takePreview(key: string, p: Parsed, now: number): boolean {
+  const e = pending.get(key); pending.delete(key);
+  return !!e && now - e.at < 3_600_000 && e.h === hashOf(p);
 }
