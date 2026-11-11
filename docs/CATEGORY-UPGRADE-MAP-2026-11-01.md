@@ -286,7 +286,6 @@ The CORE registry includes additional names that are workflows inside the areas 
 | WEEK | Daily/weekly review |
 | CHECKPOINT | Goals/Missions and Night Shift |
 | LOAD | CORE's existing module discovery/selection |
-| REA | Protected by AGENTS.md: no edits, replacement or expansion of its tool code proposed |
 
 ## Category-wide rollout recommendation
 
@@ -304,6 +303,6 @@ The CORE registry includes additional names that are workflows inside the areas 
 - Autonomous allowed internal work stays logged in Activity, offers Undo where possible and obeys Stop-all.
 - No outside login or browser-cookie reuse. Approved future integrations must have a deliberate API or file-import route.
 - LIFE/journal privacy applies to search, embeddings, tracing, exports, sync, voice and background workers, not only CORE chat.
-- No REA file changes. New code uses a branch and tests appropriate to the change; `npm run gate` must pass before a PR, and Claude reviews/merges/deploys.
+- New code uses a branch and tests appropriate to the change; `npm run gate` must pass before a PR, and Claude reviews/merges/deploys.
 - Model/voice/asset licenses are separate from engine licenses. Hosted availability is separate from self-hosted availability. Windows deployment can require WSL2/Docker or a separate host.
 - No new tool is presumed better merely because it is popular. Benchmark a specific ORBIT task, keep the simplest successful option and remove the prototype if it adds no value.
