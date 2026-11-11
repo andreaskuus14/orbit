@@ -9,7 +9,7 @@ const firstJson = (t: string) => { const a = t.indexOf("{"), b = t.lastIndexOf("
 /** Build (or rebuild) the skill for a VAULT file. Returns the skill file's name and how many chapters made it. */
 export async function makeSkill(name: string, signal?: AbortSignal): Promise<{ skill: string; chapters: number; skipped: number }> {
   if (isSkillFile(name)) throw new VaultError("That is already a skill file");
-  const text = await readVaultText(name, 600_000); // shortcut: plain-text files are read up to the preview size; PDFs/Word use the full index text
+  const text = await readVaultText(name, 600_000); // the whole book, capped at ~600k chars (a long book)
   if (!text || text.length < 500) throw new VaultError("No readable text in that file (text, PDF or Word, at least a page)", 415);
   const parts = chapters(text), out: SkillChapter[] = [];
   for (const p of parts) {

@@ -236,14 +236,14 @@ export async function readStream(name: unknown, rangeHeader: string | null) {
   return { size, range, stream: Readable.toWeb(node) as unknown as ReadableStream<Uint8Array> };
 }
 
-/** First 20 KB of a text/code file. */
-export async function previewText(name: unknown): Promise<{ text: string; truncated: boolean }> {
+/** First 20 KB (or `bytes`) of a text/code file. */
+export async function previewText(name: unknown, bytes = PREVIEW_BYTES): Promise<{ text: string; truncated: boolean }> {
   const p = await filePath(name);
   if (kindOf(name as string) !== "text") throw new VaultError("No text preview for this type", 415);
   const fh = await open(p, "r");
   try {
-    const buf = Buffer.alloc(PREVIEW_BYTES);
-    const { bytesRead } = await fh.read(buf, 0, PREVIEW_BYTES, 0);
+    const buf = Buffer.alloc(bytes);
+    const { bytesRead } = await fh.read(buf, 0, bytes, 0);
     const size = (await fh.stat()).size;
     return { text: buf.subarray(0, bytesRead).toString("utf8").replace(/�$/, ""), truncated: size > bytesRead };
   } finally { await fh.close(); }
@@ -346,7 +346,7 @@ export async function readVaultText(name: string, maxChars = 8000): Promise<stri
   try {
     name = path.basename(await filePath(name)); // a renamed file's old name still resolves
     if (extractType(name, DOCX)) return ((await freshIndex())[name]?.text ?? "").slice(0, maxChars) || null;
-    if (kindOf(name) === "text") return (await previewText(name)).text.slice(0, maxChars);
+    if (kindOf(name) === "text") return (await previewText(name, Math.max(PREVIEW_BYTES, maxChars * 4))).text.slice(0, maxChars); // up to 4 UTF-8 bytes a char
     return null;
   } catch { return null; }
 }
