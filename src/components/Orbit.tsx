@@ -35,6 +35,7 @@ import { GalaxyLoader } from "./GalaxyLoader";
 import { HudFrame } from "./HudFrame";
 import { WeeklyCard } from "./WeeklyCard";
 import { EveningCapture } from "./EveningCapture";
+import { updateSkillRun, type SkillLaunch } from "./skill-run-receipts";
 import { MissionControl } from "./MissionControl";
 import { StatusRail } from "./StatusRail";
 import { Ticker } from "./Ticker";
@@ -160,7 +161,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     return () => removeEventListener(COMMAND_REPLY_EVENT, reply);
   }, []);
   const [focusMemory, setFocusMemory] = useState<string | null>(null);
-  const [pending, setPending] = useState<string | null>(null);
+  const [pending, setPending] = useState<{ text: string; skill?: SkillLaunch } | null>(null);
   const [gameOpen, setGameOpen] = useState(false); // pause the 3D galaxy while a full-screen game runs
   const [cmd, setCmd] = useState("");
   const [live, setLive] = useState<"connecting" | "live" | "offline">("connecting");
@@ -275,8 +276,10 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   // Voice questions (mic or "Hey Orbit") go to CORE whatever the bar's mode; navigation commands fly straight there.
   useEffect(() => {
     const onAsk = async (e: Event) => {
-      const text = (e as CustomEvent<{ text?: string }>).detail?.text?.trim();
+      const detail = (e as CustomEvent<{ text?: string; skill?: SkillLaunch }>).detail;
+      const text = detail?.text?.trim();
       if (!text) return;
+      if (detail.skill) updateSkillRun(detail.skill, { state: "handled" }); // an instant command below may take it; CORE gets it back to "queued"
       setCmdErr("");
       setCmdReply("");
       let nav = parseNavCommand(text, { current: shown });
@@ -299,7 +302,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       if (ar) { stopSpeech(); if (speechSettings().speak) speakChunk(ar); return; }
       if (runWatchCommand(text, shown, (msg) => { stopSpeech(); if (msg && speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); })) return; // "show me Jynxzi's latest videos", then "the second one"
       dispatchEvent(new CustomEvent(VOICE_ASKED));
-      setPending(text); openCore();
+      if (detail.skill) updateSkillRun(detail.skill, { state: "queued" });
+      setPending({ text, skill: detail.skill }); openCore();
     };
     addEventListener(VOICE_ASK, onAsk);
     return () => removeEventListener(VOICE_ASK, onAsk);
@@ -644,7 +648,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     if (runRecipeCommand(text, (msg, ok) => { if (ok) setCmdReply(msg); else setCmdErr(msg); })) { setCmd(""); return; } // "run recipe daily ideas": no CORE call
     if (runFollowCommand(text, (msg, ok) => { if (!ok) setCmdErr(msg); })) { setCmd(""); return; } // "follow Estonia" / "unfollow AI"
     if (runWatchCommand(text, shown, (msg, ok) => { if (!ok) setCmdErr(msg); })) { setCmd(""); return; } // THEATER: find/choose/control videos
-    if (cmdMode === "ask") { setCmd(""); setPending(text); openCore(); return; }
+    if (cmdMode === "ask") { setCmd(""); setPending({ text }); openCore(); return; }
     // Task mode: Nova interprets the request, delegates to the right agents and reports back.
     try {
       const res = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ request: text }) });
@@ -661,7 +665,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const drawerDrag = useDragPanel<HTMLElement>(drawer && !docked ? `drawer:${drawer}` : null);
   useDialogFocus(drawerDrag.ref, !!panel && !WORLDS.includes(panel)); // Esc is the window handler above
   const statusDrag = useDragPanel<HTMLElement>(!shown && view === "3d" ? "status" : null);
-  const panelBody = (id: PanelId) => (id === "core" ? <CorePanel initial={pending} onConsumed={consumed} onOpenMemory={openMemory} greeting={wakeGreeting} onGreeted={clearGreeting} />
+  const panelBody = (id: PanelId) => (id === "core" ? <CorePanel initial={pending?.text ?? null} initialSkill={pending?.skill} onConsumed={consumed} onOpenMemory={openMemory} greeting={wakeGreeting} onGreeted={clearGreeting} />
       : id === "profile" ? <ProfilePanel />
       : id === "analytics" ? <AnalyticsPanel />
       : id === "intelligence" ? <IntelligencePanel />
