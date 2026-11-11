@@ -10,7 +10,7 @@ export const DEFAULT_WEEKLY_TARGET = 7;
 const DAY = 86_400_000;
 
 // Structural mirrors of ideas-pure Idea, story-pure StoryJob and clips/types ClipJob: only the fields read here.
-export type PIdea = { id: string; title: string; summary: string; area: string; score: number; dismissed?: boolean; untrusted?: true };
+export type PIdea = { id: string; title: string; summary: string; area: string; score: number; dismissed?: boolean; untrusted?: true; origin?: string };
 export type PStory = { id: string; createdAt: string; status: "draft" | "quoted" | "generating" | "assembling" | "done" | "failed"; step: string; opts: { idea: string }; story: { title: string }; clipJob?: string };
 export type PPublish = { status: "uploading" | "done" | "scheduled" | "failed" | "unknown"; at: string; scheduledFor?: string };
 export type PClip = { id: string; title: string; status: "rendering" | "ready" | "failed" | "approved" | "rejected"; score: number;
@@ -25,7 +25,7 @@ export type Card = { key: string; stage: Stage; title: string; note: string; sco
   pack?: { job: string; clip: string; titles: string[] } }; // package stage: the clip's title candidates for the packaging scorer
 
 /** The idea text an Idea Radar idea seeds AI Story with; also how a written story is matched back to its idea. */
-export const ideaSeed = (i: Pick<PIdea, "title" | "summary" | "untrusted">) => `${i.title.trim()}: ${i.untrusted ? fenceUntrusted("YouTube video text", i.summary.trim(), 400) : i.summary.trim()}`.slice(0, 1000); // third-party text goes to AI Story fenced as data
+export const ideaSeed = (i: Partial<Pick<PIdea, "title" | "summary" | "untrusted" | "origin">> & { title: string; summary: string }) => `${i.title.trim()}: ${i.untrusted || i.origin === "outliers" ? fenceUntrusted("YouTube video text", i.summary.trim(), 400) : i.summary.trim()}`.slice(0, 1000); // third-party text goes to AI Story fenced as data; ideas saved before #552 have origin "outliers" without the flag
 const ms = (s?: string) => (s ? Date.parse(s) : NaN);
 /** When a Short goes (or went) live: the scheduled time, else the upload time. */
 export const liveAt = (p: PPublish) => (Number.isFinite(ms(p.scheduledFor)) ? ms(p.scheduledFor) : ms(p.at));

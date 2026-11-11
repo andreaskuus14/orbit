@@ -442,6 +442,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
         if (planning && !signal?.aborted) { noRoute = true; step--; continue; } // the fast model failed: this turn plans on its own model
         recover(e, effort); step--; continue;
       }
+      if (r.local) onRoute?.("local"); // Claude was unreachable or on hold for this step: the label shows the local model, then the next Claude step flips it back
       if (sess && !r.local) { sess = { id: sess.id, resume: true }; sessSent = true; sessSeen = steps.length; if (sessionKey) coreSessions.set(sessionKey, sess); }
       await recordUsage(sb, userId, "core.chat", r, r.local ? "local" : model);
       // Offline brain (claude.ts): no tools, so its reply is always the answer; the "local" trace step shows the badge.

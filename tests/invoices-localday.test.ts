@@ -22,3 +22,13 @@ test("the week between reminders counts local days", () => {
   assert.equal(remindDue([od], "2027-01-01").length, 1); // reminded on 25 Dec local: 7 days later it may go again
   assert.equal(remindDue([od], "2026-12-31").length, 0);
 });
+
+test("issued and refund day use the Tallinn day even when the server zone is not Tallinn", () => {
+  const was = process.env.TZ; process.env.TZ = "UTC";
+  try {
+    const i = newInvoice("i2", { source: { kind: "prospect", id: "p", label: "x" }, buyer: { name: "Cake Shop" }, line: { text: "Site", cents: 1000 } }, seller, [], NOW);
+    assert.equal(i.issued, "2027-01-01");
+    const paid = setStatus(setStatus(i, "sent", NOW, seller) as Invoice, "paid", NOW, seller) as Invoice;
+    assert.equal((addRefund(paid, { amount: "1" }, NOW) as Invoice).refunds?.[0].day, "2027-01-01");
+  } finally { process.env.TZ = was; }
+});

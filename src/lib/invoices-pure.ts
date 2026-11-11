@@ -141,7 +141,7 @@ export function editInvoice(i: Invoice, b: Record<string, unknown>, now: number)
 export type From = { source: Source; buyer: Partial<Party>; line: { text: string; cents: number } };
 /** A new draft. Seller not VAT-registered (no KMKR) → VAT off by default. */
 export function newInvoice(id: string, f: From, seller: Seller | null, existing: string[], now: number): Invoice {
-  const t = new Date(now).toISOString(), issued = localDay(new Date(now)); // his calendar day, like `today` (UTC is a day behind after midnight in Tallinn)
+  const t = new Date(now).toISOString(), issued = dayKey(new Date(now), "Europe/Tallinn"); // his calendar day, like `today` (UTC is a day behind after midnight in Tallinn)
   return {
     id, ...nextNumber(existing, Number(issued.slice(0, 4))), source: f.source,
     buyer: { name: clean(f.buyer.name, 120), regCode: clean(f.buyer.regCode, 20), vatNo: clean(f.buyer.vatNo, 20), address: clean(f.buyer.address, 200), email: clean(f.buyer.email, 120) },
@@ -195,7 +195,7 @@ export const refunded = (i: Pick<Invoice, "refunds">) => (i.refunds ?? []).reduc
 /** His record of money paid back on a paid invoice: at most what is left of its total, on or after the paid day. */
 export function addRefund(i: Invoice, b: Record<string, unknown>, now: number): Invoice | string {
   if (i.status !== "paid" || !i.paidAt) return "Only a paid invoice can have a refund";
-  const at = new Date(now).toISOString(), day = b.day === undefined || b.day === "" ? localDay(new Date(now)) : b.day;
+  const at = new Date(now).toISOString(), day = b.day === undefined || b.day === "" ? dayKey(new Date(now), "Europe/Tallinn") : b.day;
   if (!isDay(day)) return "Refund date must be YYYY-MM-DD";
   if (day < i.paidAt) return "A refund can't be before the invoice was paid";
   const cents = toCents(b.amount), left = totals(i).gross - refunded(i);

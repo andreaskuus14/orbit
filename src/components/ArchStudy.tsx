@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Card } from "@/lib/study-pure";
 import { api } from "./AgentMission";
 
-type View = { cards: Card[]; queue: string[]; stats: { due: number; total: number } };
+type View = { cards: Card[]; skipped?: string[]; queue: string[]; stats: { due: number; total: number } };
 const GRADES = [["Again", 1], ["Hard", 2], ["Good", 3], ["Easy", 4]] as const;
 const post = <T,>(body: object) => api<T>("/api/study", { method: "POST", body: JSON.stringify(body) });
 
@@ -27,9 +27,9 @@ export function ArchStudy() {
     setQueue((q) => (q ? [...q.slice(1), ...(g === 1 && !quiz ? [card] : [])] : q)); // Again comes back in this sitting; the quiz is one pass
     await post({ action: "review", id: card.id, grade: g }).catch((e) => setErr(e instanceof Error ? e.message : "Couldn't save"));
   }
-  async function make(book: string) {
+  async function make(book: string, retry?: string) {
     setBusy(true); setErr("");
-    try { const r = await post<{ added: number; left: number }>({ action: "bookCards", book }); setErr(`${r.added} new cards${r.left ? `; ${r.left} chapters left, press again` : ""}.`); await load(); }
+    try { const r = await post<{ added: number; left: number }>({ action: "bookCards", book, ...(retry ? { retry } : {}) }); setErr(`${r.added} new cards${r.left ? `; ${r.left} chapters left, press again` : ""}.`); await load(); }
     catch (e) { setErr(e instanceof Error ? e.message : "Couldn't make cards"); }
     setBusy(false);
   }
@@ -52,6 +52,9 @@ export function ArchStudy() {
       </div>}
       {!queue && <div className="flex flex-wrap items-center gap-1.5">
         {books.length ? books.map((b) => <button key={b} className="chip" disabled={busy} onClick={() => void make(b)}>{busy ? "Reading…" : `Cards from ${b}`}</button>) : <span className="muted">No book yet: make its skill in VAULT first.</span>}
+      </div>}
+      {!queue && !!v?.skipped?.length && <div className="flex flex-wrap items-center gap-1.5"><span className="muted">No cards came from:</span>
+        {v.skipped.map((s) => { const k = s.indexOf("|"), b = s.slice(5, k), ch = s.slice(k + 1); return <button key={s} className="chip" disabled={busy} onClick={() => void make(b, ch)}>{`Retry ${ch}`}</button>; })}
       </div>}
       {err && <p role="status" className="muted">{err}</p>}
     </div>

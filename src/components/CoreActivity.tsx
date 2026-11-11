@@ -9,7 +9,7 @@ const SHOWN = 6; // running: the newest steps; older ones fold into "N earlier"
 
 /** CORE's live work view: one line per step (newest at bottom) with its key detail and time; each line expands to its result.
  *  running: the turn is in progress (since = client start time); otherwise a collapsed "12 steps · 1m 40s" summary under the answer. */
-export function CoreActivity({ rows, running, streaming = false, since = 0, totalMs = 0, taskId, projectName, route }: { rows: LiveRow[]; running: boolean; streaming?: boolean; since?: number; totalMs?: number; taskId?: string | null; projectName?: string; route?: "fast" | "smart" | "deep" | null }) {
+export function CoreActivity({ rows, running, streaming = false, since = 0, totalMs = 0, taskId, projectName, route }: { rows: LiveRow[]; running: boolean; streaming?: boolean; since?: number; totalMs?: number; taskId?: string | null; projectName?: string; route?: "fast" | "smart" | "deep" | "local" | null }) {
   const { t, tn, lang } = useT();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { if (!running) return; const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, [running]);
@@ -36,8 +36,8 @@ export function CoreActivity({ rows, running, streaming = false, since = 0, tota
   const current = streaming ? t("live.writing") : rows.length ? label(rows.at(-1)!) : t("live.connecting");
   const phase = coreRunPhase(rows, streaming, taskId);
   const labels = lang === "et"
-    ? { project: "Projekt", fast: "Kiire mudel", smart: "Põhimudel", deep: "Süvamudel", background: "Taustatöö", tool: "Tööriist töös", answering: "Vastab", working: "Valmistab vastust" }
-    : { project: "Project", fast: "Fast model", smart: "Main model", deep: "Deep model", background: "Working in background", tool: "Using a tool", answering: "Answering", working: "Preparing an answer" };
+    ? { project: "Projekt", fast: "Kiire mudel", smart: "Põhimudel", deep: "Süvamudel", local: "Kohalik mudel", background: "Taustatöö", tool: "Tööriist töös", answering: "Vastab", working: "Valmistab vastust" }
+    : { project: "Project", fast: "Fast model", smart: "Main model", deep: "Deep model", local: "Local model", background: "Working in background", tool: "Using a tool", answering: "Answering", working: "Preparing an answer" };
   return <div className="core-activity" aria-label={t("live.aria")}>
     <p className="core-activity-hint break-words" role="status">
       {labels[phase]}{route && <> · {labels[route]}</>}{projectName && <> · {labels.project} <b>{projectName}</b></>}
