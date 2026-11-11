@@ -22,6 +22,7 @@ export const EFFECTS: Record<string, Effect> = {
   studio_drafts: "read",
   local_3d: "reversible", local_tts: "reversible", local_transcribe: "reversible", local_image: "reversible", // a new VAULT file from a model on his PC (trash it to undo)
   browse: "read", // read-only browser: non-GET requests blocked, submits/logins refused
+  save_decision: "reversible", // one memory row (kind decision), Undo in OPERATIONS → Activity; only after his yes (policy-pure)
   watch_add: "reversible", watch_list: "read", watch_changes: "read", // page watch: a local record (remove it in INTELLIGENCE → Watches)
   roblox_export: "reversible", roblox_lint: "read", // local Rojo project files, each export a git commit (git revert to undo)
   ws_inspire_image: "reversible", // reference words + a quoted draft; the spend is story.approve

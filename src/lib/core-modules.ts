@@ -8,6 +8,9 @@ import { LIFE_TOOLS, runLifeTool, type LifeTool } from "./core-life";
 import { checkpointBasis } from "./checkpoint-pure";
 import { WS_PROMPT, WS_TOOLS, loadWsGate, runWsTool, wsTainted, type WsTool } from "./core-workspace";
 import { OPS_PROMPT, OPS_TOOLS, type OpsTool } from "./core-operator-pure";
+import { decisionMemory, decisionPreview, parseDecision } from "./decisions-pure";
+import { validateMemory } from "./reflect-pure";
+import { saveCoreMemory } from "./reflect";
 import { isPluginTool } from "./plugins-pure";
 import { pluginPromptNow, runPluginTool } from "./plugins";
 
@@ -144,6 +147,21 @@ const MODULES: CoreModule[] = [
     name: "DAILY", tools: ["daily_runs"],
     prompt: "- daily_runs {}: today's three daily workflows (07:30 brief, STUDIO clips, business loop) each as planned / attempted / completed (verified or not) / waiting / failed / uncertain / missed / off / idle, with the record it's based on and the next step. For \"did my brief run / what ran today / what failed / anything need me\". Report the states as given: never call something done or verified that the tool doesn't.",
     run: async (_t, _i, c) => (await import("./daily")).runDailyTool(c.sb, c.userId),
+  },
+  {
+    // a decision record is one memory row (kind "decision"); the preview writes nothing, the save needs his plain "yes" (policy-pure)
+    name: "DECISIONS", tools: ["save_decision"], writes: ["save_decision"],
+    prompt: "- save_decision {\"text\": string, \"confirmed\"?: boolean}: when he says \"I decided\" / \"otsustasin\" (what, why, and when to revisit it), call it with his sentence to get a preview, show him the what / why / revisit day and ask \"Save this decision?\". Only after his next message is a plain yes (jah), call it again with the same text and confirmed:true. Never confirm for him. Due decisions come back in Needs you on their revisit day.",
+    run: async (_t, i, c) => {
+      const p = parseDecision(String(i.text ?? ""), Date.now());
+      if (!p) return "Error: that isn't a decision sentence (it should start with \"I decided\" / \"Otsustasin\" and say what he decided)";
+      if (i.confirmed !== true) return decisionPreview(p);
+      const v = validateMemory(decisionMemory(p));
+      if ("error" in v) return `Error: ${v.error}`;
+      const r = await saveCoreMemory(c.sb, c.userId, v.draft, "core");
+      if (!r.duplicate) c.onEvidence({ kind: "memory", id: r.id }); // a receipt means something new was saved
+      return r.duplicate ? `Already in memory: "${r.title}"; nothing saved.` : `Saved decision "${r.title}" [m:${r.id}]. It returns in Needs you ${p.revisit ? `on ${p.revisit}` : "never (no revisit day)"}.`;
+    },
   },
   {
     name: "CHECKPOINT", tools: ["save_checkpoint"], writes: ["save_checkpoint"],
