@@ -113,6 +113,15 @@ export function VaultPanel() {
     await load();
   }
 
+  async function makeSkill(f: File2) {
+    setErr(""); setNote(`Making a skill from ${f.name}: one pass per chapter, this can take a few minutes…`);
+    try {
+      const r = await call<{ skill: string; chapters: number; skipped: number }>("/api/vault", JSON_POST({ action: "skill", name: f.name }));
+      await load();
+      setNote(`Saved ${r.skill}: ${r.chapters} chapters${r.skipped ? ` (${r.skipped} skipped)` : ""}. Agents can now load it with vault_skill.`);
+    } catch (e) { setNote(""); setErr(e instanceof Error ? e.message : "Couldn't make a skill"); }
+  }
+
   async function rename(f: File2) {
     const to = prompt("New name (the extension is kept unless you type one):", f.name);
     if (!to || to.trim() === f.name) return;
@@ -219,6 +228,7 @@ export function VaultPanel() {
         <div className="flex flex-wrap gap-2">
           <a className="btn" href={src} download={open.name}>Download</a>
           <button className="btn" onClick={() => rename(open)}>Rename</button>
+          {/\.(pdf|docx?|txt|md|epub)$/i.test(open.name) && <button className="btn" title="Turn this book into compact study notes ORBIT's agents load on demand" onClick={() => makeSkill(open)}>Make a skill</button>}
           {memoryType(open.name) && <button className="btn" disabled={!!busy || open.size > MEMORY_MAX} title={open.size > MEMORY_MAX ? "MEMORY accepts files up to 4 MB" : undefined} onClick={() => toMemory(open)}>Save copy to MEMORY (cloud)</button>}
           {(open.type === "text" || open.type === "pdf" || open.type === "doc") && (
             <button className="btn" onClick={() => dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text: `Read my VAULT file "${open.name}" and give me a short summary.` } }))}>Ask CORE</button>)}
