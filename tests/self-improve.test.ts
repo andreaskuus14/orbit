@@ -47,7 +47,7 @@ test("applyPolish uses model text when valid, redacts it, and falls back", () =>
   const ts = candidates({ ...base, health: [issue({})] });
   assert.equal(applyPolish(ts, "not json").used, false);
   assert.equal(applyPolish(ts, "not json").tasks[0].title, ts[0].title);
-  const p = applyPolish(ts, `Sure: [{"key":"health:h00000001","title":"Studio crashes on load","goal":"No crash; key sk-ant-api03-AAAAAAAAAAAAAAAA gone"},{"key":"nope","title":"x"}]`);
+  const p = applyPolish(ts, `Sure: [{"key":"health:h00000001","title":"Studio crashes on load","goal":"No crash; key sk-ant-api03-AAAAAAAAAAAAAAAA gone"},{"key":"nope","title":"x"}]`); // secret-scan: allow (fake test value)
   assert.equal(p.used, true);
   assert.equal(p.tasks[0].title, "Studio crashes on load");
   assert.ok(!p.tasks[0].goal.includes("sk-ant"));

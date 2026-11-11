@@ -270,8 +270,13 @@ export async function runOne(sb: SupabaseClient, userId: string, t: NightTask, s
 export async function getNightReport(sb: SupabaseClient, userId: string, now = Date.now()) {
   const st = await load(), run = st.users[userId]?.run;
   const ids = (run?.items ?? []).flatMap((i) => (i.open && "task" in i.open ? [i.open.task] : []));
-  const { data } = ids.length ? await sb.from("tasks").select("id, status").eq("user_id", userId).in("id", ids) : { data: [] };
+  const { data } = ids.length ? await sb.from("tasks").select("id, status, pending").eq("user_id", userId).in("id", ids) : { data: [] };
   const r = nightReport(run, Object.fromEntries((data ?? []).map((t) => [t.id, t.status])), now, st.settings, nightRunning());
+  if (r) { // S02: a quick Approve on this card only runs the actions as they were when the card was served
+    const { pendingSeen } = await import("./approval-bind-pure");
+    const seen = new Map((data ?? []).map((t) => [t.id as string, pendingSeen(t.pending ?? [])]));
+    for (const i of r.approvals) if (i.open && "task" in i.open && seen.has(i.open.task)) i.seen = seen.get(i.open.task);
+  }
   if (r) { // one money line, same definitions as BUSINESS → Money (money-pure moneySplit/moneyLine)
     const line = await (await import("./money")).digestMoney(sb, now);
     if (line) r.invoices = line;

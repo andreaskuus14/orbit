@@ -86,7 +86,7 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
   const weather = pl ? await within(import("./weather").then((x) => x.briefWeather(pl, now)), 6000).catch(() => null) : null; // no saved place → none
   const inv = await within(import("./invoices").then((x) => x.allInvoices())).catch(() => []); // overdue reminders waiting for his approve
   // contracts only open: he signs on the PC
-  const decisions = [...briefDecisions(m.night?.approvals ?? [], m.work?.items ?? [], rem), ...briefContracts(ct), ...(await import("./invoices-pure")).briefInvoices(inv, day)];
+  const decisions = await (await import("./approval-bind")).stampSeen(sb, userId, [...briefDecisions(m.night?.approvals ?? [], m.work?.items ?? [], rem), ...briefContracts(ct), ...(await import("./invoices-pure")).briefInvoices(inv, day)]);
   // Tasks and goals can only be approved on the PC; phone-remote items (clips, spends, emails) can be done from the phone.
   const place = pl ? placeLines(pl, now, [...decisions.map((d) => d.title), ...(m.work?.items ?? []).map((w) => w.title), ...(m.hero ? [m.hero.title] : [])],
     decisions.filter((d) => /^(task|goal):/.test(d.id)).length) : [];

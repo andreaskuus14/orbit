@@ -15,7 +15,7 @@ test("a small fix with a new test passes", () => {
 
 test("forbidden paths are refused, old or new side", () => {
   for (const p of ["AGENTS.md", "docs/CLAUDE.md", ".env.local", ".env.example", "src/lib/policy-pure.ts", "src/lib/approval-pure.ts", "src/lib/autonomy.ts",
-    "src/lib/stop-all.ts", "tests/stop-all.test.ts", "src/app/api/rea/route.ts", "src/app/rea/page.tsx", "src/lib/core-rea.ts", "vendor/rea/x.py", "REA-CHANGES.md",
+    "src/lib/stop-all.ts", "tests/stop-all.test.ts",
     "src/lib/self-improve-patch-pure.ts", ".github/workflows/ci.yml", "/etc/passwd", "src/../AGENTS.md", "C:/x.ts"])
     assert.ok(forbiddenPath(p), p);
   for (const p of ["src/lib/lessons-pure.ts", "src/lib/area-pure.ts", "src/lib/reader.ts", "tests/create.test.ts"]) assert.equal(forbiddenPath(p), "", p);

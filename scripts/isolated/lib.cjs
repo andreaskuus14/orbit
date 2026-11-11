@@ -85,8 +85,11 @@ function task(id) {
 async function openTask(page, id) {
   const back = page.getByRole("button", { name: "← All tasks" });
   if (await back.count()) { await back.first().evaluate((b) => b.click()); await sleep(400); } // no settle wait (see press)
-  await page.evaluate((id) => dispatchEvent(new CustomEvent("orbit:open-source", { detail: { id: `t:${id}`, kind: "week:task" } })), id);
-  await page.getByRole("button", { name: "← All tasks" }).waitFor({ timeout: 30000 });
+  const open = () => page.evaluate((id) => dispatchEvent(new CustomEvent("orbit:open-source", { detail: { id: `t:${id}`, kind: "week:task" } })), id);
+  // Under load OPERATIONS can mount after the event fired and miss it: wait for the hash to name this task, and fire once more if not.
+  await open();
+  if (!(await page.waitForFunction((id) => location.hash.includes(id), id, { timeout: 15000 }).then(() => true, () => false))) await open();
+  await page.getByRole("button", { name: "← All tasks" }).waitFor({ timeout: 60000 });
   await sleep(800);
 }
 /** Clicks the real button once it's visible, without Playwright's wait for the page to settle afterwards (ORBIT's live panels

@@ -1,10 +1,11 @@
 import { requireUser } from "@/lib/supabase/server";
+import { vaultPodcast } from "@/lib/vault-podcast";
 import { VaultError, cloudList, cloudOnlyNames, cloudMove, cloudPut, cloudRemove, deleteFile, listDetailed, listTrash, markSync, previewText, purgeTrash, readStream, renameFile, restoreFromCloud, restoreTrash, saveUpload, searchVaultInfo, syncToCloud, usage } from "@/lib/vault";
 import { logActivity } from "@/lib/activity";
 import { MAX_FILE, mergeCloud, serveHeaders } from "@/lib/vault-pure";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 900; // a podcast (script + local voices) or Book to Skill (one model call per chapter)
 
 function fail(e: unknown) {
   if (e instanceof VaultError) return Response.json({ error: e.message }, { status: e.status });
@@ -40,7 +41,7 @@ export async function GET(req: Request) {
 }
 
 // POST multipart (field "file", one or more) → upload (+ cloud copy) → { saved, errors, cloud: "ok" | "failed: …" }
-// POST JSON { action: "rename", name, to } | { action: "sync" } | { action: "restore", name } | { action: "untrash" | "purge", id }
+// POST JSON { action: "podcast", names } → audio/wav | { action: "rename", name, to } | { action: "sync" } | { action: "restore", name } | { action: "untrash" | "purge", id }
 export async function POST(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
@@ -76,7 +77,9 @@ export async function POST(req: Request) {
       return Response.json({ saved, errors, cloud }, { status: saved.length ? 201 : 400 });
     }
     const body = await req.json().catch(() => null) as { action?: unknown; name?: unknown; to?: unknown } | null;
+    if (body?.action === "podcast") return new Response(await vaultPodcast((body as { names?: unknown }).names, req.signal) as BodyInit, { headers: { "Content-Type": "audio/wav" } });
     if (body?.action === "sync") return Response.json(await syncToCloud(sb, user.id));
+    if (body?.action === "skill" && typeof body.name === "string") return Response.json(await (await import("@/lib/book-skill")).makeSkill(body.name, req.signal)); // Book to Skill: one model call per chapter
     if (body?.action === "untrash") { // back from the trash, then a fresh cloud copy (it was removed on delete)
       const name = await restoreTrash((body as { id?: unknown }).id, await cloudOnlyNames(sb, user.id));
       return Response.json({ name, cloud: await cloudPut(sb, user.id, name) });

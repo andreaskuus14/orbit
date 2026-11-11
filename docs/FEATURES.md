@@ -89,7 +89,7 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 ## ANALYTICS
 
 - **Operator report:** weekly card of what ORBIT did on its own.
-- **Make ORBIT better:** once a week, up to 5 improvement tasks with evidence (in 🩺 Check ORBIT). *Draft patch* on a task makes one Claude call with up to 4 relevant files and saves a diff + test + reason as a local `.patch` file, with *Copy* for Claude Code. Drafts survive a reload. A safety check refuses patches that touch AGENTS.md, approvals/autonomy/Stop-all, REA, `.env` or CI, weaken tests or remove guards. Nothing is ever applied, committed or pushed.
+- **Make ORBIT better:** once a week, up to 5 improvement tasks with evidence (in 🩺 Check ORBIT). *Draft patch* on a task makes one Claude call with up to 4 relevant files and saves a diff + test + reason as a local `.patch` file, with *Copy* for Claude Code. Drafts survive a reload. A safety check refuses patches that touch AGENTS.md, approvals/autonomy/Stop-all, `.env` or CI, weaken tests or remove guards. Nothing is ever applied, committed or pushed.
 - **Agent scorecard:** once a month ORBIT replays 10 fixed practice cases through the agents and grades them, with trend and worst case.
 - **Predictions:** before you decide on a clip, proposal, draft, tidy-up, niche or deal, ORBIT quietly guesses what you'll do and keeps score. The hint shows on the card. It never acts on a guess.
 - **PERF card:** frame rate and speed runs (open ORBIT with `?perfrun=1` or press Shift+Alt+P).

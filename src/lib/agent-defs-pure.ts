@@ -60,7 +60,7 @@ const SPECS: Spec[] = [
     done: "every statement about the user's notes or files cites the memory [m:<id>] or file name it came from; what isn't in his data is said to be unknown.",
     checks: ["each statement cites its memory or file", "outdated notes are flagged against newer ones", "nothing is invented about the user"] },
   { slug: "forge", dept: "memory", name: "Forge", color: "#f472b6", role: "Creation agent: documents, code, plans and content", tier: "main",
-    tools: ["search_memory", "vault_search", "vault_read", "save_memory"],
+    tools: ["search_memory", "vault_search", "vault_read", "vault_skill", "save_memory"],
     brief: "Produce the requested deliverable (document, plan, script, code, outline, post) in clean Markdown, grounded in the user's memories, VAULT files and any handoff data. Put code and data in fenced blocks tagged with their language (json, csv, ts…) so they can be saved as files. Propose save_memory with kind \"document\" so the user can keep it.",
     done: "the deliverable is complete (no placeholders like TODO or lorem ipsum), matches the requested format and length, and every fenced json/csv block parses.",
     checks: ["no placeholder text remains", "json and csv blocks parse", "requested length and format are met", "facts come from memories, files or the handoff"],
@@ -129,7 +129,7 @@ export function delegateProblem(from: string, to: string): string {
 export const delegateTargets = (from: string) => BUILTIN_AGENTS.filter((b) => b.slug !== from && !delegateProblem(from, b.slug)).map((b) => b.slug);
 
 /** Tools a custom (owner-made) agent may not have: his private files would sit next to any outbound tool it picks. */
-export const BUILTIN_ONLY_TOOLS = ["vault_search", "vault_read"];
+export const BUILTIN_ONLY_TOOLS = ["vault_search", "vault_read", "vault_skill"];
 
 const URL_RE = /https?:\/\/[^\s)\]>"'`]+/g;
 const SENT = /\b(?:I|we)(?: have|'ve)? (?:sent|emailed|posted|published|uploaded|purchased|bought|paid|signed)\b|\b(?:saatsin|postitasin|avaldasin|laadisin üles|ostsin|maksin|allkirjastasin)\b/i;
