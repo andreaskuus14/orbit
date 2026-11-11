@@ -10,8 +10,10 @@ import type { RunMetrics } from "./research-pilot-pure.ts";
 export type MissionStatus = "queued" | "running" | "waiting-input" | "waiting-approval" | "paused" | "failed" | "completed" | "cancelled";
 export type FailureClass = "temporary" | "permission" | "invalid" | "unavailable" | "faulty";
 export type Receipt = { kind: "task" | "memory" | "file" | "project" | "automation"; ref: string; step: number; check: string; at: string; path?: string };
+export type MissionBrief = { output?: string; evidence?: string; approvalPoints?: string };
 export type MissionDoc = {
   v: 1; objective: string; constraints: string[]; status: MissionStatus;
+  brief?: MissionBrief;
   receipts: Receipt[]; decisions: { at: string; text: string }[]; blocker?: string; failure?: FailureClass;
   retries: Record<string, number>; log: { at: string; text: string }[];
   // success definition + evidence (older docs lack these): acceptance at creation, deterministic checks, reviewed steps, estimate.
@@ -142,8 +144,8 @@ export function missionLabel(status: MissionStatus, receipts: Receipt[], steps: 
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim().slice(0, max) : "");
 /** POST/tool input → a new mission's objective + constraints + chain draft (steps checked again by validateChain), or why not. */
-export function validateMission(x: unknown): { objective: string; constraints: string[]; acceptance: string; assumptions: string[]; steps: ({ agent: string; request: string } & Limits)[] } | string {
-  const o = (x && typeof x === "object" ? x : {}) as { objective?: unknown; constraints?: unknown; acceptance?: unknown; assumptions?: unknown; steps?: unknown };
+export function validateMission(x: unknown): { objective: string; constraints: string[]; acceptance: string; assumptions: string[]; brief?: MissionBrief; steps: ({ agent: string; request: string } & Limits)[] } | string {
+  const o = (x && typeof x === "object" ? x : {}) as { objective?: unknown; constraints?: unknown; acceptance?: unknown; assumptions?: unknown; brief?: unknown; steps?: unknown };
   const objective = str(o.objective, 300);
   if (!objective) return "objective is required (1-300 characters)";
   const list = (v: unknown) => (Array.isArray(v) ? v : typeof v === "string" ? [v] : []).map((c) => str(c, 200)).filter(Boolean).slice(0, 8);
@@ -152,14 +154,22 @@ export function validateMission(x: unknown): { objective: string; constraints: s
   const acceptance = str(o.acceptance, 300) || inferAcceptance(objective);
   if (!acceptance) return "acceptance is required here: ask the user in one short question what result counts as done, then pass it as acceptance";
   if (!Array.isArray(o.steps)) return "steps must be a list of 2-5 steps";
-  // Constraints, the success condition and assumptions travel with every step's request, so an agent can't miss them.
-  const rule = `${constraints.length ? `\n\nMission constraints (must hold): ${constraints.join("; ")}` : ""}\n\nMission is done when: ${acceptance}${assumptions.length ? `\nAssumptions: ${assumptions.join("; ")}${DISPROVED_RULE}` : ""}`;
+  const rawBrief = o.brief && typeof o.brief === "object" && !Array.isArray(o.brief) ? o.brief as Record<string, unknown> : {};
+  const output = str(rawBrief.output, 300), evidence = str(rawBrief.evidence, 300), approvalPoints = str(rawBrief.approvalPoints, 300);
+  const brief: MissionBrief = { ...(output && { output }), ...(evidence && { evidence }), ...(approvalPoints && { approvalPoints }) };
+  // Scope, success condition and expected deliverables travel with each step. Approval checkpoints are notes for the owner.
+  const rules = `${constraints.length ? `\n\nMission constraints (must hold): ${constraints.join("; ")}` : ""}\n\nMission is done when: ${acceptance}${assumptions.length ? `\nAssumptions: ${assumptions.join("; ")}${DISPROVED_RULE}` : ""}`;
+  const rule = rules + (output ? `\nExpected mission output: ${output}` : "") + (evidence ? `\nEvidence to provide: ${evidence}` : "");
+  if (rule.length >= 2000) return "Mission brief is too long for the step requests. Shorten the constraints, assumptions or deliverable fields.";
+  if ((output || evidence) && o.steps.some((step) => str(step?.request, 2001).length > 2000 - rule.length)) {
+    return "The work brief and step instructions exceed 2000 characters together. Shorten a step or the brief.";
+  }
   // Step limits (calls/minutes/tools/priv) pass through untouched; validateChain checks them and they can only narrow a step.
   const steps = (o.steps as ({ agent?: unknown; request?: unknown } & Limits)[]).map(({ agent, request, ...lim }) => { const r = str(request, 2000 - rule.length); return { ...lim, agent: str(agent, 40).toLowerCase(), request: r && r + rule }; });
-  return { objective, constraints, acceptance, assumptions, steps };
+  return { objective, constraints, acceptance, assumptions, ...(Object.keys(brief).length && { brief }), steps };
 }
 
-export function newDoc(objective: string, constraints: string[], at: string, extra: Partial<Pick<MissionDoc, "acceptance" | "assumptions" | "effort" | "workflow" | "contract" | "metrics">> = {}): MissionDoc {
+export function newDoc(objective: string, constraints: string[], at: string, extra: Partial<Pick<MissionDoc, "brief" | "acceptance" | "assumptions" | "effort" | "workflow" | "contract" | "metrics">> = {}): MissionDoc {
   return { v: 1, objective, constraints, ...extra, status: "queued", receipts: [], decisions: [], retries: {}, log: [{ at, text: explain("queued", "queued", "Mission created.") }] };
 }
 

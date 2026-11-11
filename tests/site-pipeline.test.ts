@@ -52,13 +52,14 @@ test("CREDITS.md round-trips, last write of a path wins, footer line only for at
   assert.equal(attributionLine([b]), "");
 });
 
+const GOOD_CSS = ":root{--ink:#111;--paper:#fff;--body:system-ui,sans-serif} html,body{overflow-x:clip} body{color:var(--ink);background:var(--paper);font-family:var(--body)} a:focus-visible{outline:2px solid var(--ink)} ::selection{background:var(--ink);color:var(--paper)} .btn{transition:transform .2s,opacity .2s}";
 test("lint: contrast from CSS (vars resolved), alt, viewport, lang, external fonts, image budget, missing credit", () => {
   assert.deepEqual(cssContrast(":root{--fg:#777;--bg:#fff} .a{color:var(--fg);background:var(--bg)} .b{color:#000;background-color:white}").length, 1);
   assert.match(cssContrast(".x{color:#aaa;background:#fff}")[0], /low contrast 2\.\d+:1 in "\.x"/);
   const credits = creditsMd([], { path: "assets/a.webp", title: "Cafe", author: "Mari", license: "CC BY 4.0", attribution: true, source: "s", via: "Openverse" });
   const bad = lintSite({ html: [{ path: "index.html", text: '<html><head><link href="https://fonts.googleapis.com/x" rel="stylesheet"></head><img src="a.png"><img alt="" src="b.png"></html>' }], css: [], images: [{ path: "assets/a.webp", bytes: 900 * 1024 }], credits });
   for (const re of [/viewport/, /no lang/, /1 <img> without alt/, /external font\/CDN/, /900 KB/, /missing the required image credit/]) assert.ok(bad.some((i) => re.test(i)), String(re));
-  const good = lintSite({ html: [{ path: "index.html", text: '<html lang="en"><meta name="viewport" content="width=device-width"><img alt="Cafe" src="assets/a.webp"><footer>“Cafe” by Mari</footer></html>' }], css: [{ path: "css/style.css", text: "body{color:#111;background:#fff}" }], images: [{ path: "assets/a.webp", bytes: 100 }], credits });
+  const good = lintSite({ html: [{ path: "index.html", text: '<html lang="en"><meta name="viewport" content="width=device-width"><img alt="Cafe" src="assets/a.webp"><footer>“Cafe” by Mari</footer></html>' }], css: [{ path: "css/style.css", text: GOOD_CSS }], images: [{ path: "assets/a.webp", bytes: 100 }], credits });
   assert.deepEqual(good, []);
 });
 
@@ -128,4 +129,40 @@ test("guideDue: the guide reaches a one-shot build that skipped plan.md, as well
   assert.equal(guideDue(["notes.md"], ["notes.md"]), false); // not a site
   assert.match(SITE_GUIDE, /Subject conventions/); assert.match(SITE_GUIDE, /Looks to avoid/);
   assert.match(SITE_PIPELINE, /every new site, even a one-page one/);
+});
+
+test("craft lint: invented proof, AI-look tells and CSS discipline are flagged; owner proof and slots pass", () => {
+  const page = (body: string, css = GOOD_CSS) => lintSite({ html: [{ path: "index.html", text: `<html lang="en"><meta name="viewport" content="width=device-width"><body>${body}</body></html>` }], css: [{ path: "css/style.css", text: css }], images: [] });
+  assert.deepEqual(page("<h1>Fresh bread daily</h1><blockquote data-proof=\"owner\">Best rye in town</blockquote><div data-slot=\"proof\">Owner to add a review</div>"), []);
+  for (const [body, re] of [
+    ["<blockquote>Amazing! – Jane D.</blockquote>", /never invent reviews/], ['<div class="testimonials"><p>5 stars</p></div>', /never invent reviews/], ["<p>★★★★★</p>", /never invent/],
+    ['<p class="eyebrow">Since 1999</p><h2>Us</h2>', /eyebrow/], ["<span>01</span><h2>Menu</h2>", /section numbers/], ["<h2>🍞 Bread</h2>", /emoji/],
+    ['<section class="reveal">a</section><section class="reveal">b</section>', /2 reveal-on-scroll/],
+  ] as const) assert.ok(page(body).some((i) => re.test(i)), String(re));
+  for (const [css, re] of [
+    [GOOD_CSS + " .a{color:#333}", /literal colour/], [GOOD_CSS + " .a{font-family:Georgia,serif}", /font stack directly/], [GOOD_CSS + " .a{transition:all .3s}", /transition: all/],
+    [GOOD_CSS + " .a{transition:width .3s}", /width\/height\/top\/left/], [GOOD_CSS + " @keyframes g{from{left:0}to{left:9px}}", /width\/height\/top\/left/],
+    [GOOD_CSS.replace("html,body{overflow-x:clip}", ""), /overflow-x: clip/], [GOOD_CSS.replace("a:focus-visible", "a:focus"), /:focus-visible/], [GOOD_CSS.replace("::selection", "::marker"), /::selection/],
+    [GOOD_CSS + " h1{background-clip:text;-webkit-text-fill-color:transparent}", /gradient text/], [GOOD_CSS + " .k{text-transform:uppercase;letter-spacing:.12em}", /tracked-caps/],
+    [GOOD_CSS + " .reveal{opacity:0}", /visible by default/],
+  ] as const) assert.ok(page("<h1>Hi</h1>", css).some((i) => re.test(i)), String(re));
+  assert.deepEqual(page("<h1>Hi</h1>", GOOD_CSS + " .js .reveal{opacity:0} .reveal.in{opacity:1}"), [], "hidden only under a script class is fine");
+});
+
+test("craft lint false positives: ©®™, table cells, owner stars, max/line-height, url(#id), owner-supplied long text", async () => {
+  const { wordIssues } = await import("../src/lib/site-pipeline-pure.ts");
+  const page = (body: string, css = GOOD_CSS) => lintSite({ html: [{ path: "index.html", text: `<html lang="en"><meta name="viewport" content="width=device-width"><body>${body}</body></html>` }], css: [{ path: "css/style.css", text: css }], images: [] });
+  assert.deepEqual(page("<h1>Hi</h1><footer>© 2026 Cafe® Brew™</footer>"), [], "© ® ™ aren't emoji");
+  assert.deepEqual(page("<h1>Hours</h1><table><tr><td>09</td><td>17</td></tr></table>"), [], "a table cell isn't a section number");
+  assert.deepEqual(page('<h1>Hi</h1><blockquote data-proof="owner">★★★★★ Great</blockquote>'), [], "owner-marked stars pass");
+  assert.deepEqual(page("<h1>Hi</h1>", GOOD_CSS + " .acc{transition:max-height .2s} p{transition:line-height .2s}"), [], "max-height/line-height aren't layout animation");
+  assert.deepEqual(page("<h1>Hi</h1>", GOOD_CSS + " .m{mask:url(#fade)} .n{fill:url('#abc')}"), [], "url(#id) isn't a colour");
+  const long = Array.from({ length: 600 }, (_, i) => `word${i}`).join(" ");
+  assert.deepEqual(wordIssues({ html: [{ path: "menu.html", text: `<h1>Menu</h1><div data-owner>${long}</div>` }], css: [], images: [] }), [], "owner text is never asked to be cut");
+  assert.match(wordIssues({ html: [{ path: "a.html", text: `<p>${long}</p>` }], css: [], images: [] }).join(), /your own copy; never cut text the owner gave/);
+});
+
+test("guide: no invented proof, word budget and one reveal moment replace the old lines", () => {
+  assert.doesNotMatch(SITE_GUIDE, /reviews with names|2,500|reveal-on-scroll with IntersectionObserver|chapter numbers \(01/);
+  for (const re of [/never invent reviews/, /80 visible words per screen/, /450 per page/, /7 words or fewer/, /one authored moment/, /SVG only for icons and diagrams/, /Shaders\/WebGL only for tech/]) assert.match(SITE_GUIDE, re);
 });

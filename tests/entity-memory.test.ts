@@ -110,4 +110,7 @@ test("a kept correction becomes a golden eval case (input, wrong output summary,
     expected_behaviour: "Don't use bullet points for status updates", source: "message:msg-1" });
   assert.equal(correctionCase(kept, "", looksSecret), null, "no request, no case");
   assert.equal(correctionCase(kept, "my key is sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789", looksSecret), null, "never a secret"); // secret-scan: allow (fake test value)
+  assert.equal(correctionCase(kept, "How is my channel doing?", looksSecret, ["search_memory", "life_journal"]), null, "a chat that touched LIFE is skipped");
+  assert.ok(correctionCase(kept, "How is my channel doing?", looksSecret, ["search_memory", "web_search"]), "other tools are fine");
+  assert.equal(correctionCase(kept, "Read my journal entry about Tuesday", looksSecret), null, "journal words are skipped");
 });

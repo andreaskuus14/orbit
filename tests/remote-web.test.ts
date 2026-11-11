@@ -160,3 +160,12 @@ test("nightForPhone: titles and counts only, money stripped, no drafts or reason
   assert.deepEqual(Object.keys(r).sort(), ["approvals", "counts", "done", "failed", "running", "stopped"]);
   assert.doesNotMatch(JSON.stringify(r), /secret|because|Hi Acme|timeout|1 200|Company/);
 });
+
+test("pairClientKey: keyed by client IP, not one global key", async () => {
+  const { pairClientKey, RATE } = await import("../src/lib/remote-web-pure.ts");
+  assert.equal(pairClientKey(new Headers({ "x-forwarded-for": "100.64.0.2, 10.0.0.1" })), "pair:100.64.0.2");
+  assert.equal(pairClientKey(new Headers({ "x-real-ip": "100.64.0.3" })), "pair:100.64.0.3");
+  assert.equal(pairClientKey(new Headers()), "pair:unknown");
+  assert.notEqual(pairClientKey(new Headers({ "x-forwarded-for": "1.1.1.1" })), pairClientKey(new Headers({ "x-forwarded-for": "2.2.2.2" })));
+  assert.ok(RATE.pairAll.limit > RATE.pair.limit);
+});

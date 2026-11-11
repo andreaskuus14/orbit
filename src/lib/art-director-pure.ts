@@ -12,12 +12,12 @@ export const CRITERIA: Criterion[] = [
   { id: "composition", name: "Composition and depth", weight: 3, kinds: ["site", "frames", "render"], ask: "Deliberate camera/layout: foreground, mid and background for depth, a strong angle, framed like a poster?" },
   { id: "light", name: "Light and mood", weight: 3, kinds: ["site", "frames", "render"], ask: "One deliberate time of day or mood with real contrast and a colour grade; flat overcast grey reads unfinished." },
   { id: "palette", name: "Palette discipline", weight: 2, kinds: ["site", "frames", "render"], ask: "A small, intentional palette (a dominant, a support, one accent) used consistently; no random colours." },
-  { id: "hierarchy", name: "Hierarchy", weight: 3, kinds: ["site"], ask: "One obvious first read, then a second, then details; the main action is easy to find." },
+  { id: "hierarchy", name: "Hierarchy", weight: 3, kinds: ["site"], ask: "One obvious first read, then a second, then details; the main action is easy to find. At 1280×800 the hero headline, its one sentence and the main action are all visible without scrolling." },
   { id: "type", name: "Typography", weight: 2, kinds: ["site"], ask: "Clear scale contrast between display and body, steady rhythm and spacing, readable line length, type working with the image." },
   { id: "legibility", name: "Legibility", weight: 2, kinds: ["site", "frames"], ask: "All text readable over its background at this size (contrast, scrims, size)." },
   { id: "space", name: "Negative space", weight: 1, kinds: ["site", "render"], ask: "Empty space is intentional and gives the subject room, not leftover gaps or cramming." },
   { id: "consistency", name: "Consistency", weight: 2, kinds: ["frames", "site"], ask: "Across the images: same art direction, grade, characters/objects and type, so they read as one piece." },
-  { id: "craft", name: "Craft and originality", weight: 3, kinds: ["site", "frames", "render"], ask: "No stand-in or template look (generic gradient hero + three cards, stock poses), no AI tells (warped text or hands, plastic skin, melted objects, floating furniture, impossible geometry)." },
+  { id: "craft", name: "Craft and originality", weight: 3, kinds: ["site", "frames", "render"], ask: "No stand-in or template look (generic gradient hero + three cards, stock poses), no AI tells (warped text or hands, plastic skin, melted objects, floating furniture, impossible geometry). On a site: one button style, one container width and one corner radius per level, used everywhere." },
 ];
 export const criteriaFor = (kind: ArtKind) => CRITERIA.filter((c) => c.kinds.includes(kind));
 

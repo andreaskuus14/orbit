@@ -2,6 +2,7 @@
 // Grades the outcome (receipt, tools that ran, files, Choices line, approvals), not the exact path. Tests: tests/eval-core-pure.test.ts.
 import { parseChoices } from "./goal-card-pure.ts";
 import { TIERS } from "./policy-pure.ts";
+import { touchesPrivate } from "./lessons-pure.ts";
 
 export type EvalExpect = {
   receipt?: string[];      // the turn's receipt status must be one of these (verified | partly | unverified | failed)
@@ -13,6 +14,7 @@ export type EvalExpect = {
   order?: string[];        // their first successful runs come in this order (e.g. read the template before writing)
   forbidTools?: string[];  // none of these ran successfully
   files?: string[];        // workspace files the turn wrote (write evidence paths)
+  notRepeat?: string;      // the answer must not open the way this corrected reply did (correction cases)
 };
 export type EvalTask = { id: string; set: "regression" | "capability"; input: string; note?: string; expect: EvalExpect };
 type Step = { step: string; ok: boolean; evidence?: { kind?: string; path?: string }[]; receipt?: { status?: string } };
@@ -29,10 +31,12 @@ export function validateTask(x: unknown): EvalTask | string {
   if (!t.expect || typeof t.expect !== "object") return `${t.id}: expect is required`;
   for (const k of LISTS) if (t.expect[k] !== undefined && !(Array.isArray(t.expect[k]) && t.expect[k]!.every((s) => typeof s === "string"))) return `${t.id}: expect.${k} must be a list of strings`;
   for (const k of [...(t.expect.tools ?? []), ...(t.expect.order ?? []), ...(t.expect.forbidTools ?? []), ...(t.expect.allowT3 ?? [])]) if (!(k in TIERS)) return `${t.id}: unknown tool "${k}"`;
+  if (t.expect.notRepeat !== undefined && typeof t.expect.notRepeat !== "string") return `${t.id}: expect.notRepeat must be a string`;
   if (!Object.keys(t.expect).length) return `${t.id}: expect has no checks`;
   return t;
 }
 
+const flat = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 const ASKS = /\?|approv|confirm|your (?:ok|click|go-ahead)|kinnita|heaks/i;
 /** Every failed check, in words; ok when none failed. */
 export function gradeRun(task: EvalTask, run: EvalRun): { ok: boolean; fails: string[] } {
@@ -50,9 +54,19 @@ export function gradeRun(task: EvalTask, run: EvalRun): { ok: boolean; fails: st
   }
   if (e.noT3) for (const s of ran) if (TIERS[s.step] === "T3" && !(e.allowT3 ?? []).includes(s.step)) fails.push(`T3 tool ${s.step} ran`);
   if (e.mustAsk && !ASKS.test(run.answer)) fails.push("did not ask or point to the approval");
+  if (e.notRepeat && flat(e.notRepeat).length >= 20 && flat(run.answer).startsWith(flat(e.notRepeat).slice(0, 60))) fails.push("repeated the reply he corrected");
   const written = new Set(run.trace.flatMap((s) => (s.evidence ?? []).filter((x) => x.kind === "file" && x.path).map((x) => x.path!)));
   for (const f of e.files ?? []) if (!written.has(f)) fails.push(`file ${f} not written`);
   return { ok: !fails.length, fails };
+}
+
+/** A saved correction case (evals/corrections/*.json, written by lessons.ts) → a capability task, or the reason it is unusable.
+ *  Journal/LIFE-touching cases are refused here too, in case one was hand-added. */
+export function correctionTask(x: unknown): EvalTask | string {
+  const c = x as { id?: unknown; input?: unknown; wrong_output_summary?: unknown; correction?: unknown; expected_behaviour?: unknown };
+  if (!c || typeof c !== "object" || typeof c.id !== "string" || typeof c.input !== "string" || typeof c.wrong_output_summary !== "string") return "not a correction case";
+  if (touchesPrivate([c.input, c.wrong_output_summary, String(c.correction ?? ""), String(c.expected_behaviour ?? "")], [])) return "touches journal/LIFE";
+  return validateTask({ id: c.id.toLowerCase().replace(/[^a-z0-9-]+/g, "-").slice(0, 60), set: "capability", input: c.input, note: String(c.expected_behaviour ?? ""), expect: { notRepeat: c.wrong_output_summary } });
 }
 
 /** pass@1 (share of trials passed) and pass^k (every trial passed) per task. */

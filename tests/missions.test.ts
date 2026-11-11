@@ -81,6 +81,34 @@ test("validateMission: objective, constraints carried into every step", () => {
   assert.equal(newDoc("o", [], "t").status, "queued");
 });
 
+test("work brief travels with mission steps and remains available alongside receipts", () => {
+  const objective = "Research shipping costs";
+  const constraints = ["Use public sources"];
+  const acceptance = "Two dated estimates";
+  const brief = { output: "Comparison table", evidence: "Link and date for each estimate", approvalPoints: "Review the draft before sharing" };
+  const m = validateMission({ objective, constraints, acceptance, brief, steps: [{ agent: "atlas", request: "Find rates" }, { agent: "nova", request: "Compare them" }] });
+  assert.ok(typeof m !== "string");
+  assert.deepEqual(m.brief, brief);
+  for (const step of m.steps) {
+    assert.match(step.request, /Expected mission output: Comparison table/);
+    assert.match(step.request, /Evidence to provide: Link and date for each estimate/);
+    assert.doesNotMatch(step.request, /Review the draft before sharing/);
+  }
+  const doc = newDoc(m.objective, m.constraints, "t", { acceptance: m.acceptance, brief: m.brief });
+  const completed = JSON.parse(JSON.stringify({ ...doc, status: "completed", receipts: [{ kind: "task", ref: "t1" }] }));
+  assert.deepEqual(completed.brief, brief);
+  assert.equal(completed.receipts[0].ref, "t1");
+  assert.equal(newDoc(objective, constraints, "t").brief, undefined);
+});
+
+test("a long work brief does not silently truncate step instructions", () => {
+  const body = { objective: "Research shipping costs", brief: { evidence: "Include dated source links" }, steps: [{ agent: "atlas", request: "x".repeat(2000) }] };
+  assert.match(String(validateMission(body)), /shorten a step or the brief/i);
+  const blank = validateMission({ ...body, brief: { output: " ", evidence: 2, approvalPoints: null } });
+  assert.ok(typeof blank !== "string");
+  assert.equal(blank.brief, undefined);
+});
+
 test("missionBlocked: owner's own instruction only", () => {
   assert.ok(missionBlocked("research X then write Y", true));
   assert.ok(missionBlocked("what is a mission?", false));

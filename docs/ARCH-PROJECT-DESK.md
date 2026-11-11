@@ -19,7 +19,7 @@ Existing project tasks appear with links to their OPERATIONS detail. **Start tas
 - ARCH scene and history: existing `arch-scene.json` / `arch-versions.json`, using separate user/project keys. Omitted project parameters preserve legacy records. The browser backup also has a project-specific key.
 - Scene/history/desk APIs verify project ownership before touching local records. Malformed project IDs are rejected, and unknown/unowned projects return 404. A failed project model load does not replace it with a starter scene; the user can retry or return to the unassigned model.
 - New-project creation and task execution use the existing explicit UI actions. The desk save logs a fixed Activity label, reference count and revision; no note text or links are logged.
-- No model installation, dependencies, migrations, REA edits or deployment.
+- No model installation, dependencies, migrations or deployment.
 
 ## Remaining scope
 

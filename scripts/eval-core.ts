@@ -9,7 +9,7 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
-import { gradeRun, newRunId, parseRunId, passTable, summarize, validateTask, type EvalTask } from "../src/lib/eval-core-pure.ts";
+import { correctionTask, gradeRun, newRunId, parseRunId, passTable, summarize, validateTask, type EvalTask } from "../src/lib/eval-core-pure.ts";
 
 const args = process.argv.slice(2);
 const opt = (k: string) => { const i = args.indexOf(`--${k}`); return i >= 0 ? args[i + 1] : undefined; };
@@ -19,12 +19,16 @@ const trials = Math.max(1, Math.min(5, Number(opt("trials")) || 1));
 const headers = { "content-type": "application/json", cookie: COOKIE, origin: BASE };
 const api = (path: string, body?: unknown, ms = 15_000) => fetch(BASE + path, { method: body === undefined ? "GET" : "POST", headers, ...(body !== undefined && { body: JSON.stringify(body) }), signal: AbortSignal.timeout(ms) });
 
-const dir = join(import.meta.dirname, "..", "evals", "tasks");
-const tasks: EvalTask[] = readdirSync(dir).filter((f) => f.endsWith(".json")).sort().map((f) => {
-  const t = validateTask(JSON.parse(readFileSync(join(dir, f), "utf8")));
+const evals = join(import.meta.dirname, "..", "evals");
+const files = (d: string) => { try { return readdirSync(join(evals, d)).filter((f) => f.endsWith(".json")).sort().map((f) => join(evals, d, f)); } catch { return []; } };
+const tasks: EvalTask[] = [...files("tasks").map((f) => {
+  const t = validateTask(JSON.parse(readFileSync(f, "utf8")));
   if (typeof t === "string") throw new Error(`${f}: ${t}`);
   return t;
-}).filter((t) => (!opt("set") || t.set === opt("set")) && (!opt("only") || t.id === opt("only")));
+}), ...files("corrections").flatMap((f) => { // his kept corrections (lessons.ts); an unusable one is skipped, never fatal
+  let t: EvalTask | string; try { t = correctionTask(JSON.parse(readFileSync(f, "utf8"))); } catch { return []; }
+  return typeof t === "string" ? [] : [t];
+})].filter((t) => (!opt("set") || t.set === opt("set")) && (!opt("only") || t.id === opt("only")));
 
 async function main() {
   if (!COOKIE) return console.log("eval: skipped (set ORBIT_EVAL_COOKIE to a signed-in ORBIT tab's Cookie header; see scripts/eval-core.ts)");

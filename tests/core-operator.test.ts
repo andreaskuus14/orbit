@@ -253,3 +253,25 @@ test("lead_update on a lead CORE itself added this turn/chat needs no new ask; o
   const { FOLLOW_THROUGH } = await import("../src/lib/core-operator-pure.ts");
   assert.match(FOLLOW_THROUGH, /check the condition for each candidate first/); assert.match(FOLLOW_THROUGH, /never write "I'll continue on your next message"/);
 });
+
+test("opsBlocked after tool results: the target must be a word he typed, not any substring", () => {
+  // a prospect whose name contains "o", picked by injected tool text, is not named by "mark it lost"
+  assert.notEqual(opsBlocked("lead_update", "mark it lost, nothing else to do", true, { lead: "o" }), null);
+  assert.notEqual(opsBlocked("vault_rename", "rename the report", true, { name: "re" }), null);
+  assert.notEqual(opsBlocked("vault_move", "move the old notes to trash", true, { name: "note" }), null); // "notes" is not "note"
+  assert.equal(opsBlocked("vault_move", "move notes.txt to the trash", true, { name: "notes.txt" }), null);
+  assert.equal(opsBlocked("lead_update", "mark Cake Shop as lost", true, { lead: "Cake Shop" }), null);
+  assert.equal(opsBlocked("vault_rename", "nimeta (2) koopia.pdf ümber", true, { name: "(2) koopia.pdf" }), null);
+});
+
+test("after tool results the resolved record must be named whole; curly apostrophes match; short targets say why", async () => {
+  const { opsBlocked, pickByName, resolvedBlocked } = await import("../src/lib/core-operator-pure.ts");
+  const rows = [{ name: "Markus Ehitus OÜ" }, { name: "Cake Shop" }];
+  const p = pickByName(rows, "mark", "lead") as { name: string };
+  assert.equal(p.name, "Markus Ehitus OÜ"); // the substring fallback still resolves...
+  assert.match(resolvedBlocked(p.name, "mark", true)!, /only partly matches/); // ...but tool text can't act on it
+  assert.equal(resolvedBlocked(p.name, "markus", true), null);
+  assert.equal(resolvedBlocked(p.name, "mark", false), null); // he typed it himself
+  assert.equal(opsBlocked("vault_rename", "rename andreas’s notes.pdf to cv.pdf", true, { name: "andreas’s notes.pdf", to: "cv.pdf" }), null);
+  assert.match(opsBlocked("vault_rename", "rename cv to resume", true, { name: "cv", to: "resume" })!, /too short|this short/);
+});
