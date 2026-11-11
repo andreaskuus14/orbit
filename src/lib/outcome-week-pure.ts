@@ -2,6 +2,7 @@
 // tests/outcome-week.test.ts. A source that is missing or failed is "not connected": never 0, never an estimate. IO: outcome-week.ts.
 import type { CrmEvent } from "./prospect-crm-pure.ts";
 import { totals, type Invoice } from "./invoices-pure.ts";
+import { localDay } from "./morning-pure.ts";
 
 export const WEEK_DAYS = 7;
 export type Source = { label: string; link: string };
@@ -15,8 +16,9 @@ export type WeekIn = {
 };
 export type Week = { start: string; end: string; views: WeekMetric; leads: WeekMetric; replies: WeekMetric; revenueCents: WeekMetric };
 
-const day = (iso: string) => new Date(Date.parse(iso)).toISOString().slice(0, 10);
-const back = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+// Every day boundary is his local calendar day (localDay, as in #529/#533), never UTC: 23:30 and 00:30 in Tallinn fall on different days.
+const day = (iso: string) => localDay(new Date(Date.parse(iso)));
+const back = (d: string, n: number) => { const [y, m, dd] = d.split("-").map(Number); return localDay(new Date(y, m - 1, dd - n)); };
 const SRC = {
   views: { label: "YouTube Analytics (Studio)", link: "#o=studio" },
   leads: { label: "BUSINESS pipeline (prospects added)", link: "#o=business&v=pipeline" },
