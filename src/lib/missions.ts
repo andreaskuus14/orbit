@@ -195,7 +195,7 @@ export async function listMissions(sb: SupabaseClient, userId: string): Promise<
 }
 
 /** Scheduler tick: keep this user's open missions moving (after approvals and restarts). */
-const resuming = new Set<string>();
+const resuming: Set<string> = ((globalThis as unknown as { __orbitMissionResume?: Set<string> }).__orbitMissionResume ??= new Set()); // survives a hot reload, like the goal drivers
 export async function resumeMissions(sb: SupabaseClient, userId: string) {
   if (resuming.has(userId)) return; // a slow pass from the last tick (or an approval) is still going: never two at once
   resuming.add(userId);

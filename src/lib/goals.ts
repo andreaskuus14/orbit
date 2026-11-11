@@ -211,9 +211,9 @@ export function abortGoalDrivers() {
 }
 
 /** Scheduler tick (and opening ORBIT): nudge every live goal (no-op for ones already driving). */
-export async function resumeGoals(sb: SupabaseClient, userId: string) {
+export async function resumeGoals(sb: SupabaseClient, userId: string, maxRuns = Infinity) {
   const { data } = await sb.from("goals").select("id").eq("user_id", userId).in("status", ["approved", "running", "waiting"]);
-  for (const r of data ?? []) void advance(sb, userId, r.id);
+  for (const r of data ?? []) void advance(sb, userId, r.id, maxRuns);
 }
 
 export type GoalAction = "approve" | "edit" | "redraft" | "ok" | "proposal" | "pause" | "resume" | "stop" | "continue" | "metric" | "delete" | "milestones" | "replan" | "phrase";

@@ -47,7 +47,8 @@ async function tick(sb: SupabaseClient) {
       void import("./approval-expiry").then((m) => m.expireApprovals(sb, id)); // agent approvals unanswered for 48 h → rejected, never approved
       void import("./plan-jobs").then((m) => m.tickPlanJobs(sb, id)); // plan-file jobs: one step per session, resumed from their plan file
       void nightOwnsCompany().then((night) => resumeChains(sb, id, night)).catch((e) => console.error("[orbit] agent teams resume failed:", e?.message ?? e)); // continue after approvals/restarts
-      void import("./goals").then((m) => m.resumeGoals(sb, id)).catch((e) => console.error("[orbit] goals resume failed:", e?.message ?? e)); // no browser needed; advance() keeps one driver per goal
+      // Goals without a browser: one step per goal per tick; inside the night-shift window the night shift owns them (its switch and budget).
+      void nightOwnsCompany().then((night) => night ? undefined : import("./goals").then((m) => m.resumeGoals(sb, id, 1))).catch((e) => console.error("[orbit] goals resume failed:", e?.message ?? e));
       void import("./missions").then((m) => m.resumeMissions(sb, id)).catch((e) => console.error("[orbit] missions resume failed:", e?.message ?? e));
       const since = new Date(Date.now() - 8 * 86400_000).toISOString();
       const { data: recent } = await sb.from("briefings").select("kind, created_at").eq("user_id", id).gte("created_at", since).order("created_at", { ascending: false });
