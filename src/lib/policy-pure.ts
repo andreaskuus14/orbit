@@ -105,7 +105,7 @@ const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "local_tts", "local_
 // shop offer titles, vault/workspace file text, git commit subjects.
 /** His own stores that hold other people's text (invites, video text, offer titles, files, commits, analysed code). */
 // plan_day carries calendar invites; local_transcribe the words in any audio/video file he points it at.
-const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "ws_read", "plan_day", "local_transcribe"];
+const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "vault_skill", "ws_read", "plan_day", "local_transcribe"];
 // mission_status: agents' results; run_niche: its web research.
 export const UNTRUSTED = ["browse", "fetch_url", "scrape_page", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes", "mission_status", "run_niche", ...STORED_OUTSIDE];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;

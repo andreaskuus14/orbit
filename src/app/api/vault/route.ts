@@ -5,7 +5,7 @@ import { logActivity } from "@/lib/activity";
 import { MAX_FILE, mergeCloud, serveHeaders } from "@/lib/vault-pure";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 900; // a podcast: model script + local voices
+export const maxDuration = 900; // a podcast (script + local voices) or Book to Skill (one model call per chapter)
 
 function fail(e: unknown) {
   if (e instanceof VaultError) return Response.json({ error: e.message }, { status: e.status });
@@ -79,6 +79,7 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => null) as { action?: unknown; name?: unknown; to?: unknown } | null;
     if (body?.action === "podcast") return new Response(await vaultPodcast((body as { names?: unknown }).names, req.signal) as BodyInit, { headers: { "Content-Type": "audio/wav" } });
     if (body?.action === "sync") return Response.json(await syncToCloud(sb, user.id));
+    if (body?.action === "skill" && typeof body.name === "string") return Response.json(await (await import("@/lib/book-skill")).makeSkill(body.name, req.signal)); // Book to Skill: one model call per chapter
     if (body?.action === "untrash") { // back from the trash, then a fresh cloud copy (it was removed on delete)
       const name = await restoreTrash((body as { id?: unknown }).id, await cloudOnlyNames(sb, user.id));
       return Response.json({ name, cloud: await cloudPut(sb, user.id, name) });
