@@ -213,3 +213,11 @@ export function withDossier(notes: string, dossier: string, cap = 2000): string 
   if (!dossier || room < 80) return null;
   return `${own ? `${own}\n\n` : ""}${RESEARCH_HEAD}\n${trimDossier(dossier, Math.min(DOSSIER_MAX, room))}\n${RESEARCH_END}`;
 }
+
+/** What one Resend reply says about whether the email went out. null = no answer (timeout, network): it may have.
+ *  409 is never a refusal: Resend answers 409 while an earlier request with the same Idempotency-Key is still running,
+ *  or when that key was already used with another payload, so an email may already be on its way (resend.com/changelog/idempotency-keys). */
+export function mailOutcome(status: number | null): "sent" | "unknown" | "refused" {
+  if (status === null || status === 409 || status === 429 || status >= 500) return "unknown";
+  return status >= 200 && status < 300 ? "sent" : "refused";
+}
