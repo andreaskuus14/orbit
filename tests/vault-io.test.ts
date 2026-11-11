@@ -53,6 +53,11 @@ test("range read, preview, search, readVaultText", async () => {
   assert.equal(await v.readVaultText("notes.txt", 5), "hello");
   assert.equal(await v.readVaultText("../notes.txt"), null);
   assert.equal(await v.readVaultText("missing.txt"), null);
+  const big = "a".repeat(30_000) + "END"; // past the 20 KB preview: Book to Skill needs the whole file
+  assert.equal(await v.saveUpload(new File([big], "book.txt")), "book.txt");
+  assert.equal(await v.readVaultText("book.txt", 600_000), big);
+  assert.equal((await v.readVaultText("book.txt", 25_000))!.length, 25_000);
+  assert.equal((await v.previewText("book.txt")).text.length, 20 * 1024);
   assert.ok(JSON.parse(await readFile(path.join(dir, ".index.json"), "utf8"))["notes.txt"]);
 });
 
