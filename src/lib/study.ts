@@ -4,7 +4,7 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { localDay } from "./morning-pure";
-import { DRAFT_SYSTEM, addCards, editCard as editCardPure, sourceCorrected, draftPrompt, dueToday, lessonCard, parseDrafts, parseStore, review, stats, studyable,
+import { BOOK_SYSTEM, DRAFT_SYSTEM, addCards, bookCards, bookPrompt, bookRef, quizPick, editCard as editCardPure, sourceCorrected, draftPrompt, dueToday, lessonCard, parseDrafts, parseStore, review, stats, studyable,
   type CardSource, type Draft, type Grade, type Store, type UserStudy } from "./study-pure";
 
 // Study cards I/O (logic: study-pure.ts). State: <ORBIT data dir>/study.json (local only). Days are the PC's local days.
@@ -70,3 +70,32 @@ export async function draftFromMemory(sb: SupabaseClient, userId: string, memory
   void recordUsage(sb, userId, "study.draft", r, FAST_MODEL);
   return { drafts: parseDrafts(r.text), title: data.title ?? "" };
 }
+
+/** The books that already have a Book to Skill file in VAULT (their names without the extension). */
+export async function studyBooks(): Promise<string[]> {
+  const { listVault } = await import("./vault"), { isSkillFile } = await import("./book-skill-pure");
+  return (await listVault()).filter((f) => isSkillFile(f.name)).map((f) => f.name.replace(/\.skill\.json$/, ""));
+}
+
+/** Cards for the next few chapters of a book that have none yet, read from the book's own text (not the skill summaries). Saved straight
+ *  away: each card carries a quote checked against the chapter plus "Book, Chapter", and he can still edit or delete it. */
+export async function bookDeck(sb: SupabaseClient, userId: string, book: string, max = 3, signal?: AbortSignal): Promise<{ added: number; left: number } | string> {
+  const { listVault, readVaultText } = await import("./vault"), { chapters, isSkillFile } = await import("./book-skill-pure");
+  const files = await listVault(), src = files.find((f) => !isSkillFile(f.name) && f.name.replace(/\.[^.]+$/, "") === book);
+  if (!src || !files.some((f) => f.name === `${book}.skill.json`)) return "Make that book's skill in VAULT first";
+  const text = await readVaultText(src.name, 600_000);
+  if (!text) return "No readable text in that book";
+  const have = new Set((await mine(userId)).cards.map((c) => c.ref)), todo = chapters(text).filter((p) => !have.has(bookRef(book, p.title)));
+  const { askClaude, recordUsage } = await import("./claude");
+  let added = 0;
+  for (const p of todo.slice(0, max)) {
+    if (signal?.aborted) break;
+    const r = await askClaude(bookPrompt(book, p.title, p.body), BOOK_SYSTEM, { lane: "foreground", timeoutMs: 90_000, purpose: "study.book", signal });
+    void recordUsage(sb, userId, "study.book", r);
+    added += await saveCards(userId, bookCards(r.text, book, p.title, p.body), "book", bookRef(book, p.title));
+  }
+  return { added, left: Math.max(0, todo.length - max) };
+}
+
+/** This week's quiz: up to 10 due book cards. */
+export const weeklyQuiz = (userId: string) => mine(userId).then((u) => quizPick(u, today()));

@@ -2,13 +2,14 @@ import { requireUser } from "@/lib/supabase/server";
 import { BusyError } from "@/lib/claude";
 import { usageHardHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
-import { deleteCard, draftFromMemory, editCard, gradeCard, saveCards, studyView } from "@/lib/study";
+import { bookDeck, studyBooks, weeklyQuiz, deleteCard, draftFromMemory, editCard, gradeCard, saveCards, studyView } from "@/lib/study";
 import { SOURCES, parseDeck, type CardSource, type Draft } from "@/lib/study-pure";
 
 export const dynamic = "force-dynamic";
 
 // Study cards (MEMORY → Study cards). GET → {cards, queue, stats, lessons}. POST actions:
 // {action:"add", source, ref?, cards:[{front,back}]} | {action:"deck", text} | {action:"review", id, grade:1-4} | {action:"edit", id, front, back}
+// | {action:"books"} → {books} | {action:"quiz"} → {quiz: ≤10 due book cards} | {action:"bookCards", book} → {added, left}
 // | {action:"delete", id} | {action:"draft", memoryId} → {drafts} (one fast-model call, nothing saved).
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 const isId = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 300;
@@ -54,6 +55,15 @@ export async function POST(req: Request) {
         const r = await draftFromMemory(sb, user.id, b.memoryId, req.signal);
         if (typeof r === "string") return fail(r, r === "Memory not found" ? 404 : 403);
         return Response.json(r);
+      }
+      case "books": return Response.json({ books: await studyBooks() });
+      case "quiz": return Response.json({ quiz: await weeklyQuiz(user.id) });
+      case "bookCards": { // ARCH study: cards from the next chapters of a VAULT book
+        if (!isId(b.book)) return fail("book is required");
+        const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
+        if (held) return fail(`Not right now: ${held}`, 503);
+        const r = await bookDeck(sb, user.id, b.book, 3, req.signal);
+        return typeof r === "string" ? fail(r, 404) : Response.json(r);
       }
       default: return fail("Unknown action");
     }

@@ -25,7 +25,7 @@ export type Turn = {
   /** core.ts's dispatch for an allowed call (navigate / module / runCoreTool) and its eval/trace/activity record, shared with the CLI loop. */
   exec: (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[], operator?: boolean) => Promise<string>;
   record: (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number, operator?: boolean) => void;
-  onDelta?: (d: string) => void; onReset?: () => void; onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void;
+  onDelta?: (d: string) => void; onReset?: () => void; onRoute?: (model: string) => void; onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void;
   /** core.ts's independent verifier (verifier.ts): null = not run; the MCP engine continues once on "not verified". */
   verify?: (answer: string) => Promise<{ ok: boolean; reason: string } | null>;
 };
@@ -36,6 +36,7 @@ export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: strin
   const { query, tool, createSdkMcpServer } = await import("@anthropic-ai/claude-agent-sdk");
   const abortController = new AbortController();
   let escalated = false, opus = false;
+  t.onRoute?.(t.model);
   const one = serial();
   const handler = (name: string) => (input: Record<string, unknown>) => one(async () => {
     opus = !t.risky && needsOpus(name, t.model ?? "");
