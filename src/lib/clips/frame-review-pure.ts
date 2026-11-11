@@ -49,7 +49,9 @@ export function verdict(scenes: SceneReview[]): { stop: string[]; warn: string[]
     const counts = new Map<string, number>();
     for (const i of issues) for (const x of new Set(i.map((y) => y.replace(/ \(.*/, "")))) counts.set(x, (counts.get(x) ?? 0) + 1);
     for (const [x, c] of counts) if (c * 2 >= seen.length) warn.push(`${n}: ${x} in ${c} of ${seen.length} key frames`);
-    if (seen.length >= 3 && Math.max(...seen.map((f) => f.yavg)) - Math.min(...seen.map((f) => f.yavg)) < 0.3 && Math.max(...seen.map((f) => f.satavg)) - Math.min(...seen.map((f) => f.satavg)) < 0.3)
+    // Averages barely move on busy footage (testsrc2: yavg within 0.02); one frame decoded again repeats every number, extremes included.
+    const spread = (k: keyof FrameStats) => Math.max(...seen.map((f) => f[k] ?? 0)) - Math.min(...seen.map((f) => f[k] ?? 0));
+    if (seen.length >= 3 && spread("ymin") === 0 && spread("ymax") === 0 && spread("yavg") < 0.05 && spread("satavg") < 0.05)
       warn.push(`${n}: every key frame looks the same; the clip may be frozen`);
   }
   return { stop, warn };

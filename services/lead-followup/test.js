@@ -9,7 +9,7 @@ Object.assign(process.env, {
   DB_FILE: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lf-')), 'leads.json'),
   TELEGRAM_CHAT_ID: '42', FROM_EMAIL: 'shop@example.com', BUSINESS_NAME: 'Test Bakery',
 });
-const { validateLead, newLead, telegramUpdate, allowLead, approvalText, foreignContacts } = await import('./server.js');
+const { validateLead, newLead, telegramUpdate, allowLead, approvalText, foreignContacts, mailOutcome, idempotencyKey } = await import('./server.js');
 
 let calls;
 beforeEach(() => {
@@ -63,14 +63,48 @@ test('reject and foreign chats never send', async () => {
   assert.ok(!calls.some((c) => c.url.includes('resend')));
 });
 
-test('failed email is recorded, not retried', async () => {
-  await newLead({ name: 'Mari', email: 'mari@example.com', message: 'Hi' });
+// Resend answers with `reply` (a status number, or a thrown error for no answer); Telegram notes are collected.
+let ipN = 0;
+async function approveWith(reply) {
+  await newLead({ name: 'Mari', email: 'mari@example.com', message: 'Hi' }, `6.6.6.${ipN++}`); // own IP each: the form is rate-limited
   const id = Object.keys(db())[0];
-  globalThis.fetch = async (url, opts) => (url.includes('resend')
-    ? { ok: false, text: async () => 'boom' }
-    : { ok: true, json: async () => ({ ok: true }) });
+  const sends = [], notes = [];
+  globalThis.fetch = async (url, opts) => {
+    if (url.includes('answerCallbackQuery')) notes.push(JSON.parse(opts.body).text);
+    if (!url.includes('resend')) return { ok: true, json: async () => ({ ok: true }) };
+    sends.push(opts.headers);
+    if (reply instanceof Error) throw reply;
+    return { ok: reply < 300, status: reply, json: async () => ({ id: 'em_1' }) };
+  };
   await tap(`a:${id}`);
-  assert.equal(db()[id].status, 'failed');
+  await tap(`a:${id}`); // a later tap must not resend
+  return { id, lead: db()[id], sends, notes };
+}
+
+test('a clear refusal (422) is failed, not retried', async () => {
+  const { lead, sends, notes } = await approveWith(422);
+  assert.equal(lead.status, 'failed');
+  assert.equal(sends.length, 1);
+  assert.match(notes[0], /reply manually/);
+});
+
+for (const [name, reply] of [['timeout', Object.assign(new Error('aborted'), { name: 'TimeoutError' })], ['409', 409], ['429', 429], ['500', 500]]) {
+  test(`${name} means the email may have gone out: unknown, honest note, never resent`, async () => {
+    const { lead, sends, notes } = await approveWith(reply);
+    assert.equal(lead.status, 'unknown');
+    assert.equal(sends.length, 1);
+    assert.match(notes[0], /may or may not have been sent.*Resend log/i);
+  });
+}
+
+test('200 is sent, with a stable idempotency key per approved reply', async () => {
+  const { id, lead, sends } = await approveWith(200);
+  assert.equal(lead.status, 'sent');
+  const key = sends[0]['idempotency-key'];
+  assert.ok(key?.startsWith(`lead-${id}-`));
+  assert.equal(idempotencyKey(id, lead.draft), key, 'a retry of the same approved item reuses the key');
+  assert.notEqual(idempotencyKey(id, lead.draft + ' edited'), key, 'a new text version gets a new key');
+  assert.deepEqual([200, 202, undefined, 409, 429, 503, 400, 422].map(mailOutcome), ['sent', 'sent', 'unknown', 'unknown', 'unknown', 'unknown', 'failed', 'failed']);
 });
 
 test('rate limits: 5 per IP per hour, then a daily cap', () => {

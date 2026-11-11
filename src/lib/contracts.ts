@@ -12,7 +12,7 @@ import { stopAllOn } from "./stop-all";
 import { usageHardHold } from "./usage-meter";
 import { allows } from "./autonomy";
 import { pushNotify } from "./remote-push";
-import { emailIn } from "./business-pure";
+import { emailIn, mailOutcome } from "./business-pure";
 import { claimProblem } from "./prospect-crm-pure";
 import {
   FILL_SYSTEM, STATUSES, contractText, MAX_COMMENTS, MAX_CONTRACTS, MAX_VERSIONS, TEMPLATES, cleanFields, contractPdf, coverEmail, coverSubject, current, fillPrompt, isTemplateId,
@@ -223,7 +223,7 @@ export async function sendContract(sb: SupabaseClient, userId: string, id: unkno
     await settle((x) => { x.sent = { ...x.sent!, note: "No answer from Resend: it may or may not have gone out. Check your Resend log." }; });
     throw new ContractError("No answer from the email service: it may or may not have been sent. Check your Resend log; it stays marked Sent.", 504);
   }
-  if (r.status >= 500 || r.status === 429) {
+  if (mailOutcome(r.status) === "unknown") { // server trouble or a 409 on this key: it may have gone out
     await settle((x) => { x.sent = { ...x.sent!, note: `Resend ${r.status}: result unknown. Check your Resend log.` }; });
     throw new ContractError(`The email service had a problem (${r.status}): it may or may not have been sent. It stays marked Sent.`, 502);
   }

@@ -77,6 +77,9 @@ test("run skill: parse, match, prompt, and the turn is narrowed to the skill's t
   assert.equal(parseRunSkill("how do I run a skill check?"), null);
   const s: Skill = { id: "s", current: 1, versions: [{ name: "weekly-niche-check", instruction: "Check niches for {input}", tools: ["web_search", "run_niche"], example: "roblox", v: 1, at: "t", note: "kept" }], created_at: "t" };
   assert.equal(findSkill("weekly niche check", [s]), s);
+  assert.deepEqual(parseRunSkill("run skill @s: horror games"), { name: "@s", input: "horror games" });
+  assert.equal(findSkill("@s", [s]), s);
+  assert.equal(findSkill("@weekly-niche-check", [s]), "This pinned skill is no longer available.");
   assert.match(findSkill("nope", [s]) as string, /Closest: weekly-niche-check/);
   const p = skillPrompt(currentVersion(s), "");
   assert.match(p, /^\[SKILL weekly-niche-check v1 · tools: web_search, run_niche\]/);

@@ -65,7 +65,8 @@ const duringResume = { live: agents.liveTaskIds().includes("t1"), retryBlocked: 
 const savingStop = stop.setStopAll(true);
 await Promise.all(agents.liveTaskIds().map((id) => agents.cancelTask(sb, id))); // switchStopAll signals before awaiting persistence
 await savingStop;
-await until(async () => !(await onDisk()).length && messages.at(-1)?.startsWith("_Stopped:"), "the stop receipt and record cleanup");
+await until(async () => !(await onDisk()).length && messages.at(-1)?.startsWith("_Stopped:") &&
+  !(await bg.bgTurnIds()).has("t1"), "the stop receipt, record cleanup and Retry guard release");
 console.log(JSON.stringify({ duringResume, status: rows.t1.status, toolsAfterStop, onDisk: await onDisk(), retryBlocked: (await bg.bgTurnIds()).has("t1"),
   note: messages.at(-1) }));`);
   assert.deepEqual(got.duringResume, { live: true, retryBlocked: true }); // Retry refused while the resume runs (#412)

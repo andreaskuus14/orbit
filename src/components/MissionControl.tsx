@@ -1,5 +1,5 @@
 "use client";
-// Mission control ("bridge"): a full-screen read-only overlay opened from the HUD menu or by "mission control" / "bridge"
+// Mission control ("bridge"): a full-screen overlay opened from the HUD menu or by "mission control" / "bridge"
 // (NAV_EVENT {mission}). Esc closes (native <dialog>). Polls existing endpoints every 5 s only while open; never approves
 // anything: approvals link to where they are decided. Formatting: lib/mission-pure.ts.
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -8,6 +8,7 @@ import { bridgeApprovals, bridgeStudio, bridgeTasks, countdown, usagePct } from 
 import { eventLabel } from "@/lib/event-label-pure";
 import { clock } from "@/lib/terminal-pure";
 import { createClient } from "@/lib/supabase/client";
+import { PinnedSkills } from "./PinnedSkills";
 import { OpenLoops } from "./OpenLoops";
 import type { PanelId } from "@/lib/planets";
 
@@ -124,6 +125,8 @@ export function MissionControl() {
             </> : <p className="mc-dim">Self-test not ready.</p>}
           </Panel>
 
+          <Panel label="Pinned skills" code="CORE"><PinnedSkills onRun={close} /></Panel>
+
           <OpenLoops go={go} />
 
           <Panel label="Event log" code="TAIL">
@@ -133,7 +136,7 @@ export function MissionControl() {
             </ol>
           </Panel>
         </div>
-        <p className="mc-foot mc-dim">NOTHING HERE APPROVES, SENDS OR RUNS ANYTHING</p>
+        <p className="mc-foot mc-dim">SKILLS RUN IN CORE WITH THE EXISTING APPROVAL RULES</p>
       </>}
     </dialog>
   );

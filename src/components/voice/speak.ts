@@ -44,6 +44,7 @@ async function speakKokoro(text: string, myGen: number) {
   try {
     audioCtx ??= new AudioContext();
     if (audioCtx.state === "suspended") await audioCtx.resume();
+    if (myGen !== gen || current !== "kokoro") return; // stopped while waiting for the device
     const buf = audioCtx.createBuffer(1, r.audio.length, r.rate);
     buf.copyToChannel(r.audio as Float32Array<ArrayBuffer>, 0);
     analyser ??= Object.assign(audioCtx.createAnalyser(), { fftSize: 1024 });
@@ -51,7 +52,10 @@ async function speakKokoro(text: string, myGen: number) {
     source = audioCtx.createBufferSource(); source.buffer = buf; source.connect(analyser);
     source.onended = () => { if (current !== "kokoro" || myGen !== gen) return; source = null; current = null; pump(); };
     source.start();
-  } catch { kokoroBroken = true; current = null; queue.unshift(text); pump(); }
+  } catch {
+    if (myGen !== gen || current !== "kokoro") return;
+    kokoroBroken = true; current = null; queue.unshift(text); pump();
+  }
 }
 
 const synth = () => (typeof window !== "undefined" && "speechSynthesis" in window ? window.speechSynthesis : null);

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VOICE_ASK } from "./voice/bus";
+import { VaultTextCompare } from "./VaultTextCompare";
 import { WorkspacePanel } from "./WorkspacePanel";
 import { ReadDocument } from "./LocalAi";
 import { isDocName } from "@/lib/local-ai-pure";
@@ -238,6 +239,7 @@ export function VaultPanel() {
         {note && <p className="muted">{note}</p>}
         <div className="flex flex-wrap gap-2">
           <a className="btn" href={src} download={open.name}>Download</a>
+          {open.type === "text" && <VaultTextCompare key={open.name} name={open.name} others={files.filter((f) => f.type === "text" && f.name !== open.name).map((f) => f.name)} />}
           <button className="btn" onClick={() => rename(open)}>Rename</button>
           {/\.(pdf|docx?|txt|md|epub)$/i.test(open.name) && <button className="btn" title="Turn this book into compact study notes ORBIT's agents load on demand" onClick={() => makeSkill(open)}>Make a skill</button>}
           {memoryType(open.name) && <button className="btn" disabled={!!busy || open.size > MEMORY_MAX} title={open.size > MEMORY_MAX ? "MEMORY accepts files up to 4 MB" : undefined} onClick={() => toMemory(open)}>Save copy to MEMORY (cloud)</button>}
