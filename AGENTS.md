@@ -16,5 +16,8 @@ ORBIT is Andreas's personal AI OS (Next.js 15, React 19, R3F, Supabase). The liv
    The owner can switch each category off in Profile → Autonomy. Reading the public web is allowed, but outbound requests
    must never carry private data. Every autonomous action is logged in OPERATIONS → Activity, with Undo where possible, and
    Stop-all halts everything. Outside effects that send, publish, upload or spend (messages, emails, posts, uploads,
-   purchases, credits) still run only after the owner approves that exact item with his own click; never automatically.
+   purchases, credits) still need the owner to approve that exact item with his own click. One exception (owner, 2026-11-11):
+   when he turns on Auto with limits in Profile → Autonomy, sends and publishes within the daily caps (his local day) may go
+   out without a click. Spending money is never automatic. Every auto action is logged, with Undo where the platform allows
+   it. He can turn Auto off at any time, and that also cancels anything still queued.
    Never log in to outside platforms or use their cookies. Journal/LIFE text never goes to a model or out of ORBIT.

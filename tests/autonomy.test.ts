@@ -204,3 +204,17 @@ test("a Short's version covers video, title and description: editing any one mak
   assert.equal(pickAuto(s, "studio-publish", [cand(clipVersion({ ...base, title: "New title" }))], Date.parse("2026-10-25T12:00:00Z"), false).length, 1);
   assert.equal(parseAutonomy(JSON.stringify({ ...s, pending: [{ id: "1", area: "studio-publish", ref: "j/c", seen: v + "x".repeat(400), label: "l", at: "", dueAt: "" }] })).pending.length, 1); // long versions survive a restart
 });
+
+test("AGENTS.md rule 6 as code: under-cap send passes, the 4th is held, spend is always held, Auto off holds everything", () => {
+  const ok = { limits: LIMIT_DEFAULTS, known: true, text: "Hi, a short idea for you" };
+  const auto = { ...DEFAULT_LEVELS, "business-send": "auto" as const, "studio-publish": "auto" as const, "higgsfield-spend": "auto" as const }; // spend forced to auto anyway
+  for (const n of [0, 1, 2]) assert.equal(autonomyAllows("business-send", "auto", { ...ok, levels: auto, doneToday: n }).ok, true, `send ${n + 1}`);
+  assert.equal(autonomyAllows("business-send", "auto", { ...ok, levels: auto, doneToday: 3 }).ok, false); // the 4th
+  assert.equal(autonomyAllows("studio-publish", "auto", { ...ok, levels: auto, doneToday: 1 }).ok, false); // the 2nd publish
+  assert.equal(autonomyAllows("higgsfield-spend", "auto", { ...ok, levels: auto, doneToday: 0 }).ok, false);
+  assert.equal(typeof setLevel(autonomyDefaults(), "higgsfield-spend", "auto", "x"), "string");
+  for (const a of AREAS) assert.equal(autonomyAllows(a, "auto", { ...ok, levels: DEFAULT_LEVELS, doneToday: 0 }).ok, false, a);
+  const on: AutonomyState = { ...autonomyDefaults(), levels: auto, pending: [{ id: "1", area: "business-send", ref: "p", seen: "v", label: "", at: "", dueAt: "" }] };
+  const off = setLevel(on, "business-send", "ask", "") as AutonomyState;
+  assert.deepEqual(off.pending, []); // turning Auto off drops what was queued, right away
+});
