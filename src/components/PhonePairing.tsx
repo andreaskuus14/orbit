@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "./i18n";
 
-type View = { problem: string; pair: { code: string; expiresAt: number } | null; devices: { id: string; name: string; createdAt: string; lastSeen: string | null }[];
+type View = { problem: string; pair: { code?: string; locked?: true; expiresAt: number } | null; devices: { id: string; name: string; createdAt: string; lastSeen: string | null }[];
   shortcuts?: { id: string; name: string; action: string; createdAt: string; lastSeen: string | null }[]; token?: string };
 const KINDS: [string, string][] = [["status", "Status"], ["call", "Call me"], ["stop", "Stop-all ON"], ["approve", "Approve next"], ["ask", "Ask CORE"]];
 
@@ -34,7 +34,8 @@ export function PhonePairing() {
       {v?.problem ? <p className="error text-sm">{v.problem}</p> : (
         <div className="flex items-center gap-3">
           <button className="btn" onClick={() => void call({ action: "pair" })}>Pair phone</button>
-          {v?.pair && left > 0 && <span className="text-2xl font-semibold tracking-[0.3em]" aria-live="polite">{v.pair.code} <span className="muted text-xs tracking-normal">{left}s</span></span>}
+          {v?.pair?.locked && <span className="error text-sm" aria-live="polite">Code locked after too many wrong tries; press Pair phone for a new one</span>}
+          {v?.pair?.code && left > 0 && <span className="text-2xl font-semibold tracking-[0.3em]" aria-live="polite">{v.pair.code} <span className="muted text-xs tracking-normal">{left}s</span></span>}
         </div>
       )}
       {v?.devices.length ? (

@@ -18,6 +18,9 @@ export const PAIR_MAX_FAILS = 5;
 export const PAIR_MAX_FAILS_ALL = 15;
 /** fails = wrong guesses in total (shown nowhere, kept for logs); failsBy = per client, which is what locks (see verifyPair). */
 export type PairCode = { code: string; expiresAt: number; fails: number; used: boolean; failsBy?: Record<string, number> };
+/** What the PC shows: the live code, or "locked" once PAIR_MAX_FAILS_ALL wrong tries spent it (the phone is told to make a new one), else null. */
+export const pairView = (p: PairCode | null | undefined, now: number) =>
+  !p || p.used || now >= p.expiresAt ? null : p.fails >= PAIR_MAX_FAILS_ALL ? { locked: true as const, expiresAt: p.expiresAt } : { code: p.code, expiresAt: p.expiresAt };
 export type PairResult = { ok: true; pair: PairCode } | { ok: false; reason: "expired" | "locked" | "used" | "wrong"; pair: PairCode };
 
 /** `rand(n)` must return a cryptographically random integer in [0, n), e.g. node:crypto randomInt. */

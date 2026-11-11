@@ -275,3 +275,14 @@ test("after tool results the resolved record must be named whole; curly apostrop
   assert.equal(opsBlocked("vault_rename", "rename andreas’s notes.pdf to cv.pdf", true, { name: "andreas’s notes.pdf", to: "cv.pdf" }), null);
   assert.match(opsBlocked("vault_rename", "rename cv to resume", true, { name: "cv", to: "resume" })!, /too short|this short/);
 });
+
+test("after tool results the verb of his message is not a name; short names say why; one target length everywhere", async () => {
+  const { opsBlocked, resolvedBlocked, TARGET_LEN } = await import("../src/lib/core-operator-pure.ts");
+  for (const lead of ["mark", "lost", "Mark", "märgi"]) assert.match(opsBlocked("lead_update", "mark it lost, nothing else to do", true, { lead })!, /only the change he asked for/, lead);
+  assert.equal(opsBlocked("lead_update", "mark Mark Tamm as lost", true, { lead: "Mark Tamm" }), null); // a real name that starts with the verb
+  assert.equal(opsBlocked("lead_update", "märgi Lost & Found OÜ kaotatuks", true, { lead: "Lost & Found OÜ" }), null);
+  assert.match(resolvedBlocked("HP", "HP", true)!, /this short/); // not "only partly matches"
+  const long = `${"a".repeat(200)} report.pdf`;
+  assert.equal(TARGET_LEN, 300);
+  assert.equal(opsBlocked("vault_rename", `rename ${long} to b.pdf`, true, { name: long, to: "b.pdf" }), null); // read past 120 chars, as vault_rename acts
+});

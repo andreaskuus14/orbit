@@ -101,6 +101,7 @@ async function siteLint(userId: string, slug: string, question = ""): Promise<{ 
     images: files.filter((f) => /\.(?:png|jpe?g|webp|svg)$/i.test(f.path)).map((f) => ({ path: f.path, bytes: f.size })),
     credits: (await ws.readWsFile(userId, slug, "assets/CREDITS.md"))?.text,
     fullstack: files.some((f) => f.path === "server.mjs") || isFullstackPlan(plan), wantsBackend: wantsBackend(question),
+    owner: `${plan}\n${question}`, // owner proof is checked against these, never the model's own data-proof mark
   };
   return { issues: [...lintSite(f), ...lintDepth(f)], facts: factsLine(f) };
 }
