@@ -41,6 +41,7 @@ import { archCaption } from "@/lib/portfolio-pure";
 import { ArchPlans } from "./ArchPlans";
 import { ArchTimeMachine, SunShadow } from "./ArchTimeMachine";
 import { ArchPortfolio } from "./ArchPortfolio";
+import { ArchStudy } from "./ArchStudy";
 import { MeasureLayer, MeasurePanel, measureFrom, type MeasureState } from "./ScanMeasure";
 import { SiteLayer, SitePanel } from "./ArchSite";
 import { IfcOpen } from "./LocalAi";
@@ -680,6 +681,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         <ArchCrit scene={scene} prices={prices} shoot={shoot} />
         <PortfolioPanel grab={() => grab.current?.() ?? null}
           caption={scan ? `Scan ${scan.name}` : lesson ? `Study model after ${lesson.building}` : archCaption({ parts: scene.parts, mode, sun: sun.on ? sun : null })} />
+        <ArchStudy />
         {ready && <ArchPortfolio grab={() => grab.current?.() ?? null} onPreview={setPreview} />}
 
         <div className="card space-y-1.5">
