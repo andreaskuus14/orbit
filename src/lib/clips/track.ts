@@ -1,7 +1,7 @@
 // Y2 track I/O: file hashes for approvals, and the one paid path (approveStory with all its guards). Pure rules in track-pure.ts.
 import path from "node:path";
-import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
+import { sha256File } from "./sha-file.ts";
 import { studioRoot } from "./factory";
 import { approveStory, getStory } from "./story";
 import { cachedSha, generate, type ShaCache, type StageId, type Track } from "./track-pure";
@@ -14,7 +14,7 @@ export async function fileSha(ref: string): Promise<string> {
   const root = studioRoot(), f = path.resolve(root, ref);
   if (!f.startsWith(root + path.sep)) return "";
   const st = await stat(f).catch(() => null);
-  return cachedSha(shas, f, st?.isFile() ? st : null, () => readFile(f).then((b) => createHash("sha256").update(b).digest("hex"), () => ""));
+  return cachedSha(shas, f, st?.isFile() ? st : null, () => sha256File(f));
 }
 /** Re-hash every artifact from disk so an approval of a file that changed since no longer counts. */
 export async function refreshShas(t: Track) {

@@ -118,3 +118,10 @@ test("the balance-word guard only applies when the row type is unknown", () => {
   assert.deepEqual(unknown.lines, []);
   assert.deepEqual(unknown.skipped, [2], "without a row type the balance-like line is skipped and reported");
 });
+
+test("a reference is one digit run, not digits joined across the text", () => {
+  const a = inv("a", 50000, []);
+  const line = (text: string) => ({ row: 1, day: "2026-10-05", cents: 62000, name: "", text, ref: "" });
+  assert.equal(reconcile([line("Arve 2026 0011")], [a]).matched[0].by, "amount+date"); // joined 20260011 is not a reference
+  assert.equal(reconcile([line("Arve nr 20260011")], [a]).matched[0].by, "reference");
+});

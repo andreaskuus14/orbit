@@ -33,3 +33,18 @@ test("window, junk and size guards", () => {
   const endless = "BEGIN:VEVENT\nUID:a\nDTSTART:20000101T100000Z\nDTEND:20000101T110000Z\nRRULE:FREQ=DAILY\nSUMMARY:d\nEND:VEVENT";
   assert.equal(icsEvents(endless, Date.UTC(2026, 10, 1), Date.UTC(2026, 10, 3)).length, 2); // 26 years of daily steps still answer fast
 });
+
+test("a failed feed refresh keeps the old copy and is not retried until the next window", async () => {
+  const { mkdtempSync, writeFileSync, readFileSync: rd } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(`${tmpdir()}/ics-`);
+  process.env.ORBIT_DATA_DIR = dir;
+  const { timetableEvents } = await import("../src/lib/ics.ts");
+  const old = { text: "BEGIN:VCALENDAR\nEND:VCALENDAR", at: 1000, url: "http://127.0.0.1:1/dead.ics" };
+  writeFileSync(`${dir}/timetable.json`, JSON.stringify(old));
+  const now = 1000 + 7 * 3600_000;
+  await timetableEvents(0, 1, now);
+  const after = JSON.parse(rd(`${dir}/timetable.json`, "utf8"));
+  assert.equal(after.at, now);
+  assert.equal(after.text, old.text);
+});
