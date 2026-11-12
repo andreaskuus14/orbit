@@ -195,8 +195,8 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
     // a local plugin (files, vault) may have read his Journal: its output is private for a remote plugin; unknown locality fails closed
     const local = !!ctx.plugins?.[tool]?.local; // local → local (read notes, then save them) stays allowed across turns
     const priv = local ? [...(ctx.privateTools ?? PRIVATE_TOOLS)] : privateToolsIn(ctx), carriedLocal = local ? [] : ctx.localText ?? [];
-    // a local target skips the bare taint flag: after a restart the taint may only stand for local-plugin text it may hold
-    const privateIn = ctx.attach || ctx.pins || (!local && !!ctx.carried) || !!ctx.privateText?.length || !!carriedLocal.length || called(ctx.steps, priv);
+    // the taint also stands for journal/LIFE/ws_read/attachment text; a local target ignores it only when carried local-plugin text explains it
+    const privateIn = ctx.attach || ctx.pins || (!!ctx.carried && (!local || !ctx.localText?.length)) || !!ctx.privateText?.length || !!carriedLocal.length || called(ctx.steps, priv);
     return pluginDecision(tool, input, ctx.plugins?.[tool], { stopAll: ctx.stopAll, privateIn, question: typedText(ctx.question), outside: outsideIn(ctx.steps, UNTRUSTED, ctx.plugins ?? {}, ctx.attach),
       privateTexts: [...(ctx.privateText ?? []), ...carriedLocal, ...privateResults(ctx.steps, priv)] });
   }

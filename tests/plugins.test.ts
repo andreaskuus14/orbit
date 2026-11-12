@@ -103,7 +103,7 @@ test("decide(): private text never goes into plugin arguments", () => {
   assert.equal(v.allow, false);
   assert.match(v.reason, /private/);
   assert.equal(decide("plugin__blender__get_scene_info", { note: "a chest" }, priv).allow, true);
-  assert.equal(decide("plugin__blender__get_scene_info", { a: "pay 450 €" }, ctx({ carried: true })).allow, true); // taint, text gone (restart): a local target is not refused blind (#584 review)
+  assert.equal(decide("plugin__blender__get_scene_info", { a: "pay 450 €" }, ctx({ carried: true })).allow, false); // earlier turn's private data, text gone
 });
 
 // audit3 F5: a local plugin (files/vault) may read his Journal: its text can't ride out in a remote plugin's arguments
@@ -137,7 +137,7 @@ test("decide(): local → local stays allowed on the next turn; module text stil
   assert.equal(decide("plugin__files__write", { text: "Meeting with Mari Tamm about the rent on Friday." }, { ...notes, question: "fix typos and save" }).allow, true);
   const scene = next("plugin__blender__get_scene_info", "Objects: Tower Main Body, Roof Cone");
   assert.equal(decide("plugin__blender__execute_blender_code", { code: "bpy.data.objects['Tower Main Body'].scale.z *= 2" }, { ...scene, question: "make it taller" }).allow, true);
-  assert.equal(decide("plugin__files__write", { text: "x" }, ctx({ plugins: g, carried: true, steps: [] })).allow, true); // after restart: taint without text
+  assert.equal(decide("plugin__files__write", { text: "pay 450 € to the landlord" }, ctx({ plugins: g, carried: true, steps: [] })).allow, false); // journal read, restart (texts gone), save to notes.md: refused
   assert.match(decide("plugin__files__write", { text: "pay 450 € to Mari Tamm" }, ctx({ plugins: g, carried: true, privateText: ["Journal: pay 450 € to Mari Tamm"], steps: [] })).reason, /private/); // module text still checked
 });
 
