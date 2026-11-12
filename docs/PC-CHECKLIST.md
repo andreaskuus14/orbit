@@ -69,6 +69,15 @@ Only name, category, address, city, phone, website and Maps link are kept; revie
 
 Rules: the Google Maps Terms of Service prohibit scraping. Running gosom is your own decision and your own risk; ORBIT only reads the file you give it. B2B only, never consumer emails. GDPR legitimate interest: ORBIT adds the opt-out line and a [postal address] placeholder to every draft for these leads, and won't send one without the opt-out line.
 
+## 4c. Customer chat on client sites (Chatwoot)
+
+ORBIT drafts replies to site-chat messages; you read, edit and click **Send to customer** in BUSINESS → Niches → Customer chats. Nothing is sent without that click.
+
+1. Run Chatwoot with Docker (official compose, about 2 GB RAM): `curl -fsSL -o docker-compose.yaml https://raw.githubusercontent.com/chatwoot/chatwoot/develop/docker-compose.production.yaml`, `curl -fsSL -o .env https://raw.githubusercontent.com/chatwoot/chatwoot/develop/.env.example`, set `SECRET_KEY_BASE`, `FRONTEND_URL` and the Postgres password in `.env`, then `docker compose run --rm rails bundle exec rails db:chatwoot_prepare` and `docker compose up -d`. Open it, create the account, add a **Website** inbox and paste its widget script into the client site.
+2. In Chatwoot: Profile → Access Token → copy it. ORBIT `.env.local`: `CHATWOOT_URL=` (e.g. http://localhost:3000 of Chatwoot), `CHATWOOT_API_TOKEN=`, `CHATWOOT_WEBHOOK_SECRET=` (a random string, 16+ chars, e.g. `openssl rand -hex 24`). Restart ORBIT.
+3. Chatwoot → Settings → Integrations → Webhooks → Add: URL `https://<ORBIT host>/api/business/chatwoot?secret=<CHATWOOT_WEBHOOK_SECRET>`, tick **Message created**. Chatwoot must reach ORBIT (same PC: `http://host.docker.internal:<ORBIT port>/...`).
+4. Check: send a chat from the site widget; within a minute a draft shows under Customer chats. Send it and see it appear in the widget. Wrong or missing secret → 401; with no secret set ORBIT refuses every call.
+
 ## 5. If something fails, send Claude
 
 - The step number and what you expected.

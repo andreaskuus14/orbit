@@ -1,7 +1,7 @@
 "use client";
 import { OrbitThinks } from "./OrbitThinks";
 import RivalsBox from "./RivalsBox";
-import ComplaintsBox from "./ComplaintsBox";
+import ComplaintsBox, { ChatsBox } from "./ComplaintsBox";
 import WhatIf from "./WhatIf";
 import { useCallback, useEffect, useState } from "react";
 import { pollMs } from "@/lib/poll-pure";
@@ -39,6 +39,7 @@ export default function NicheCards() {
         <h3 className="text-[11px] uppercase tracking-widest muted">Webshop niches · weekly scout</h3>
         <button className="chip" disabled={any} onClick={() => void act("scout", { action: "scout" })}>{b?.busy === "scout" ? "Scouting the web… (a few minutes)" : "Scout now"}</button>
       </div>
+      <ChatsBox />
       {b && <p className="muted text-xs">Last run {day(b.lastOk)}. Ideas need 2+ links CORE really read; margins are estimates, check them before spending.</p>}
       {b?.lastError && !b.busy && <p className="muted text-xs">Last attempt: {b.lastError}</p>}
       {err && <p className="error" role="alert">{err}</p>}
