@@ -307,6 +307,7 @@ export async function deactivateStripeLink(id: string, key: string | undefined, 
     const r = await f(`https://api.stripe.com/v1/payment_links/${id}`, {
       method: "POST", body: new URLSearchParams({ active: "false" }),
       headers: { authorization: `Bearer ${key}`, "content-type": "application/x-www-form-urlencoded", "stripe-version": STRIPE_VERSION },
+      signal: AbortSignal.timeout(10_000), // a hung Stripe call must not hold his click
     });
     return r.ok ? "" : `Stripe answered ${r.status}`;
   } catch { return "Stripe unreachable"; }
@@ -316,6 +317,7 @@ export const linkToRetire = (before: Invoice, after: Invoice | string) =>
   typeof after !== "string" && before.payLinkId && after.payLinkId !== before.payLinkId ? before.payLinkId : null;
 /** Save a created link only if the invoice still charges what the link charges. */
 export function saveStripeLink(i: Invoice, link: StripeLink, now: number): Invoice | string {
+  if (i.status === "paid") return "This invoice is already paid";
   if (totals(i).gross !== link.gross) return "The invoice total changed while the link was made: create it again";
   const next = setPayUrl(i, link.url, now);
   return typeof next === "string" ? next : { ...next, payLinkId: link.id };

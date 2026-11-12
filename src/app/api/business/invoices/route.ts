@@ -11,6 +11,12 @@ export const dynamic = "force-dynamic";
 // Nothing is sent except "approve", his click on a reminder draft he read.
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 const out = (r: unknown) => (typeof r === "string" ? (r ? fail(r, r === "Not found" ? 404 : 400) : Response.json({ ok: true })) : Response.json({ result: r }));
+/** [result, warning]: a switch-off that failed reaches him as ok:false + warning, on success or refusal alike. */
+const outWarn = ([r, warning]: [unknown, string]) => {
+  if (!warning) return out(r);
+  if (typeof r === "string" && r) return fail(`${r}. ${warning}`, r === "Not found" ? 404 : 400);
+  return Response.json({ ...(typeof r === "string" ? {} : { result: r }), ok: false, warning });
+};
 
 export async function GET(req: Request) {
   const { res } = await requireUser();
@@ -35,14 +41,14 @@ export async function POST(req: Request) {
     switch (b.action) {
       case "seller": return out(await saveSeller(b));
       case "create": return out(await createFrom(sb, user.id, b));
-      case "edit": return out(await editDraft(sb, user.id, b));
-      case "status": return out(await changeStatus(sb, user.id, b));
-      case "delete": return out(await deleteDraft(b.id));
+      case "edit": return outWarn(await editDraft(sb, user.id, b));
+      case "status": return outWarn(await changeStatus(sb, user.id, b));
+      case "delete": return outWarn(await deleteDraft(sb, user.id, b.id));
       case "refund": case "unrefund": return out(await refundInvoice(b));
       case "remind": return out(await draftReminder(b));
       case "drop": return out(await dropReminder(b.id));
-      case "paylink": return out(await savePayLink(sb, user.id, b));
-      case "stripelink": return out(await makeStripeLink(sb, user.id, b));
+      case "paylink": return outWarn(await savePayLink(sb, user.id, b));
+      case "stripelink": return outWarn(await makeStripeLink(sb, user.id, b));
       case "approve": return approveReminder(sb, user.id, b.id, b.seen);
       default: return fail("action must be seller, create, edit, status, refund, unrefund, delete, remind, drop, paylink, stripelink or approve");
     }

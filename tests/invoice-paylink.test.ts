@@ -112,3 +112,7 @@ test("(a) a refused save leaves the new link to switch off, and a retry asks Str
   await stripePayLink({ ...sent, updated: "2026-10-26T11:00:00.000Z" }, "sk_live_x", f);
   assert.notEqual(keys[0], keys[1]);
 });
+
+test("a paid invoice refuses a just-created Stripe link", () => {
+  assert.equal(saveStripeLink({ ...sent, status: "paid" }, { url: "https://buy.stripe.com/x", gross: 62000, id: "plink_9" }, NOW), "This invoice is already paid");
+});
