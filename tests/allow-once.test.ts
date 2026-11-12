@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { decide, policyEvent, TIERS, NO_MODEL_ONCE, type PolicyCtx, type AllowOnceHook } from "../src/lib/policy-pure.ts";
-import { allowOnceBook, ALLOW_ONCE_MS, egressKey } from "../src/lib/allow-once-pure.ts";
+import { decide, policyEvent, TIERS, NO_MODEL_ONCE, EGRESS_CLASS, LINK_TOOLS, LEAK_TOOLS, type PolicyCtx, type AllowOnceHook } from "../src/lib/policy-pure.ts";
+import { allowOnceBook, ALLOW_ONCE_MS, egressKey, visible } from "../src/lib/allow-once-pure.ts";
 import { phraseHashes, hashLeak } from "../src/lib/phrase-hash-pure.ts";
 import { mergeTaint, parseTaint } from "../src/lib/durable-pure.ts";
 
@@ -104,21 +104,46 @@ test("a grant that vanishes between has() and take() refuses; other checks still
   assert.equal(decide(SAVE, { text: JOURNAL }, { ...ctx, stopAll: true }).allow, false);
 });
 
-test("journal/LIFE text: model-bound tools are a hard refusal (no card); local-plugin-only text can be allowed once", () => {
+test("private text to any model-bound tool is a hard refusal (no card), journal or local-plugin; non-model destinations keep Allow once", () => {
   const b = allowOnceBook();
-  const q = { query: "argued with my sister about the old flat" };
-  for (const tool of ["web_search", "ask_agent", "local_tts", "local_image"]) {
-    const d = decide(tool, tool === "ask_agent" ? { agent: "atlas", task: q.query } : tool === "web_search" ? q : { text: q.query }, jctx(b));
-    assert.equal(d.allow, false, tool); assert.equal(d.allowOnce, undefined, tool); assert.ok(d.reason.includes(NO_MODEL_ONCE), tool);
-  }
   const lctx: PolicyCtx = { ...base, carried: true, carriedKind: "local", carriedLocalHashes: phraseHashes([LOCAL], KEY), allowOnce: hook(b, "c1", () => 1_000) };
-  const lq = { query: "meeting notes from the shared drive folder" };
-  const d = decide("web_search", lq, lctx);
-  assert.equal(d.allow, false); assert.ok(d.allowOnce?.id); assert.equal(d.allowOnce.journal, true); // warning still shown
+  for (const ctx of [jctx(b), lctx]) {
+    const text = ctx === lctx ? "meeting notes from the shared drive folder" : "argued with my sister about the old flat";
+    for (const tool of ["web_search", "ask_agent", "local_tts", "local_image", "ws_picture_draft", "ws_inspire_image"]) {
+      const d = decide(tool, { query: text, task: text, text, brief: text, prompt: text, agent: "atlas", workspace: "site" }, { ...ctx, question: "go" });
+      assert.equal(d.allow, false, tool); assert.equal(d.allowOnce, undefined, tool);
+      if (d.egress === false) assert.ok(d.reason.includes(NO_MODEL_ONCE), tool);
+    }
+  }
+  const d = decide(SEND, { body: LOCAL }, lctx); // local-plugin text to a remote plugin (not a model): card
+  assert.ok(d.allowOnce?.id); assert.equal(d.allowOnce.journal, true);
   b.grant(d.allowOnce.id, 1_000);
-  assert.equal(decide("web_search", lq, lctx).allow, true);
+  assert.equal(decide(SEND, { body: LOCAL }, lctx).allow, true);
   const att = decide(SEND, { body: "write to mari@example.com" }, { ...base, attach: true, allowOnce: hook(b, "c1", () => 1_000) });
   assert.equal(att.allowOnce?.journal, true); // first-turn attachment: warned
+});
+
+test("every outbound tool is classified model or web", () => {
+  for (const t of [...LINK_TOOLS, ...LEAK_TOOLS]) assert.ok(EGRESS_CLASS[t], t);
+  for (const t of ["ask_agent", "web_search", "local_tts", "local_image", "ws_picture_draft", "ws_inspire_image", "read_news", "find_outliers"]) assert.equal(EGRESS_CLASS[t], "model", t);
+});
+
+test("card text: control, zero-width and bidi characters are shown, not applied", () => {
+  assert.equal(visible("a\u202Eb\u200Bc\u0007d\ne"), "a⟦U+202E⟧b⟦U+200B⟧c⟦U+0007⟧d\ne");
+  const b = allowOnceBook(), r = decide(SEND, { to: "x\u202E@evil.com", text: JOURNAL }, jctx(b));
+  const v = b.view(r.allowOnce!.id, 1_000)!;
+  assert.ok(v.destination.includes("⟦U+202E⟧") && !v.destination.includes("\u202E"));
+});
+
+test("key missing, empty or wrong length while hashes exist: fails closed, never regenerated", async () => {
+  const f = path.join(process.env.ORBIT_DATA_DIR!, "taint-hash.key");
+  await rm(f);
+  assert.throws(() => hashKey(), /missing/); // chat-j holds hashes
+  await writeFile(f, ""); assert.throws(() => hashKey(), /length/);
+  await writeFile(f, KEY.subarray(0, 16)); assert.throws(() => hashKey(), /length/);
+  // core.ts: no key → carried chat is "unknown" → a journal phrase to web_search is refused
+  assert.equal(decide("web_search", { query: "argued with my sister about the old flat" }, { ...base, carried: true, carriedKind: "unknown" }).allow, false);
+  await writeFile(f, KEY, { mode: 0o600 }); assert.ok(hashKey().equals(KEY));
 });
 
 test("unknown plugin tool: plain refusal, no card, and the ledger never gets the model's name", () => {

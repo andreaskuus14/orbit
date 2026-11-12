@@ -114,8 +114,16 @@ export const TOOL_AREA: Record<string, Area> = {
 // Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, BUSINESS (private: true), WEEK (private: true), ORGANIZE lead_update + life_plan.
 // shortcut: hand-copied because core-modules.ts can't load under node --test; update both when a module's private flag changes.
 export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "business_status", "week_review", "lead_update", "life_plan"];
-const LINK_TOOLS = ["browse", "watch_add", "fetch_url", "scrape_page", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft"];
-const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "find_outliers", "local_tts", "local_image"]; // local_tts/local_image: journal/LIFE text never goes to a model, local ones included
+// Where each outbound tool's text goes: "model" = any model (agents, search/news/outlier pipelines, local TTS/image models, image
+// prompts to ComfyUI/Pollinations/Higgsfield). Private text in a model-bound call is a hard refusal: Allow once never unlocks it.
+export const EGRESS_CLASS: Record<string, "model" | "web"> = {
+  ask_agent: "model", read_news: "model", web_search: "model", find_outliers: "model", local_tts: "model", local_image: "model",
+  ws_inspire_image: "model", ws_picture_draft: "model",
+  browse: "web", watch_add: "web", fetch_url: "web", scrape_page: "web", reach_read: "web", ws_fetch_image: "web",
+};
+export const MODEL_TOOLS = Object.keys(EGRESS_CLASS).filter((t) => EGRESS_CLASS[t] === "model");
+export const LINK_TOOLS = ["browse", "watch_add", "fetch_url", "scrape_page", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft"];
+export const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "find_outliers", "local_tts", "local_image"]; // local_tts/local_image: journal/LIFE text never goes to a model, local ones included
 
 // Text from outside ORBIT (pages, news, search hits, agent results, prospect mail, attached files) can't start an agent task by itself.
 // Includes every read tool whose own description calls its output third-party data: calendar invites, Idea Radar's video text,
@@ -209,20 +217,18 @@ export const UNKNOWN_TAINT = "this chat held private data before ORBIT restarted
 const carriedHit = (input: Record<string, unknown> | undefined, ctx: PolicyCtx, local: boolean, question: string) =>
   hashLeak(outgoing(input ?? {}), [...(ctx.carriedHashes ?? []), ...(local ? [] : ctx.carriedLocalHashes ?? [])], Buffer.from(ctx.hashKey ?? ""), question);
 
-/** Private text in this call's context that may be journal/LIFE (or unknown): his modules, an earlier private turn, carried text.
- *  Local-plugin output alone, attachments and pins are not (they still get the card's warning). */
-export const journalIn = (ctx: PolicyCtx) => (!!ctx.carried && ctx.carriedKind !== "local") || !!ctx.privateText?.length || called(ctx.steps, [...(ctx.privateTools ?? PRIVATE_TOOLS)]);
-/** Any private source at all: the card warns. */
-const anyPrivate = (ctx: PolicyCtx) => journalIn(ctx) || ctx.attach || ctx.pins || !!ctx.carried || !!ctx.localText?.length || localPluginReads(ctx).length > 0;
-export const NO_MODEL_ONCE = "Journal/LIFE text never goes to a model (owner rule), so this call can't be allowed once; retry without that text";
+/** Any private source in context (modules, attachments, pins, carried text, local-plugin output): the card warns it may be journal/LIFE. */
+const anyPrivate = (ctx: PolicyCtx) => ctx.attach || ctx.pins || !!ctx.carried || !!ctx.privateText?.length || !!ctx.localText?.length || called(ctx.steps, privateToolsIn(ctx));
+export const NO_MODEL_ONCE = "Journal/LIFE text never goes to a model (owner rule), and any private text here may be from it, so this call can't be allowed once; retry without that text";
 
 /** decide() plus "Allow once": an egress refusal offers the owner's card; a call he allowed runs every other check again, then uses it up. */
 export function decide(tool: string, input: Record<string, unknown> | undefined, ctx: PolicyCtx): Decision {
   const d = decideRaw(tool, input, { ...ctx, egressAllowed: false });
   const once = ctx.allowOnce;
   if (d.allow || !d.egress) return d;
-  // model-bound tools (agents, search, local models) never get journal/LIFE text, not even with his click (AGENTS.md rule 6)
-  if (LEAK_TOOLS.includes(tool) && journalIn(ctx)) return { ...d, egress: false, reason: `${d.reason}. ${NO_MODEL_ONCE}` };
+  // model-bound tools never get private text, not even with his click (AGENTS.md rule 6): attachments, pins and local-plugin
+  // output count too, since any of them may hold journal/LIFE text
+  if (EGRESS_CLASS[tool] === "model") return { ...d, egress: false, reason: `${d.reason}. ${NO_MODEL_ONCE}` };
   if (!once) return d;
   if (once.has(tool, input ?? {})) {
     const d2 = decideRaw(tool, input, { ...ctx, egressAllowed: true });

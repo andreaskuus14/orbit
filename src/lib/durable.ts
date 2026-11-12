@@ -176,13 +176,18 @@ const ag = globalThis as unknown as { __orbitAllowOnce?: AllowOnceBook };
 export const allowOnce: AllowOnceBook = (ag.__orbitAllowOnce ??= allowOnceBook());
 
 // taint-hash.key: per-install HMAC key for core-taint.json phrase hashes (phrase-hash-pure), created on first use, owner-only perms.
-let hk: Buffer | undefined;
 export function hashKey(): Buffer {
-  if (hk) return hk;
-  const f = file("taint-hash.key");
-  try { hk = readFileSync(f); if (hk.length >= 32) return hk; } catch { /* first use */ }
-  const k = randomBytes(32);
-  try { mkdirSync(orbitDataDir(), { recursive: true }); writeFileSync(f, k, { mode: 0o600, flag: "wx" }); hk = k; }
-  catch { hk = readFileSync(f); } // another process created it first (wx): use theirs; a read error throws (callers fail closed)
-  return hk;
+  const f = file("taint-hash.key"); // read each time (32 bytes): a key removed later is noticed, not served from memory
+  let k: Buffer | undefined;
+  try { k = readFileSync(f); }
+  catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; // unreadable: callers fail closed
+    // missing while chats still hold hashes made with the lost key: never regenerate silently (those checks would pass everything)
+    if (taintBroken() || Object.values(taint()).some((t) => t.p?.length || t.l?.length)) throw new Error("taint-hash.key is missing but core-taint.json has hashes");
+    k = randomBytes(32);
+    mkdirSync(orbitDataDir(), { recursive: true });
+    try { writeFileSync(f, k, { mode: 0o600, flag: "wx" }); } catch { k = readFileSync(f); } // another process won (wx): use theirs
+  }
+  if (k.length !== 32) throw new Error("taint-hash.key has the wrong length"); // empty / truncated / tampered: fail closed
+  return k;
 }

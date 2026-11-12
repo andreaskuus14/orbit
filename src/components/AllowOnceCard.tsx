@@ -20,9 +20,9 @@ export function AllowOnceCard({ id, tool, journal, onRetry }: { id: string; tool
   return (
     <section className="card mt-2 space-y-1 text-xs" role="group" aria-label={t("once.title", { tool })}>
       <b>{t("once.title", { tool })}</b>
+      {view && <p>{t("once.dest")} <b className="break-all">{view.destination}</b></p>}
       {journal && <p className="error" role="alert">{t("once.journal")}</p>}
-      {view && <><p>{t("once.dest")} <b className="break-all">{view.destination}</b></p>
-        <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[0.65rem]" aria-label={t("once.args")}>{view.args}</pre></>}
+      {view && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[0.65rem]" aria-label={t("once.args")}>{view.args}</pre>}
       {state === "done" ? <div className="flex flex-wrap items-center gap-2"><span className="ok">{t("once.done")}</span><button type="button" className="chip" onClick={onRetry}>{t("once.retry")}</button></div>
         : <div className="flex flex-wrap items-center gap-2"><button type="button" className="chip" disabled={state === "busy" || !view} onClick={() => void allow()}>{t("once.allow")}</button>
           {state !== "idle" && state !== "busy" && <span className="error">{state}</span>}</div>}

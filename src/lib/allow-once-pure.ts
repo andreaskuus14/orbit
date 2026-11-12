@@ -11,6 +11,8 @@ const sorted = (v: unknown): unknown => Array.isArray(v) ? v.map(sorted)
 /** The exact arguments as the card shows them: sorted keys, full text. */
 export const argsText = (input: unknown) => JSON.stringify(sorted(input ?? {}), null, 2);
 export const egressKey = (tool: string, input: unknown) => createHash("sha256").update(`${tool}\n${argsText(input)}`).digest("hex");
+/** Control, zero-width and bidi characters made visible (U+202E etc. can disguise what the card shows). */
+export const visible = (t: string) => t.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g, (c) => `⟦U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}⟧`);
 /** Activity target of an allowed call: the plugin's server, or the tool itself. */
 export const egressTarget = (tool: string) => tool.startsWith("plugin__") ? tool.split("__")[1] ?? tool : tool;
 const DEST = /^(?:to|cc|bcc|recipients?|email|address|url|link|href|uri|target|channel|chat|path|file|folder|workspace|agent|host|domain|query)$/i;
@@ -29,7 +31,7 @@ export function allowOnceBook() {
     /** a refusal card: returns the id the card's button sends (the input stays on the server) */
     offer(tool: string, input: unknown, chat: string, journal: boolean, now = Date.now()) { sweep(now); const id = randomUUID(); offers.set(id, { tool, input: structuredClone(input ?? {}), chat, journal, at: now }); return id; },
     /** what the card shows for an offer (route GET, signed-in owner): tool, destination and the exact arguments */
-    view(id: string, now = Date.now()) { sweep(now); const o = offers.get(id); return o ? { tool: o.tool, destination: destination(o.tool, o.input), args: argsText(o.input), journal: o.journal } : null; },
+    view(id: string, now = Date.now()) { sweep(now); const o = offers.get(id); return o ? { tool: o.tool, destination: visible(destination(o.tool, o.input)), args: visible(argsText(o.input)), journal: o.journal } : null; },
     /** the owner's click (route only): the offer's own stored input becomes a single-use grant for the next 10 minutes */
     grant(id: string, now = Date.now()): { tool: string; journal: boolean } | null {
       sweep(now); const o = offers.get(id); if (!o) return null;
