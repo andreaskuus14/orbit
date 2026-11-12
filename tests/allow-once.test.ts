@@ -157,7 +157,13 @@ test("background-work tools: journal text in the chat ⇒ refused without a card
 
 test("lead_*: the BUSINESS record name is not private text for lead tools; journal text in a note still is", () => {
   const steps = ["You called business_status {}\nRESULT:\nMari Tamm (lead) mari@example.com"];
-  assert.equal(decide("lead_update", { lead: "Mari Tamm", stage: "contacted" }, { ...base, steps, question: "mark Mari Tamm as contacted" }).allow, true);
+  // the email is only in the BUSINESS result, not his message: before the fix that refused it (the ops guard needs the lead named)
+  assert.equal(decide("lead_update", { lead: "Mari Tamm", stage: "contacted", note: "mailed mari@example.com" }, { ...base, steps, question: "mark Mari Tamm as contacted" }).allow, true);
+  const J = "argued with my sister about the old flat", jc = { ...jctx(allowOnceBook()), question: "add these leads" };
+  for (const input of [{ name: J, source_url: "https://example.com" }, { leads: [{ name: J, source_url: "https://example.com" }] }]) {
+    const d = decide("lead_create", input, jc);
+    assert.equal(d.allow, false, JSON.stringify(input)); assert.ok(d.reason.includes(NO_MODEL_ONCE));
+  }
   assert.equal(decide("lead_update", { lead: "Mari Tamm", note: "argued with my sister about the old flat" }, { ...jctx(allowOnceBook()), steps, question: "add a note to Mari Tamm" }).allow, false);
 });
 

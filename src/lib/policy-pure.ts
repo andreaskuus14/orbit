@@ -142,8 +142,8 @@ export const EGRESS_CLASS: Record<string, "model" | "web" | "none"> = {
   ws_stop: "none", vault_move: "none", vault_rename: "none", life_plan: "none", automation_pause: "none", studio_drafts: "none", roblox_export: "none",
   roblox_lint: "none", save_decision: "none", watch_list: "none", watch_changes: "none", daily_runs: "none",
 };
-// lead_*: the lead selector/name/contact are BUSINESS's own record keys (business_status shows them), so only free-text fields are
-// scanned and BUSINESS results don't count as private for them; journal/LIFE/attachment text in a note is still refused.
+// lead_update: the lead selector is BUSINESS's own record key (business_status shows it), so only its free-text fields are scanned;
+// for both lead tools BUSINESS results don't count as private (lead_create scans its whole input); journal/LIFE/attachment text in a note is still refused.
 const LEAD_TEXT = ["note", "next", "notes"], LEAD_OWN = ["business_status", "lead_update", "lead_create"];
 const isLead = (t: string) => t === "lead_create" || t === "lead_update";
 const leadText = (input: Record<string, unknown>) => (Array.isArray(input.leads) ? input.leads : [input]).map((l) => Object.fromEntries(Object.entries((l ?? {}) as Record<string, unknown>).filter(([k]) => LEAD_TEXT.includes(k))));
@@ -299,7 +299,7 @@ function decideRaw(tool: string, input: Record<string, unknown> | undefined, ctx
   const egressIn = isLead(tool) ? !!ctx.carried || called(ctx.steps, egressPriv) : privateIn;
   if (!ctx.egressAllowed && (ctx.attach || ctx.pins || egressIn || !!ctx.privateText?.length || !!ctx.localText?.length) && (EGRESS_CLASS[tool] ?? "model") !== "none") {
     const texts = [...(ctx.privateText ?? []), ...(ctx.localText ?? []), ...privateResults(ctx.steps, egressPriv)];
-    const scan = isLead(tool) ? { leads: leadText(input ?? {}) } : input;
+    const scan = tool === "lead_update" ? { leads: leadText(input ?? {}) } : input; // lead_create: every field reaches outreach/research prompts
     if (ctx.carried && ctx.carriedKind === "unknown") return { ...no(UNKNOWN_TAINT), egress: true };
     const hit = outboundLeak(outgoing(scan ?? {}), texts, question, !texts.length) || (ctx.carried ? carriedHit(scan, ctx, false, question) : "");
     if (hit) return { ...no(`this ${tool} call would send private text out: "${hit.slice(0, 80)}" (from the user's private notes, journal or files). The tool is allowed: retry with a generic query/brief without that text, and if you can't, tell the user exactly which text blocked it; never tell the user to do the search himself`), egress: true };
