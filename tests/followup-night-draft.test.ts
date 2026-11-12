@@ -8,6 +8,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import * as nightPure from "../src/lib/night-pure.ts";
 import * as biz from "../src/lib/business-pure.ts";
+import * as leadPure from "../src/lib/lead-loop-pure.ts";
 import { nightFollowupDraft, type NightReport } from "../src/lib/night-pure.ts";
 
 const req = createRequire(import.meta.url);
@@ -47,6 +48,7 @@ function route(o: { stage?: string; night?: unknown; stopAll?: boolean } = {}) {
     if (name === "@/lib/prospect-crm") return { crmOf: () => ({ events: [] }), loadCrm: async () => ({}), logEvent() {}, updateCrm: async () => {} };
     if (name === "@/lib/prospect-crm-pure") return { touch: () => null };
     if (name === "@/lib/business-pure") return biz;
+    if (name === "@/lib/lead-loop-pure") return leadPure;
     if (name === "@/lib/night-pure") return nightPure;
     if (name === "@/lib/night") return { getNightReport: async () => night };
     return req(name);
