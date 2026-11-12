@@ -35,13 +35,13 @@ export async function POST(req: Request) {
     switch (b.action) {
       case "seller": return out(await saveSeller(b));
       case "create": return out(await createFrom(sb, user.id, b));
-      case "edit": return out(await editDraft(b));
+      case "edit": return out(await editDraft(sb, user.id, b));
       case "status": return out(await changeStatus(sb, user.id, b));
       case "delete": return out(await deleteDraft(b.id));
       case "refund": case "unrefund": return out(await refundInvoice(b));
       case "remind": return out(await draftReminder(b));
       case "drop": return out(await dropReminder(b.id));
-      case "paylink": return out(await savePayLink(b));
+      case "paylink": return out(await savePayLink(sb, user.id, b));
       case "stripelink": return out(await makeStripeLink(sb, user.id, b));
       case "approve": return approveReminder(sb, user.id, b.id, b.seen);
       default: return fail("action must be seller, create, edit, status, refund, unrefund, delete, remind, drop, paylink, stripelink or approve");

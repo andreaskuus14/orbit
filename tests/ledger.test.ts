@@ -44,6 +44,8 @@ const DATA: Record<string, object> = {
   "company.step": { chain: "c1", role: "writer", status: "approval" },
   "invoice.status": { invoice: "i1", to: "paid" },
   "invoice.reminder": { invoice: "i1", via: "copy" },
+  "invoice.paylink": { invoice: "i1", via: "stripe" },
+  "invoice.paylink_off": { invoice: "i1", ok: false },
   "focus.start": { focus: "f1", minutes: 50 },
   "focus.end": { focus: "f1", minutes: 48 },
   "model.run": { kind: "core", job: "core", model: "opus", risky: true, why: ["save_memory"] },

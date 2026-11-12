@@ -28,6 +28,7 @@ export type Invoice = {
   pushedAt?: string; // last phone push about its waiting reminder (once a week at most)
   refunds?: Refund[]; // money he paid back on a paid invoice (BUS06); counted on its own day, never hidden in "paid"
   payUrl?: string; // his card-payment link (Stripe Payment Link / PayPal.me), shown in reminders and on the PDF
+  payLinkId?: string; // the Stripe Payment Link id behind payUrl when ORBIT made it, so it can be switched off
   created: string; updated: string;
 };
 export type Refund = { day: string; cents: number; note: string; at: string }; // cents: gross (with VAT), as he paid it back
@@ -133,7 +134,7 @@ export function editInvoice(i: Invoice, b: Record<string, unknown>, now: number)
   if (next.due < next.issued) return "Due date can't be before the invoice date";
   if (b.notes !== undefined) next.notes = clean(b.notes, 500);
   if (totals(next).gross > MAX_CENTS) return "That total is too large";
-  if (next.payUrl && totals(next).gross !== totals(i).gross) delete next.payUrl; // the old link would charge the old amount
+  if (next.payUrl && totals(next).gross !== totals(i).gross) { delete next.payUrl; delete next.payLinkId; } // the old link would charge the old amount
   next.updated = new Date(now).toISOString();
   return next;
 }
@@ -181,7 +182,8 @@ export function setStatus(i: Invoice, to: unknown, now: number, s: Seller | null
     if (i.status !== "sent") return "Mark it sent first";
     const day = paidOn === undefined || paidOn === "" ? dayKey(new Date(now), "Europe/Tallinn") : paidOn; // his Tallinn day, whatever the server zone
     if (!isDay(day)) return "Paid date must be YYYY-MM-DD";
-    return { ...i, status: "paid", paidAt: day, reminder: null, updated: at };
+    const { payUrl: _u, payLinkId: _l, ...rest } = i; // paid: the card link must not take a second payment
+    return { ...rest, status: "paid", paidAt: day, reminder: null, updated: at };
   }
   if (to === "draft") {
     if (i.status !== "sent" || i.reminded.length) return "Only a sent invoice with no reminders can go back to draft";
@@ -264,6 +266,7 @@ export function setPayUrl(i: Invoice, v: unknown, now: number): Invoice | string
   const u = parsePayUrl(v);
   if (typeof u !== "string") return u.error;
   const next = { ...i, updated: new Date(now).toISOString() };
+  delete next.payLinkId; // a pasted (or cleared) link is not one ORBIT made
   if (u) next.payUrl = u; else delete next.payUrl;
   return next;
 }
@@ -279,7 +282,7 @@ export const stripeLinkBody = (i: Invoice) => new URLSearchParams({
 });
 /** Only on his click: create a Stripe Payment Link. Refuses without a live key; the key never goes into an error or log.
  *  Returns the link with the gross it charges, so the caller saves it only if the invoice still has that total. */
-export async function stripePayLink(i: Invoice, key: string | undefined, f: typeof fetch): Promise<{ url: string; gross: number } | { error: string }> {
+export async function stripePayLink(i: Invoice, key: string | undefined, f: typeof fetch): Promise<StripeLink | { error: string }> {
   if (!key) return { error: "STRIPE_SECRET_KEY isn't set: paste a link instead" };
   if (!/^(sk|rk)_live_/.test(key)) return { error: "STRIPE_SECRET_KEY is not a live key: a test link can't take a real payment" }; // fail closed
   if (i.status === "paid") return { error: "This invoice is already paid" };
@@ -287,17 +290,35 @@ export async function stripePayLink(i: Invoice, key: string | undefined, f: type
   if (gross <= 0) return { error: "The invoice total is zero" };
   const r = await f("https://api.stripe.com/v1/payment_links", {
     method: "POST", body: stripeLinkBody(i),
-    headers: { authorization: `Bearer ${key}`, "content-type": "application/x-www-form-urlencoded", "stripe-version": STRIPE_VERSION, "idempotency-key": `orbit-inv-${i.id}-${gross}` },
+    headers: { authorization: `Bearer ${key}`, "content-type": "application/x-www-form-urlencoded", "stripe-version": STRIPE_VERSION, "idempotency-key": `orbit-inv-${i.id}-${gross}-${i.updated}` }, // updated: a retry after a refused save makes a fresh link
   });
-  const j = (await r.json().catch(() => ({}))) as { url?: string; error?: { message?: string } };
+  const j = (await r.json().catch(() => ({}))) as { url?: string; id?: string; error?: { message?: string } };
   if (!r.ok) return { error: `Stripe refused: ${String(j.error?.message ?? r.status).slice(0, 200)}` };
   const u = parsePayUrl(j.url);
-  return typeof u === "string" && u ? { url: u, gross } : { error: "Stripe returned no usable link" };
+  return typeof u === "string" && u && typeof j.id === "string" && LINK_ID.test(j.id) ? { url: u, gross, id: j.id } : { error: "Stripe returned no usable link" };
 }
+export type StripeLink = { url: string; gross: number; id: string };
+const LINK_ID = /^plink_[A-Za-z0-9]{1,100}$/;
+/** Best effort, only after his click: switch a Payment Link off so it can't take money. "" = done, else why not (the key never appears). */
+export async function deactivateStripeLink(id: string, key: string | undefined, f: typeof fetch): Promise<string> {
+  if (!LINK_ID.test(id)) return "not a payment link id";
+  if (!key || !/^(sk|rk)_live_/.test(key)) return "no live STRIPE_SECRET_KEY";
+  try {
+    const r = await f(`https://api.stripe.com/v1/payment_links/${id}`, {
+      method: "POST", body: new URLSearchParams({ active: "false" }),
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/x-www-form-urlencoded", "stripe-version": STRIPE_VERSION },
+    });
+    return r.ok ? "" : `Stripe answered ${r.status}`;
+  } catch { return "Stripe unreachable"; }
+}
+/** The Stripe link a change of his leaves orphaned (dropped, replaced or paid), to switch off; null = none. */
+export const linkToRetire = (before: Invoice, after: Invoice | string) =>
+  typeof after !== "string" && before.payLinkId && after.payLinkId !== before.payLinkId ? before.payLinkId : null;
 /** Save a created link only if the invoice still charges what the link charges. */
-export function saveStripeLink(i: Invoice, link: { url: string; gross: number }, now: number): Invoice | string {
+export function saveStripeLink(i: Invoice, link: StripeLink, now: number): Invoice | string {
   if (totals(i).gross !== link.gross) return "The invoice total changed while the link was made: create it again";
-  return setPayUrl(i, link.url, now);
+  const next = setPayUrl(i, link.url, now);
+  return typeof next === "string" ? next : { ...next, payLinkId: link.id };
 }
 
 /** The exact email a reminder approval covers (approval-pure contentHash; the panel and Remote hash the same shape). */

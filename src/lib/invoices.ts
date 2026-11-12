@@ -11,7 +11,7 @@ import { emailIn } from "./business-pure";
 import { resendMail } from "./business-send";
 import { localDay } from "./morning-pure";
 import {
-  approveProblem, reminderContent, dashboard, invoicePushes, editInvoice, invoicePdf, newInvoice, parseSeller, readyProblem, reminderDraft, setStatus, addRefund, dropRefund, setPayUrl, stripePayLink, saveStripeLink,
+  approveProblem, reminderContent, dashboard, invoicePushes, editInvoice, invoicePdf, newInvoice, parseSeller, readyProblem, reminderDraft, setStatus, addRefund, dropRefund, setPayUrl, stripePayLink, saveStripeLink, deactivateStripeLink, linkToRetire,
   type From, type Invoice, type Seller,
 } from "./invoices-pure";
 
@@ -55,6 +55,18 @@ const change = (id: unknown, fn: (i: Invoice, s: Store) => Invoice | string) => 
   if (typeof next !== "string") put(s, next);
   return next;
 });
+/** His change, then switch off any Stripe link it orphaned. A failed switch-off never undoes his change: the ledger shows it may still be live. */
+async function ownerChange(sb: SupabaseClient, userId: string, id: unknown, fn: (i: Invoice, s: Store) => Invoice | string, f: typeof fetch = fetch) {
+  let dead: string | null = null;
+  const r = await change(id, (i, s) => { const next = fn(i, s); dead = linkToRetire(i, next); return next; });
+  if (dead && typeof r !== "string") await switchOff(sb, userId, r.id, dead, f);
+  return r;
+}
+async function switchOff(sb: SupabaseClient, userId: string, invoice: string, link: string, f: typeof fetch) {
+  const why = await deactivateStripeLink(link, process.env.STRIPE_SECRET_KEY, f);
+  if (why) console.warn("[orbit] Stripe link may still be live:", link, why);
+  void emit(sb, userId, "invoice.paylink_off", "business", { invoice, ok: !why });
+}
 
 export async function invoicesView() {
   const s = await load(), day = today();
@@ -96,7 +108,7 @@ export async function createFrom(sb: SupabaseClient, userId: string, b: Record<s
   return made;
 }
 
-export const editDraft = (b: Record<string, unknown>) => change(b.id, (i) => editInvoice(i, b, Date.now()));
+export const editDraft = (sb: SupabaseClient, userId: string, b: Record<string, unknown>, f?: typeof fetch) => ownerChange(sb, userId, b.id, (i) => editInvoice(i, b, Date.now()), f);
 export const deleteDraft = (id: unknown) => update((s) => {
   const i = s.invoices.find((x) => x.id === id);
   if (!i) return "Not found";
@@ -105,8 +117,8 @@ export const deleteDraft = (id: unknown) => update((s) => {
   return "";
 });
 
-export async function changeStatus(sb: SupabaseClient, userId: string, b: Record<string, unknown>) {
-  const r = await change(b.id, (i, s) => setStatus(i, b.to, Date.now(), s.seller, b.paidOn));
+export async function changeStatus(sb: SupabaseClient, userId: string, b: Record<string, unknown>, f?: typeof fetch) {
+  const r = await ownerChange(sb, userId, b.id, (i, s) => setStatus(i, b.to, Date.now(), s.seller, b.paidOn), f);
   if (typeof r !== "string") void emit(sb, userId, "invoice.status", "business", { invoice: r.id, to: r.status });
   return r;
 }
@@ -119,15 +131,16 @@ export const draftReminder = (b: Record<string, unknown>) => change(b.id, (i, s)
   return typeof r === "string" ? r : { ...i, reminder: r, updated: r.at };
 });
 /** His pasted pay link ({action:"paylink", id, url}; "" clears it). */
-export const savePayLink = (b: Record<string, unknown>) => change(b.id, (i) => setPayUrl(i, b.url, Date.now()));
+export const savePayLink = (sb: SupabaseClient, userId: string, b: Record<string, unknown>, f?: typeof fetch) => ownerChange(sb, userId, b.id, (i) => setPayUrl(i, b.url, Date.now()), f);
 /** His "Create Stripe link" click only (never from Auto, the scheduler or a background job). */
-export async function makeStripeLink(sb: SupabaseClient, userId: string, b: Record<string, unknown>): Promise<Invoice | string> {
+export async function makeStripeLink(sb: SupabaseClient, userId: string, b: Record<string, unknown>, f: typeof fetch = fetch): Promise<Invoice | string> {
   const i = (await load()).invoices.find((x) => x.id === b.id);
   if (!i) return "Not found";
-  const link = await stripePayLink(i, process.env.STRIPE_SECRET_KEY, fetch);
+  const link = await stripePayLink(i, process.env.STRIPE_SECRET_KEY, f);
   if ("error" in link) return link.error;
-  const r = await change(b.id, (cur) => saveStripeLink(cur, link, Date.now())); // re-checked inside the write queue
-  if (typeof r !== "string") void emit(sb, userId, "invoice.paylink", "business", { invoice: r.id, via: "stripe" });
+  const r = await ownerChange(sb, userId, b.id, (cur) => saveStripeLink(cur, link, Date.now()), f); // re-checked inside the write queue; replaces any older link
+  if (typeof r === "string") { await switchOff(sb, userId, i.id, link.id, f); return r; } // refused: the new link must not stay live
+  void emit(sb, userId, "invoice.paylink", "business", { invoice: r.id, via: "stripe" });
   return r;
 }
 export const dropReminder = (id: unknown) => change(id, (i) => ({ ...i, reminder: null }));
