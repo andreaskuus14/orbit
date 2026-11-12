@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { euro } from "@/lib/invoices-pure";
 import { CATEGORIES, FORMS, SOURCES, VAT_RATES, type Deadline, type Expense, type Pnl, type Settings } from "@/lib/money-pure";
 import { localDay } from "@/lib/morning-pure";
+import ReconcilePanel from "./ReconcilePanel";
 
 // Money view (roadmap 3) inside BUSINESS: profit & loss by month/quarter/year from paid invoices, his expenses (receipts kept on
 // this PC) and ORBIT's own spend; VAT owed vs paid per month; Estonian deadlines; CSV for the accountant. Nothing is filed or paid.
@@ -79,6 +80,8 @@ export default function MoneyPanel() {
               onBlur={(e) => { const v = e.target.value.trim(); if (v !== (r.vatPaid ? (r.vatPaid / 100).toFixed(2) : "")) void act(() => post({ action: "vatPaid", month: r.month, amount: v })); }} /></td></tr>)}</tbody>
         </table>
       )}
+
+      <ReconcilePanel />
 
       {st && <Deadlines list={st.deadlines} s={st.settings} />}
 
