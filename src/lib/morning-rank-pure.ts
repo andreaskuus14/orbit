@@ -6,9 +6,9 @@ import { SEVERITIES, isActive, type DevWorld, type Severity } from "./devworld-p
 export const CARD_KINDS = ["task", "goal", "news", "business", "idea"] as const;
 export type CardKind = (typeof CARD_KINDS)[number];
 /** Where a candidate came from: clicks per source are counted (ledger "morning.click"/"morning.done") and quiet sources sink. */
-export const SOURCES = ["work", "goals", "studio", "agents", "markets", "news", "business", "recall", "ideas", "devworld", "arch"] as const;
+export const SOURCES = ["work", "goals", "studio", "agents", "news", "business", "recall", "ideas", "devworld", "arch"] as const;
 export type Source = (typeof SOURCES)[number];
-export type CardPanel = "intelligence" | "markets" | "business" | "studio" | "agents" | "operations" | "creation" | "arch";
+export type CardPanel = "intelligence" | "business" | "studio" | "agents" | "operations" | "creation" | "arch";
 export type CardOpen = { work: WorkItem } | { panel: CardPanel; view?: "review" } | { memory: string };
 // base: 0..1. why: one line on why it matters; action: the primary button's label.
 export type Candidate = { kind: CardKind; key: string; title: string; detail?: string; base: number; open: CardOpen; source?: Source; why?: string; action?: string };
@@ -126,7 +126,7 @@ const BUG_BASE: Record<Severity, number> = { crash: 0.85, major: 0.7, minor: 0.5
  *  dev.recent: the dev world was saved in the last 2 days, so its bugs continue the latest session. */
 export function morningCandidates(x: {
   work?: { items: WorkItem[] }; studioReady?: number; proposals?: string[];
-  headlines?: string[]; alerts?: string[]; followups?: { id: string; name: string }[];
+  headlines?: string[]; followups?: { id: string; name: string }[];
   recall?: { id: string; title: string; label: string }[]; ideas?: { id: string; title: string; next: string; score: number }[];
   deadlines?: Deadline[]; dev?: { bugs: DevBug[]; recent: boolean }; archLesson?: { id: string; title: string };
 }): Candidate[] {
@@ -144,7 +144,6 @@ export function morningCandidates(x: {
   }));
   if (x.studioReady) out.push({ kind: "task", key: "studio:review", title: `Review ${x.studioReady} new clip${x.studioReady === 1 ? "" : "s"}`, base: 0.7, open: { panel: "studio", view: "review" }, source: "studio", why: "New clips are waiting in the review queue", action: "Review clips" });
   if (x.proposals?.length) out.push({ kind: "task", key: "agents:proposals", title: `Approve or dismiss ${x.proposals.length} agent proposal${x.proposals.length === 1 ? "" : "s"}`, detail: x.proposals[0], base: 0.65, open: { panel: "agents" }, source: "agents", why: "Agents are waiting for your yes or no", action: "Open proposals" });
-  (x.alerts ?? []).forEach((a, i) => out.push({ kind: "news", key: cardKey("alert", a), title: a, detail: "Market alert fired today", base: 0.75 - i * 0.05, open: { panel: "markets" }, source: "markets", why: "A price alert fired today", action: "Open MARKETS" }));
   (x.headlines ?? []).forEach((h, i) => out.push({ kind: "news", key: cardKey("news", h), title: h, detail: "From today's briefing", base: 0.6 - i * 0.1, open: { panel: "intelligence" }, source: "news", why: "Top story in today's briefing", action: "Read it" }));
   (x.followups ?? []).forEach((p, i) => out.push({ kind: "business", key: cardKey("prospect", p.id), title: `Follow up with ${p.name}`, detail: "No reply after 4+ days", base: 0.8 - i * 0.05, open: { panel: "business" }, source: "business", why: "No reply after 4+ days", action: "Open pipeline" }));
   (x.recall ?? []).forEach((m, i) => out.push({ kind: "idea", key: cardKey("memory", m.id), title: m.title, detail: `From your memory, ${m.label}`, base: 0.5 - i * 0.05, open: { memory: m.id }, source: "recall", why: "Resurfaced from your memory", action: "Open note" }));

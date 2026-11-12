@@ -57,7 +57,7 @@ async function projectTasks(sb: SupabaseClient, userId: string, now: number): Pr
 /** The deterministic brief for now (no AI call). */
 export async function composeToday(sb: SupabaseClient, userId: string, now = Date.now()): Promise<Brief> {
   const day = localDay(new Date(now)), hour = new Date(now).getHours();
-  const [u, m, rem, rep, les, dl, hl, ds, ct, eps, dr, di, pl, study, sc, gr, rc, hw, rv, lp, cf, ny, wt, pj] = await Promise.all([
+  const [u, m, rem, rep, les, dl, hl, ds, ct, eps, pl, study, sc, gr, rc, hw, rv, lp, cf, ny, wt, pj] = await Promise.all([
     load().then((s) => s.users[userId] ?? {}),
     import("./morning").then((x) => x.getMorning(sb, userId, now)),
     within(import("./remote").then((x) => x.pendingApprovals(sb))).catch(() => []),
@@ -68,8 +68,6 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
     within(import("./dev-session").then((x) => x.yesterdaySession(userId, now))).catch(() => null),
     within(import("./contracts").then((x) => x.listContracts())).catch(() => []),
     within(import("./episodes").then((x) => x.listEpisodes(sb, userId, 100))).catch(() => []),
-    within(import("./dream").then((x) => x.dreamToday(userId, now))).catch(() => null),
-    within(Promise.all([import("./dream-ideas"), import("./dream-ideas-pure")]).then(async ([a, p]) => p.briefIdea((await a.ideasView(userId)).ideas, day))).catch(() => null),
     import("./place").then((x) => x.readPlace()).catch(() => null), // opt-in; off → no place lines
     within(import("./study").then((x) => x.dueCount(userId, now))).catch(() => 0),
     within(import("./school").then((x) => x.schoolBriefLine(now))).catch(() => null),
@@ -95,7 +93,7 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
   return composeBrief({
     day, hour, life: !!u.life, morning: m,
     decisions, place, ...(weather && { weather }),
-    replies: rep, deal, ...(wt && { watch: wt }), ...(hl && { health: hl }), ...(ds && { devSession: ds }), ...(dr && { dream: { id: dr.key, question: dr.question } }), ...(di && { idea: di }), ...(sc && { school: sc }), ...(gr && { goalRisk: gr }), ...(rc && { recap: rc }), ...(rv && { review: rv }), ...(lp && { loops: lp }), ...(cf && { conflict: cf }), lesson: lesson && { id: lesson.id, text: lesson.text }, study,
+    replies: rep, deal, ...(wt && { watch: wt }), ...(hl && { health: hl }), ...(ds && { devSession: ds }), ...(sc && { school: sc }), ...(gr && { goalRisk: gr }), ...(rc && { recap: rc }), ...(rv && { review: rv }), ...(lp && { loops: lp }), ...(cf && { conflict: cf }), lesson: lesson && { id: lesson.id, text: lesson.text }, study,
     echo: { short: briefEcho(eps, "short", now, (m.studio?.yesterday ?? []).map((y) => y.title)), reply: briefEcho(eps, "reply", now, rep.map((r) => r.name)) },
     lead: leadItems(morningPicks(ny)), habits: hw, snoozed: Object.entries(u.snoozed ?? {}).filter(([, until]) => until > day).map(([id]) => id),
     projects: pj,

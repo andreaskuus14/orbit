@@ -10,14 +10,13 @@ import { validateProspect, validatePatch, funnel, type Prospect } from "../src/l
 import { validateGoal, validateSteps, type Goal } from "../src/lib/goals-pure.ts";
 import { cleanDays, cleanEmoji, cleanName, isDateKey, type LifeState } from "../src/lib/life-pure.ts";
 import { validate, stateAt, type LedgerEvent } from "../src/lib/ledger-pure.ts";
-import { cleanTicker, parseHistory, parseQuotes, alertError } from "../src/lib/markets-pure.ts";
 import { validateDevWorld } from "../src/lib/devworld-pure.ts";
 import { parseOps } from "../src/lib/arch-pure.ts";
 import { validateAutomation } from "../src/lib/pure.ts";
 import { geoTag, type Hotspot } from "../src/lib/geo.ts";
 
 const endpoints = ["memories", "memories/map", "memories/map/input", "news/geo", "briefings", "studio", "studio/clips", "studio/clips/learn", "studio/clips/learn/state",
-  "agents", "tasks", "goals", "projects", "automations", "analytics", "life", "business", "markets", "ledger", "ledger/events", "devworld", "theater", "vault", "arch", "arch/scene"];
+  "agents", "tasks", "goals", "projects", "automations", "analytics", "life", "business", "ledger", "ledger/events", "devworld", "vault", "arch", "arch/scene"];
 const get = <T>(path: string): T => demoFor(`/api/${path}`) as T;
 
 test("all demo sections are populated, deterministic, JSON-safe and isolated between calls", () => {
@@ -33,7 +32,6 @@ test("all demo sections are populated, deterministic, JSON-safe and isolated bet
     a.changed = true;
     assert.equal(get<Record<string, unknown>>(path).changed, undefined);
   }
-  assert.notDeepEqual(demoFor("/api/markets", { seed: 1 }), demoFor("/api/markets", { seed: 2 }));
   assert.equal(demoFor("/api/unknown"), undefined);
 });
 
@@ -84,17 +82,6 @@ test("business, goals, life, operations and game fixtures pass existing checks",
   for (const a of get<{ automations: Record<string, unknown>[] }>("automations").automations) assert.ok("spec" in validateAutomation(a));
   assert.equal(validateDevWorld(get<{ world: unknown }>("devworld").world).ok, true);
   assert.equal(parseOps(JSON.stringify(get("arch"))).length, 1);
-});
-
-test("market watchlist survives existing CSV parsers and alert validation", () => {
-  const m = get<{ watchlist: { ticker: string; price: number; date: string; spark: number[] }[]; alerts: { kind: string; value: number }[] }>("markets");
-  for (const w of m.watchlist) {
-    assert.equal(cleanTicker(w.ticker), w.ticker);
-    assert.equal(parseQuotes(`Symbol,Date,Open,Close\n${w.ticker},${w.date},${w.price},${w.price}`)[0].close, w.price);
-    assert.equal(parseHistory(`Date,Close\n${w.spark.map((p, i) => `2026-01-${String(i % 28 + 1).padStart(2, "0")},${p}`).join("\n")}`).length, 180);
-    assert.ok(w.spark.at(-1)! > w.spark[0]);
-  }
-  m.alerts.forEach((a) => assert.equal(alertError(a.kind, a.value), null));
 });
 
 test("news country tags and every ledger event validate; 180 days show growth", () => {

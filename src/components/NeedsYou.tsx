@@ -6,7 +6,7 @@ import { pollMs } from "@/lib/poll-pure";
 import { usePoll } from "./use-poll";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
-import { MARKETS_TAB, type BriefOpen } from "@/lib/brief-pure";
+import type { BriefOpen } from "@/lib/brief-pure";
 import { groupNeeds, type Digest, type Need } from "@/lib/needs-you-pure";
 import { useT } from "./i18n";
 import { OpsStatus } from "./OpsStatus";
@@ -27,7 +27,6 @@ export function openTarget(o: BriefOpen, onOpenTask: (id: string) => void, onOpe
   else if ("study" in o) nav({ panel: "memory", study: true });
   else if ("mission" in o) nav({ panel: null, mission: true });
   else if ("doctor" in o) nav({ panel: null, doctor: true });
-  else if ("tab" in o) { try { sessionStorage.setItem(MARKETS_TAB, o.tab); } catch { /* opens on Watchlist */ } nav({ panel: o.panel }); }
   else nav({ panel: o.panel, ...(o.view && { view: o.view }) });
 }
 

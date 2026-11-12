@@ -17,13 +17,13 @@ export const DRAFT_AGAIN_MS = 7 * 86_400_000; // a prospect gets at most one ove
 export const PERSONA_STUDIO_RUNS = 2; // real look-only Studio playtests per night (each up to 4 minutes); the rest is simulated
 export const RESEARCH_AGENTS = ["atlas", "nova", "forge", "vector", "echo", "sentinel"];
 
-export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene", "deals", "health", "personas", "dream", "company", "rivals", "backup", "loops"] as const;
+export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene", "deals", "health", "personas", "company", "rivals", "backup", "loops"] as const;
 export type NightKind = (typeof NIGHT_KINDS)[number];
 export const ITEM_STATUSES = ["done", "approval", "failed", "skipped"] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
 // calls/minutes: the estimate the planner budgets with (the runner measures what was really used).
 export type NightTask = { kind: NightKind; ref: string; label: string; calls: number; minutes: number };
-export type Open = { task: string } | { goal: string; step?: number; stepId?: string } | { panel: "studio" | "business" | "memory" | "agents" | "markets" };
+export type Open = { task: string } | { goal: string; step?: number; stepId?: string } | { panel: "studio" | "business" | "memory" | "agents" };
 export type NightItem = { kind: NightKind; ref: string; label: string; status: ItemStatus; why?: string; open?: Open; draft?: string; at: string; seen?: string; // seen: approval fingerprint of the task's waiting actions when served (S02)
   pick?: Why; diff?: Diff }; // night-plan-pure: why tonight, and the counts it changed (before → after)
 export type NightRun = { id: string; key: string; startedAt: string; endedAt?: string; calls: number; ms: number; items: NightItem[]; stopped?: string; deferred?: number; pushed?: string; why?: string; planned?: Pick<NightTask, "kind" | "ref" | "label">[] };
@@ -168,7 +168,6 @@ export type PlanInput = {
   followups: { id: string; name: string }[];
   drafted: Record<string, string>;
   nicheDue: boolean;
-  dream?: boolean; // dreaming (dream.ts): replay recent days, leave ONE question + dream-mode ideas for the morning brief; at most 3 fast-model calls
   health?: boolean; // run the self-healing check (health.ts) tonight: no code changes, at most 3 fast-model notes
   deals?: number; // wishes the deal hunter would cover now (deals.ts dueCount); one read-only web call each
   rivals?: number; // competitor pages the weekly BUSINESS rivals watch would read now (rivals.ts rivalsDue); no model calls
@@ -190,7 +189,6 @@ export function planNight(i: PlanInput, s: NightSettings, used: { calls: number;
     ...(i.backup ? [{ kind: "backup", ref: "backup", label: "Time capsule backup", calls: 0, minutes: 2 } as NightTask] : []),
     { kind: "hygiene", ref: "hygiene", label: "Memory tidy-up suggestions", calls: 0, minutes: 1 } as NightTask,
     ...(i.loops ? [{ kind: "loops", ref: "loops", label: "Open loops scan", calls: 0, minutes: 1 } as NightTask] : []),
-    ...(i.dream ? [{ kind: "dream", ref: "dream", label: "Dreaming: one question and a few ideas for the morning", calls: 3, minutes: 3 } as NightTask] : []),
     ...(i.health ? [{ kind: "health", ref: "health", label: "ORBIT health check", calls: 3, minutes: 5 } as NightTask] : []),
     ...i.tonight.slice(0, MAX_RESEARCH).map((t): NightTask => ({ kind: "research", ref: t.id, label: t.text.slice(0, 120), calls: 8, minutes: 10 })),
     ...i.goals.filter((g) => ["run", "sync"].includes(nextMove(g.doc, i.today).do)).slice(0, MAX_GOALS)
@@ -204,8 +202,8 @@ export function planNight(i: PlanInput, s: NightSettings, used: { calls: number;
     ...(i.rivals ? [{ kind: "rivals", ref: "rivals", label: "Weekly BUSINESS competitor watch", calls: 0, minutes: 1 + Math.ceil(i.rivals / 2) } as NightTask] : []),
     ...(i.nicheDue ? [{ kind: "niche", ref: "niche", label: "Weekly BUSINESS niche scout", calls: 1, minutes: 10 } as NightTask] : []),
   ].filter((t) => !i.handled.includes(`${t.kind}:${t.ref}`) && !i.off?.includes(t.kind));
-  // Kept lessons only reorder ORBIT's own work (so a tight budget defers what he cares less about); his asks, the free tidy-up, dreaming and the health check stay first.
-  const w = (t: NightTask) => (t.kind === "research" || t.kind === "backup" || t.kind === "loops" || t.kind === "hygiene" || t.kind === "health" || t.kind === "dream" ? Infinity : i.boost?.[t.kind] ?? 1);
+  // Kept lessons only reorder ORBIT's own work (so a tight budget defers what he cares less about); his asks, the free tidy-up and the health check stay first.
+  const w = (t: NightTask) => (t.kind === "research" || t.kind === "backup" || t.kind === "loops" || t.kind === "hygiene" || t.kind === "health" ? Infinity : i.boost?.[t.kind] ?? 1);
   all.sort((a, b) => w(b) - w(a)); // stable: equal weights keep the order above
   const queue: NightTask[] = [];
   let calls = used.calls, min = used.ms / 60_000, deferred = 0;

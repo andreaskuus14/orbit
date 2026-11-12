@@ -75,13 +75,12 @@ A **focus block** (time dilation) works like short quiet hours: pushes, calls an
 - Time capsule backups: encrypted, written only to the folder you picked; ORBIT uploads nothing.
 - Your place (opt-in): only the latest rough point is kept, in `place.json`; it never goes to a model, and turning the option off deletes it. The weather line sends Open-Meteo a point rounded to about 10 km.
 - Screenshots from *Look at my screen*: one frame, kept in memory for that one answer, not saved unless you press *Save*.
-- ORBIT's local state in `%LOCALAPPDATA%\orbit`: autonomy, Stop-all, lessons, predictions, negotiations, contracts, deals, health notes, standing rules, open loops, system incidents, patch drafts, paired phones and Shortcut tokens (stored only as signatures, never the token itself).
+- ORBIT's local state in `%LOCALAPPDATA%\orbit`: autonomy, Stop-all, lessons, negotiations, contracts, deals, health notes, standing rules, open loops, system incidents, patch drafts, paired phones and Shortcut tokens (stored only as signatures, never the token itself).
 - Memory search uses a free model on the PC, **unless** `VOYAGE_API_KEY` is set (then memory text goes to Voyage AI; set `ORBIT_EMBED=local` to stop that).
 
 **Never sent to an AI model**
 - Journal entries ("Today in a minute"): not mined for beliefs, lessons, episodes or the nightly memory tidy-up, and skipped by CORE's and agents' memory search. Chronicle shows private moments only when you switch them on, and never sends them to a model.
 - The only exception is you: if you ask CORE about your journal, it reads it for that answer, and then web search, news and agents are switched off for the rest of that answer.
-- Study cards and the memory palace leave journal entries out (the palace shows them only with the private toggle on).
 - Calendar titles and reminders reach the morning brief (and its one daily wording pass) only if you tick *Say calendar titles and reminders aloud*.
 
 **Never in a notification or log**

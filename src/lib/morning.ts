@@ -12,7 +12,6 @@ import { dailyMission } from "./daily-mission-pure";
 import { taskVerified } from "./completion-pure";
 import { dueFollowups } from "./business-pure";
 import { readSleepReport } from "./sleep";
-import { alertText } from "./markets-pure";
 import { QUIET_MS, devBacklog, dropDone, goalDeadlines, morningCandidates, pickHero, rankCards, type Click, type Thumb } from "./morning-rank-pure";
 import { validateDevWorld } from "./devworld-pure";
 import { dayKey, safeZone } from "./agent-stats-pure";
@@ -71,16 +70,15 @@ async function recall(sb: SupabaseClient, now: number, tz: string): Promise<Reca
 
 /** "Since you left": each source on its own timeout; a failing one just counts as nothing new. */
 export async function getSince(sb: SupabaseClient, from: number, now = Date.now()): Promise<MorningSince> {
-  const [t, j, l, m, ap] = await Promise.allSettled([
+  const [t, j, l, ap] = await Promise.allSettled([
     within(Promise.resolve(sb.from("tasks").select("status").is("parent_id", null).in("status", ["done", "failed"]).gte("finished_at", new Date(from).toISOString()).limit(200))
       .then((r) => { if (r.error) throw new Error(r.error.message); return r.data ?? []; })),
     within(listJobs()),
     within(import("./life").then((x) => x.exportLife())), // raw store: getLife() hides reminders older than a day
-    within(import("./markets").then((x) => x.listAlerts())),
     within(Promise.resolve(sb.from("tasks").select("id", { count: "exact", head: true }).is("parent_id", null).eq("status", "awaiting_approval"))
       .then((r) => { if (r.error) throw new Error(r.error.message); return r.count ?? 0; })),
   ]);
-  return sinceSection({ tasks: ok(t) ?? [], jobs: ok(j) ?? [], reminders: ok(l)?.reminders ?? [], alerts: ok(m) ?? [], approvals: ok(ap) }, from, now);
+  return sinceSection({ tasks: ok(t) ?? [], jobs: ok(j) ?? [], reminders: ok(l)?.reminders ?? [], approvals: ok(ap) }, from, now);
 }
 
 /** Businesses moved to "contacted" or later today (BUSINESS pipeline, RLS-scoped to the signed-in user). */
@@ -160,8 +158,8 @@ export async function getMorning(sb: SupabaseClient, userId: string, now = Date.
 async function gather(sb: SupabaseClient, userId: string, now: number): Promise<Morning> {
   const tz = (await readPublishSettings().catch(() => null))?.timezone || "Europe/Tallinn";
   const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone; // LIFE and memory anniversaries use the PC's local days, not the publish timezone
-  const today = localDay(new Date(now)); // markets' firedOn is a server-local day; goal deadlines are local days too
-  const cardSources = Promise.allSettled([within(thumbs(sb, now)), within(import("./markets").then((x) => x.listAlerts())), within(import("./ideas").then((x) => x.listIdeas())),
+  const today = localDay(new Date(now)); // goal deadlines are local days
+  const cardSources = Promise.allSettled([within(thumbs(sb, now)), within(import("./ideas").then((x) => x.listIdeas())),
     within(clicks(sb, now)), within(devworld(sb, now)), within(deadlines(sb, userId, dayKey(new Date(now), safeZone(tz)))), within(archLesson(sb, now))]);
   const [s, i, a, l, r, sn, c, w, ct, bf] = await Promise.allSettled([within(studio(now, tz)), within(intel(sb)), within(agents(sb, now)),
     within(import("./life").then((m) => m.getLife()).then((st) => lifeSection(st, now, localTz))), within(recall(sb, now, localTz)),
@@ -185,10 +183,10 @@ async function gather(sb: SupabaseClient, userId: string, now: number): Promise<
   const invP = within(import("./money").then((x) => x.digestMoney(sb, now))).catch(() => ""); // money-pure moneyLine: same split as BUSINESS → Money
   const ovP = within(Promise.all([import("./business-overview"), import("./business-overview-pure")]).then(async ([x, p]) => p.overviewLine(await x.getOverview(sb, userId, now)))).catch(() => ""); // the BUSINESS overview strip in one line
   const nightP = within(import("./night").then((x) => x.getNightReport(sb, userId, now))).catch(() => null); // a failure just drops the section
-  const [th, al, ids, cl, dw, dl, ar] = await cardSources;
+  const [th, ids, cl, dw, dl, ar] = await cardSources;
   const life = ok(l), rec = ok(r), since = ok(sn) as MorningSince | undefined, work = ok(w), st = ok(s), due = ok(bf);
   const base = dropDone(morningCandidates({ work, studioReady: st?.ready, proposals: ok(a)?.proposals, headlines: ok(i)?.headlines,
-    alerts: ok(al)?.filter((x) => x.firedOn === today).map(alertText), followups: due, recall: rec, ideas: ok(ids)?.shown,
+    followups: due, recall: rec, ideas: ok(ids)?.shown,
     deadlines: ok(dl), dev: ok(dw), archLesson: ok(ar) }), ok(cl) ?? [], now);
   const cands = await import("./lessons").then((m) => m.morningPrior(userId, base), () => base); // kept lessons nudge base ±15% (lessons-pure withPrior)
   const hero = pickHero(cands, ok(th) ?? [], ok(cl) ?? [], now) ?? undefined;

@@ -14,7 +14,7 @@ import { linkToHash } from "./deeplink-pure.ts";
 export type BriefKind = "decision" | "deadline" | "night" | "health" | "calendar" | "school" | "weather" | "place" | "first" | "result" | "lesson" | "question" | "study";
 // approve: what one tap approves (the same routes NightShift.tsx uses). Emails and spends only ever "open": he approves the exact message there.
 export type BriefApprove = { task: string; seen?: string } | { goal: string; step?: number; stepId: string };
-export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { panel: "markets"; tab: "Deals" } | { doctor: true } | { panel: "memory"; study: true } | { mission: true } | { href: string } | { link: string }; // href: a checked result file (needs-you-pure receiptOpen) or a watched public page; link: a deep-link hash (deeplink-pure)
+export type BriefOpen = { work: WorkItem } | { memory: string } | { task: string } | { goal: string } | { panel: PanelId; view?: "review" } | { doctor: true } | { panel: "memory"; study: true } | { mission: true } | { href: string } | { link: string }; // href: a checked result file (needs-you-pure receiptOpen) or a watched public page; link: a deep-link hash (deeplink-pure)
 export type BriefItem = { id: string; kind: BriefKind; say: string; title: string; detail?: string; open?: BriefOpen; approve?: BriefApprove };
 export type Brief = { day: string; greeting: string; items: BriefItem[]; spoken: string; polished?: boolean; today?: TodayGroup[] };
 
@@ -40,8 +40,6 @@ export type BriefIn = {
   conflict?: { id: string; title: string; say: string }; // memories that disagree, "Which is right?" (entity-graph-pure contradictionBrief)
   goalRisk?: { id: string; title: string; say: string }; // a goal whose weekly milestones are at risk / behind (goal-autopilot.ts goalRisk)
   school?: { id: string; title: string; say: string; detail?: string }; // heavy week / today's study blocks / next deadline (school-pure schoolBrief)
-  dream?: { id: string; question: string }; // last night's ONE question (dream-pure); his answer goes through CORE like any message
-  idea?: { id: string; title: string; more: number }; // last night's dream-mode idea (dream-ideas-pure briefIdea)
   review?: { id: string; say: string }; // the weekly review call he didn't pick up (review-call-pure missedReviewLine)
   lesson?: { id: string; text: string }; snoozed: string[];
   study?: number; // study cards due today (study-pure dueToday)
@@ -54,7 +52,6 @@ export type BriefIn = {
 };
 
 export const MAX_ITEMS = 6;
-export const MARKETS_TAB = "orbit.markets.tab"; // sessionStorage: the MARKETS tab to open on next mount (brief → Deals)
 export const MAX_WORDS = 150; // ≈ 60 s spoken
 export const TOOK_OFF = 1000; // yesterday's Short counts as "took off" from this many views
 const WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
@@ -86,7 +83,7 @@ export function briefDecisions(night: NightApproval[], work: WorkItem[], remote:
   for (const r of remote) if (r.kind !== "invoice") out.push({ // invoice reminders come from invoices-pure briefInvoices
     id: r.id, title: plain(r.title),
     what: r.kind === "clip" ? `the clip ${q(r.title)}` : r.kind === "spend" ? `the ${r.credits ?? ""} credit spend for ${q(r.title)}`.replace("  ", " ") : r.kind === "nego" ? `your reply to ${plain(r.title)}` : `the email to ${plain(r.title)}`,
-    open: r.kind === "clip" ? { panel: "studio", view: "review" } : r.kind === "send" ? { link: clientLink(r.id.replace(/^send:/, "")) } : r.kind === "nego" ? (r.detail?.startsWith("Deal") ? { panel: "markets", tab: "Deals" } : { panel: "business" }) : { panel: "studio" },
+    open: r.kind === "clip" ? { panel: "studio", view: "review" } : r.kind === "send" ? { link: clientLink(r.id.replace(/^send:/, "")) } : r.kind === "nego" ? { panel: "business" } : { panel: "studio" },
   });
   return out;
 }
@@ -126,8 +123,6 @@ export function briefItems(x: BriefIn): BriefItem[] {
   if (x.conflict) add({ id: x.conflict.id, kind: "question", title: x.conflict.title, detail: "MEMORY → Which is right?", open: { panel: "memory" }, say: x.conflict.say });
   if (x.health) add({ id: `health:${x.health.id}`, kind: "health", title: x.health.title, detail: "New problem: the Doctor panel has the details", open: { doctor: true }, say: x.health.say });
 
-  if (x.dream) add({ id: `dream:${x.dream.id}`, kind: "question", title: plain(x.dream.question), detail: "Answer in CORE or on the call", open: { panel: "core" }, say: plain(x.dream.question) });
-  if (x.idea) add({ id: `idea:${x.idea.id}`, kind: "night", title: `ORBIT dreamt: ${plain(x.idea.title)}`, detail: `In DREAMS under Goals${x.idea.more ? ` (+${x.idea.more} more)` : ""}`, open: { panel: "agents" }, say: `I dreamt up an idea: ${plain(x.idea.title)}.` });
 
   const ev = x.morning.calendar?.today ?? [];
   if (ev.length) {
@@ -169,7 +164,7 @@ export function briefItems(x: BriefIn): BriefItem[] {
   if (x.recap) add({ id: `recap:${x.recap.id}`, kind: "result", title: "Yesterday in 25 seconds", detail: "Private recap in STUDIO, never posted", open: { panel: "studio", view: "review" }, say: "Yesterday in 25 seconds is ready in STUDIO, a private recap of my day, if you want a look." });
 
   const deal = x.deal;
-  if (deal) add({ id: `deal:${deal.id}`, kind: "result", title: `Deal: ${plain(deal.item)}`, detail: `about €${Math.round(deal.eur)}`, open: { panel: "markets", tab: "Deals" },
+  if (deal) add({ id: `deal:${deal.id}`, kind: "result", title: `Deal: ${plain(deal.item)}`, detail: `about €${Math.round(deal.eur)}`, open: { panel: "business" },
     say: `An offer for ${short(deal.item, 8)} came in at about ${Math.round(deal.eur).toLocaleString("en-US")} euros. That looks like a good price.` });
 
   const wt = x.watch;
@@ -206,7 +201,7 @@ export const TOP_DECISIONS = 3; // shown one by one; the rest grouped by kind
 const decisionKind = (id: string) => id.split(":")[0];
 const groupOpen = (k: string, o?: BriefOpen): BriefOpen | undefined => (k === "send" ? { panel: "business" } : o); // several emails: the list, not the first client
 const KIND_LABEL: Record<string, string> = { clip: "clips to review", send: "emails to approve", spend: "credit spends to approve", nego: "replies to approve", task: "tasks waiting for your OK", goal: "goal steps waiting for your OK" };
-const placeOf = (o?: BriefOpen) => !o ? "ORBIT" : "panel" in o ? (o.panel === "studio" ? "STUDIO" : o.panel === "business" ? "BUSINESS" : o.panel === "markets" ? "MARKETS" : o.panel.toUpperCase())
+const placeOf = (o?: BriefOpen) => !o ? "ORBIT" : "panel" in o ? (o.panel === "studio" ? "STUDIO" : o.panel === "business" ? "BUSINESS" : o.panel.toUpperCase())
   : "link" in o && o.link.includes("o=business") ? "BUSINESS" : "OPERATIONS";
 
 /** The card's Today section from what the brief already gathered. A source that couldn't be read says so; it never looks empty. */

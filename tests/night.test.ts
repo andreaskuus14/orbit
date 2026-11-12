@@ -211,12 +211,6 @@ test("night report: one Company line for company steps", () => {
   assert.equal(nightReport(run(), {}, t0815, S, false)!.company, undefined);
 });
 
-test("dreaming: a cheap first-tier step when asked for, never deferred by lessons", () => {
-  const i = { tonight: [], goals: [], followups: [], drafted: {}, nicheDue: false, handled: [], now: 0, today: "2026-10-28", dream: true, boost: { clips: 1.15 } };
-  assert.deepEqual(planNight(i, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "dream", "clips"]);
-  assert.deepEqual(planNight({ ...i, handled: ["dream:dream"] }, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "clips"]);
-});
-
 test("stoppedText: a lost lease reads as another ORBIT, not the raw code", async () => {
   const { stoppedText } = await import("../src/lib/night-pure.ts");
   assert.equal(stoppedText("lease"), "Another ORBIT was already running the night shift");

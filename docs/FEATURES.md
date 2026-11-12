@@ -32,7 +32,6 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 - **Chronicle** (Chronicle mode): your life and work as a river of days, with moments, streaks and "firsts". Scrub it or press play. Private journal moments appear only if you tick *Include private* (on this device only).
 - **Episodes** (Episodes list, *Build now*): every night ORBIT turns calls, decisions, wins, setbacks and finished goals into short episode memories. Journal text is never used.
 - **Where it came from:** every memory and belief shows its source. *Why?*, *Remember*, *Correct*, *Forget* on each one. Things ORBIT only guessed stay "suggested" until you confirm them.
-- **Memory palace:** walk through your memories as rooms (WASD/arrows).
 - **People ring:** the people in your life as moons, with a timeline and a check-in draft (you send it yourself).
 - **Knowledge graph:** concept clusters and the bridges between them.
 - **Study cards:** spaced repetition (Again/Hard/Good/Easy); *Learn this* on a memory drafts a card. "3 minutes of cards" in the morning brief.
@@ -67,7 +66,7 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 - **"While you slept"** card in the morning with one-tap approve/reject.
 - **Company tab:** a CEO planner splits a goal into 2–4 role steps (researcher, analyst, writer, ops) run as a team, with a budget per role; *🌙 Tonight* runs it in the night shift.
 - **Missions** and **Skills** tabs: see CORE above. **ORBIT's log**: its nightly diary of what it did and learned.
-- **Night shift v3:** learns which kinds of night work you approve and does more of those; also dreams up idea combinations (DREAMS list, keep/discard), makes a 25-second private recap reel, and runs the nightly encrypted backup.
+- **Night shift v3:** learns which kinds of night work you approve and does more of those; makes a 25-second private recap reel, and runs the nightly encrypted backup.
 - **Ships:** running tasks fly across the galaxy as small ships; amber blink = waiting for you.
 - **Rules tab (standing rules):** plain-language rules like "every weekday 7:30 check deals" or "when a client replies, draft a follow-up" (English and some Estonian). CORE can propose one when you ask; you confirm the parsed version here. Schedule rules and event rules (client replied, deal found, note saved, briefing ready) run only through the existing agent tasks, skills, missions, deal hunter and week facts, so every approval still applies. *Run now* tries a rule once; *Pause* is one tap. Event rules run at most 5 times a day; skipped events show on the card.
 - **Open loops** (in mission control, Ctrl+K or "mission control"): each night a rules-only scan (no model calls) lists things left hanging: promises you made in CORE or the commitment inbox, replies you're waiting on, stalled goals and missions (7 days), prospects past follow-up, drafts waiting 3+ days, overdue invoices, unsigned contracts. Each has evidence and one next step: *Close*, *Snooze 3 days* or *Turn into task* (adds it to today's plan). The morning brief gets one line. Journal and LIFE are never read.
@@ -91,7 +90,6 @@ The short version of the rule: ORBIT may read, draft, plan and prepare on its ow
 - **Operator report:** weekly card of what ORBIT did on its own.
 - **Make ORBIT better:** once a week, up to 5 improvement tasks with evidence (in 🩺 Check ORBIT). *Draft patch* on a task makes one Claude call with up to 4 relevant files and saves a diff + test + reason as a local `.patch` file, with *Copy* for Claude Code. Drafts survive a reload. A safety check refuses patches that touch AGENTS.md, approvals/autonomy/Stop-all, `.env` or CI, weaken tests or remove guards. Nothing is ever applied, committed or pushed.
 - **Agent scorecard:** once a month ORBIT replays 10 fixed practice cases through the agents and grades them, with trend and worst case.
-- **Predictions:** before you decide on a clip, proposal, draft, tidy-up, niche or deal, ORBIT quietly guesses what you'll do and keeps score. The hint shows on the card. It never acts on a guess.
 - **PERF card:** frame rate and speed runs (open ORBIT with `?perfrun=1` or press Shift+Alt+P).
 
 ## STUDIO (YouTube)
@@ -109,15 +107,11 @@ Clip Factory tabs: Pipeline · Find videos · Clips · AI Story · Long-form · 
 - **Comment ideas:** recurring questions in your Shorts' comments become IDEA RADAR ideas. Nothing is posted.
 - **Never without you:** no upload without your *Approve* in review (or Studio publish set to Auto, see [SAFETY.md](SAFETY.md)). No Higgsfield credit is spent without your *Approve* on the exact quote, and never past your weekly cap. Another creator's clip can't be published until you write "What I added".
 
-## THEATER
+## DEALS
 
-- Find a creator's newest videos by voice and watch them. No changes.
-
-## MARKETS
-
-- **Deals tab (deal hunter):** keep a wishlist ("I want a used RTX 4070 under 400€" works in CORE too). ORBIT checks public shop pages every 6 hours in the daytime (max 3 checks a run, 12 a day) and in the night shift. A great deal (at/under your target or 15%+ under the 30-day median) gets a push and may ring you. Cards show the link, why it's good and a message you can copy to the seller.
+- **Deals (BUSINESS, deal hunter):** keep a wishlist ("I want a used RTX 4070 under 400€" works in CORE too). ORBIT checks public shop pages every 6 hours in the daytime (max 3 checks a run, 12 a day) and in the night shift. A great deal (at/under your target or 15%+ under the 30-day median) gets a push and may ring you. Cards show the link, why it's good and a message you can copy to the seller.
 - **Negotiation box** on an offer: paste the seller's reply; ORBIT drafts a counter inside the limits you set.
-- **Never without you:** ORBIT never logs in, messages a seller or buys anything. Paper trading is simulation only.
+- **Never without you:** ORBIT never logs in, messages a seller or buys anything.
 
 ## BUSINESS
 

@@ -30,7 +30,4 @@ test("cloud-model readers exclude journal rows at the query (no journal text is 
   for (const f of ["src/lib/core.ts", "src/lib/arch-digest.ts", "src/lib/memory-graph.ts", "src/lib/night-plan.ts", "src/lib/week.ts"])
     assert.match(src(f), /\.neq\("kind", "journal"\)/, f);
   assert.match(src("src/lib/morning.ts"), /not\("kind", "in", "\(conversation,journal\)"\)/);
-  assert.match(src("src/lib/dream.ts"), /\.in\("kind", NOTE_KINDS\)/);
-  const { NOTE_KINDS } = await import("../src/lib/dream-pure.ts");
-  assert.ok(!NOTE_KINDS.includes("journal"));
 });

@@ -14,8 +14,6 @@ export const KINDS = ["bug", "feature", "polish"] as const;
 export const PRIORITIES = ["high", "medium", "low"] as const;
 /** Bundled images at /devworld/<key>.webp. */
 export const ART_KEYS = ["pet-sim", "planet-forge"] as const;
-/** Game Lab ids that can be played here; keep in sync with src/games/registry.ts (not imported: it isn't dependency-free). */
-export const PLAYABLE_IDS = ["planet-forge"] as const;
 
 export type Platform = (typeof PLATFORMS)[number];
 export type Stage = (typeof STAGES)[number];
@@ -25,7 +23,7 @@ export type Kind = (typeof KINDS)[number];
 export type Priority = (typeof PRIORITIES)[number];
 export type Game = {
   id: string; name: string; platform: Platform; stage: Stage; pitch: string; notes: string;
-  art?: (typeof ART_KEYS)[number]; playable?: (typeof PLAYABLE_IDS)[number];
+  art?: (typeof ART_KEYS)[number];
   contract?: Contract; // DEV01: engine, repo/place, controls, art rules, current build, milestone
   uikit?: UiKit; econ?: string; // DEV04 UI kit; DEV07 economy model table (economy-sim-pure)
 };
@@ -86,7 +84,6 @@ function parse(raw: unknown): DevWorld {
       pitch: text(g.pitch, 300, `${at} pitch`), notes: text(g.notes, 4000, `${at} notes`),
     };
     if (g.art != null) game.art = oneOf(g.art, ART_KEYS, `${at} art`);
-    if (g.playable != null) game.playable = oneOf(g.playable, PLAYABLE_IDS, `${at} playable`);
     const contract = cleanContract(g.contract, at);
     if (contract) game.contract = contract;
     const uikit = cleanKit(g.uikit, at), econ = text(g.econ, MAX_MODEL, `${at} economy model`);
@@ -196,9 +193,9 @@ export const SEED_WORLD: DevWorld = {
     { id: "pet-sim", name: "Pet Simulator", platform: "roblox", stage: "alpha", art: "pet-sim",
       pitch: "Roblox pet simulator: click to earn coins, buy upgrades, hatch eggs and collect pets.",
       notes: "Loop: clicker → coins → upgrades → eggs → pets.\nSaves: DataStore.\nPet icons: ViewportFrame renders." },
-    { id: "planet-forge", name: "Planet Forge", platform: "web", stage: "beta", art: "planet-forge", playable: "planet-forge",
+    { id: "planet-forge", name: "Planet Forge", platform: "web", stage: "beta", art: "planet-forge",
       pitch: "Mine a tiny solar system and decide what each world becomes.",
-      notes: "Lives in ORBIT's Game Lab. Saves and settings are stored on the account." },
+      notes: "A small web game." },
   ],
   bugs: [
     seedBug(1, "Bubble Lab mesh fails to load", "major", ""),

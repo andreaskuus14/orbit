@@ -5,7 +5,7 @@
 A personal AI "second brain" in a 3D galaxy: CORE chat with memory, news briefings, agents, voice, life tools, a file vault, a YouTube Shorts studio and game-dev tools.
 CORE runs on **Claude Code under your own Claude login**, so there is no API key and no token bill.
 
-**Out of the box** (after Setup below): login, galaxy, MEMORY, CORE, agents, automations, LIFE, VAULT + Workspaces, voice, MARKETS, Planet Forge, Trend Radar's Roblox lists and Reach without Twitch. Everything else needs one of the items in [Needs configuration](#needs-configuration).
+**Out of the box** (after Setup below): login, galaxy, MEMORY, CORE, agents, automations, LIFE, VAULT + Workspaces, voice, Trend Radar's Roblox lists and Reach without Twitch. Everything else needs one of the items in [Needs configuration](#needs-configuration).
 
 ## What works in Phase 1
 - **Login**: email magic link (Supabase Auth), optional email allowlist.
@@ -59,9 +59,6 @@ When Claude is unreachable, rate-limited or the usage hold is on, CORE chat and 
 - Setup: run `supabase/migrations/0004_orbit_automations.sql`.
 
 ## GAME DEV (CREATION)
-- **Planet Forge**: a 10–15 minute space-mining game. Mining scars planets and can make them unstable; Industry adds factories, output and pollution; Restoration grows forests, renewable energy and stability. Upgrade the ship (laser, cargo, stabilizer drill) and build the jump gate. Keyboard, mouse or touch; sound with mute; respects reduced motion.
-- Code: rules and state transitions in `src/games/planet-forge/rules.ts` (pure, tested in `tests/planet-forge.test.ts`), canvas renderer `render.ts`, UI `PlanetForge.tsx`. Games are registered in `src/games/registry.ts`; add a game there plus its component in `src/components/GameLab.tsx`.
-- Saves and settings (mining yield, upgrade cost, planet damage, production) are stored per user in `game_saves` (RLS), validated by `/api/games/[game]` before writing. Saves are versioned; damaged saves start a fresh game with an explanation, and changed settings are listed when you load. No AI is needed to play, and ORBIT never runs generated code: agents may only change validated settings.
 - Also on the planet: reference board, scene planner, textures, a Luau code helper (checked against the Roblox API docs), sounds, thumbnails, playtests and **Trend Radar** (public Roblox discovery lists; its YouTube Gaming chart needs Connect YouTube in STUDIO).
 - **Roblox Studio bridge**: builds into your open Studio place through a sandboxed Claude Code run that may only use an allow-list of your Roblox Studio MCP server's tools. Needs `ORBIT_ROBLOX_MCP_COMMAND` (and `ORBIT_ROBLOX_MCP_ARGS` if any), copied from the `Roblox_Studio` entry in Claude desktop's `claude_desktop_config.json`, and Studio open with its MCP plugin on.
 - Setup: run `supabase/migrations/0005_orbit_games.sql`.
@@ -83,7 +80,6 @@ When Claude is unreachable, rate-limited or the usage hold is on, CORE chat and 
 - **Notifications** (🔔 in the top bar): history of STUDIO notes, reminders and agent tasks; click one to go there.
 - **Herald**: animated pop-up cards (uploads, trends, briefings, breaking news), at most 3 on screen and 4 an hour; never speaks or takes focus. A server-side watch every 3 hours scans Reach and, once YouTube is connected in STUDIO, your niche and trends; and new clippable finds also get a **Windows toast**. "Clip it now" is always your click.
 - **Reach** (GAME DEV → Trend Radar → Rising): anonymous, read-only "what's exploding" from Reddit, Kick and Bluesky, polite rate limits and no logins. Twitch clips are optional via your own free app key (`TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET`, app token only).
-- **MARKETS** (planet): watchlist, tracked holdings, price alerts, an AI explainer and **paper** trading with a rule-based paper bot. Prices from Stooq's free CSV (US stocks/ETFs), stored in `<ORBIT data folder>\markets.json`. No broker, no real money.
 - ORBIT is installable as an app (manifest + icons) and the layout works on phone-sized screens; it still only listens on 127.0.0.1. **Phone access:** see [docs/PHONE.md](docs/PHONE.md) (private HTTPS through Tailscale Serve, no ports opened). The light phone remote (`/remote`: approvals, Stop-all, Studio queue, ask CORE) pairs with a 2-minute code; setup is in the same doc.
 
 ## Needs configuration
@@ -127,7 +123,7 @@ Run `npm run app:install` once. It puts an **ORBIT** icon on your Desktop and in
 - Each Claude call (CORE and agents) is a fresh Claude Code process with its own tools and your connectors disabled; ORBIT runs the tools itself (memory, web pages, news, agents) and passes results back as data, never as instructions.
 
 ## Tests
-- `npm test`: the unit tests in `tests/` (pure logic across ORBIT: search, citations, SSRF guard, voice, clips, goals, markets, Reach…) plus a **real** call through your Claude Code CLI (skipped if it isn't installed).
+- `npm test`: the unit tests in `tests/` (pure logic across ORBIT: search, citations, SSRF guard, voice, clips, goals, Reach…) plus a **real** call through your Claude Code CLI (skipped if it isn't installed).
 - `npx tsc --noEmit -p .` (or `npm run typecheck`): type-check.
 - `npm run smoke`: browser smoke test of the pages that work without signing in (`/demo` and its worlds, `/remote`, `/screen`, `/login`) at desktop and phone sizes. Needs ORBIT running (or `SMOKE_BASE=<url>`) and Playwright's Chromium; read-only, exits 1 on any finding.
 - `npm test` also guards Estonian coverage (`tests/i18n-coverage.test.ts`: hard-coded English per component may only go down) and basic accessibility (`tests/a11y-static.test.ts`).

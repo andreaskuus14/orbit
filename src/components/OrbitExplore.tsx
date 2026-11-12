@@ -10,7 +10,6 @@ export function warmWorld(id: PanelId) {
     : id === "studio" ? () => import("./StudioWorld")
     : id === "creation" ? () => import("./DevWorld")
     : id === "agents" ? () => import("./AgentsStation")
-    : id === "theater" ? () => import("./TheaterWorld")
     : id === "arch" ? () => import("./ArchWorld")
     : id === "memory" ? () => import("./MemoryWorld")
     : isPlanetWorld(id) ? () => import("./PlanetWorld") : null;

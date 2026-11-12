@@ -41,7 +41,6 @@ export default function MorningCardBody({ data, err, recap, notes, speakMorning,
         {sn.clips > 0 && <li><button onClick={() => go("review")}>🎬 {tn("since.clips", sn.clips)}</button></li>}
         {!!sn.approvals && <li><button onClick={() => go("tasks")}>✋ {tn("since.approvals", sn.approvals)}</button></li>}
         {sn.reminders.map((t, k) => <li key={`r${k}`}><button onClick={() => nav({ panel: "life", life: "reminders" })}>⏰ {t}</button></li>)}
-        {sn.alerts.map((t, k) => <li key={`a${k}`}><button onClick={() => nav({ panel: "markets" })}>📈 {t}</button></li>)}
         {notes > 0 && <li><button onClick={bell}>🔔 {tn("since.notes", notes)}</button></li>}
       </ul>
     </div>

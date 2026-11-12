@@ -1,5 +1,5 @@
 "use client";
-// One explorable world for each of the six workspace planets (OPERATIONS, LIFE, VAULT, ANALYTICS, MARKETS, BUSINESS):
+// One explorable world for each of the six workspace planets (OPERATIONS, LIFE, VAULT, ANALYTICS, BUSINESS):
 // the planet's live data as places (planet-worlds-pure), drawn as instanced shapes in one light canvas, with the
 // planet's own workspace panel beside it. Same shell as the other worlds (MemoryWorld): mount-later canvas, warm
 // compile, lean quality, GL recovery, paused frameloop. LIFE data is read from ORBIT's own API and never leaves it.
@@ -141,7 +141,6 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
           <pointLight position={[0, 3, 0]} intensity={18} distance={22} color={planet.color} />
           <Stars radius={90} depth={40} count={reduced ? 600 : Math.min(1500, q.stars)} factor={2} fade speed={reduced ? 0 : 0.15} />
           <gridHelper args={[40, 40, planet.color, "#13202f"]} position={[0, 0.001, 0]} />
-          {id === "markets" && <mesh><icosahedronGeometry args={[1.1, 2]} /><meshStandardMaterial color={planet.color} emissive={planet.color} emissiveIntensity={0.6} flatShading /></mesh>}
           {groups.map((g) => <Group key={g.shape} {...g} reduced={reduced} onHover={setHover} onPick={setSel} />)}
           {scene?.zones.map((z) => (
             <Html key={z.label} position={z.at} center zIndexRange={[11, 0]} style={{ pointerEvents: "none" }}>

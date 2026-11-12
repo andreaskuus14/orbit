@@ -55,7 +55,6 @@ import { ShortcutsOverlay, SHORTCUTS_EVENT } from "./ShortcutsOverlay";
 import { DIVE_FADE, type DiveRequest } from "@/lib/window-pure";
 import { parseQualityMode, type QualityMode } from "@/lib/quality-pure";
 import { runFollowCommand } from "./follow-command";
-import { runWatchCommand } from "./watch-store";
 import { runAgentCommand } from "./agent-command";
 import { runRecipeCommand } from "./recipe-command";
 import { OrbitExplore, warmWorld, WorldLoading } from "./OrbitExplore";
@@ -85,15 +84,12 @@ const StudioWorld = dynamic(() => import("./StudioWorld"), { ssr: false, loading
 const DevWorld = dynamic(() => import("./DevWorld"), { ssr: false, loading: WorldLoading });
 const AgentsStation = dynamic(() => import("./AgentsStation"), { ssr: false, loading: WorldLoading });
 const ArchWorld = dynamic(() => import("./ArchWorld"), { ssr: false, loading: WorldLoading });
-const TheaterWorld = dynamic(() => import("./TheaterWorld"), { ssr: false, loading: WorldLoading });
 const PlanetWorld = dynamic(() => import("./PlanetWorld"), { ssr: false, loading: WorldLoading });
 const MemoryWorld = dynamic(() => import("./MemoryWorld"), { ssr: false, loading: WorldLoading });
 const LifePanel = dynamic(() => import("./LifePanel"), { ssr: false });
 const VaultPanel = dynamic(() => import("./VaultPanel").then((m) => m.VaultPanel), { ssr: false });
 const LifeReminders = dynamic(() => import("./LifeReminders"), { ssr: false });
-const MarketsPanel = dynamic(() => import("./MarketsPanel"), { ssr: false });
 const BusinessPanel = dynamic(() => import("./BusinessPanel"), { ssr: false });
-const MarketWatcher = dynamic(() => import("./MarketWatcher"), { ssr: false });
 const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
 // Drawer panels load on first open (panels.tsx is preloaded at boot 3 so CORE still opens at once).
 const PanelLoading = () => <p className="text-xs opacity-60" role="status">{useT().t("common.loading")}</p>;
@@ -106,9 +102,9 @@ const AgentsPanel = dynamic(() => import("./AgentsPanels").then((m) => m.AgentsP
 const OperationsPanel = dynamic(() => import("./AgentsPanels").then((m) => m.OperationsPanel), { ssr: false, loading: PanelLoading });
 const DoctorPanel = dynamic(() => import("./DoctorPanel").then((m) => m.DoctorPanel), { ssr: false });
 const RemoteCall = dynamic(() => import("./RemoteCall").then((m) => m.RemoteCall), { ssr: false });
-const WORLDS: PanelId[] = ["studio", "creation", "agents", "theater", "arch", "memory", ...PLANET_WORLDS]; // full-screen worlds with their own side panel (no drawer)
+const WORLDS: PanelId[] = ["studio", "creation", "agents", "arch", "memory", ...PLANET_WORLDS]; // full-screen worlds with their own side panel (no drawer)
 const VISITS = "orbit.world.visits";
-const KEEP: PanelId[] = ["intelligence", "studio", "creation", "agents", "arch", "memory"]; // kept mounted (hidden + paused) after the first visit; not THEATER: leaving must stop its video
+const KEEP: PanelId[] = ["intelligence", "studio", "creation", "agents", "arch", "memory"]; // kept mounted (hidden + paused) after the first visit
 const ORDER: PanelId[] = ["core", ...PLANETS.map((p) => p.id)];
 const WAKE_GREETINGS = ["I'm here. What's on your mind?", "Hey. What can I do for you?", "Orbital is online. What are we working on?", "Good to see you. What's up?", "I'm listening. Go ahead."];
 
@@ -169,7 +165,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   }, []);
   const [focusMemory, setFocusMemory] = useState<string | null>(null);
   const [pending, setPending] = useState<{ text: string; skill?: SkillLaunch } | null>(null);
-  const [gameOpen, setGameOpen] = useState(false); // pause the 3D galaxy while a full-screen game runs
   const [cmd, setCmd] = useState("");
   const [live, setLive] = useState<"connecting" | "live" | "offline">("connecting");
   const pulses = useRef<Record<string, number>>({});
@@ -208,13 +203,13 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const closeWorld = useCallback(() => { changeDive(null); setBehind(null); setPanel(null); setFocusGoal(null); setFocusMemory(null); }, [changeDive]); // "← Back to galaxy" really leaves, even with CORE open over it
   const isWorld = (p: PanelId | null) => p === "intelligence" || (p !== null && WORLDS.includes(p));
   // A second question keeps the world; a running game is full-screen above everything, so CORE replaces it as before.
-  const openCore = useCallback(() => { if (panel !== "core") setBehind(isWorld(panel) && !gameOpen ? panel : null); setPanel("core"); }, [panel, gameOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const openCore = useCallback(() => { if (panel !== "core") setBehind(isWorld(panel) ? panel : null); setPanel("core"); }, [panel]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (panel === null && behind) { setPanel(behind); setBehind(null); }
     else if (panel !== "core" && panel !== null && behind) setBehind(null);
   }, [panel, behind]);
   // Is a 3D scene on screen? The news globe is always 3D, even in "2D view"; the other worlds and the galaxy follow the toggle.
-  const scene3d = !gameOpen && (shown === "intelligence" || view === "3d");
+  const scene3d = shown === "intelligence" || view === "3d";
   const [kept, setKept] = useState<PanelId[]>([]);
   useEffect(() => { if (shown && KEEP.includes(shown)) setKept((k) => (k.includes(shown) ? k : [...k, shown])); }, [shown]);
   useEffect(() => { // visits per world: what the idle galaxy prefetches first
@@ -230,15 +225,15 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     const step = () => { const id = next.shift(); if (id) idle(() => { warmWorld(id as PanelId); step(); }); };
     step();
   }, []);
-  const at = (id: PanelId) => shown === id && (id !== "intelligence" || !gameOpen); // on screen (a game covers the globe, not its own DevWorld)
+  const at = (id: PanelId) => shown === id; // on screen
   const has = (id: PanelId) => at(id) || kept.includes(id);
   // A full-screen world (or a game) covers the galaxy: it stays mounted but paused, so coming back is instant.
-  const covered = gameOpen || isWorld(shown);
-  const activityHome = boot >= 2 && view !== null && !shown && !panel && !approach && !dive && !gameOpen;
+  const covered = isWorld(shown);
+  const activityHome = boot >= 2 && view !== null && !shown && !panel && !approach && !dive;
   const galaxyGone = covered && !dive; // through the surface: the galaxy keeps drawing under the world's crossfade
   const living = useLivingUniverse(view === "3d" && !covered);
   const staged = useStageActive(); // one-canvas spike: STUDIO draws in the galaxy canvas, so keep it on screen
-  useEffect(() => { markOpen(gameOpen ? "game" : covered ? shown ?? "galaxy" : "galaxy"); }, [gameOpen, covered, shown]); // dev-only timing
+  useEffect(() => { markOpen(covered ? shown ?? "galaxy" : "galaxy"); }, [covered, shown]); // dev-only timing
 
   // Back from Google's YouTube consent screen (?studio=…): reopen STUDIO; StudioStats reads and clears the query.
   useEffect(() => { if (new URLSearchParams(location.search).has("studio")) setPanel("studio"); }, []);
@@ -309,7 +304,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       if (runRecipeCommand(text, (msg) => { setCmdReply(msg); if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); })) { stopSpeech(); return; } // "run recipe daily ideas"
       const ar = runAgentCommand(text, (msg) => { if (speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); }); // "Atlas, research CS2 trends": a real task
       if (ar) { stopSpeech(); if (speechSettings().speak) speakChunk(ar); return; }
-      if (runWatchCommand(text, shown, (msg) => { stopSpeech(); if (msg && speechSettings().speak) speakChunk(msg); dispatchEvent(new Event("orbit:core-done")); })) return; // "show me Jynxzi's latest videos", then "the second one"
       dispatchEvent(new CustomEvent(VOICE_ASKED));
       if (detail.skill) updateSkillRun(detail.skill, { state: "queued" });
       setPending({ text, skill: detail.skill }); openCore();
@@ -656,7 +650,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     }
     if (runRecipeCommand(text, (msg, ok) => { if (ok) setCmdReply(msg); else setCmdErr(msg); })) { setCmd(""); return; } // "run recipe daily ideas": no CORE call
     if (runFollowCommand(text, (msg, ok) => { if (!ok) setCmdErr(msg); })) { setCmd(""); return; } // "follow Estonia" / "unfollow AI"
-    if (runWatchCommand(text, shown, (msg, ok) => { if (!ok) setCmdErr(msg); })) { setCmd(""); return; } // THEATER: find/choose/control videos
     if (cmdMode === "ask") { setCmd(""); setPending({ text }); openCore(); return; }
     // Task mode: Nova interprets the request, delegates to the right agents and reports back.
     try {
@@ -682,7 +675,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       : id === "agents" ? <AgentsPanel onOpenTask={openTask} />
       : id === "life" ? <LifePanel open={lifeOpen} />
       : id === "vault" ? <VaultPanel />
-      : id === "markets" ? <MarketsPanel />
       : id === "business" ? <BusinessPanel focusId={focusClient} onFocus={setFocusClient} />
               : null);
   const title = drawer === "core" ? "CORE" : drawer === "profile" ? t("hud.profile") : drawer && planetById(drawer) ? t(`planet.${planetById(drawer)!.id}`) : "";
@@ -710,13 +702,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {/* Worlds stay mounted after their first visit (hidden + paused): re-entering skips the rebuild, shader compile and texture upload. */}
       {has("intelligence") && <Kept on={at("intelligence")}><NewsGlobe reduced={reduced} quality={quality} onClose={closeWorld} focus={newsFocus} paused={!at("intelligence")} /></Kept>}
       {has("studio") && <Kept on={at("studio")}><StudioWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} open={studioOpen} paused={!at("studio")} review={focusReview} onReview={setFocusReview} /></Kept>}
-      {has("creation") && <Kept on={at("creation")}><DevWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} onPlaying={setGameOpen} paused={!at("creation")} /></Kept>}
+      {has("creation") && <Kept on={at("creation")}><DevWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} paused={!at("creation")} /></Kept>}
       {has("agents") && <Kept on={at("agents")}><AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} focusGoal={focusGoal} radarUrl={radarUrl} onRadarDone={() => setRadarUrl(null)} paused={!at("agents")} /></Kept>}
       {has("arch") && <Kept on={at("arch")}><ArchWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} paused={!at("arch")} /></Kept>}
       {has("memory") && <Kept on={at("memory")}><MemoryWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} focusId={focusMemory} onChanged={refreshCount} paused={!at("memory")} List={MemoryPanel} /></Kept>}
-      {shown && KEEP.includes(shown) && at(shown) ? null : shown === "theater" ? (
-        <TheaterWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} />
-      ) : isPlanetWorld(shown) ? (
+      {shown && KEEP.includes(shown) && at(shown) ? null : isPlanetWorld(shown) ? (
         <PlanetWorld key={shown} id={shown} flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld}>{panelBody(shown)}</PlanetWorld>
       ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
         <nav aria-label={t("overview.aria")} inert={covered || undefined} className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
@@ -747,7 +737,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           {process.env.NODE_ENV === "development" && <span className="pill hidden lg:inline-flex" title="Running the development server (slower). Start Orbital from the desktop shortcut for the production server.">DEV</span>}
           <StopAll />
           <TimeDilation onSpan={setDilation} />
-          <NotificationCenter home={!shown && !approach && !gameOpen} />
+          <NotificationCenter home={!shown && !approach} />
           <StudioNotifier />
           <OrbitExplore selected={shown} onSelect={(id) => galaxySelect(id, true)} />
           <button className="chip hud-search hud-phone-menu" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label={t("hud.search")} title={t("hud.searchTitle")}>⌕</button>
@@ -785,7 +775,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       <PerfBeacon />
       <AmbientSound />
       {perfRun && <PerfRun />}
-      {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><MarketWatcher /><RemoteCall compact /></>}
+      {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><RemoteCall compact /></>}
 
       {drawer && !WORLDS.includes(drawer) && (
         <aside ref={drawerDrag.ref} tabIndex={-1} className={`glass drawer${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
@@ -801,7 +791,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <MorningCard home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
         <WeeklyCard home={!shown && !approach} />
         <EveningCapture />
-        <Herald home={!shown && !approach && !gameOpen} coreBusy={busy} />
+        <Herald home={!shown && !approach} coreBusy={busy} />
         <SpeakFirst />
         <WhatsNew home={!shown && !approach} />
         <MorningBrief home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />

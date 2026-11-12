@@ -57,7 +57,7 @@ test("morningCandidates maps every source to a kind with ledger-safe keys", () =
   const item = { kind: "task" as const, id: "a1", title: "Ship it", status: "awaiting_approval", detail: "d", action: "Approve" };
   const cs = morningCandidates({
     work: { items: [item, { ...item, kind: "goal", id: "g1", status: "running" }] }, studioReady: 2, proposals: ["p"],
-    headlines: ["H".repeat(300)], alerts: ["AAPL above 200"], followups: [{ id: "p1", name: "Cafe" }],
+    headlines: ["H".repeat(300)], followups: [{ id: "p1", name: "Cafe" }],
     recall: [{ id: "m1", title: "Old note", label: "a year ago" }], ideas: [{ id: "i1", title: "Idea", next: "Try it", score: 80 }],
   });
   assert.deepEqual([...new Set(cs.map((x) => x.kind))].sort(), [...CARD_KINDS].sort());

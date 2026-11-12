@@ -53,7 +53,7 @@ export function toolPlanet(tool: string): PlanetId | "edge" | null {
   };
   if (exact[t]) return exact[t];
   const pre: [string, PlanetId][] = [["lead_", "business"], ["business_", "business"], ["vault_", "vault"], ["life_", "life"], ["habit_", "life"],
-    ["automation_", "operations"], ["memory_", "memory"], ["studio_", "studio"], ["clip_", "studio"], ["market_", "markets"], ["arch_", "arch"], ["ws_", "creation"]];
+    ["automation_", "operations"], ["memory_", "memory"], ["studio_", "studio"], ["clip_", "studio"], ["arch_", "arch"], ["ws_", "creation"]];
   return pre.find(([p]) => t.startsWith(p))?.[1] ?? null;
 }
 

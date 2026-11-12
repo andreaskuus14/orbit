@@ -60,18 +60,6 @@ test("ANALYTICS: a column per area and day, today highlighted, height by count",
   assert.ok(today.size > s.places.find((p) => !p.fresh)!.size);
 });
 
-test("MARKETS: bigger moves orbit faster; a fired alert marks the ticker new", () => {
-  const s = worldScene("markets", { watchlist: [{ ticker: "AAPL", price: 200, changePct: 0.1 }, { ticker: "TSLA", price: 300, changePct: -6 }],
-    alerts: [{ ticker: "TSLA", firedOn: key(NOW) }] }, NOW);
-  const [a, t] = s.places;
-  assert.ok(Math.abs(t.orbit!.speed) > Math.abs(a.orbit!.speed));
-  assert.equal(t.color, "#f87171");
-  assert.ok(t.fresh && !a.fresh);
-  const p0 = placeAt(a, 0), p1 = placeAt(a, 10);
-  assert.ok(Math.abs(Math.hypot(p0[0], p0[2]) - a.orbit!.r) < 1e-9 && Math.abs(Math.hypot(p1[0], p1[2]) - a.orbit!.r) < 1e-9);
-  assert.notDeepEqual(p0, p1);
-});
-
 test("OPERATIONS: halls by state; only running machines spin", () => {
   const s = worldScene("operations", { tasks: [{ id: "1", title: "Scout", status: "running", created_at: iso(NOW - H) }, { id: "2", title: "Old", status: "cancelled" }, { id: "3", status: "needs_approval" }] }, NOW);
   assert.deepEqual(s.places.map((p) => [p.spin, p.sub.split(" · ")[1]]), [[true, "running"], [false, "cancelled"], [false, "needs_approval"]]);

@@ -138,7 +138,7 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
     company: await import("./chains").then((c) => c.openCompanyChains(sb, userId), () => []),
     deals: await import("./deals").then((d) => d.dueCount(), () => 0),
     rivals: await import("./rivals").then((r) => r.rivalsDue(), () => 0),
-    health: true, dream: true, loops: true,
+    health: true, loops: true,
     backup: await import("./capsule").then((m) => m.backupDue(), () => false),
     personas: await import("./personas").then((m) => m.personasDue(userId), () => false),
     handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(), off: [...nightOff(autonomyLevels()), ...learned.drop],
@@ -219,7 +219,7 @@ export async function runOne(sb: SupabaseClient, userId: string, t: NightTask, s
     case "deals": { // read-only web hunt; a great deal pushes "Deal found" and may ring him after 08:00 (call-pure)
       const r = await (await import("./deals")).huntDeals(sb, userId, "background", { signal, max: t.calls });
       if (!r.wishes) return { ...base, status: "skipped", why: "No wish was due", at: at() };
-      return { ...base, label: r.great ? `${r.great} great deal${r.great > 1 ? "s" : ""} found` : `Deal hunt: ${r.offers} offer${r.offers === 1 ? "" : "s"}, none great yet`, status: "done", open: { panel: "markets" }, at: at() };
+      return { ...base, label: r.great ? `${r.great} great deal${r.great > 1 ? "s" : ""} found` : `Deal hunt: ${r.offers} offer${r.offers === 1 ? "" : "s"}, none great yet`, status: "done", open: { panel: "business" }, at: at() };
     }
     case "health": { // reads logs and failures, writes notes for the Doctor panel; never touches code
       const r = await (await import("./health")).runHealth(sb, userId, signal);
@@ -234,11 +234,6 @@ export async function runOne(sb: SupabaseClient, userId: string, t: NightTask, s
       if (!r) return { ...base, status: "skipped", why: "Already running, or waiting for you", at: at() };
       const st = stepStatus(r.status);
       return { ...base, status: st, ...(st === "approval" ? { open: { task: r.taskId } } : { open: { panel: "agents" as const } }), at: at() };
-    }
-    case "dream": { // the morning brief asks it; nothing is edited, so it's never a "done" or an approval here
-      const ns = (await load()).settings, key = nightKey(Date.now(), ns), r = await (await import("./dream")).runDream(sb, userId, key, ns.tz, signal);
-      const d = await (await import("./dream-ideas")).runIdeas(sb, userId, key, signal).catch((e) => ({ n: 0, why: e instanceof Error ? e.message : String(e) })); // dream mode: idea combinations, one call
-      return { ...base, status: "skipped", why: `${r.dream ? "One question saved for the morning brief" : r.why}; ${d.n ? `${d.n} idea${d.n > 1 ? "s" : ""} in DREAMS` : `no ideas (${d.why})`}`, at: at() };
     }
     case "personas": { // look-only Studio runs + one walkthrough; backlog proposals wait for his Add click in GAME DEV → Personas
       const { runPersonaPlaytest } = await import("./personas");

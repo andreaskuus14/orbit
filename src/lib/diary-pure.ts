@@ -1,8 +1,7 @@
 // ORBIT's diary (roadmap 4), pure parts: pick the day's facts from ORBIT's own records, a no-model template, the prompt,
-// output cleaning, paging/search and the CORE block. Sources: last night's run, ledger counts, lessons, scored predictions,
+// output cleaning, paging/search and the CORE block. Sources: last night's run, ledger counts, lessons,
 // self-heal issues, episodes. Never journal/LIFE data: ledger types are an allowlist and call episodes (conversation) are skipped.
 // I/O: diary.ts. Tested in tests/diary.test.ts.
-import { AREA_LABEL, isHit, type Prediction } from "./predict-pure.ts";
 import type { LedgerEvent } from "./ledger-pure.ts";
 import type { NightRun } from "./night-pure.ts";
 
@@ -12,7 +11,7 @@ export type Facts = { did: string[]; learned: string[]; wrong: string[]; next: s
 export type FactsIn = {
   now: number; run?: NightRun; events: LedgerEvent[];
   lessons: { text: string; status: string; at: string; decidedAt?: string }[];
-  preds: Prediction[]; issues: { title: string; status: string; last: string }[];
+  issues: { title: string; status: string; last: string }[];
   episodes: { type: string; when: string; title: string }[]; day: string;
 };
 
@@ -56,19 +55,6 @@ export function pickFacts(x: FactsIn): Facts {
   for (const l of x.lessons) {
     if (l.status === "kept" && recent(l.decidedAt, x.now)) f.learned.push(`he confirmed a lesson: ${clip(l.text)}`);
     else if (l.status === "proposed" && recent(l.at, x.now)) f.learned.push(`I noticed: ${clip(l.text)}`);
-  }
-  const scored = x.preds.filter((p) => p.outcome !== undefined && recent(p.decidedAt, x.now));
-  if (scored.length) {
-    const miss = scored.filter((p) => !isHit(p)), hits = scored.length - miss.length;
-    f.learned.push(`guessed ${hits} of ${scored.length} of his approvals right`);
-    const counts = new Map<Prediction["area"], number>();
-    for (const p of miss) counts.set(p.area, (counts.get(p.area) ?? 0) + 1);
-    const worst = [...counts].sort((a, b) => b[1] - a[1])[0];
-    if (worst) {
-      const area = AREA_LABEL[worst[0]].toLowerCase();
-      f.wrong.push(`misjudged ${plural(worst[1], "decision")} on ${area}`);
-      f.next.push(`trust my ${area} guesses less until they settle`);
-    }
   }
   for (const e of x.episodes.filter((e) => e.type !== "call" && e.when === x.day).slice(0, 2)) f.did.push(`noted: ${clip(e.title, 90)}`);
   for (const k of Object.keys(f) as (keyof Facts)[]) f[k] = [...new Set(f[k])].slice(0, MAX_FACTS);
