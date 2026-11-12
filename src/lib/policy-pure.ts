@@ -114,13 +114,39 @@ export const TOOL_AREA: Record<string, Area> = {
 // Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, BUSINESS (private: true), WEEK (private: true), ORGANIZE lead_update + life_plan.
 // shortcut: hand-copied because core-modules.ts can't load under node --test; update both when a module's private flag changes.
 export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "business_status", "week_review", "lead_update", "life_plan"];
-// Where each outbound tool's text goes: "model" = any model (agents, search/news/outlier pipelines, local TTS/image models, image
-// prompts to ComfyUI/Pollinations/Higgsfield). Private text in a model-bound call is a hard refusal: Allow once never unlocks it.
-export const EGRESS_CLASS: Record<string, "model" | "web"> = {
+// Where each tool's model-chosen text goes, now or later from a stored record: "model" = any model (agents, search/news/outlier
+// pipelines, local TTS/image models, image prompts to ComfyUI/Pollinations/Higgsfield, and records that background agents run on:
+// missions, night queue, automations, goals, rules, memories agents read, lead notes in outreach prompts). Private text in a
+// model-bound call is a hard refusal: Allow once never unlocks it. "web" = a public page/fetch (Allow once card). "none" = no
+// chat text leaves ORBIT (reads, his own local records, enum/file-name inputs). Every TIERS tool must be here (allow-once.test.ts).
+export const EGRESS_CLASS: Record<string, "model" | "web" | "none"> = {
   ask_agent: "model", read_news: "model", web_search: "model", find_outliers: "model", local_tts: "model", local_image: "model",
   ws_inspire_image: "model", ws_picture_draft: "model",
+  start_mission: "model", // objective + steps → capabilityStart + agent chain tasks (missions.ts createMission)
+  queue_tonight: "model", // text → night-shift agent task (night.ts addTonightItem)
+  automation_create: "model", // prompt → agent on every run (core-operator.ts)
+  higgsfield_draft: "model", // prompt → Higgsfield quote + generation (story.ts)
+  create_goal: "model", // title/why → agent drafts the plan (goals.ts)
+  propose_rule: "model", // text → agent tasks once confirmed (rules.ts)
+  save_memory: "model", // agents read non-journal memories (agents.ts recent_memories/search)
+  lead_create: "model", lead_update: "model", // notes → outreach draft prompt (business-pure outreachPrompt); only LEAD_TEXT fields are scanned
+  save_checkpoint: "model", // lines go into the atlas research-pilot prompt
+  add_wish: "model", // item/notes → the deal hunter's Claude call (deals.ts)
   browse: "web", watch_add: "web", fetch_url: "web", scrape_page: "web", reach_read: "web", ws_fetch_image: "web",
+  // no chat text leaves: plan_task (goal is a local label, steps are enums/inbox file names), run_scout/run_niche ({}), reach_trending (enum)
+  plan_task: "none", run_scout: "none", run_niche: "none", reach_trending: "none", schedule_approved: "none", local_3d: "none", local_transcribe: "none",
+  navigate: "none", goal_status: "none", mission_status: "none", business_status: "none", ideas_list: "none", studio_status: "none", learned: "none",
+  suggestions: "none", life_status: "none", life_journal: "none", vault_search: "none", vault_read: "none", calendar_events: "none", plan_day: "none",
+  git_summary: "none", ws_list: "none", ws_read: "none", week_review: "none", wishlist: "none", load_module: "none", read_more: "none",
+  life_check: "none", life_add_habit: "none", life_remind: "none", ws_write: "none", ws_create: "none", ws_run: "none",
+  ws_stop: "none", vault_move: "none", vault_rename: "none", life_plan: "none", automation_pause: "none", studio_drafts: "none", roblox_export: "none",
+  roblox_lint: "none", save_decision: "none", watch_list: "none", watch_changes: "none", daily_runs: "none",
 };
+// lead_update: the lead selector is BUSINESS's own record key (business_status shows it), so only its free-text fields are scanned;
+// for both lead tools BUSINESS results don't count as private (lead_create scans its whole input); journal/LIFE/attachment text in a note is still refused.
+const LEAD_TEXT = ["note", "next", "notes"], LEAD_OWN = ["business_status", "lead_update", "lead_create"];
+const isLead = (t: string) => t === "lead_create" || t === "lead_update";
+const leadText = (input: Record<string, unknown>) => (Array.isArray(input.leads) ? input.leads : [input]).map((l) => Object.fromEntries(Object.entries((l ?? {}) as Record<string, unknown>).filter(([k]) => LEAD_TEXT.includes(k))));
 export const MODEL_TOOLS = Object.keys(EGRESS_CLASS).filter((t) => EGRESS_CLASS[t] === "model");
 export const LINK_TOOLS = ["browse", "watch_add", "fetch_url", "scrape_page", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft"];
 export const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "find_outliers", "local_tts", "local_image"]; // local_tts/local_image: journal/LIFE text never goes to a model, local ones included
@@ -228,7 +254,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   if (d.allow || !d.egress) return d;
   // model-bound tools never get private text, not even with his click (AGENTS.md rule 6): attachments, pins and local-plugin
   // output count too, since any of them may hold journal/LIFE text
-  if (EGRESS_CLASS[tool] === "model") return { ...d, egress: false, reason: `${d.reason}. ${NO_MODEL_ONCE}` };
+  if (!isPluginTool(tool) && (EGRESS_CLASS[tool] ?? "model") === "model") return { ...d, egress: false, reason: `${d.reason}. ${NO_MODEL_ONCE}` };
   if (!once) return d;
   if (once.has(tool, input ?? {})) {
     const d2 = decideRaw(tool, input, { ...ctx, egressAllowed: true });
@@ -269,10 +295,13 @@ function decideRaw(tool: string, input: Record<string, unknown> | undefined, ctx
   if (auto && !auto.ok) return no(auto.why);
   if (tool === "navigate") return dataIn ? no("navigate only as your first tool call, for the user's own request") : { allow: true, tier, reason: "first tool call" }; // core.ts:218 + 265
   // Web and agent tools stay on with private data in context; only a call whose outgoing query/URL/brief carries a piece of it is refused.
-  if (!ctx.egressAllowed && (ctx.attach || ctx.pins || privateIn || !!ctx.privateText?.length || !!ctx.localText?.length) && (LEAK_TOOLS.includes(tool) || LINK_TOOLS.includes(tool))) {
-    const texts = [...(ctx.privateText ?? []), ...(ctx.localText ?? []), ...privateResults(ctx.steps, privateToolsIn(ctx))];
+  const egressPriv = isLead(tool) ? privateToolsIn(ctx).filter((t) => !LEAD_OWN.includes(t)) : privateToolsIn(ctx);
+  const egressIn = isLead(tool) ? !!ctx.carried || called(ctx.steps, egressPriv) : privateIn;
+  if (!ctx.egressAllowed && (ctx.attach || ctx.pins || egressIn || !!ctx.privateText?.length || !!ctx.localText?.length) && (EGRESS_CLASS[tool] ?? "model") !== "none") {
+    const texts = [...(ctx.privateText ?? []), ...(ctx.localText ?? []), ...privateResults(ctx.steps, egressPriv)];
+    const scan = tool === "lead_update" ? { leads: leadText(input ?? {}) } : input; // lead_create: every field reaches outreach/research prompts
     if (ctx.carried && ctx.carriedKind === "unknown") return { ...no(UNKNOWN_TAINT), egress: true };
-    const hit = outboundLeak(outgoing(input ?? {}), texts, question, !texts.length) || (ctx.carried ? carriedHit(input, ctx, false, question) : "");
+    const hit = outboundLeak(outgoing(scan ?? {}), texts, question, !texts.length) || (ctx.carried ? carriedHit(scan, ctx, false, question) : "");
     if (hit) return { ...no(`this ${tool} call would send private text out: "${hit.slice(0, 80)}" (from the user's private notes, journal or files). The tool is allowed: retry with a generic query/brief without that text, and if you can't, tell the user exactly which text blocked it; never tell the user to do the search himself`), egress: true };
   }
 
