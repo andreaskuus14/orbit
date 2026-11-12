@@ -64,13 +64,23 @@ export function patchNightSettings(b: Record<string, unknown>, cur: NightSetting
   return s;
 }
 
+const known = (k: unknown) => (NIGHT_KINDS as readonly string[]).includes(k as string);
+/** A stored run from before a kind or panel was removed: drop items/plan lines of retired kinds ("dream"), send a retired "markets" link to BUSINESS. */
+export function cleanRun(r: NightRun): NightRun {
+  const items = (Array.isArray(r.items) ? r.items : []).filter((i) => known(i?.kind)).map((i) => (i.open && "panel" in i.open && (i.open.panel as string) === "markets" ? { ...i, open: { panel: "business" as const } } : i));
+  return { ...r, items, ...(Array.isArray(r.planned) && { planned: r.planned.filter((p) => known(p?.kind)) }) };
+}
+
 /** night.json text → state; anything unreadable falls back to defaults (the queue is only ever written atomically). */
 export function parseNight(text: string): NightState {
   try {
     const j = JSON.parse(text) as Partial<NightState>;
-    const settings = patchNightSettings((j?.settings ?? {}) as Record<string, unknown>, NIGHT_DEFAULTS);
+    const raw = { ...(j?.settings ?? {}) } as Record<string, unknown>;
+    // Stored pins for kinds that no longer exist ("dream") or bad values are dropped; the rest of the saved settings stay. POST input stays strict.
+    if (raw.pin && typeof raw.pin === "object") raw.pin = Object.fromEntries(Object.entries(raw.pin).filter(([k, v]) => (NIGHT_KINDS as readonly string[]).includes(k) && ["on", "off", "auto"].includes(v as string)));
+    const settings = patchNightSettings(raw, NIGHT_DEFAULTS);
     const users = j?.users && typeof j.users === "object" ? j.users : {};
-    for (const u of Object.values(users)) { u.tonight = Array.isArray(u.tonight) ? u.tonight : []; u.drafted = u.drafted && typeof u.drafted === "object" ? u.drafted : {}; if (!Array.isArray(u.company)) delete u.company; }
+    for (const u of Object.values(users)) { u.tonight = Array.isArray(u.tonight) ? u.tonight : []; u.drafted = u.drafted && typeof u.drafted === "object" ? u.drafted : {}; if (!Array.isArray(u.company)) delete u.company; if (u.run) u.run = cleanRun(u.run); }
     return { settings: typeof settings === "string" ? { ...NIGHT_DEFAULTS } : settings, users };
   } catch { return { settings: { ...NIGHT_DEFAULTS }, users: {} }; }
 }
