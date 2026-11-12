@@ -75,3 +75,13 @@ test("pitch key is domain-separated; previews and the logged notice", async () =
   assert.ok(viewerHtml("t", "x", "tok", "v", "n").includes("Opens of this link are logged."));
   assert.ok(!viewerHtml("t", "x", "tok", "", "n").includes("sendBeacon")); // not a view: no beacon
 });
+
+test("scanner list: fetchers skipped, in-app browsers counted", async () => {
+  const { isPreviewUa } = await import("../src/lib/pitch-links-pure.ts");
+  for (const u of ["LinkedInBot/1.0 (compatible; Mozilla/5.0; Apache-HttpClient +http://www.linkedin.com)", "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)", "TelegramBot (like TwitterBot)", "Slackbot-LinkExpanding 1.0", "Slack-ImgProxy (+https://api.slack.com/robots)", "Skype URL Preview", "Mozilla/4.0 (compatible; ms-office; MSOffice 16)", "Microsoft Office/16.0 (Windows NT 10.0; Microsoft Outlook 16.0.1)", "Mozilla/5.0 Microsoft Office Outlook SafeLinks"]) assert.ok(isPreviewUa(u), u);
+  for (const u of [
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 LinkedInApp/9.30",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36 Telegram-Android/10.14",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Outlook-iOS/4.2",
+  ]) assert.ok(!isPreviewUa(u), u);
+});

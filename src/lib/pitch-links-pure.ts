@@ -59,7 +59,7 @@ export function ipPrefix(forwardedFor: string | null | undefined): string {
 
 /** Link unfurlers and mail scanners: they open links nobody read, so they are not views. */
 export const isPreviewUa = (ua: string | null | undefined) =>
-  /bot|crawl|spider|preview|slurp|facebookexternalhit|whatsapp|safelinks|microsoft office|outlook|slack|discord|telegram|skype|linkedin|embedly|headless/i.test(ua ?? "");
+  /bot|crawl|spider|preview|slurp|facebookexternalhit|whatsapp|safelinks|microsoft office|ms-office|slack-imgproxy|embedly|headless/i.test(ua ?? "");
 
 /** "Chrome on Android"-level only, never the raw string. */
 export function coarseUa(ua: string | null | undefined): string {
