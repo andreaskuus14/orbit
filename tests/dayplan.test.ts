@@ -114,3 +114,19 @@ test("clip approvals batch into one capped STUDIO review block that never crowds
   assert.ok(flex.includes("ap:clip"));
   assert.ok(p.unplaced.some((u) => u.id === "ap:s1" && u.why === "cap")); // chores capped at a quarter of free time
 });
+
+test("dayplan provenance fails closed: only plan/theater are typed", async () => {
+  const { dayplanKind } = await import("../src/lib/dayplan-pure.ts");
+  assert.equal(dayplanKind(undefined), "life");
+  assert.equal(dayplanKind("life"), "life");
+  assert.equal(dayplanKind("other"), "life");
+  assert.equal(dayplanKind("plan"), "typed");
+  assert.equal(dayplanKind("theater"), "typed");
+});
+
+test("scheduler tick resumes goals only when Goals autonomy allows background", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/lib/scheduler.ts", import.meta.url), "utf8");
+  const line = src.split("\n").find((l) => l.includes("resumeGoals("))!;
+  assert.match(line, /^\s*if \(allows\("goals", "background"\)\.ok\)/);
+});

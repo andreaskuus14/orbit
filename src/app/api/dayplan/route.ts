@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
+import { dayplanKind } from "@/lib/dayplan-pure";
 import { accept, addTask, adjust, captureCommitments, commitments, decide, deferBlock, movePlan, planDay, review, setDone } from "@/lib/dayplan";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
   if (str(b?.move)) return out(await movePlan(sb, user.id, str(b!.move)!, str(b!.before)));
   if (str(b?.defer) && (b!.until === "tomorrow" || b!.until === "week")) return out(await deferBlock(sb, user.id, str(b!.defer)!, b!.until));
   if (str(b?.overrun) && Number.isInteger(b!.min)) return out(await adjust(str(b!.overrun)!, b!.min as number));
-  const kind = b?.from === "life" ? "life" : "typed"; // LIFE-panel text is private: world-pure never puts it in a prompt
+  const kind = dayplanKind(b?.from); // fail closed: only known callers are typed; LIFE/unknown text stays private
   if (typeof b?.task === "string" && b.task.trim() && b.task.length <= 200) {
     const min = Number(b.min), rank = Number(b.rank), due = typeof b.due === "string" && /^\d{4}-\d\d-\d\d$/.test(b.due) ? b.due : undefined;
     return out(await addTask(b.task.trim(), { kind }, { ...(min >= 10 && min <= 240 && { min: Math.round(min) }), ...(rank >= 1 && rank <= 3 && { rank: Math.round(rank) * 10 }), ...(due && { due }) }));
