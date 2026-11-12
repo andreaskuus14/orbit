@@ -4,7 +4,7 @@
 // sandboxed workspace/shop previews keep their own headers. Applied in middleware.ts. Tests: tests/csp.test.ts.
 
 /** Pages get the policy; API responses, the /w workspace previews and the shop preview (own CSP, framed by ORBIT) don't. */
-export const cspApplies = (path: string) => !path.startsWith("/api/") && !path.startsWith("/w/") && path !== "/w" && !path.startsWith("/_next/");
+export const cspApplies = (path: string) => !path.startsWith("/api/") && !path.startsWith("/w/") && path !== "/w" && !path.startsWith("/p/") && !path.startsWith("/_next/");
 
 /** `supabase`: the project URL; its origin is allowed for fetch/websocket even over plain http (a local Supabase). */
 export function csp(nonce: string, dev = false, supabase = ""): string {
