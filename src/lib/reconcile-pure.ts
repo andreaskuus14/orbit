@@ -78,6 +78,8 @@ export type Parsed = { format: Format; header: string[]; mapping: Mapping; lines
 
 /** The CSV text → normalized lines. Pass `mapping` for a generic CSV after his column-mapping step. */
 export function parseBank(text: string, mapping?: Mapping): Parsed {
+  // U+FFFD = the browser decoded a non-UTF-8 file (Windows-1257 / Latin-1 bank export): names would be garbled, so refuse instead of guessing
+  if (text.includes("\uFFFD")) return { format: "generic", header: [], mapping: {}, lines: [], skipped: [], problem: "This file isn't UTF-8 (it has unreadable characters). Export it again as CSV in UTF-8, or open it in a spreadsheet and save as CSV UTF-8." };
   const rows = splitCsv(text), header = rows[0] ?? [];
   const d = detect(header), map = mapping ?? d.mapping;
   const out: Parsed = { format: d.format, header, mapping: map, lines: [], skipped: [], problem: "" };
