@@ -64,11 +64,11 @@ export function ChatsBox() {
       <div className="space-y-2 pt-1">
         {chats.map((c) => (
           <div key={c.id} className="rounded border border-white/10 p-1.5 space-y-1">
-            <p><b>{c.sender || "Customer"}</b> <span className="muted">· {c.at.slice(0, 16).replace("T", " ")}</span></p>
+            <p><b>{c.sender || "Customer"}</b> <span className="muted">· {new Date(c.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Tallinn" })}</span></p>
             <p className="whitespace-pre-line">{c.text}</p>
             {c.sentAt ? <p className="muted">Sent: {c.draft}</p> : <>
               <label className="block"><span className="muted">Reply (edit before sending)</span>
-                <textarea className="w-full" rows={3} value={edit[c.id] ?? c.draft ?? ""} placeholder={c.draft === undefined ? "CORE is drafting…" : ""} onChange={(e) => setEdit({ ...edit, [c.id]: e.target.value })} /></label>
+                <textarea className="w-full" rows={3} value={edit[c.id] ?? c.draft ?? ""} placeholder={c.draft !== undefined ? "" : c.draftFailed ? `No draft (${c.draftFailed}). Write the reply yourself.` : "CORE is drafting…"} onChange={(e) => setEdit({ ...edit, [c.id]: e.target.value })} /></label>
               <button className="chip" disabled={!!busy || !(edit[c.id] ?? c.draft ?? "").trim()} onClick={() => void send(c)}>{busy === c.id ? "Sending…" : "Send to customer"}</button>
             </>}
           </div>

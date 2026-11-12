@@ -1,6 +1,6 @@
 // BUSINESS "What users hate": public complaints about a niche's products, clustered into themes. Pure; tested in tests/complaints.test.ts.
 // IO: complaints.ts. Sources: App Store review RSS and Reddit search JSON (public, read-only). Every theme must carry a working source link.
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { normUrl } from "./niche-pure.ts";
 import { fenceUntrusted } from "./reach/pure.ts";
 
@@ -98,7 +98,26 @@ export function anglePrompt(niche: string, themes: Theme[]): string {
 // --- Customer chat (self-hosted Chatwoot): an incoming site-chat message is stored with the complaints, CORE drafts a reply, the owner sends it.
 
 export type ChatMsg = { id: string; account: number; conversation: number; sender: string; text: string; at: string };
-export type ChatItem = ChatMsg & { draft?: string; sentAt?: string };
+export type ChatItem = ChatMsg & { draft?: string; sentAt?: string; draftFailed?: string };
+
+/** A model draft lands only on a chat not yet sent (a late draft must not overwrite the text the customer got). */
+export function applyDraft(c: ChatItem, draft: string): void { if (!c.sentAt) { c.draft = draft; delete c.draftFailed; } }
+
+/** Claim a chat for sending inside the write lock: a second tab sees sentAt and stops. The caller reverts sentAt if the post fails. */
+export function claimSend(c: ChatItem | undefined, content: string, now: string): ChatItem {
+  if (!c) throw new Error("Chat not found");
+  if (c.sentAt) throw new Error("Already sent");
+  if (!content) throw new Error("Reply is empty");
+  c.draft = content; c.sentAt = now;
+  return { ...c };
+}
+
+/** Chatwoot signs as X-Chatwoot-Signature: "sha256=" + HMAC-SHA256(secret, "{X-Chatwoot-Timestamp}.{raw body}"). Older than 5 min = replay. */
+export function chatwootSignatureOk(secret: string | undefined, ts: string | null, sig: string | null, raw: string, nowSec = Math.floor(Date.now() / 1000)): boolean {
+  if (!secret || secret.length < 16 || !ts || !sig || !/^\d{1,12}$/.test(ts) || Math.abs(nowSec - Number(ts)) > 300) return false;
+  const want = Buffer.from("sha256=" + createHmac("sha256", secret).update(`${ts}.${raw}`).digest("hex")), got = Buffer.from(sig.trim());
+  return got.length === want.length && timingSafeEqual(got, want);
+}
 
 /** Constant-time compare against CHATWOOT_WEBHOOK_SECRET; unset or short secret refuses everything. */
 export function chatwootSecretOk(secret: string | undefined, got: string | null): boolean {

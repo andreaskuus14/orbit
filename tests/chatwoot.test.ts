@@ -56,3 +56,26 @@ test("chatwoot: sendChat is reachable only from the owner's complaints route; th
   const builders = srcFiles("src").filter((f) => !f.endsWith("complaints-pure.ts") && /\bchatwootReplyRequest\(/.test(readFileSync(f, "utf8")));
   assert.deepEqual(builders.map((f) => f.replace(/\\/g, "/")), ["src/lib/complaints.ts"], "the Chatwoot API call is built only in sendChat");
 });
+
+import { createHmac } from "node:crypto";
+import { applyDraft, chatwootSignatureOk, claimSend, type ChatItem } from "../src/lib/complaints-pure.ts";
+const sign = (ts: string, raw: string, k = S) => "sha256=" + createHmac("sha256", k).update(`${ts}.${raw}`).digest("hex");
+test("chatwoot: signature valid / invalid / stale", () => {
+  const now = 1_800_000_000, ts = String(now - 10), raw = '{"event":"message_created"}';
+  assert.equal(chatwootSignatureOk(S, ts, sign(ts, raw), raw, now), true);
+  assert.equal(chatwootSignatureOk(S, ts, sign(ts, raw + " "), raw, now), false, "body changed");
+  assert.equal(chatwootSignatureOk(S, ts, sign(ts, raw, S + "x"), raw, now), false, "wrong key");
+  assert.equal(chatwootSignatureOk(S, String(now - 301), sign(String(now - 301), raw), raw, now), false, "stale = replay");
+  assert.equal(chatwootSignatureOk(S, null, sign(ts, raw), raw, now), false);
+  assert.equal(chatwootSignatureOk(undefined, ts, sign(ts, raw, ""), raw, now), false);
+});
+test("chatwoot: a late draft never overwrites sent text; a second send is refused", () => {
+  const c: ChatItem = { id: "1-7", account: 1, conversation: 42, sender: "Ann", text: "hi", at: "" };
+  claimSend(c, "Owner text", "2026-11-12T10:00:00Z");
+  applyDraft(c, "late model draft");
+  assert.equal(c.draft, "Owner text");
+  assert.throws(() => claimSend(c, "again", "x"), /Already sent/);
+  const d: ChatItem = { ...c, sentAt: undefined, draft: undefined, draftFailed: "x" };
+  applyDraft(d, "ok"); assert.equal(d.draft, "ok"); assert.equal(d.draftFailed, undefined);
+  assert.throws(() => claimSend(d, "", "x"), /empty/);
+});
