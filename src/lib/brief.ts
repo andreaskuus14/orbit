@@ -16,11 +16,19 @@ import { leadItems, morningPicks } from "./needs-you-pure";
 type UserBrief = { life?: boolean; snoozed?: Record<string, string>; why?: Record<string, string>; polish?: { day: string; base?: string; text?: string } }; // snoozed: id → until day
 type Store = { users: Record<string, UserBrief> };
 const file = () => path.join(orbitDataDir(), "brief.json");
-const load = async (): Promise<Store> => { try { const j = JSON.parse(await readFile(file(), "utf8")); return j?.users && typeof j.users === "object" ? j : { users: {} }; } catch { return { users: {} }; } };
+// Strict: only a missing file is empty. An unreadable or corrupt one throws, so update() never overwrites it (LIFE opt-in, snoozes survive).
+const loadStrict = async (): Promise<Store> => {
+  let raw: string;
+  try { raw = await readFile(file(), "utf8"); } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return { users: {} }; throw e; }
+  const j = JSON.parse(raw);
+  if (!j?.users || typeof j.users !== "object") throw new Error("brief.json has no users map");
+  return j;
+};
+const load = (): Promise<Store> => loadStrict().catch(() => ({ users: {} })); // reads degrade to empty; writes never do
 let saving: Promise<unknown> = Promise.resolve();
 function update(userId: string, fn: (u: UserBrief) => UserBrief): Promise<UserBrief> {
   const p = saving.catch(() => {}).then(async () => {
-    const s = await load();
+    const s = await loadStrict();
     const u = (s.users[userId] = fn(s.users[userId] ?? {}));
     await mkdir(path.dirname(file()), { recursive: true });
     await writeFile(file() + ".tmp", JSON.stringify(s));
@@ -102,22 +110,38 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
   }, now);
 }
 
-/** The brief with today's polished words when they still match (one model call a day at most; any failure keeps the plain words). */
-export async function getBrief(sb: SupabaseClient, userId: string, now = Date.now()): Promise<Brief & { life: boolean }> {
+const flights = new Map<string, Promise<{ spoken: string; polished: boolean } | null>>();
+
+/** The brief with today's polished words when they still match (one model call a day at most; any failure keeps the plain words).
+ *  Concurrent callers (PC overlay + phone) share one in-flight polish per user and day, so both get the same text. */
+export async function getBrief(sb: SupabaseClient, userId: string, now = Date.now(), ask: typeof askClaude = askClaude): Promise<Brief & { life: boolean }> {
   const b = await composeToday(sb, userId, now);
   const u = (await load()).users[userId] ?? {};
+  const out = { ...b, life: !!u.life };
   const p = u.polish;
-  if (p?.day === b.day) return { ...b, life: !!u.life, ...(p.base === b.spoken && p.text && { spoken: p.text, polished: true }) };
-  if (!b.items.length) return { ...b, life: !!u.life };
-  await update(userId, (x) => ({ ...x, polish: { day: b.day } })); // the day's one try is used before the call: a crash can't make it two
+  if (p?.day === b.day) return { ...out, ...(p.base === b.spoken && p.text && { spoken: p.text, polished: true }) };
+  if (!b.items.length) return out;
+  const r = await polishOnce(sb, userId, b, ask);
+  return r ? { ...out, ...r } : out;
+}
+
+export function polishOnce(sb: SupabaseClient, userId: string, b: Brief, ask: typeof askClaude = askClaude) {
+  const key = `${userId}|${b.day}`;
+  let f = flights.get(key);
+  if (!f) { f = polish(sb, userId, b, ask).finally(() => flights.delete(key)); flights.set(key, f); }
+  return f;
+}
+
+async function polish(sb: SupabaseClient, userId: string, b: Brief, ask: typeof askClaude) {
+  try { await update(userId, (x) => ({ ...x, polish: { day: b.day } })); } catch { return null; } // the day's one try is used before the call: a crash can't make it two; an unreadable brief.json means no call
   let text = b.spoken;
   try {
-    const r = await askClaude(`${await import("./persona").then((m) => m.personaContext(userId, "brief"))}\n\n${polishPrompt(b.spoken)}`, POLISH_SYSTEM, { lane: "foreground", model: FAST_MODEL, timeoutMs: 12_000, purpose: "brief.polish" });
+    const r = await ask(`${await import("./persona").then((m) => m.personaContext(userId, "brief"))}\n\n${polishPrompt(b.spoken)}`, POLISH_SYSTEM, { lane: "foreground", model: FAST_MODEL, timeoutMs: 12_000, purpose: "brief.polish" });
     void recordUsage(sb, userId, "brief.polish", r, FAST_MODEL);
     text = cleanPolish(r.text, b.spoken);
   } catch (e) { console.error("[brief] polish:", e instanceof Error ? e.message : e); }
   await update(userId, (x) => ({ ...x, polish: { day: b.day, base: b.spoken, text } })).catch(() => {});
-  return { ...b, life: !!u.life, spoken: text, polished: text !== b.spoken };
+  return { spoken: text, polished: text !== b.spoken };
 }
 
 /** Hide one item until tomorrow; reason: why (Needs-you snoozes ask for one). */
