@@ -110,6 +110,7 @@ export function checkIfc(text: string, scene: Scene, opt: { site?: { lat: number
   const proj = of("IFCPROJECT")[0], site = of("IFCSITE")[0];
   const siteOk = !opt.site || (!!site && near(dms(site.args[9]), opt.site.lat, 1e-5) && near(dms(site.args[10]), opt.site.lon, 1e-5));
   checks.push({ name: "metadata: project, site lat/lon", ok: !!proj && proj.args[2] !== "$" && siteOk });
+  checks.push(...ifcStructure(ents));
 
   let dimBad = 0, posBad = 0, missing = 0;
   const byGuid = new Map([...ents.values()].filter((e) => typeof e.args[0] === "string" && e.args[0].startsWith("'")).map((e) => [e.args[0] as string, e]));
@@ -128,6 +129,36 @@ export function checkIfc(text: string, scene: Scene, opt: { site?: { lat: number
   checks.push({ name: "dimensions (m)", ok: dimBad === 0, detail: dimBad ? `${dimBad} differ` : undefined });
   checks.push({ name: "orientation + position", ok: posBad === 0, detail: posBad ? `${posBad} differ` : "x east, y north, z up" });
   return checks;
+}
+
+/** IFC4 structure any viewer needs, checked on the file alone: units assigned to the project; project → site → building → storey
+ *  linked by IfcRelAggregates; every wall in a storey with a Body representation; every opening voids a wall and is filled.
+ *  shortcut: checks references and types only, not the full IFC4 schema; the buildingSMART validator is the outside check. */
+export function ifcStructure(ents: Map<string, Ent>): Check[] {
+  const all = [...ents.entries()], ids = (t: string) => all.filter(([, e]) => e.type === t).map(([id]) => id);
+  const typeOf = (a: Arg | undefined) => (typeof a === "string" ? ents.get(a)?.type : undefined);
+  const list = (a: Arg | undefined) => (Array.isArray(a) ? a.filter((x): x is string => typeof x === "string") : []);
+  const [proj] = ids("IFCPROJECT"), [site] = ids("IFCSITE"), [bld] = ids("IFCBUILDING"), storeys = ids("IFCBUILDINGSTOREY"), walls = ids("IFCWALL");
+  const ua = proj ? ents.get(ents.get(proj)!.args[8] as string) : undefined;
+  const unitTypes = list(ua?.args[0]).map((u) => ents.get(u)?.args[1]);
+  const agg = ids("IFCRELAGGREGATES").map((id) => ents.get(id)!.args);
+  const under = (parent: string | undefined) => agg.filter((a) => a[4] === parent).flatMap((a) => list(a[5]));
+  const treeOk = !!proj && !!site && !!bld && storeys.length > 0 && under(proj).includes(site) && under(site).includes(bld) && storeys.every((s) => under(bld).includes(s));
+  const contained = new Set(ids("IFCRELCONTAINEDINSPATIALSTRUCTURE").filter((id) => typeOf(ents.get(id)!.args[5]) === "IFCBUILDINGSTOREY").flatMap((id) => list(ents.get(id)!.args[4])));
+  const hasBody = (w: string) => {
+    const pds = ents.get(ents.get(w)!.args[6] as string);
+    return pds?.type === "IFCPRODUCTDEFINITIONSHAPE" && list(pds.args[2]).some((r) => { const sr = ents.get(r); return sr?.args[1] === "'Body'" && list(sr.args[3]).some((s) => typeOf(s) === "IFCEXTRUDEDAREASOLID"); });
+  };
+  const badWalls = walls.filter((w) => !hasBody(w) || !contained.has(w)).length;
+  const voids = ids("IFCRELVOIDSELEMENT").map((id) => ents.get(id)!.args), fills = ids("IFCRELFILLSELEMENT").map((id) => ents.get(id)!.args);
+  const openings = ids("IFCOPENINGELEMENT");
+  const badOpen = openings.filter((o) => !voids.some((v) => v[5] === o && typeOf(v[4]) === "IFCWALL") || !fills.some((f) => f[4] === o && ["IFCWINDOW", "IFCDOOR"].includes(typeOf(f[5]) ?? ""))).length;
+  return [
+    { name: "IFC4 units assigned (length, area, volume, angle)", ok: ["LENGTHUNIT", "AREAUNIT", "VOLUMEUNIT", "PLANEANGLEUNIT"].every((u) => unitTypes.includes(`.${u}.`)) },
+    { name: "spatial tree: project → site → building → storey", ok: treeOk, detail: `${storeys.length} storey(s)` },
+    { name: "walls: body geometry + in a storey", ok: badWalls === 0, detail: `${walls.length - badWalls}/${walls.length}` },
+    { name: "openings: void a wall + filled by a window/door", ok: badOpen === 0, detail: `${openings.length - badOpen}/${openings.length}` },
+  ];
 }
 
 /** Produce and check every export the ARCH panel offers. ok = all checks passed: only then is it offered as ready. */

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyOps, boq, boqCsv, bulkTips, costLines, parseOps, parseSay, starterScene, STARTER_PRICES, type Op } from "../src/lib/arch-pure.ts";
+import { applyOps, boq, boqCsv, bulkTips, costLines, parseOps, parseSay, starterScene, STARTER_PRICES, type Op, type Part } from "../src/lib/arch-pure.ts";
 
 let n = 0;
 const id = () => `n${++n}`;
@@ -146,4 +146,33 @@ test("boqCsv: free-text cells can't run as spreadsheet formulas", () => {
   assert.ok(!/(^|,)"?[=@]/m.test(csv), csv);
   assert.match(csv, /'@SUM\(A1\)/);
   assert.match(csv, /"'=HYPERLINK\(""http/);
+});
+
+// A2: bill of quantities against houses worked out by hand. Convention: wall face = centreline length × height
+// (for a shell of outer w × d and thickness t, centreline perimeter = 2(w − t + d − t)); volume = gross box − hollow.
+const P = (p: Partial<Part> & Pick<Part, "id" | "kind" | "w" | "d" | "h">): Part => ({ name: "", x: 0, y: 0, z: 0, ...p });
+test("quantities: 10 × 8 m single-storey shell, 2 windows + 1 door (hand-worked)", () => {
+  const q = boq([P({ id: "s", kind: "wall", w: 10, d: 8, h: 2.8 }),
+    P({ id: "w1", kind: "window", w: 1.2, d: 0.08, h: 1.2, host: "s", face: "s" }), P({ id: "w2", kind: "window", w: 1.2, d: 0.08, h: 1.2, host: "s", face: "n" }),
+    P({ id: "d1", kind: "door", w: 1.0, d: 0.08, h: 2.1, host: "s", face: "e" })]);
+  // gross: centreline 2(9.7 + 7.7) = 34.8 m × 2.8 = 97.44 m²; volume 10·8·2.8 − 9.4·7.4·2.8 = 224 − 194.768 = 29.232 m³
+  // openings: 2·1.44 + 2.1 = 4.98 m² off the face, 4.98 · 0.3 = 1.494 m³ off the volume
+  assert.equal(q.wallM2, 92.46); assert.equal(q.wallM3, 27.74); // 97.44 − 4.98; 29.232 − 1.494 = 27.738
+  assert.equal(q.blocks, 771); // 92.46 / 0.12 = 770.5 → 771
+  assert.equal(q.windowM2, 2.88); assert.equal(q.windows, 2); assert.equal(q.doors, 1);
+});
+test("quantities: two-storey 6 × 6 m, interior wall with a door, one slab (hand-worked)", () => {
+  const q = boq([P({ id: "g", kind: "wall", w: 6, d: 6, h: 2.7, y: 0.2 }), P({ id: "u", kind: "wall", w: 6, d: 6, h: 2.7, y: 3.1 }),
+    P({ id: "i", kind: "wall", w: 5.4, d: 0.2, h: 2.7, y: 0.2 }), P({ id: "d", kind: "door", w: 0.9, d: 0.08, h: 2.1, host: "i", face: "s" }),
+    P({ id: "f", kind: "slab", w: 6, d: 6, h: 0.2 })]);
+  // each shell: 2(5.7 + 5.7) = 22.8 m × 2.7 = 61.56 m², × 0.3 = 18.468 m³ (check: 6·6·2.7 − 5.4·5.4·2.7 = 97.2 − 78.732)
+  // interior: 5.4 × 2.7 = 14.58 m², 5.4·0.2·2.7 = 2.916 m³; door 0.9 × 2.1 = 1.89 m², × 0.2 m (its own wall) = 0.378 m³
+  assert.equal(q.wallM2, 135.81); // 2·61.56 + 14.58 − 1.89
+  assert.equal(q.wallM3, 39.47); // 2·18.468 + 2.916 − 0.378 = 39.474
+  assert.equal(q.concreteM3, 7.2); assert.equal(q.slabM2, 36); assert.equal(q.rebarT, 0.72); // 6·6·0.2; × 100 kg/m³
+});
+test("quantities: a straight wall along z; an opening without a host deducts nothing (hand-worked)", () => {
+  const q = boq([P({ id: "a", kind: "wall", w: 0.3, d: 4, h: 3 }), P({ id: "o", kind: "window", w: 1, d: 0.08, h: 1, host: "a", face: "e" }),
+    P({ id: "x", kind: "window", w: 2, d: 0.08, h: 2, host: "gone", face: "e" })]);
+  assert.equal(q.wallM2, 11); assert.equal(q.wallM3, 3.3); assert.equal(q.windows, 1); // 4·3 − 1; 0.3·4·3 − 1·0.3
 });
