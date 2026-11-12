@@ -1,0 +1,14 @@
+{
+  "note": "Expected answers grep-verified against origin/main on 2026-11-12 (grep -n 'export .*<name>'). Re-run the greps if the repo moved on; a tool passes a question when its answer names every expected file and, where a line is given, a line within +/-3.",
+  "questions": [
+    { "q": "Where is readArticle defined?", "expect": [{ "file": "src/lib/news.ts", "line": 57 }] },
+    { "q": "Which files call readArticle?", "expect": [{ "file": "src/lib/verify.ts", "line": 59 }, { "file": "src/lib/pulse.ts", "line": 197 }, { "file": "src/lib/agents.ts", "line": 126 }] },
+    { "q": "Where is isPrivateIp defined?", "expect": [{ "file": "src/lib/pure.ts", "line": 53 }] },
+    { "q": "Where is extractArticle defined?", "expect": [{ "file": "src/lib/pure.ts", "line": 280 }] },
+    { "q": "Where is crossSiteBlocked defined?", "expect": [{ "file": "src/lib/csrf.ts", "line": 3 }] },
+    { "q": "Where is requireUser defined?", "expect": [{ "file": "src/lib/supabase/server.ts", "line": 28 }] },
+    { "q": "Where is a request body of audio decoded into Float32 samples (decodeAudioBody)?", "expect": [{ "file": "src/lib/audio-pure.ts", "line": 81 }] },
+    { "q": "Where is the local Whisper model for voice input loaded?", "expect": [{ "file": "src/lib/voice-asr.ts", "line": 20 }] }
+  ],
+  "stale": { "file": "src/lib/pure.ts", "q": "Where is __trialStaleProbe defined?" }
+}

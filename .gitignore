@@ -34,3 +34,8 @@ orbit-launcher.log.1
 
 # Strix pentest reports (scripts/isolated/strix.mjs): may hold the throwaway test password
 /strix-reports/
+
+# tools/trials: venv, recorded clips, results
+/tools/trials/.venv/
+/tools/trials/clips/**/*.wav
+/tools/trials/results/*.md

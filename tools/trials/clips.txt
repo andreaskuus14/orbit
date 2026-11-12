@@ -1,0 +1,22 @@
+# Read each line aloud, one clip per line, 16 kHz mono WAV, saved as clips/<en|et>/<id>.wav (e.g. clips/en/en-01.wav).
+# Format: id<TAB>sentence. Keep the digits and names as written; the scorer counts spoken-vs-written differences as errors.
+en-01	Remind me to call Mark Anderson at 3:45 tomorrow afternoon.
+en-02	Open the Roblox pet simulator and show me the three newest bugs.
+en-03	What is twenty four times seventeen plus 350?
+en-04	Schedule a meeting with Kristjan and Liisa on November 18th at 10 a.m.
+en-05	Add oat milk, 2 kilos of potatoes and a USB-C cable to the shopping list.
+en-06	How many orders did the Shopify store get between March 3rd and March 9th?
+en-07	Play something calm while I work on the architecture drawings for the Tartu library.
+en-08	ORBIT, stop. Actually no, continue reading the morning brief.
+en-09	The invoice number is INV-2026-0147 and the total is 1,250 euros.
+en-10	Summarise the latest Anthropic and Google DeepMind news in three bullet points.
+et-01	Tuleta mulle meelde, et helistan homme kell 15.45 Marek Tammele.
+et-02	Ava Robloxi lemmiklooma simulaator ja näita kolme uusimat viga.
+et-03	Kui palju on kakskümmend neli korda seitseteist pluss 350?
+et-04	Pane kohtumine Kristjani ja Liisaga kirja 18. novembriks kell 10 hommikul.
+et-05	Lisa ostunimekirja kaerapiim, kaks kilo kartuleid ja USB-C kaabel.
+et-06	Mitu tellimust tuli poodi 3. ja 9. märtsi vahel?
+et-07	Mängi midagi rahulikku, kui ma Tartu raamatukogu joonistega töötan.
+et-08	ORBIT, peatu. Tegelikult ei, loe hommikune kokkuvõte edasi.
+et-09	Arve number on ARV-2026-0147 ja kogusumma on 1250 eurot.
+et-10	Tee kokkuvõte Tallinna ja Tartu värskeimatest uudistest kolme punktiga.
