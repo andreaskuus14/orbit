@@ -6,7 +6,7 @@
 import { localClock, type NightKind } from "./night-pure.ts";
 import type { PushMessage } from "./remote-push-pure.ts";
 
-export const AREAS = ["research", "brief", "memory", "studio-prepare", "studio-publish", "business-drafts", "business-send", "higgsfield-spend", "goals", "night-shift", "deals", "calls", "contracts", "operator-build", "operator-organize"] as const;
+export const AREAS = ["research", "brief", "briefings", "memory", "studio-prepare", "studio-publish", "business-drafts", "business-send", "higgsfield-spend", "goals", "night-shift", "deals", "calls", "contracts", "operator-build", "operator-organize"] as const;
 export type Area = (typeof AREAS)[number];
 export const LEVELS = ["off", "ask", "do", "auto"] as const;
 export type Level = (typeof LEVELS)[number];
@@ -16,6 +16,7 @@ export type Levels = Record<Area, Level>;
 export const AREA_INFO: Record<Area, { label: string; levels: readonly Level[]; def: Level; what: string }> = {
   research: { label: "Research", levels: ["off", "ask", "do"], def: "do", what: "Agents researching your night-shift asks and the weekly BUSINESS niche scout" },
   brief: { label: "Morning brief", levels: ["off", "do"], def: "do", what: "The spoken \"Good morning\" overlay on the PC and the morning call's opener" },
+  briefings: { label: "Briefings & digests", levels: ["off", "ask", "do"], def: "do", what: "Scheduled news briefings (incl. the morning catch-up), CORE's task proposals, the monthly agent scorecard and the ARCH weekly digest's AI focus" },
   memory: { label: "Memory tidy-up", levels: ["off", "ask", "do"], def: "do", what: "Nightly memory consolidation and merge/retract suggestions (applied only when you accept them)" },
   "studio-prepare": { label: "Studio: prepare", levels: ["off", "ask", "do"], def: "do", what: "Packaging Shorts (titles, descriptions, slots) and clip scouting up to your review" },
   "studio-publish": { label: "Studio: publish", levels: ["off", "ask", "auto"], def: "ask", what: "Uploading Shorts to YouTube" },
