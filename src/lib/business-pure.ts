@@ -214,6 +214,9 @@ export function withDossier(notes: string, dossier: string, cap = 2000): string 
   return `${own ? `${own}\n\n` : ""}${RESEARCH_HEAD}\n${trimDossier(dossier, Math.min(DOSSIER_MAX, room))}\n${RESEARCH_END}`;
 }
 
+/** A [bracket] placeholder still in a draft (e.g. "[postal address]"), or null: such a draft is never sent. */
+export const placeholderIn = (draft: string) => draft.match(/\[[^\[\]\n]{1,60}\]/)?.[0] ?? null;
+
 /** What one Resend reply says about whether the email went out. null = no answer (timeout, network): it may have.
  *  409 is never a refusal: Resend answers 409 while an earlier request with the same Idempotency-Key is still running,
  *  or when that key was already used with another payload, so an email may already be on its way (resend.com/changelog/idempotency-keys). */

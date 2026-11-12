@@ -2,7 +2,7 @@ import { authorizeApproval } from "@/lib/authority";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emit } from "@/lib/claude";
 import { stopAllOn } from "@/lib/stop-all";
-import { mailOutcome, sendContent } from "@/lib/business-pure";
+import { mailOutcome, placeholderIn, sendContent } from "@/lib/business-pure";
 import { allows } from "@/lib/autonomy";
 import { crmOf, loadCrm, logEvent } from "@/lib/prospect-crm";
 import { claimProblem } from "@/lib/prospect-crm-pure";
@@ -26,6 +26,8 @@ export async function sendDraft(sb: SupabaseClient, userId: string, id: string, 
   const mail = sendContent(p), to = mail.to;
   if (!to) return fail("No single email address in Contact: add one (phone numbers can't be emailed)");
   if (!p.draft?.trim()) return fail("Draft a message first");
+  const hole = placeholderIn(p.draft);
+  if (hole) return fail(`Fill in ${hole} in the draft first`);
   // Only the first message is sent from here (stage "To contact"); follow-ups are copied and sent by him, then logged as sent.
   const who = { id, name: p.name, contact: p.contact, notes: p.notes }, crm = crmOf(await loadCrm(), who);
   if (!crm.verified) return fail("Check this contact first (found on the web): open their site, then click Verified", 409);

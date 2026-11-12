@@ -8,7 +8,7 @@ import { dueFollowups, LANGS, STAGES, STAGE_LABEL, TEMPLATES, emailIn, sendStamp
 import { mapNodes, mapSummary } from "@/lib/business-map-pure";
 import { SIG_LABEL, WINDOWS, conversion, lostReasons, nextExperiment, scorecard, stalled, windowed, MIN_N, type Cell, type LRow } from "@/lib/outreach-score-pure";
 import { LOST_REASONS } from "@/lib/prospect-crm-pure";
-import { LEAD_STAGE_LABEL, type Candidate } from "@/lib/lead-loop-pure";
+import { leadLabel, type Candidate } from "@/lib/lead-loop-pure";
 import { euro as euroCents } from "@/lib/invoices-pure";
 import type { Bucket, Split } from "@/lib/money-pure";
 import NicheCards from "./NicheCards";
@@ -275,10 +275,11 @@ function LeadLoopBox({ busy, setBusy, setErr, done }: { busy: string; setBusy: (
         try {
           const r = await post({ action: "check", candidate: c });
           if (!r.prospect) { say(`${c.name}: skipped (${r.verdict.confidence}%): ${r.verdict.reasons[0]}`); continue; }
-          say(`${c.name}: no website, ${r.verdict.confidence}%. Building demo…`);
-          await post({ action: "demo", id: r.prospect.id, lang });
+          say(r.resume ? `${c.name}: continuing from the ${r.resume} step…` : `${c.name}: no website, ${r.verdict.confidence}%. Building demo…`);
+          if (r.warning) say(`${c.name}: ${r.warning}`);
+          if (r.resume !== "pitch") await post({ action: "demo", id: r.prospect.id, lang });
           await post({ action: "pitch", id: r.prospect.id, lang });
-          say(`${c.name}: demo built, pitch drafted. Add their email, check it, then Approve & send yourself.`);
+          say(`${c.name}: demo built, pitch drafted. Add their email, fill in [postal address], check it, then Approve & send yourself.`);
         } catch (e) { say(`${c.name}: ${(e as Error).message}`); }
         done();
       }
@@ -353,7 +354,7 @@ function Row({ p, lit, due, busy, act, canSend, nightDraft = false }: { p: Prosp
   return (
     <li id={`biz-${p.id}`} className={`card space-y-1.5 transition-shadow ${lit ? "ring-2 ring-amber-400" : ""}`} aria-label={p.name}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="min-w-0"><b>{p.name}</b>{due && <span className="chip">Follow up due</span>}{p.crm?.lead && <span className="chip" title={p.crm.lead.evidence.join("\n")}>{LEAD_STAGE_LABEL[p.crm.lead.stage]} · {p.crm.lead.confidence}%</span>}{p.crm?.lead?.demo && <a className="chip" href={p.crm.lead.demo.preview} target="_blank" rel="noreferrer">{t("biz.lead.demo")}</a>}{p.kind && <span className="muted"> · {p.kind}</span>}{p.contact && <span className="muted select-all"> · {p.contact}</span>}</div>
+        <div className="min-w-0"><b>{p.name}</b>{due && <span className="chip">Follow up due</span>}{p.crm?.lead && <span className="chip" title={p.crm.lead.evidence.join("\n")}>{leadLabel(p.crm.lead)}</span>}{p.crm?.lead?.demo && <a className="chip" href={p.crm.lead.demo.preview} target="_blank" rel="noreferrer">{t("biz.lead.demo")}</a>}{p.kind && <span className="muted"> · {p.kind}</span>}{p.contact && <span className="muted select-all"> · {p.contact}</span>}</div>
         <select className="chip" aria-label={`Stage of ${p.name}`} value={p.stage} disabled={any} onChange={(e) => void update({ stage: e.target.value })}>
           {STAGES.map((s) => <option key={s} value={s}>{STAGE_LABEL[s]}</option>)}
         </select>
@@ -367,6 +368,7 @@ function Row({ p, lit, due, busy, act, canSend, nightDraft = false }: { p: Prosp
         <label className="flex items-center gap-1.5 text-xs"><span className="muted">{t("biz.lost.reason")}</span>
           <select className="chip" value={p.crm?.lost?.reason ?? ""} disabled={any} onChange={(e) => void act(`lost:${p.id}`, { action: "lost", id: p.id, reason: e.target.value || null })}>
             <option value="">{t("biz.lost.unknown")}</option>{LOST_REASONS.map((r) => <option key={r} value={r}>{t(`biz.lost.${r}` as "biz.lost.price")}</option>)}</select></label>)}
+      {p.crm?.lead?.person && <p className="text-xs error" role="note">{t("biz.lead.fie")}</p>}
       {unverified && <p className="text-xs"><span className="error">{t("biz.crm.web")}</span> <button className="chip" disabled={any} onClick={() => void act(`verify:${p.id}`, { action: "verify", id: p.id })}>{t("biz.crm.verify")}</button></p>}
       {p.stage === "paying" && p.crm?.opsProject && <p className="text-xs muted">✓ {t("biz.crm.delivery")}</p>}
       <Timeline p={p} busy={busy} act={act} />

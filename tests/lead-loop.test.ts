@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { domainGuesses, finishPitch, isListing, pageNames, parseCandidates, parseSearch, pitchProblems, scoreNoWebsite, toCandidate } from "../src/lib/lead-loop-pure.ts";
+import { readFileSync } from "node:fs";
+import { autoExcluded, combineTries, domainGuesses, domainUrls, fetchErrorState, finishPitch, honestyIssues, isListing, isNaturalPerson, leadLabel, nextStep, pageNames, parseCandidates, parseSearch, pitchProblems, scoreNoWebsite, toCandidate, withoutStats } from "../src/lib/lead-loop-pure.ts";
+import { placeholderIn } from "../src/lib/business-pure.ts";
+import { HONEST_IDEA_SYSTEM, IDEA_SYSTEM } from "../src/lib/site-idea-pure.ts";
 
 test("parseCandidates: paste lines, CSV with header, quotes, dedupe, Maps URL check", () => {
   assert.deepEqual(parseCandidates("Kask Pagariäri, Tartu, bakery\n\nKask Pagariäri, Tartu, bakery\nLumi OÜ; Tallinn; cleaning"), [
@@ -53,4 +56,70 @@ test("pitchProblems + finishPitch: cold-email rules", () => {
   const done = finishPitch("Subject: hi\n" + good, "Estonian");
   assert.ok(!done.startsWith("Subject") && done.includes("stopp") && done.endsWith("[postiaadress]"));
   assert.ok(finishPitch("x", "English").includes("[postal address]"));
+});
+
+test("review #1: scheme-less website counts as a site; two 'other' results don't pass; search + a 'none' needed", () => {
+  assert.equal(parseSearch('{"website":"www.kask.ee","checked":["kask.ee/kontakt"]}')?.website, "https://www.kask.ee/");
+  assert.deepEqual(parseSearch('{"website":null,"checked":["kask.ee/kontakt"]}')?.links, ["https://kask.ee/kontakt"]);
+  const two = scoreNoWebsite({ website: null, links: [] }, [{ domain: "a.ee", state: "other" }, { domain: "a.com", state: "other" }]);
+  assert.equal(two.pass, false);
+  assert.equal(scoreNoWebsite({ website: null, links: [] }, [{ domain: "a.ee", state: "dead" }, { domain: "a.com", state: "dead" }]).pass, false);
+  assert.equal(scoreNoWebsite({ website: null, links: [] }, [{ domain: "a.ee", state: "none" }]).pass, true);
+});
+
+test("review #2: http/www tries, error states, title, likely vs proven", () => {
+  assert.deepEqual(domainUrls("kask.ee"), ["https://kask.ee", "http://kask.ee", "https://www.kask.ee", "http://www.kask.ee"]);
+  assert.equal(fetchErrorState("ENOTFOUND", ""), "none");
+  assert.equal(fetchErrorState(undefined, "The site answered 403"), "maybe");
+  assert.equal(fetchErrorState("UND_ERR_CONNECT_TIMEOUT", "timeout"), "maybe");
+  assert.equal(fetchErrorState("CERT_HAS_EXPIRED", "certificate has expired"), "maybe");
+  assert.equal(fetchErrorState("ECONNREFUSED", ""), "dead");
+  assert.equal(combineTries(["none", "none", "maybe", "none"]), "maybe"); // www answering with an error isn't "no DNS"
+  assert.equal(combineTries(["none", "none", "none", "none"]), "none");
+  assert.ok(pageNames("Kask Pagariäri", "Welcome", "Pagariäri Kask | Tartu"));
+  const maybe = scoreNoWebsite({ website: null, links: [] }, [{ domain: "a.ee", state: "none" }, { domain: "a.com", state: "none" }, { domain: "b.ee", state: "maybe" }]);
+  assert.ok(maybe.confidence < 80 && maybe.pass);
+  assert.match(leadLabel({ stage: "checked", confidence: 79 }), /likely 79%/);
+  assert.match(leadLabel({ stage: "checked", confidence: 90 }), /proven 90%/);
+});
+
+test("review #3: Auto exclusion lives on the row and both Auto paths use it", () => {
+  assert.ok(autoExcluded({ source: "lead-loop" }) && !autoExcluded({ source: null }) && !autoExcluded({}));
+  const auto = readFileSync(new URL("../src/lib/autonomy.ts", import.meta.url), "utf8");
+  assert.equal((auto.match(/autoExcluded\(/g) ?? []).length, 2); // sendCandidates and fireSend
+  assert.ok(!/prospect-crm/.test(auto.slice(auto.indexOf("async function sendCandidates"), auto.indexOf("async function fireSend")))); // not the CRM file
+  const route = readFileSync(new URL("../src/app/api/business/leads/route.ts", import.meta.url), "utf8");
+  assert.match(route, /source: LEAD_SOURCE/);
+  assert.match(route, /drafted_at: null/);
+  assert.ok(!/resendMail|sendDraft|api\.resend/.test(route)); // the loop never sends
+});
+
+test("review #4: placeholders block sending; Estonian tells and spaced hyphens are linted", () => {
+  assert.equal(placeholderIn(finishPitch("x", "English")), "[postal address]");
+  assert.equal(placeholderIn("Tere!\nAndreas\nTartu mnt 1, Tallinn"), null);
+  const send = readFileSync(new URL("../src/lib/business-send.ts", import.meta.url), "utf8");
+  assert.match(send, /placeholderIn\(p\.draft\)/);
+  const good = "Tere! Teil on Tartus pagariäri, aga veebilehte ma ei leidnud. Tegin teile tasuta näidiskodulehe, kus on teie pagariäri ja kontakt. Kas tohin teile lingi saata?";
+  assert.ok(pitchProblems(good.replace("Tegin", "Tänapäeva maailmas tegin")).some((p) => p.includes("AI tell")));
+  assert.ok(pitchProblems(good.replace(", aga", " - aga")).some((p) => p.includes("dash")));
+  assert.ok(!pitchProblems("Tere! Pagar 24 on teie ettevõte, aga veebilehte ma ei leidnud. Tegin teile tasuta näidiskodulehe ja kontakti. Kas tohin lingi saata?", "Pagar 24").length); // #6 digits in the name
+});
+
+test("review #5: honest demo brief drops stat labels; honesty lint issues are kept", () => {
+  assert.ok(IDEA_SYSTEM.includes("short stat") && !HONEST_IDEA_SYSTEM.includes("short stat"));
+  const d = withoutStats({ sections: [{ kind: "features", items: [{ label: "72 h", title: "a", body: "b" }] }, { kind: "hero" }] }) as { sections: { items?: object[] }[] };
+  assert.deepEqual(d.sections[0].items, [{ title: "a", body: "b" }]);
+  assert.deepEqual(honestyIssues(["x: missing <meta name=viewport", "y: a review/quote block not marked as the owner's: never invent reviews"]).length, 1);
+});
+
+test("review #6: re-run resumes the unfinished step", () => {
+  assert.equal(nextStep({ stage: "checked" }), "demo");
+  assert.equal(nextStep({ stage: "demo", demo: { slug: "s", preview: "p", issues: ["invented"] } }), "demo");
+  assert.equal(nextStep({ stage: "demo", demo: { slug: "s", preview: "p" } }), "pitch");
+  assert.equal(nextStep({ stage: "pitched", demo: { slug: "s", preview: "p" } }), "done");
+});
+
+test("review #7 + #8: Estonian header row; FIE is a natural person", () => {
+  assert.deepEqual(parseCandidates("Nimi;Linn;Tegevusala\nKask OÜ;Tartu;pagar"), [{ name: "Kask OÜ", city: "Tartu", category: "pagar" }]);
+  assert.ok(isNaturalPerson("Mari Kask FIE") && isNaturalPerson("FIE Mari") && !isNaturalPerson("Fiesta OÜ"));
 });

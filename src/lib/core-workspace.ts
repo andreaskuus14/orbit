@@ -89,7 +89,7 @@ export function verifiedLine(note: string): string {
 
 /** Static lint over the workspace's html/css/js/images (site-pipeline-pure.ts): the basics plus depth (pictures, real content, forms
  *  that save, a back end when asked). Its issues join the headless check's; `facts` goes on the Check line for the honest review. */
-async function siteLint(userId: string, slug: string, question = ""): Promise<{ issues: string[]; facts: string }> {
+export async function siteLint(userId: string, slug: string, question = ""): Promise<{ issues: string[]; facts: string }> {
   const ws = await import("./workspace.ts");
   const files = ((await ws.listFiles(userId, slug)) ?? []).filter((f) => !/^(?:node_modules|data|logs)\//.test(f.path));
   const read = async (p: string) => ({ path: p, text: (await ws.readWsFile(userId, slug, p))?.text ?? "" });

@@ -30,6 +30,10 @@ Every href is "#contact" or "#<id of a section you gave an id>". Only facts from
 would need (prices, address, hours, dates, numbers) goes in [square brackets] as a placeholder for the owner to fill, e.g. "[price] € per evening".
 No images: omit "assets" and "image".`;
 
+/** For lead-loop demos (B2): no stat labels on features, nothing that reads as proof. */
+export const HONEST_IDEA_SYSTEM = IDEA_SYSTEM.replace(`{"label": short stat like "72 h","title":string,"body":string}`, `{"title":string,"body":string}`) +
+  "\nThis is an unsolicited demo: no reviews, testimonials, quotes, ratings, client names or numbers of any kind.";
+
 export const ideaPrompt = (idea: string, lang: "en" | "et") => `The owner's idea: ${idea.slice(0, 600)}\nWrite the brief in ${lang === "et" ? "Estonian" : "English"}.`;
 export const repairPrompt = (idea: string, lang: "en" | "et", errors: string[]) => `${ideaPrompt(idea, lang)}\nYour last JSON had these problems; fix them and output the whole JSON again:\n- ${errors.slice(0, 12).join("\n- ")}`;
 
