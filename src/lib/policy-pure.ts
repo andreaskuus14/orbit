@@ -34,6 +34,8 @@ export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; step
   outsideEarlier?: boolean;
   /** private text in this turn's context besides tool results (attachments, pinned notes, an earlier turn's private results): outbound calls are checked against it */
   privateText?: readonly string[];
+  /** Earlier turns' local-plugin output (core.ts keeps it apart): private for remote targets, free for local ones. */
+  localText?: readonly string[];
   /** workspace names + CORE's pending build offer in this chat (ws-intent-pure.ts) */
   ws?: WsGate;
   /** leads CORE added in this chat on earlier turns (core-operator-pure ownLeadsIn); this turn's come from steps */
@@ -181,14 +183,22 @@ export function operatorAllows(tool: string, ctx: Pick<PolicyCtx, "stopAll" | "a
   return (l ?? AREA_INFO[area].def) === "do";
 }
 
+/** Plugin tools called this turn that are local or of unknown locality: they may have read his Journal, so their output is private. */
+export const localPluginReads = (ctx: Pick<PolicyCtx, "steps" | "plugins">) => ctx.steps.map((s) => s.slice(11, s.indexOf(" ", 11))).filter((t) => isPluginTool(t) && ctx.plugins?.[t]?.local !== false);
+/** Private tools for egress checks: his modules plus any local plugin read this turn. */
+export const privateToolsIn = (ctx: PolicyCtx) => [...(ctx.privateTools ?? PRIVATE_TOOLS), ...localPluginReads(ctx)];
 /** This turn put private data in context: the chat stays tainted on later turns (core.ts saves it in coreTaintStore). */
-export const carriesPrivate = (ctx: PolicyCtx) => ctx.attach || ctx.pins || called(ctx.steps, [...(ctx.privateTools ?? PRIVATE_TOOLS)]);
+export const carriesPrivate = (ctx: PolicyCtx) => ctx.attach || ctx.pins || called(ctx.steps, privateToolsIn(ctx));
 
 export function decide(tool: string, input: Record<string, unknown> | undefined, ctx: PolicyCtx): Decision {
   if (isPluginTool(tool)) { // MCP plugins: tier from annotations + his trust settings, private-text check on every argument (plugins-pure.ts)
-    const privateIn = ctx.attach || ctx.pins || !!ctx.carried || !!ctx.privateText?.length || called(ctx.steps, [...(ctx.privateTools ?? PRIVATE_TOOLS)]);
+    // a local plugin (files, vault) may have read his Journal: its output is private for a remote plugin; unknown locality fails closed
+    const local = !!ctx.plugins?.[tool]?.local; // local → local (read notes, then save them) stays allowed across turns
+    const priv = local ? [...(ctx.privateTools ?? PRIVATE_TOOLS)] : privateToolsIn(ctx), carriedLocal = local ? [] : ctx.localText ?? [];
+    // the taint also stands for journal/LIFE/ws_read/attachment text; a local target ignores it only when carried local-plugin text explains it
+    const privateIn = ctx.attach || ctx.pins || (!!ctx.carried && (!local || !ctx.localText?.length)) || !!ctx.privateText?.length || !!carriedLocal.length || called(ctx.steps, priv);
     return pluginDecision(tool, input, ctx.plugins?.[tool], { stopAll: ctx.stopAll, privateIn, question: typedText(ctx.question), outside: outsideIn(ctx.steps, UNTRUSTED, ctx.plugins ?? {}, ctx.attach),
-      privateTexts: [...(ctx.privateText ?? []), ...privateResults(ctx.steps, ctx.privateTools ?? PRIVATE_TOOLS)] });
+      privateTexts: [...(ctx.privateText ?? []), ...carriedLocal, ...privateResults(ctx.steps, priv)] });
   }
   const tier = TIERS[tool] ?? "T3"; // unknown = fail closed
   const no = (reason: string): Decision => ({ allow: false, tier, reason });
@@ -196,7 +206,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   const question = typedText(ctx.question); // core.ts:95 attached file names never count as the user's words
   if (tier !== "T0" && denied(tool, question)) return no("he said not to do this in his message"); // his "don't" beats every grant and ask-check
   const dataIn = ctx.attach || ctx.pins || ctx.steps.some((s) => !s.startsWith("You called navigate")); // core.ts:139
-  const privateIn = !!ctx.carried || called(ctx.steps, [...(ctx.privateTools ?? PRIVATE_TOOLS)]); // core.ts:146; CORE passes its live MODULE_PRIVATE
+  const privateIn = !!ctx.carried || called(ctx.steps, privateToolsIn(ctx)); // core.ts:146; CORE passes its live MODULE_PRIVATE, plus local plugin reads
 
   const stop = err(coreToolRefusal(ctx.stopAll, tool)); // core.ts:218
   if (stop) return no(stop);
@@ -204,8 +214,8 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   if (auto && !auto.ok) return no(auto.why);
   if (tool === "navigate") return dataIn ? no("navigate only as your first tool call, for the user's own request") : { allow: true, tier, reason: "first tool call" }; // core.ts:218 + 265
   // Web and agent tools stay on with private data in context; only a call whose outgoing query/URL/brief carries a piece of it is refused.
-  if ((ctx.attach || ctx.pins || privateIn || !!ctx.privateText?.length) && (LEAK_TOOLS.includes(tool) || LINK_TOOLS.includes(tool))) {
-    const texts = [...(ctx.privateText ?? []), ...privateResults(ctx.steps, ctx.privateTools ?? PRIVATE_TOOLS)];
+  if ((ctx.attach || ctx.pins || privateIn || !!ctx.privateText?.length || !!ctx.localText?.length) && (LEAK_TOOLS.includes(tool) || LINK_TOOLS.includes(tool))) {
+    const texts = [...(ctx.privateText ?? []), ...(ctx.localText ?? []), ...privateResults(ctx.steps, privateToolsIn(ctx))];
     const hit = outboundLeak(outgoing(input ?? {}), texts, question, !texts.length);
     if (hit) return no(`this ${tool} call would send private text out: "${hit.slice(0, 80)}" (from the user's private notes, journal or files). The tool is allowed: retry with a generic query/brief without that text, and if you can't, tell the user exactly which text blocked it; never tell the user to do the search himself`);
   }

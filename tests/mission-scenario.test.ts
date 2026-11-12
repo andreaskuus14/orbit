@@ -98,7 +98,7 @@ function world(req: string[]) {
   const w = {
     ...db, req,
     writes: 0, dest: new Map<string, string>(), crashNext: false, // the fake destination: what actually landed, keyed by idempotency key
-    proposals: 0, calls: [0, 0, 0], hang: -1, // hang: the step index whose next model call never returns (the process dies mid-step)
+    proposals: 0, calls: [0, 0, 0], hang: -1, goalsOff: false, // hang: the step index whose next model call never returns (the process dies mid-step)
   };
   return w;
 }
@@ -140,6 +140,7 @@ function boot(w: World, missing = new Set<string>()) {
     "./capability": { capabilityStart: async () => ({ block: "", headsUp: "" }) },
     // the fake tool's destination is the workspace: a file receipt reads back what actually landed
     "./workspace": { readWsFile: async (_u: string, ref: string) => (w.dest.has(ref) ? { text: w.dest.get(ref), size: w.dest.get(ref)!.length } : null) },
+    "./autonomy": { allows: (area: string) => ({ ok: !(area === "goals" && w.goalsOff) }) },
     "./agents": p.agents, "./chains": p.chains, "./migration-guard": guard(missing),
   };
   for (const [f, out] of [["agents.ts", p.agents], ["chains.ts", p.chains], ["missions.ts", p.missions]] as const)
@@ -315,6 +316,19 @@ test("chain with 0021 missing: the drive stops, the step stays queued (not faile
   assert.equal(steps[0].status, "queued");
   assert.equal(w.tables.tasks.find((t) => !t.parent_id)!.status, "running");
   assert.equal(w.calls[0], 0, "no model call");
+});
+
+// audit3 F1: Goals = Off stops company chains on daytime ticks too (the night shift already honours it); plain chains unaffected
+test("Goals Off: a daytime tick never resumes a company chain", async () => {
+  const w = world(EN); w.goalsOff = true;
+  const A = boot(w);
+  const c = await A.chains.createChain(w.sb, "owner", { goal: "Report", steps: EN.map((r) => ({ agent: "nova", request: r })) }, chainsPure.CHAIN_TITLE + companyPure.COMPANY_PREFIX, false, true);
+  assert.ok(c.chainId, JSON.stringify(c));
+  await A.chains.resumeChains(w.sb, "owner");
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(w.calls[0], 0, "no model call");
+  assert.equal(w.tables.tasks.filter((t) => t.parent_id)[0].status, "queued");
+  assert.equal(A.ctx.__orbitChains?.size ?? 0, 0, "no driver started");
 });
 
 // OPS08/G19: the scheduler is the only host. No UI read (GET /api/chains → listChains/getChain) ever drives; scheduler ticks

@@ -2,6 +2,7 @@ import { foreground } from "./foreground-pure";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cancelTask, getAgent, kickQueue, runTask } from "./agents";
 import { stopAllOn } from "./stop-all";
+import { allows } from "./autonomy";
 import { createBudget, emit } from "./claude";
 import { interruptedPatch } from "./completion-pure";
 import { COMPANY_PREFIX, resolvedStep, roleOf, stepStatus } from "./company-pure";
@@ -79,7 +80,7 @@ export async function listChains(sb: SupabaseClient, _userId: string): Promise<C
 /** For a server-side tick: continue this user's running chains. skipCompany: in the night window, company chains are the night shift's (its budget). */
 export async function resumeChains(sb: SupabaseClient, userId: string, skipCompany = false) {
   const { data } = await sb.from("tasks").select("id, request").eq("user_id", userId).is("parent_id", null).eq("status", "running").like("title", `${CHAIN_TITLE}%`);
-  for (const p of data ?? []) { const m = parseMeta(p.request); if (m && !(skipCompany && m.company)) void drive(sb, userId, p.id); }
+  for (const p of data ?? []) { const m = parseMeta(p.request); if (m && !(m.company && (skipCompany || !allows("goals", "background").ok))) void drive(sb, userId, p.id); }
 }
 
 /** Running company chains with each step's status and call cap, for the night shift's planner (night-pure companySteps). Never drives. */
