@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { MAX_CONTEXT, PERSONAS, STAGES, STAGE_LABEL, funnel, heat, personaPlan, type Proposal } from "@/lib/personas-pure";
+import { pickGame } from "@/lib/persona-calibration-pure";
 import { importDrafts } from "@/lib/backlog-pure";
 import type { DevWorld as World } from "@/lib/devworld-pure";
 import type { Calibration, PersonaReport } from "@/lib/personas";
@@ -34,7 +35,7 @@ export default function PersonaPlaytest({ world, commit, gameId }: { world: Worl
 
   const r = v?.report;
   const games = world?.games ?? [];
-  const target = (gameId && games.some((g) => g.id === gameId) ? gameId : games.find((g) => g.id === "pet-sim")?.id ?? games.find((g) => g.platform === "roblox")?.id) ?? "";
+  const target = pickGame(games, gameId)?.id ?? "";
   const add = (p: Proposal) => {
     if (!world || !target) return;
     const out = importDrafts(world, target, [{ title: p.title, detail: p.detail, kind: p.kind, priority: p.priority, severity: p.severity, status: "open" }], new Date().toISOString(), () => crypto.randomUUID());
@@ -91,7 +92,7 @@ export default function PersonaPlaytest({ world, commit, gameId }: { world: Worl
               </table>
             </div>
 
-            <PersonaCalibration results={r.results} real={world?.retention?.find((x) => x.game === target)} saved={v?.calibration ?? null} busy={!!busy} onSave={() => act("cal", { action: "calibrate" })} />
+            <PersonaCalibration results={r.results} real={world?.retention?.find((x) => x.game === target)} saved={v?.calibration ?? null} busy={!!busy} onSave={() => act("cal", { action: "calibrate", gameId: target })} />
 
             <details>
               <summary className="text-xs cursor-pointer">Why each persona quit</summary>
@@ -139,7 +140,7 @@ export default function PersonaPlaytest({ world, commit, gameId }: { world: Worl
         </label>
         <div className="flex flex-wrap gap-2">
           <button className="chip" onClick={() => act("save", { action: "context", context: ctx })} disabled={!!busy || ctx === (v?.context ?? "")}>{busy === "save" ? "Saving…" : "Save text"}</button>
-          <button className="btn" style={{ background: `linear-gradient(90deg, ${PINK}, #db2777)` }} onClick={() => act("run", { action: "run" })} disabled={!!busy || v?.running}>
+          <button className="btn" style={{ background: `linear-gradient(90deg, ${PINK}, #db2777)` }} onClick={() => act("run", { action: "run", gameId: target })} disabled={!!busy || v?.running}>
             {busy === "run" ? "Simulating (about a minute)…" : v?.running ? "Running…" : "Run simulated playtest now"}</button>
         </div>
         <p className="muted text-[11px]">Real Studio runs (two personas a night) only happen in the night shift, with Studio open on your PC.</p>

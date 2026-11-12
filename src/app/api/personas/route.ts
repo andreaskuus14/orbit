@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { PersonaBusyError, calibratePersonas, personaView, runPersonaPlaytest, setPersonaContext } from "@/lib/personas";
+import { calibrationStatus } from "@/lib/persona-calibration-pure";
 import { MAX_CONTEXT } from "@/lib/personas-pure";
 
 export const dynamic = "force-dynamic";
@@ -30,12 +31,12 @@ export async function POST(req: Request) {
   }
   if (b?.action === "run") {
     try {
-      await runPersonaPlaytest(sb, user.id, { studioRuns: 0, day: new Date().toISOString().slice(0, 10), signal: req.signal });
+      await runPersonaPlaytest(sb, user.id, { studioRuns: 0, gameId: b.gameId, day: new Date().toISOString().slice(0, 10), signal: req.signal });
       return Response.json(await personaView(user.id));
     } catch (e) { return fail(e instanceof Error ? e.message : String(e), e instanceof PersonaBusyError ? 409 : 502); }
   }
   if (b?.action === "calibrate") {
-    try { await calibratePersonas(sb, user.id); return Response.json(await personaView(user.id)); } catch (e) { return fail(e instanceof Error ? e.message : String(e), 409); }
+    try { await calibratePersonas(sb, user.id, b.gameId); return Response.json(await personaView(user.id)); } catch (e) { return fail(e instanceof Error ? e.message : String(e), calibrationStatus(e)); }
   }
   return fail("action must be context, run or calibrate");
 }
