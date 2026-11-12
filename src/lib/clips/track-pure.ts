@@ -59,17 +59,44 @@ export function submit(t: Track, s: StageId, a: { ref: unknown; sha?: unknown; n
     if (!(sec >= MOTION_SEC.min && sec <= MOTION_SEC.max)) return "A motion test is 5-8 seconds";
     art.sec = sec;
   }
-  const unapprove = (x?: Artifact) => { if (x) { delete x.approved; delete x.approvedAt; } };
-  for (const st of STAGES.slice(i)) { if (st.id === "style") t.frames.forEach(unapprove); unapprove(t.out[st.id]); }
+  // a new style frame keeps the other frames' approvals; anything earlier invalidates all of them
+  for (const st of STAGES.slice(i)) { if (st.id === "style" && s !== "style") t.frames.forEach(unapprove); unapprove(t.out[st.id]); }
   if (s === "style") t.frames = [...t.frames.filter((f) => f.ref !== ref), art];
   else t.out[s] = art;
   t.stage = Math.min(t.stage, i);
   return "";
 }
 
+const unapprove = (x?: Artifact) => { if (x) { delete x.approved; delete x.approvedAt; } };
+
+/** A frame or the motion test changed on disk after he approved it while the track is past that stage: reopen the track there,
+ *  drop that stale approval and every later one. Call after refreshing shas. True when it moved the track. */
+export async function reopenChanged(t: Track): Promise<boolean> {
+  const stale = async (s: StageId, a?: Artifact) => !!a?.approved && !(await ok(s, a));
+  const frames: Artifact[] = []; for (const f of t.frames) if (await stale("style", f)) frames.push(f);
+  const at = frames.length ? idx("style") : (await stale("motion", t.out.motion)) ? idx("motion") : -1;
+  if (at < 0 || t.stage <= at) return false;
+  frames.forEach(unapprove);
+  for (const st of STAGES.slice(at)) unapprove(t.out[st.id]);
+  t.stage = at;
+  return true;
+}
+
+/** sha by (mtime, size): a big render is re-read only when it changed. `st` null = no such file. */
+export type ShaCache = Map<string, { mtimeMs: number; size: number; sha: string }>;
+export async function cachedSha(cache: ShaCache, key: string, st: { mtimeMs: number; size: number } | null, hash: () => Promise<string>): Promise<string> {
+  if (!st) { cache.delete(key); return ""; }
+  const c = cache.get(key);
+  if (c && c.mtimeMs === st.mtimeMs && c.size === st.size) return c.sha;
+  const sha = await hash();
+  if (sha) cache.set(key, { mtimeMs: st.mtimeMs, size: st.size, sha });
+  return sha;
+}
+
 /** His click: `hash` is contentHash(artifactContent(...)) of what he read. */
 export async function approve(t: Track, s: StageId, ref: string, hash: unknown, at: string): Promise<string> {
   if (STAGES[idx(s)]?.gate !== "owner") return "This stage has no approval step";
+  if (idx(s) > t.stage) return `Finish ${STAGES[t.stage].name} first`;
   const a = s === "style" ? t.frames.find((f) => f.ref === ref) : t.out[s]?.ref === ref ? t.out[s] : undefined;
   if (!a) return "Nothing to approve";
   if (!a.sha) return "Only a file in STUDIO can be approved (its content is what you approve)";
@@ -112,6 +139,7 @@ export async function generate<R>(t: Track, s: StageId, seen: unknown, frames: s
   if (!STAGES[idx(s)]?.spends) return { error: "This stage doesn't generate" };
   if (idx(s) > t.stage) return { error: `Finish ${STAGES[t.stage].name} first` };
   if (s === "animation") { const p = await fullVideoProblem(t); if (p) return { error: p }; }
+  if (s === "motion" && !(await approvedFrames(t)).length) return { error: "No approved style frame: approve one first" };
   if (s !== "style") for (const f of frames) { const p = await useFrameProblem(t, f); if (p) return { error: p }; }
   if (typeof seen !== "string" || !seen) return { error: "Needs your approval of this exact quote" };
   if (t.spent.includes(seen)) return { error: "This approval was already used: get a new quote and approve it" };
