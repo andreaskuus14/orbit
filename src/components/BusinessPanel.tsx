@@ -285,6 +285,14 @@ function LeadLoopBox({ busy, setBusy, setErr, done }: { busy: string; setBusy: (
       }
     } catch (e) { setErr((e as Error).message); } finally { setBusy(""); }
   };
+  const importMaps = async () => {
+    setBusy("leads"); setErr(""); setLog([]);
+    try {
+      const r = (await post({ action: "import", text })) as { saved: number; dupes: number; over: number };
+      setLog([`Saved ${r.saved} draft leads · ${r.dupes} already in your pipeline${r.over ? ` · ${r.over} over the cap, not imported` : ""}. Nothing was sent.`]);
+      done();
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(""); }
+  };
   return (
     <details className="card space-y-2">
       <summary className="cursor-pointer"><b>{t("biz.lead.title")}</b> <span className="muted text-xs">{t("biz.lead.what")}</span></summary>
@@ -292,6 +300,7 @@ function LeadLoopBox({ busy, setBusy, setErr, done }: { busy: string; setBusy: (
       <div className="flex gap-1.5">
         <select className="chip" aria-label={t("biz.lead.lang")} value={lang} onChange={(e) => setLang(e.target.value as "English" | "Estonian")}><option>Estonian</option><option>English</option></select>
         <button className="btn" disabled={!!busy || !text.trim()} onClick={() => void run()}>{busy === "leads" ? t("biz.lead.working") : t("biz.lead.run")}</button>
+        <button className="chip" disabled={!!busy || !text.trim()} onClick={() => void importMaps()}>{t("biz.lead.maps")}</button>
       </div>
       {log.length > 0 && <ul className="text-xs space-y-0.5" aria-live="polite">{log.map((l, i) => <li key={i}>{l}</li>)}</ul>}
       <p className="muted text-xs">{t("biz.lead.safe")}</p>

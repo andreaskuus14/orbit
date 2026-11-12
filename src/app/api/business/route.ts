@@ -8,6 +8,7 @@ import { sendDraft } from "@/lib/business-send";
 import { pushNotify } from "@/lib/remote-push";
 import { crmOf, loadCrm, logEvent, updateCrm } from "@/lib/prospect-crm";
 import { claimProblem, deliveryPlan, duplicateOf, EVENT_KINDS, LOST_REASONS, newCrm, touch, type EventKind, type LostReason } from "@/lib/prospect-crm-pure";
+import { withOptOut } from "@/lib/lead-loop-pure";
 import { FOLLOWUP_SYSTEM, followupPrompt, FIND_SYSTEM, LANGS, OUTREACH_SYSTEM, RESEARCH_SYSTEM, findPrompt, funnel, isTemplate, outreachPrompt, parseDraft, parseFinds, researchPrompt, trimDossier, validatePatch, validateProspect, withDossier, type Lang, type Prospect } from "@/lib/business-pure";
 
 export const dynamic = "force-dynamic";
@@ -131,7 +132,7 @@ export async function POST(req: Request) {
       const fromNight = followup && b.use === "night"; // last night's draft: no model call, so no usage hold
       const held = stopAllOn() ? "Stop-all is on" : fromNight ? null : usageHardHold();
       if (held) return fail(`Not drafting right now: ${held}`, 503);
-      const { data: p, error } = await sb.from("prospects").select("name,kind,notes,draft,stage,updated_at").eq("id", b.id as string).maybeSingle();
+      const { data: p, error } = await sb.from("prospects").select("name,kind,notes,draft,stage,updated_at,source").eq("id", b.id as string).maybeSingle();
       if (error) return fail(error.message, 500);
       if (!p) return fail("Not found", 404);
       if (followup && (p.stage !== "contacted" || !p.draft?.trim())) return fail("A contacted business with a first draft is required");
@@ -146,7 +147,8 @@ export async function POST(req: Request) {
       try {
         const angle = isTemplate(b.angle) ? b.angle : "auto";
         const r = await askClaude(followup ? followupPrompt(p, lang) : outreachPrompt(p, lang, angle), followup ? FOLLOWUP_SYSTEM : OUTREACH_SYSTEM, { lane: "foreground", purpose: followup ? "business.followup" : "business.outreach", timeoutMs: 90_000 });
-        const { draft, template } = followup ? { draft: r.text.trim().slice(0, 4000), template: null } : parseDraft(r.text, angle);
+        const parsed = followup ? { draft: r.text.trim().slice(0, 4000), template: null } : parseDraft(r.text, angle);
+        const { template } = parsed, draft = parsed.draft && p.source != null ? withOptOut(parsed.draft, lang) : parsed.draft; // B8: tagged leads always carry the opt-out
         if (followup && draft === p.draft.trim()) return fail("CORE repeated the first draft; try again", 502);
         if (!draft) return fail("CORE returned an empty draft; try again", 502);
         const save = (patch: object) => sb.from("prospects").update(patch).eq("id", b.id as string).select(COLS).maybeSingle();

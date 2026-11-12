@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import * as pure from "../src/lib/business-pure.ts";
+import * as leadPure from "../src/lib/lead-loop-pure.ts";
 import * as crmPure from "../src/lib/prospect-crm-pure.ts";
 
 const code = ts.transpileModule(readFileSync(new URL("../src/app/api/business/route.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -25,6 +26,7 @@ function api(answer = "Tere! Kas minu eelmine idee võiks teile kasulik olla?", 
     fetch: () => { throw new Error("Drafting must never send"); },
     require: (name: string) => {
       if (name.endsWith("business-pure")) return pure;
+      if (name.endsWith("lead-loop-pure")) return leadPure;
       if (name.endsWith("supabase/server")) return { requireUser: async () => ({ sb }) };
       if (name.endsWith("/csrf")) return { crossSiteBlocked: () => false };
       if (name.endsWith("/claude")) return { BusyError: class extends Error {}, askClaude: async (...args: any[]) => { asks.push(args); return { text: answer }; } };

@@ -4,7 +4,7 @@
 
 import type { LeadLoop } from "./lead-loop-pure.ts";
 
-export const SOURCES = ["manual", "web-find", "lead-loop"] as const;
+export const SOURCES = ["manual", "web-find", "lead-loop", "maps-import"] as const;
 export type Source = (typeof SOURCES)[number];
 /** Things that happened. "draft" is ORBIT writing; "sent", "reply", "call" are real contact; "stage" and "note" are bookkeeping. */
 export const EVENT_KINDS = ["draft", "sent", "reply", "call", "stage", "note"] as const;

@@ -57,6 +57,18 @@ Entries typed in the LIFE panel before the new code ran were stored as ordinary 
 2. **5 clean mornings.** Five days in a row, ORBIT is running and the phone digest matches what STUDIO and Agents show (done or needs-you). Note each day: date, ok or what was wrong.
 3. **Restore drill.** Profile → Time capsule → passphrase → **Run restore drill**. Then Doctor → Last recovery drill must show passed. Repeat about monthly.
 
+## 4b. Maps lead list (B8)
+
+ORBIT never scrapes. You run [gosom/google-maps-scraper](https://github.com/gosom/google-maps-scraper) yourself, then import its CSV.
+
+1. Put one search per line in `queries.txt` (e.g. `juuksur Tartu`).
+2. Run: `docker run -v %cd%:/data gosom/google-maps-scraper -input /data/queries.txt -results /data/results.csv -depth 1 -exit-on-inactivity 3m` (no `-email`).
+3. BUSINESS → Lead loop → paste the CSV → **Import Maps CSV as drafts**. Up to 500 rows; duplicates of existing prospects are skipped.
+
+Only name, category, address, city, phone, website and Maps link are kept; reviews, reviewer names and emails are dropped. Rows are drafts (source `maps-import`): Auto never sends them, only your own Approve & send does. FIE rows carry the consent warning.
+
+Rules: the Google Maps Terms of Service prohibit scraping. Running gosom is your own decision and your own risk; ORBIT only reads the file you give it. B2B only, never consumer emails. GDPR legitimate interest: ORBIT adds the opt-out line and a [postal address] placeholder to every draft for these leads, and won't send one without the opt-out line.
+
 ## 5. If something fails, send Claude
 
 - The step number and what you expected.
