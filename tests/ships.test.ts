@@ -8,7 +8,6 @@ const finite = (f: ReturnType<typeof shipFrame>) => { for (const v of [f.u, f.al
 test("ships: target from keywords, then agent, then AGENTS", () => {
   assert.equal(shipTarget({ title: "Script for my next YouTube video", agent: "forge" }), "studio");
   assert.equal(shipTarget({ title: "Fix the Roblox pet bug", agent: "atlas" }), "creation");
-  assert.equal(shipTarget({ title: "Summarise", agent: "x", request: "check my portfolio" }), "markets");
   assert.equal(shipTarget({ title: "Look into this", agent: "Atlas" }), "intelligence");
   assert.equal(shipTarget({ title: "Organise", agent: "echo" }), "memory");
   assert.equal(shipTarget({ title: "Plan the week", agent: "nova" }), "agents");

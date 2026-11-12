@@ -140,8 +140,6 @@ const LOOKS: Record<PlanetId, { scale: number; ring?: string; obsidian?: boolean
   vault: { scale: 0.79, ring: "#e2e8ee", surf: SL(2, 7, "#b9a27a", "#7a6a52", "#3c342a") },
   analytics: { scale: 1.0, ring: "#b3abea", obsidian: true },
   studio: { scale: 1.1, orbital: true, surf: SL(0, 9, "#ecd9cc", "#b8725e", "#5a3a40") },
-  theater: { scale: 0.9, ring: "#fbbf24", obsidian: true, surf: SL(1, 10, "#f0e3c8", "#c9984a", "#5e4632") },
-  markets: { scale: 0.85, ring: "#34d399", surf: SL(3, 11, "#a7b39a", "#0f5a55", "#e9f1ef") },
   business: { scale: 0.85, obsidian: true },
   arch: { scale: 0.9, halo: true, surf: SL(2, 13, "#c3c7cf", "#8a909b", "#474c56") },
 };

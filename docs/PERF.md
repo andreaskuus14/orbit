@@ -25,7 +25,7 @@ pattern as `ContinueWork`). One-line `document.hidden` guards added to the fast 
 (2.5 s), Niche/Deal/Rivals boards (5 s), Clip Factory jobs/scout/batch (2–3 s).
 
 **4. Independent server reads in parallel** (`Promise.all`, same results and error handling):
-`markets.ts` sync (quotes + histories), `school.ts` busy (calendar + focus), `study.ts` studyView, `devtools.ts` niche scan
+`school.ts` busy (calendar + focus), `study.ts` studyView, `devtools.ts` niche scan
 (scout + learn state), `clips/learn.ts` tasteNotes, `api/memories/[id]/control` derived (two memory queries).
 The first-load routes (`/api/morning`, `/api/continue`, `/api/weekly`, `/api/dayplan`, `/api/activity`, `/api/studio/busy`)
 were already parallel.

@@ -39,16 +39,15 @@ function update<T>(fn: (s: Store) => T): Promise<T> {
 export async function writeDiary(sb: SupabaseClient, userId: string, run: NightRun, model: boolean, signal?: AbortSignal) {
   try {
     const now = Date.now(), since = new Date(now - 86_400_000).toISOString();
-    const [prev, events, lessons, preds, issues, episodes] = await Promise.all([
+    const [prev, events, lessons, issues, episodes] = await Promise.all([
       load().then((s) => s.users[userId]?.find((e) => e.day === run.key)),
       Promise.resolve(sb.from("events").select("id, created_at, type, planet, payload, caused_by").eq("user_id", userId).in("type", [...DIARY_EVENTS]).gte("created_at", since).limit(2000)
         .then((r) => { if (r.error) throw r.error; return fromRows((r.data ?? []) as EventRow[]); })).catch(soft("events", [])),
       import("./lessons").then((m) => m.lessonsView(userId)).then((v) => [...v.proposed, ...v.kept]).catch(soft("lessons", [])),
-      import("./predict").then((m) => m.refreshPredictions(sb, userId, now)).catch(soft("predictions", [])),
       import("./health").then((m) => m.healthIssues()).catch(soft("health", [])),
       import("./episodes").then(async (m) => { const { episodeView } = await import("./episodes-pure"); return (await m.listEpisodes(sb, userId, 30)).map(episodeView); }).catch(soft("episodes", [])),
     ]);
-    const facts = pickFacts({ now, run, events, lessons, preds, issues, episodes, day: run.key });
+    const facts = pickFacts({ now, run, events, lessons, issues, episodes, day: run.key });
     let text = templateEntry(facts), used = false;
     // one model call per night: a resumed run that already got its model entry keeps the template from here on
     if (model && !prev?.model && hasFacts(facts) && !stopAllOn() && !usageHold() && !signal?.aborted) {

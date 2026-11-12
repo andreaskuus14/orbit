@@ -1,5 +1,4 @@
 "use client";
-import { OrbitThinks } from "./OrbitThinks";
 import StateNote from "./StateNote";
 import VisibilityPanel from "./VisibilityPanel";
 import dynamic from "next/dynamic";
@@ -17,6 +16,7 @@ import MoneyPanel from "./MoneyPanel";
 import BusinessOverview from "./BusinessOverview";
 import WeeklyOutcome from "./WeeklyOutcome";
 import ContractsPanel from "./ContractsPanel";
+import DealCards from "./DealCards";
 import NegotiatorBox from "./NegotiatorBox";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { useT } from "./i18n";
@@ -133,6 +133,7 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
             {shown.map((p) => <Row key={p.id} p={p} lit={lit === p.id} due={due.has(p.id)} busy={busy} act={act} canSend={!!st.canSend} nightDraft={!!st.nightDrafts?.includes(p.id)} />)}
           </ul>
           <ContractsPanel prospects={st.prospects} />
+          <DealCards />
         </>
       )}
 
@@ -411,7 +412,7 @@ function Row({ p, lit, due, busy, act, canSend, nightDraft = false }: { p: Prosp
                 {busy === `send:${p.id}` ? "Sending…" : sendSure ? `Click again to send to ${to}` : `✉ Approve & send to ${to}`}</button>)}
             {canSend && to && p.stage === "lead" && /https?:\/\/|www\./i.test(p.draft) && <span className="error text-[11px]">This draft contains a link: check it's one you meant to send.</span>}
             <span className="muted text-[11px]">{canSend && to && p.stage === "lead" ? "Read it first: nothing is sent until you click twice." : canSend && p.stage === "lead" ? "To send from ORBIT, put one email address in Contact." : "Check it, then send it yourself."} Only say you tested their reply time if you really did. {t("biz.crm.firstOnly")}</span>
-            {p.stage === "lead" && <OrbitThinks id={`draft:${p.id}`} />}</div>
+            </div>
         </div>
       )}
     </li>

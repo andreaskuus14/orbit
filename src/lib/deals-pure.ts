@@ -1,6 +1,6 @@
 // Deal hunter (pure, tested in tests/deals.test.ts): the owner's wishlist, what CORE found on public listings and shops,
 // prices normalised to EUR, deduped, a price history per wish, and the "great deal" rule that pushes and may ring him.
-// IO: deals.ts. API: /api/markets/deals. UI: DealCards.tsx (MARKETS → Deals). Read-only on the web: ORBIT never logs in,
+// IO: deals.ts. API: /api/markets/deals. UI: DealCards.tsx (BUSINESS → Deals). Read-only on the web: ORBIT never logs in,
 // messages a seller or buys; the seller draft is text he copies himself.
 import { firstArray } from "./business-pure.ts";
 import { normUrl, type Trace } from "./niche-pure.ts";

@@ -53,7 +53,8 @@ test("unknown taint kind (older file) fails closed for plugins and outbound tool
   assert.equal(mergeTaint({ id: "private", at: 1, kind: "local" }, { kind: "private", p: [], l: [] }, 2).kind, "private");
   const ctx: PolicyCtx = { ...base, carried: true, carriedKind: "unknown" };
   assert.equal(decide(SAVE, { text: "hello" }, ctx).allow, false);
-  assert.equal(decide("web_search", { query: "weather tallinn" }, ctx).allow, false);
+  const w = decide("web_search", { query: "weather tallinn" }, ctx);
+  assert.equal(w.allow, false); assert.ok(w.reason.includes(NO_MODEL_ONCE) && !/Allow once on/.test(w.reason)); // no contradiction
 });
 
 const hook = (b: ReturnType<typeof allowOnceBook>, chat: string, now: () => number): AllowOnceHook => ({
@@ -112,7 +113,7 @@ test("private text to any model-bound tool is a hard refusal (no card), journal 
     for (const tool of ["web_search", "ask_agent", "local_tts", "local_image", "ws_picture_draft", "ws_inspire_image"]) {
       const d = decide(tool, { query: text, task: text, text, brief: text, prompt: text, agent: "atlas", workspace: "site" }, { ...ctx, question: "go" });
       assert.equal(d.allow, false, tool); assert.equal(d.allowOnce, undefined, tool);
-      if (d.egress === false) assert.ok(d.reason.includes(NO_MODEL_ONCE), tool);
+      assert.equal(d.egress, false, tool); assert.ok(d.reason.includes(NO_MODEL_ONCE), tool);
     }
   }
   const d = decide(SEND, { body: LOCAL }, lctx); // local-plugin text to a remote plugin (not a model): card

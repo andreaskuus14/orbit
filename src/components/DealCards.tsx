@@ -1,5 +1,4 @@
 "use client";
-import { OrbitThinks } from "./OrbitThinks";
 import { useCallback, useEffect, useState } from "react";
 import { pollMs } from "@/lib/poll-pure";
 import { usePoll } from "./use-poll";
@@ -118,7 +117,7 @@ function OfferRow({ o, draft, any, dismiss }: { o: Offer; draft?: string; any: b
           <button className="chip" onClick={() => void navigator.clipboard?.writeText(draft).then(() => setCopied(true), () => {})}>{copied ? "Copied" : "Copy"}</button>
         </details>
       )}
-      <div className="mt-1 flex flex-wrap gap-1.5"><button className="chip" disabled={any} onClick={dismiss}>Not interested</button> <OrbitThinks id={`deal:${o.id}`} />
+      <div className="mt-1 flex flex-wrap gap-1.5"><button className="chip" disabled={any} onClick={dismiss}>Not interested</button>
         <NegotiatorBox refKey={`offer:${o.id}`} title={o.title} hint={{ floor: Math.round(o.eur * 0.85), ceiling: Math.round(o.eur) }} /></div>
     </li>
   );

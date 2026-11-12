@@ -132,10 +132,10 @@ export const CHAPTERS: Chapter[] = [
       ["Poe käivituspakett", "Shopify/WooCommerce CSV, Etsy tekst, marginist arvutatud hinnad, SEO, EL-i tingimuste mustandid ja 14 päeva plaan."], { go: { panel: "business" } }),
     s("rivals", "👀", ["Competitor watch and what-if", "A weekly read-only report on competitor pages, and a simulator that shows the chance of losing money."],
       ["Konkurentide jälgimine ja „mis siis, kui“", "Iganädalane ainult lugemiseks aruanne konkurentide lehtedest ja simulaator, mis näitab rahakaotuse tõenäosust."], { go: { panel: "business" } }),
-    s("deals", "🏷", ["Deal hunter", "MARKETS → Deals: keep a wishlist and ORBIT checks public shop pages, pushing you when a great deal shows up."],
-      ["Pakkumiste kütt", "TURUD → Deals: pea soovinimekirja ja ORBIT kontrollib avalikke poelehti ning teavitab, kui tuleb väga hea pakkumine."], { go: { panel: "markets" } }),
-    s("operator", "📋", ["Operator report", "ANALYTICS shows a weekly card of what ORBIT did on its own, plus predictions of your decisions and their score."],
-      ["Operaatori aruanne", "ANALÜÜTIKA näitab iganädalast kaarti sellest, mida ORBIT ise tegi, ning sinu otsuste ennustusi ja nende täpsust."], { go: { panel: "analytics" } }),
+    s("deals", "🏷", ["Deal hunter", "BUSINESS → Deals: keep a wishlist and ORBIT checks public shop pages, pushing you when a great deal shows up."],
+      ["Pakkumiste kütt", "ÄRI → Deals: pea soovinimekirja ja ORBIT kontrollib avalikke poelehti ning teavitab, kui tuleb väga hea pakkumine."], { go: { panel: "business" } }),
+    s("operator", "📋", ["Operator report", "ANALYTICS shows a weekly card of what ORBIT did on its own."],
+      ["Operaatori aruanne", "ANALÜÜTIKA näitab iganädalast kaarti sellest, mida ORBIT ise tegi."], { go: { panel: "analytics" } }),
   ] },
   { id: "arch", icon: "📐", title: { en: "Architecture school", et: "Arhitektuurikool" }, steps: [
     s("plans", "🏠", ["Floor plans and structure", "A brief becomes 3–5 scored layouts; pick one and it becomes the model. The structure coach checks each floor (a teaching estimate)."],
@@ -154,8 +154,6 @@ export const CHAPTERS: Chapter[] = [
       ["Kooliplaneerija", "ELU → School: lisa kursused ja tähtajad; ORBIT planeerib õppeplokid tagurpidi ja hoiatab ülekoormatud nädalate eest."], { go: { panel: "life" } }),
   ] },
   { id: "galaxy", icon: "🌌", title: { en: "Galaxy & memory", et: "Galaktika ja mälu" }, steps: [
-    s("palace", "🏛", ["Memory palace", "Walk through your memories as rooms with WASD or the arrow keys."],
-      ["Mälupalee", "Jaluta oma mälestustes nagu tubades, WASD või nooleklahvidega."], { go: { panel: "memory" } }),
     s("chronicle", "🌊", ["Chronicle and episodes", "Your life and work as a river of days. Each night calls, decisions and wins become short episodes; journal text is never used."],
       ["Kroonika ja episoodid", "Sinu elu ja töö päevade jõena. Igal ööl saavad kõnedest, otsustest ja võitudest lühikesed episoodid; päeviku teksti ei kasutata kunagi."],
       { go: { panel: "memory" }, setup: "migrations" }),

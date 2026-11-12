@@ -4,7 +4,6 @@ import { AUDIO_IDLE, MUTE_KEY, holdAnnouncement, targetGains, type AudioState } 
 import { onSpeakingChange, isSpeaking, speakChunk } from "./voice/speak";
 import { VOICE_PAUSE, VOICE_RESUME } from "./voice/useVoiceInput";
 import { WAKE_HEARING } from "./voice/bus";
-import { getWatch, subscribeWatch } from "./watch-store";
 import { THEATER_EVENT } from "@/lib/interruption-pure";
 
 let state: AudioState = { ...AUDIO_IDLE, muted: readMute() };
@@ -37,7 +36,7 @@ export function announce(text: string, urgent = false) {
 }
 
 let started = false;
-/** Once in the app (AmbientSound): wire the three signals. */
+/** Once in the app (AmbientSound): wire the signals. */
 export function initAudioPolicy() {
   if (started || typeof window === "undefined") return;
   started = true;
@@ -46,8 +45,5 @@ export function initAudioPolicy() {
   addEventListener(VOICE_RESUME, () => { ptt = false; set({ mic: wake }); });
   addEventListener(WAKE_HEARING, (e) => { wake = !!(e as CustomEvent<{ on?: boolean }>).detail?.on; set({ mic: ptt || wake }); }); // "Hey Orbit" heard / armed
   onSpeakingChange((speaking) => set({ speaking }));
-  const media = () => set({ media: !!getWatch()?.audible }); // the player says it is playing (a paused or errored video is quiet)
-  subscribeWatch(media);
   set({ speaking: isSpeaking(), muted: readMute() });
-  media();
 }

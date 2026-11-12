@@ -60,10 +60,8 @@ put({ panel: "analytics" }, "analytics, usage, ai usage, my usage, activity");
 put({ panel: "studio" }, "studio, youtube, youtube studio");
 put({ panel: "arch" }, "arch, architecture, building design, house design, my house, construction, ehitus, arhitektuur");
 put({ panel: "business" }, "business, my business, clients, my clients, pipeline, sales pipeline, prospects, leads");
-put({ panel: "markets" }, "markets, market, stocks, stock market, my stocks, watchlist, my watchlist, portfolio, my portfolio, paper trading, investing");
-put({ panel: "theater" }, "theater, theatre, cinema, movie theater, watch, watch videos, the big screen, big screen");
 put({ panel: "studio", view: "none" }, "channel, my channel, youtube channel, my videos"); // the channel itself, overlays closed
-put({ panel: "creation" }, "creation, game dev, gamedev, game development, games, my games, game lab, dev world, planet forge");
+put({ panel: "creation" }, "creation, game dev, gamedev, game development, games, my games, game lab, dev world");
 put({ panel: "life" }, "life, calendar");
 // LIFE tabs: also accepted as a bare message ("journal", "focus timer"), like "good morning".
 put({ panel: "life", life: "habits" }, "habits, my habits");

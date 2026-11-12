@@ -95,11 +95,11 @@ test("shows once a day from 06:00", () => {
   assert.equal(shouldShowBrief("2026-10-24", 9, "2026-10-25"), true);
 });
 
-test("a great deal is a notable result with Open to MARKETS → Deals", () => {
+test("a great deal is a notable result with Open to BUSINESS", () => {
   const it = briefItems(base({ decisions: [], replies: [], morning: {}, deal: { id: "o1", item: "Sony WH-1000XM5", eur: 189.6 } })).find((i) => i.id === "deal:o1")!;
   assert.equal(it.kind, "result");
   assert.equal(it.say, "An offer for Sony WH-1000XM5 came in at about 190 euros. That looks like a good price.");
-  assert.deepEqual(it.open, { panel: "markets", tab: "Deals" });
+  assert.deepEqual(it.open, { panel: "business" });
 });
 
 test("a new serious health problem gets one line after the night shift, opening the Doctor panel", () => {
@@ -134,24 +134,6 @@ test("study cards due: one '3 minutes of cards' item that opens a MEMORY review;
   assert.match(it!.say, /seven study cards due/);
   assert.equal(briefItems(base({ study: 0 })).some((i) => i.kind === "study"), false);
   assert.equal(briefItems(base({ study: 3, snoozed: ["study:2026-10-25"] })).some((i) => i.kind === "study"), false);
-});
-
-test("last night's dream question: a brief item, and the opener's one question when nothing waits on his OK", () => {
-  const dream = { id: "deadline:n1:2026-10-30", question: "You said the pet sim update ships Friday, but there's been no dev session since Monday. Still Friday?" };
-  const items = briefItems(base({ dream }));
-  assert.equal(items.find((i) => i.kind === "question")?.say, dream.question);
-  assert.equal(briefOpener(composeBrief(base({ dream })), 8).endsWith("Want to go through it now?"), true, "decisions still come first");
-  const o = briefOpener(composeBrief(base({ dream, decisions: [] })), 8);
-  assert.ok(o.endsWith("Still Friday?"));
-  assert.equal((o.match(/\?/g) ?? []).length, 1);
-  assert.equal(cleanOpener(o, "fallback"), o);
-  assert.ok(!briefItems(base({ dream, snoozed: [`dream:${dream.id}`] })).some((i) => i.kind === "question"));
-});
-
-test("dream mode: one 'ORBIT dreamt' line", () => {
-  const it = briefItems(base({ idea: { id: "i1", title: "How light moves through a house", more: 2 } })).find((i) => i.id === "idea:i1");
-  assert.equal(it?.title, "ORBIT dreamt: How light moves through a house");
-  assert.equal(it?.detail, "In DREAMS under Goals (+2 more)");
 });
 
 test("page watches: each change is a card with source link, time and what changed (never spoken); failures say so", () => {

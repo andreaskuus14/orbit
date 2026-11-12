@@ -50,7 +50,6 @@ import { LifeStats } from "./LifeStats";
 import { UsageMeter } from "./UsageMeter";
 import { AgentScorecard } from "./AgentScorecard";
 import { OutcomesView, ReliabilityView, TimeCostView } from "./AnalyticsOutcomes";
-import { PredictionScore } from "./OrbitThinks";
 import { PerfRuns } from "./PerfRuns";
 import { ModelRuns } from "./ModelRuns";
 import { LessonChip, LessonsSection } from "./LessonsCard";
@@ -1011,7 +1010,6 @@ export function AnalyticsPanel() {
       <p className="muted text-xs">{tr("an.subscription")}</p>
       <UsageMeter />
       <AgentScorecard />
-      <PredictionScore />
       <ModelRuns />
       <PerfRuns />
       <LifeStats />

@@ -6,7 +6,7 @@ import { STOP_OFF, stopFileState, type StopState } from "./stop-all-pure.ts";
 
 // Global Stop-all flag: <ORBIT data dir>/stop-all.json, cached on globalThis so every entry point can check it synchronously.
 // The cache is re-read whenever the file changes (mtime+size), so a second process or a restart sees the other's toggle.
-// Who checks it: scheduler tick, automations, kickQueue/runTask, chains drive, goals advance/draftPlan, plans drive, scout tick +
+// Who checks it: scheduler tick, automations, kickQueue/runTask, chains drive, goals advance/draftPlan, plan-jobs drive (incl. STUDIO plans), scout tick +
 // auto-clip, inbox auto-clip, autopilot tick, herald watch (niche scan + toasts), proposals, deal hunter (deals.ts), CORE's work-starting tools. Cancelling running work: /api/stop-all.
 
 const file = () => path.join(orbitDataDir(), "stop-all.json");

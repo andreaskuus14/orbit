@@ -149,7 +149,7 @@ export async function runPlanTool(input: Record<string, unknown>, question: stri
   const blocked = actionBlocked("plan_task", question, tainted);
   if (blocked) return `Error: ${blocked}`;
   try {
-    const p = await (await import("./plans")).createPlan(input);
+    const p = await (await import("./plan-jobs")).createStudioPlan(input);
     if (typeof p === "string") return `Error: ${p}`;
     const { stepText, needsConfirm } = await import("./plans-pure");
     return `Done: plan started (${p.steps.length} steps: ${p.steps.map((s) => stepText(s)).join(" → ")}). Progress shows in CORE.${p.steps.some((s) => needsConfirm(s.type)) ? " It will pause before scheduling and wait for the user's OK click; tell them." : ""}`;

@@ -168,7 +168,7 @@ export const commitmentIn = (text: string) => COMMIT.exec(text)?.[0] ?? "";
 
 // ---- Night shift / auto queue ------------------------------------------------------
 
-export const NIGHT_AREA: Record<NightKind, Area> = { research: "research", niche: "research", goal: "goals", business: "business-drafts", clips: "studio-prepare", hygiene: "memory", deals: "deals", health: "night-shift", personas: "night-shift", dream: "memory", company: "goals", rivals: "research", backup: "night-shift", loops: "night-shift" }; // health: the self-heal check, part of the night shift itself
+export const NIGHT_AREA: Record<NightKind, Area> = { research: "research", niche: "research", goal: "goals", business: "business-drafts", clips: "studio-prepare", hygiene: "memory", deals: "deals", health: "night-shift", personas: "night-shift", company: "goals", rivals: "research", backup: "night-shift", loops: "night-shift" }; // health: the self-heal check, part of the night shift itself
 /** Night kinds the current levels don't allow unattended (empty with the defaults). */
 export const nightOff = (levels?: Partial<Levels>): NightKind[] =>
   (Object.keys(NIGHT_AREA) as NightKind[]).filter((k) => !autonomyAllows(NIGHT_AREA[k], "background", { levels }).ok);

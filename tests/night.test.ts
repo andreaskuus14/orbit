@@ -211,14 +211,21 @@ test("night report: one Company line for company steps", () => {
   assert.equal(nightReport(run(), {}, t0815, S, false)!.company, undefined);
 });
 
-test("dreaming: a cheap first-tier step when asked for, never deferred by lessons", () => {
-  const i = { tonight: [], goals: [], followups: [], drafted: {}, nicheDue: false, handled: [], now: 0, today: "2026-10-28", dream: true, boost: { clips: 1.15 } };
-  assert.deepEqual(planNight(i, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "dream", "clips"]);
-  assert.deepEqual(planNight({ ...i, handled: ["dream:dream"] }, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue.map((t) => t.kind), ["hygiene", "clips"]);
-});
-
 test("stoppedText: a lost lease reads as another ORBIT, not the raw code", async () => {
   const { stoppedText } = await import("../src/lib/night-pure.ts");
   assert.equal(stoppedText("lease"), "Another ORBIT was already running the night shift");
   assert.notEqual(stoppedText("lease", "et"), "lease");
+});
+
+test("parseNight keeps saved settings when an old pin kind was retired, and cleans old runs", () => {
+  const stored = { settings: { from: "22:00", until: "05:30", tz: "Europe/Tallinn", maxCalls: 40, pin: { dream: "off", clips: "on" } },
+    users: { u: { tonight: [], drafted: {}, run: { id: "r", key: "k", startedAt: "2026-11-01T00:00:00Z", calls: 1, ms: 1,
+      items: [{ kind: "dream", ref: "dream", label: "x", status: "skipped", at: "t" }, { kind: "deals", ref: "d", label: "y", status: "done", open: { panel: "markets" }, at: "t" }],
+      planned: [{ kind: "dream", ref: "dream", label: "x" }, { kind: "deals", ref: "d", label: "y" }] } } } };
+  const n = parseNight(JSON.stringify(stored));
+  assert.deepEqual([n.settings.from, n.settings.until, n.settings.maxCalls, n.settings.pin], ["22:00", "05:30", 40, { clips: "on" }]);
+  const run = n.users.u.run!;
+  assert.deepEqual(run.items.map((i) => [i.kind, i.open]), [["deals", { panel: "business" }]]);
+  assert.deepEqual(run.planned!.map((p) => p.kind), ["deals"]);
+  assert.equal(typeof patchNightSettings({ pin: { dream: "off" } }, NIGHT_DEFAULTS), "string", "POST input stays strict");
 });

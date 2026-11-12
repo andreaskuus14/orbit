@@ -1,5 +1,5 @@
 // CORE multi-step plans (pure, tested in tests/plans.test.ts): "make 5 shorts from today's stream and schedule the best 3" becomes a
-// short list of steps mapped to existing STUDIO actions only. Runner: src/lib/plans.ts. Any step that publishes or schedules
+// short list of steps mapped to existing STUDIO actions only. Runner: src/lib/plan-jobs.ts (STUDIO plans section). Any step that publishes or schedules
 // pauses the plan until the owner clicks OK in CorePanel (confirmStep, from POST /api/plans only — CORE has no way to confirm).
 
 export const STEP_ORDER = ["clip", "wait", "pick_best", "approve", "schedule"] as const;
@@ -108,7 +108,7 @@ export function progressLine(p: Plan): string {
   return s.type === "wait" ? `${head}… ${Math.round(p.progress ?? 0)}%` : `${head}…`;
 }
 
-/** "" when plans.json is usable. */
+/** "" when a plans state is usable (also the old <studio>/plans.json, migrated by plan-jobs.ts). */
 export function plansProblem(x: unknown): string {
   const s = x as PlansState;
   if (!s || s.v !== 1 || !Array.isArray(s.plans)) return "not a plans state";

@@ -17,7 +17,7 @@ export type Signals = {
 };
 
 // Upkeep that costs (almost) nothing and planNight already keeps first; his own asks come right after.
-const HOUSE: NightKind[] = ["backup", "hygiene", "loops", "health", "dream"];
+const HOUSE: NightKind[] = ["backup", "hygiene", "loops", "health"];
 const days = (from: string, to: number) => Math.max(0, Math.floor((to - Date.parse(from)) / DAY)) || 0; // unreadable date → 0
 
 /** Every scoring component for one candidate; the biggest one is its "why tonight". */

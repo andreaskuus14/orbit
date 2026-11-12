@@ -30,7 +30,6 @@ import { PeopleCanvas, PeoplePanel, usePeople } from "./PeopleRing";
 import dynamic from "next/dynamic";
 
 const Chronicle = dynamic(() => import("./Chronicle"), { ssr: false }); // its own canvas, loaded only when he opens Chronicle
-const Palace = dynamic(() => import("./MemoryPalace"), { ssr: false }); // likewise, only when he opens Palace
 
 type Star = { id: string; title: string; kind: string; tags: string[]; folder?: string | null; created_at: string; source: string | null; x: number; y: number; z: number };
 type MapData = { items: Star[]; links: { from: string; to: string }[]; edges?: [number, number, number][]; total: number; graph?: Graph | null };
@@ -367,7 +366,6 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   const [people, setPeople] = useState(false); // the People ring replaces the constellation (its own canvas); not in the demo
   const peep = people && !!List && !list;
   const ppl = usePeople(peep && !paused);
-  const [pal, setPal] = useState(false), hall = pal && !!List && !flat; // Palace too (not in the demo); it stays behind the detail panel a crystal opens
   const fly = (at: [number, number, number], dist: number) => setGoal((g) => ({ at, dist, n: (g?.n ?? 0) + 1 }));
 
   useEffect(() => { // refetch when returning from List view or to the world: memories may have been added or deleted meanwhile
@@ -443,10 +441,8 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label="MEMORY: your memories as a constellation" style={{ background: BG }}>
       {river && <Chronicle reduced={reduced} quality={quality} paused={paused} slot={slot} />}
-      {hall && <Palace items={data?.items ?? null} links={data?.links ?? []} reduced={reduced} quality={quality} paused={paused} slot={list ? null : slot}
-        onOpen={(id) => { const i = index.get(id); if (i !== undefined) open(i); }} />}
       {!flat && later && peep && <PeopleCanvas st={ppl} reduced={reduced} paused={paused} />}
-      {!flat && later && !river && !peep && !hall && (
+      {!flat && later && !river && !peep && (
         <Canvas key={glr.key} onCreated={onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 6, 46], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: false }}
           onPointerMissed={() => setSel(null)} style={{ cursor: hover !== null ? "pointer" : undefined }}>
           {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
@@ -478,16 +474,15 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="brand world-header flex items-center gap-2 text-base"><WorldEmblem id="memory" size={28} />MEMORY <span className="muted num text-xs font-normal">{data ? `${data.items.length}${data.total > data.items.length ? ` of ${data.total}` : ""} stars` : ""}</span><WorldHeaderArt id="memory" /></h2>
           {!flat && List && <div className="flex basis-full flex-wrap gap-1.5">{/* own line: five chips beside the flex:1 header crushed it */}
-            <button className="chip" aria-pressed={!list && !chron && !peep && !hall} onClick={() => { setList(false); setChron(false); setPeople(false); setPal(false); }}>Constellation</button>
-            <button className="chip" aria-pressed={river} onClick={() => { setList(false); setChron(true); setPeople(false); setPal(false); }}>Chronicle</button>
-            <button className="chip" aria-pressed={peep} onClick={() => { setList(false); setChron(false); setPeople(true); setPal(false); }}>People</button>
-            <button className="chip" aria-pressed={hall && !list} onClick={() => { setList(false); setChron(false); setPeople(false); setPal(true); }}>Palace</button>
-            <button className="chip" aria-pressed={list} onClick={() => { setList(true); setChron(false); setPeople(false); setPal(false); }}>List view</button>
+            <button className="chip" aria-pressed={!list && !chron && !peep} onClick={() => { setList(false); setChron(false); setPeople(false); }}>Constellation</button>
+            <button className="chip" aria-pressed={river} onClick={() => { setList(false); setChron(true); setPeople(false); }}>Chronicle</button>
+            <button className="chip" aria-pressed={peep} onClick={() => { setList(false); setChron(false); setPeople(true); }}>People</button>
+            <button className="chip" aria-pressed={list} onClick={() => { setList(true); setChron(false); setPeople(false); }}>List view</button>
           </div>}
         </div>
 
         {List && !peep && !list && !flat && <MemoryReview onChanged={onChanged} />}{/* in List view these live under Review */}
-        {peep ? <PeoplePanel st={ppl} /> : List && (list || flat) ? <List focusId={focusId} onChanged={onChanged} /> : List && (river || hall) ? <div ref={setSlot} /> : <>
+        {peep ? <PeoplePanel st={ppl} /> : List && (list || flat) ? <List focusId={focusId} onChanged={onChanged} /> : List && river ? <div ref={setSlot} /> : <>
           <input className="field" type="search" placeholder="Find a memory · title, kind or tag" value={query} maxLength={200}
             onChange={(e) => setQuery(e.target.value)} aria-label="Search memories in the constellation" />
           {projects.length > 0 && <select className="field text-xs" value={project} onChange={(e) => { setProject(e.target.value); setQuery(""); }} aria-label={t("mapx.project")}>

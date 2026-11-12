@@ -212,7 +212,7 @@ export const privateToolsIn = (ctx: PolicyCtx) => [...(ctx.privateTools ?? PRIVA
 /** This turn put private data in context: the chat stays tainted on later turns (core.ts saves it in coreTaintStore). */
 export const carriesPrivate = (ctx: PolicyCtx) => ctx.attach || ctx.pins || called(ctx.steps, privateToolsIn(ctx));
 
-export const UNKNOWN_TAINT = "this chat held private data before ORBIT restarted and that text is no longer known here, so plugins and outbound tools are refused in it (the owner can Allow once on this card, or start a new chat)";
+export const UNKNOWN_TAINT = "this chat held private data before ORBIT restarted and that text is no longer known here, so plugins and outbound tools are refused in it; a new chat starts clean";
 /** Earlier turns' private text by hash: the outgoing phrase found, or "". Local targets skip local-plugin text (local → local is free). */
 const carriedHit = (input: Record<string, unknown> | undefined, ctx: PolicyCtx, local: boolean, question: string) =>
   hashLeak(outgoing(input ?? {}), [...(ctx.carriedHashes ?? []), ...(local ? [] : ctx.carriedLocalHashes ?? [])], Buffer.from(ctx.hashKey ?? ""), question);

@@ -6,18 +6,18 @@ test("effectFor maps the four living events and ignores the rest", () => {
   assert.deepEqual(effectFor("agent.completed", "agents"), { kind: "comet", at: "agents" });
   assert.deepEqual(effectFor("agent.completed", ""), { kind: "comet", at: "agents" });
   assert.deepEqual(effectFor("clip.published", "studio"), { kind: "aurora", at: "studio" });
-  assert.deepEqual(effectFor("deal.found", "markets"), { kind: "flare", at: "markets" });
+  assert.deepEqual(effectFor("deal.found", "markets"), { kind: "flare", at: "business" });
   assert.deepEqual(effectFor("night.end", "core"), { kind: "sunrise", at: "core" });
   for (const t of ["agent.failed", "agent.started", "core.completed", "night.start", "memory.saved"]) assert.equal(effectFor(t, "core"), null);
 });
 
 test("a burst of the same event coalesces into one brighter effect", () => {
   const pool = newPool();
-  assert.equal(admit(pool, { kind: "flare", at: "markets" }, 0), "added");
-  for (let i = 1; i <= 5; i++) assert.equal(admit(pool, { kind: "flare", at: "markets" }, i * 100), "coalesced");
+  assert.equal(admit(pool, { kind: "flare", at: "business" }, 0), "added");
+  for (let i = 1; i <= 5; i++) assert.equal(admit(pool, { kind: "flare", at: "business" }, i * 100), "coalesced");
   assert.equal(pool.filter((s) => s.kind).length, 1);
   assert.equal(pool.find((s) => s.kind)!.boost, MAX_BOOST);
-  assert.equal(admit(pool, { kind: "flare", at: "markets" }, COALESCE_MS + 1), "added"); // past the window: a fresh one
+  assert.equal(admit(pool, { kind: "flare", at: "business" }, COALESCE_MS + 1), "added"); // past the window: a fresh one
   assert.equal(admit(pool, { kind: "comet", at: "agents" }, COALESCE_MS + 2), "added"); // different effects never merge
 });
 

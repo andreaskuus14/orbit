@@ -8,7 +8,7 @@ export type Effect = { kind: EffectKind; at: string }; // at: the planet it play
 export function effectFor(type: string, planet: string): Effect | null {
   if (type === "agent.completed") return { kind: "comet", at: planet || "agents" }; // streaks from that planet to the CORE
   if (type === "clip.published") return { kind: "aurora", at: "studio" };
-  if (type === "deal.found") return { kind: "flare", at: "markets" };
+  if (type === "deal.found") return { kind: "flare", at: "business" };
   if (type === "night.end") return { kind: "sunrise", at: "core" };
   return null;
 }
