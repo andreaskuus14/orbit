@@ -20,12 +20,13 @@ export async function sendDraft(sb: SupabaseClient, userId: string, id: string, 
   if (stopAllOn()) return fail("Not sending: Stop-all is on", 503);
   const off = allows("business-send", "owner"); // Profile → Autonomy: Off refuses even his click; the auto runner checked "auto" itself
   if (!off.ok) return fail(`Not sending: ${off.why}`, 503);
-  const { data: p, error } = await sb.from("prospects").select("name, contact, draft, stage, notes, updated_at").eq("id", id).maybeSingle();
+  const { data: p, error } = await sb.from("prospects").select("name, contact, draft, stage, notes, updated_at, source").eq("id", id).maybeSingle();
   if (error) return fail(error.message, 500);
   if (!p) return fail("Not found", 404);
   const mail = sendContent(p), to = mail.to;
   if (!to) return fail("No single email address in Contact: add one (phone numbers can't be emailed)");
   if (!p.draft?.trim()) return fail("Draft a message first");
+  if (p.source != null && !(await import("./lead-loop-pure")).hasOptOut(p.draft)) return fail("Add the opt-out line first: leads you didn't add yourself need it (GDPR)"); // B8
   const hole = placeholderIn(p.draft);
   if (hole) return fail(`Fill in ${hole} in the draft first`);
   // Only the first message is sent from here (stage "To contact"); follow-ups are copied and sent by him, then logged as sent.

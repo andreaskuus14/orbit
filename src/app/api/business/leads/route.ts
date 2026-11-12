@@ -9,7 +9,7 @@ import { siteFromIdea } from "@/lib/site-idea";
 import { crmOf, loadCrm, logEvent, updateCrm } from "@/lib/prospect-crm";
 import { duplicateOf, newCrm } from "@/lib/prospect-crm-pure";
 import { validateProspect } from "@/lib/business-pure";
-import { FIE_WARNING, LEAD_SOURCE, MAPS_MAX, MAPS_SOURCE, mapsNotes, parseMapsCsv, PITCH_SYSTEM, SEARCH_SYSTEM, combineTries, demoIdea, domainGuesses, domainUrls, fetchErrorState, finishPitch, honestyIssues, isNaturalPerson, nextStep, pageNames, parseCandidates, parseSearch, pitchProblems, pitchPrompt, scoreNoWebsite, searchPrompt, toCandidate, type Candidate, type Dns, type DnsState, type LeadLoop, type Search, type PitchLang } from "@/lib/lead-loop-pure";
+import { FIE_WARNING, LEAD_SOURCE, MAPS_MAX, mapsDupe, MAPS_SOURCE, mapsNotes, parseMapsCsv, PITCH_SYSTEM, SEARCH_SYSTEM, combineTries, demoIdea, domainGuesses, domainUrls, fetchErrorState, finishPitch, honestyIssues, isNaturalPerson, nextStep, pageNames, parseCandidates, parseSearch, pitchProblems, pitchPrompt, scoreNoWebsite, searchPrompt, toCandidate, type Candidate, type Dns, type DnsState, type LeadLoop, type Search, type PitchLang } from "@/lib/lead-loop-pure";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -18,6 +18,7 @@ export const maxDuration = 300;
 // → web search + {name}.ee/.com through safeFetch; a pass becomes a BUSINESS prospect (source lead-loop, unverified) | {action:"demo", id}
 // → a demo site workspace | {action:"import", text} (B8) → his gosom CSV saved as draft prospects (source maps-import) | {action:"pitch", id, lang} → the prospect's draft. Nothing is sent here: the draft goes out only by his
 // "Approve & send" click (business-send.ts), it is saved without drafted_at and Auto skips lead-loop leads (autonomy.ts).
+const IMPORT_BYTES = 20_000_000;
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
 async function dnsOf(c: Candidate): Promise<Dns[]> {
@@ -45,30 +46,37 @@ export async function POST(req: Request) {
   if (crossSiteBlocked("POST", "/api/business/leads", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return fail("Cross-site request refused", 403);
   const { sb, user, res } = await requireUser();
   if (res) return res;
-  const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (Number(h.get("content-length") ?? 0) > IMPORT_BYTES) return fail("Too big: import at most about 20 MB", 413); // before reading the body
+  const raw = await req.text().catch(() => "");
+  if (raw.length > IMPORT_BYTES) return fail("Too big: import at most about 20 MB", 413);
+  const b = (() => { try { return JSON.parse(raw) as unknown; } catch { return null; } })() as Record<string, unknown> | null;
   if (!b || typeof b !== "object" || Array.isArray(b)) return fail("JSON body required");
   if (b.action === "parse") {
     const candidates = parseCandidates(typeof b.text === "string" ? b.text.slice(0, 100_000) : "");
     return candidates.length ? Response.json({ candidates }) : fail("No candidates: one per line, name, city, category, optional Maps URL");
   }
   if (b.action === "import") { // B8: his own gosom CSV → draft prospects (source maps-import). Saves only; nothing is sent or contacted.
-    const parsed = parseMapsCsv(typeof b.text === "string" ? b.text.slice(0, 20_000_000) : "");
+    const parsed = parseMapsCsv(typeof b.text === "string" ? b.text : "");
     if (!parsed) return fail("Not a google-maps-scraper CSV: it needs the title and link columns");
-    const { data: all, error: e1 } = await sb.from("prospects").select("id,name,contact").limit(5000);
+    const { data: all, error: e1 } = await sb.from("prospects").select("id,name,contact,notes").limit(5000);
     if (e1) return fail(e1.message, 500);
     const store = await loadCrm(), known = [...(all ?? [])], rows = [];
     let dupes = 0;
     for (const l of parsed.leads) {
-      if (duplicateOf(known, store, l.name, "")) { dupes++; continue; }
+      if (mapsDupe(known, l)) { dupes++; continue; }
       const p = validateProspect({ name: l.name, kind: l.category, contact: "", notes: mapsNotes(l) });
       if (typeof p === "string") continue;
-      rows.push({ ...p, source: MAPS_SOURCE }); known.push({ id: "", name: p.name, contact: "" });
+      rows.push({ ...p, source: MAPS_SOURCE }); known.push({ id: "", name: p.name, contact: "", notes: p.notes });
     }
     if (!rows.length) return Response.json({ saved: 0, dupes, over: parsed.over });
     const { data, error } = await sb.from("prospects").insert(rows).select("id,name");
     if (error?.code === "42703" || error?.code === "PGRST204") return fail("Run supabase/migrations/0027_prospect_source.sql first", 500); // never save a lead Auto can't recognise
     if (error || !data) return fail(error?.message ?? "Couldn't save the leads", 500);
-    await updateCrm((s) => { for (const d of data) s[d.id] = newCrm(MAPS_SOURCE, d.name, ""); });
+    try { await updateCrm((s) => { for (const d of data) s[d.id] = newCrm(MAPS_SOURCE, d.name, ""); }); }
+    catch (e) { // without a CRM record legacy() would read them as verified manual rows: undo the insert
+      await sb.from("prospects").delete().in("id", data.map((d) => d.id));
+      return fail(`Couldn't save the leads: ${e instanceof Error ? e.message : "CRM store error"}`, 500);
+    }
     return Response.json({ saved: data.length, dupes, over: parsed.over, max: MAPS_MAX });
   }
   const held = stopAllOn() ? "Stop-all is on" : usageHardHold();

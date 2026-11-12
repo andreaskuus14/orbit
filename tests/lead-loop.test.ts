@@ -147,6 +147,24 @@ test("B8 parseMapsCsv: gosom headers, business fields only, dedupe, cap", async 
 test("B8 route: import dedupes against existing prospects and saves source maps-import", () => {
   const src = readFileSync("src/app/api/business/leads/route.ts", "utf8");
   const imp = src.slice(src.indexOf('b.action === "import"'), src.indexOf("const held"));
-  assert.match(imp, /duplicateOf\(known/); assert.match(imp, /source: MAPS_SOURCE/); assert.doesNotMatch(imp, /send|askClaude|fetch\(/i);
+  assert.match(imp, /mapsDupe\(known/); assert.match(imp, /source: MAPS_SOURCE/); assert.doesNotMatch(imp, /askClaude|sendDraft|resend|fetch\(/i);
   assert.match(readFileSync("src/lib/autonomy.ts", "utf8"), /!autoExcluded\(p\)/);
+});
+
+test("B8 review: opt-out on tagged drafts, name+city dedupe, size cap before parse, CRM rollback", async () => {
+  const { withOptOut, hasOptOut, mapsDupe } = await import("../src/lib/lead-loop-pure.ts");
+  const d = withOptOut("Tere! Kas saadan lingi?", "Estonian");
+  assert.ok(hasOptOut(d) && d.includes("[postiaadress]")); assert.equal(withOptOut(d, "Estonian"), d);
+  assert.ok(hasOptOut(withOptOut("Hi, can I send the link?", "Russian")));
+  assert.ok(!hasOptOut("Hi, can I send the link?"));
+  const ps = [{ name: "Lumi OÜ", notes: "Maps import\nCity: Tallinn" }];
+  assert.ok(mapsDupe(ps, { name: "lumi oü", city: "Tallinn" }));
+  assert.ok(!mapsDupe(ps, { name: "Lumi OÜ", city: "Tartu" }));
+  assert.ok(mapsDupe([{ name: "Lumi OÜ", notes: "" }], { name: "Lumi OÜ", city: "Tartu" }));
+  const biz = readFileSync("src/app/api/business/route.ts", "utf8");
+  assert.match(biz, /p\.source != null \? withOptOut\(/); // a maps-import draft gets the footer server-side
+  assert.match(readFileSync("src/lib/business-send.ts", "utf8"), /p\.source != null && !\(await import\("\.\/lead-loop-pure"\)\)\.hasOptOut/);
+  const leads = readFileSync("src/app/api/business/leads/route.ts", "utf8");
+  assert.ok(leads.indexOf("content-length") < leads.indexOf("JSON.parse(raw)"));
+  assert.match(leads, /delete\(\)\.in\("id"/);
 });

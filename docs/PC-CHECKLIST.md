@@ -67,7 +67,7 @@ ORBIT never scrapes. You run [gosom/google-maps-scraper](https://github.com/goso
 
 Only name, category, address, city, phone, website and Maps link are kept; reviews, reviewer names and emails are dropped. Rows are drafts (source `maps-import`): Auto never sends them, only your own Approve & send does. FIE rows carry the consent warning.
 
-Rules: respect the Google Maps Terms of Service (small, personal runs); B2B only, never consumer emails; GDPR legitimate interest, so every outreach email keeps the opt-out line.
+Rules: the Google Maps Terms of Service prohibit scraping. Running gosom is your own decision and your own risk; ORBIT only reads the file you give it. B2B only, never consumer emails. GDPR legitimate interest: ORBIT adds the opt-out line and a [postal address] placeholder to every draft for these leads, and won't send one without the opt-out line.
 
 ## 5. If something fails, send Claude
 
