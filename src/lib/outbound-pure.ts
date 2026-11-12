@@ -5,9 +5,9 @@ const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 const PHONE = /\+?\d[\d ()-]{6,}\d/g;
 const AMOUNT = /\d[\d ,.]*\d\s?(?:€|eur|usd|\$)|[€$]\s?\d[\d ,.]*/gi;
 const NAME = /\p{Lu}[\p{Ll}'-]{2,}(?:\s+\p{Lu}[\p{Ll}'-]{2,})+/gu; // two+ capitalised words: a person's or company's name
-const RUN = 4; // a distinctive phrase: this many words in a row copied from private text
+export const RUN = 4; // a distinctive phrase: this many words in a row copied from private text
 const norm = (s: string) => s.toLowerCase().normalize("NFKC").replace(/\s+/g, " ").trim();
-const words = (s: string) => norm(s).split(/[^\p{L}\p{N}@.+-]+/u).filter(Boolean);
+export const words = (s: string) => norm(s).split(/[^\p{L}\p{N}@.+-]+/u).filter(Boolean);
 const digits = (s: string) => s.replace(/\D/g, "");
 
 /** Every string inside a tool input (query, url, task brief, nested fields), joined: what would leave ORBIT. */
@@ -39,10 +39,11 @@ export function outboundLeak(out: string, privateText: readonly string[], questi
   return "";
 }
 
-function decodeURIComponentSafe(s: string) {
+export function decodeURIComponentSafe(s: string) {
   try { return decodeURIComponent(s.replace(/\+/g, " ")); } catch { return s; }
 }
 
 /** Private tool results in this turn's steps (core.ts "You called <tool> <json>\nRESULT:\n..." form): the text to guard. */
 export const privateResults = (steps: readonly string[], tools: readonly string[]) =>
   steps.filter((s) => tools.some((t) => s.startsWith(`You called ${t} `))).map((s) => s.slice(s.indexOf("\nRESULT:\n") + 9));
+

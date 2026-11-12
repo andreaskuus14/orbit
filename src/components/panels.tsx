@@ -56,6 +56,7 @@ import { ModelRuns } from "./ModelRuns";
 import { LessonChip, LessonsSection } from "./LessonsCard";
 import { getLang, LangSwitch, useT } from "./i18n";
 import { FailureReport } from "./FailureReport";
+import { AllowOnceCard } from "./AllowOnceCard";
 import { turnFailed } from "@/lib/failure-report-pure";
 import { loadUsageTotals } from "@/lib/analytics-usage";
 import { usageSummary, type UsageDays, type UsageTotal } from "@/lib/analytics-usage-pure";
@@ -75,7 +76,7 @@ import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechG
 
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string; confirmation?: string | null; recheck_at?: string | null };
 type Cite = { id: string; title: string; kind: string };
-type Step = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[]; answerEval?: { pass: boolean; flags: string[] }; receipt?: unknown };
+type Step = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[]; answerEval?: { pass: boolean; flags: string[] }; receipt?: unknown; policy?: { verdict: "refuse"; turn: string; allowOnce?: { id: string; journal: boolean } } };
 type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[]; lesson?: { id: string; text: string }; fixes?: string[]; live?: { rows: LiveRow[]; ms: number } };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -474,6 +475,7 @@ export function CorePanel({ initial, initialSkill, onConsumed, onOpenMemory, gre
           <ul className="mt-1 space-y-0.5">{m.trace.map((s, n) => <li key={n}>{s.ok ? "✓" : "✗"} <b>{s.step}</b> · {s.ms}ms · {s.detail}</li>)}</ul>
         </details>
       )}
+      {!busy && m.trace?.map((s, n) => s.policy?.allowOnce && <AllowOnceCard key={s.policy.allowOnce.id} id={s.policy.allowOnce.id} tool={s.step} journal={s.policy.allowOnce.journal} onRetry={() => void send(tr("once.retry"))} />)}
       {m.role === "assistant" && turnFailed(m) && (
         <div className="mt-2"><FailureReport input={{ kind: "turn", id: chatId, relatedIds: chatId ? [chatId] : [], model: m.model ?? null, error: m.error ? m.content : null,
           trace: m.trace ?? [], request: msgs[i - 1]?.role === "user" ? msgs[i - 1].content : "", answer: m.error ? "" : m.content }} /></div>

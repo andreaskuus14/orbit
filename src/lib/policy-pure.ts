@@ -20,15 +20,27 @@ import { AREA_INFO, autonomyAllows, type Area, type Levels } from "./autonomy-pu
 import { et, etQuestion } from "./et-ask-pure.ts";
 import { createdLeads, isOpsTool, opsAsked, opsBlocked } from "./core-operator-pure.ts";
 import { outboundLeak, outgoing, privateResults } from "./outbound-pure.ts";
+import { hashLeak } from "./phrase-hash-pure.ts";
 import { isPluginTool, outsideIn, pluginDecision, type Gate } from "./plugins-pure.ts";
 
 export type Tier = "T0" | "T1" | "T2" | "T3";
-export type Decision = { allow: boolean; tier: Tier; reason: string };
+/** egress: refused because the outgoing arguments would carry private text (the owner may Allow once). */
+export type Decision = { allow: boolean; tier: Tier; reason: string; egress?: boolean; allowOnce?: { id: string; journal: boolean } };
+/** core.ts binds it to the chat, foreground turns only (allow-once-pure book): never set for background turns, scheduler or Auto. */
+export type AllowOnceHook = { has(tool: string, input: unknown): boolean; take(tool: string, input: unknown): boolean; offer(tool: string, input: unknown, steps: readonly string[]): { id: string; journal: boolean } };
 /** stopAll: Stop-all switch; attach: files attached this turn; pins: pinned project notes in context;
  *  steps: this answer's tool results so far, in core.ts's "You called <tool> <json>\nRESULT:\n..." form; question: latest user message. */
 export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; steps: string[]; question: string; privateTools?: readonly string[]; autonomy?: Partial<Levels>;
   /** an earlier turn of this chat had private data in context (journal/LIFE, attachments, pins): it is still in the session (C03) */
   carried?: boolean;
+  /** what the stored taint says put private data in this chat (core-taint.json, survives a restart): "unknown" = an entry without it
+   *  (older file, broken file) → plugins and outbound tools are refused. Left out by callers that don't track it: as before. */
+  carriedKind?: "private" | "local" | "unknown";
+  /** phrase hashes of earlier turns' private / local-plugin text (outbound-pure phraseHashes): checked after a restart too */
+  carriedHashes?: readonly string[]; carriedLocalHashes?: readonly string[];
+  /** the owner clicked Allow once for exactly this call (allow-once-pure): egress checks are skipped, every other check still runs */
+  egressAllowed?: boolean;
+  allowOnce?: AllowOnceHook;
   /** an earlier turn of this chat read outside text (pages, agents, invites, files…): it is still in the session, so the operator grant
    *  needs his own ask in this message, as after reading his stores (core.ts tracks it per chat) */
   outsideEarlier?: boolean;
@@ -190,13 +202,36 @@ export const privateToolsIn = (ctx: PolicyCtx) => [...(ctx.privateTools ?? PRIVA
 /** This turn put private data in context: the chat stays tainted on later turns (core.ts saves it in coreTaintStore). */
 export const carriesPrivate = (ctx: PolicyCtx) => ctx.attach || ctx.pins || called(ctx.steps, privateToolsIn(ctx));
 
+export const UNKNOWN_TAINT = "this chat held private data before ORBIT restarted and that text is no longer known here, so plugins and outbound tools are refused in it (the owner can Allow once on this card, or start a new chat)";
+/** Earlier turns' private text by hash: the outgoing phrase found, or "". Local targets skip local-plugin text (local → local is free). */
+const carriedHit = (input: Record<string, unknown> | undefined, ctx: PolicyCtx, local: boolean, question: string) =>
+  hashLeak(outgoing(input ?? {}), [...(ctx.carriedHashes ?? []), ...(local ? [] : ctx.carriedLocalHashes ?? [])], question);
+
+/** decide() plus "Allow once": an egress refusal offers the owner's card; a call he allowed runs every other check again, then uses it up. */
 export function decide(tool: string, input: Record<string, unknown> | undefined, ctx: PolicyCtx): Decision {
+  const d = decideRaw(tool, input, { ...ctx, egressAllowed: false });
+  const once = ctx.allowOnce;
+  if (d.allow || !d.egress || !once) return d;
+  if (once.has(tool, input ?? {})) {
+    const d2 = decideRaw(tool, input, { ...ctx, egressAllowed: true });
+    return d2.allow && once.take(tool, input ?? {}) ? { ...d2, reason: "allowed once by the owner's click" } : d2;
+  }
+  return { ...d, reason: `${d.reason}. The owner can click Allow once on this refusal; then the identical call may run one time`, allowOnce: once.offer(tool, input ?? {}, ctx.steps) };
+}
+
+function decideRaw(tool: string, input: Record<string, unknown> | undefined, ctx: PolicyCtx): Decision {
   if (isPluginTool(tool)) { // MCP plugins: tier from annotations + his trust settings, private-text check on every argument (plugins-pure.ts)
     // a local plugin (files, vault) may have read his Journal: its output is private for a remote plugin; unknown locality fails closed
     const local = !!ctx.plugins?.[tool]?.local; // local → local (read notes, then save them) stays allowed across turns
     const priv = local ? [...(ctx.privateTools ?? PRIVATE_TOOLS)] : privateToolsIn(ctx), carriedLocal = local ? [] : ctx.localText ?? [];
     // the taint also stands for journal/LIFE/ws_read/attachment text; a local target ignores it only when carried local-plugin text explains it
-    const privateIn = ctx.attach || ctx.pins || (!!ctx.carried && (!local || !ctx.localText?.length)) || !!ctx.privateText?.length || !!carriedLocal.length || called(ctx.steps, priv);
+    if (ctx.egressAllowed) return pluginDecision(tool, input, ctx.plugins?.[tool], { stopAll: ctx.stopAll, privateIn: false, question: typedText(ctx.question), outside: outsideIn(ctx.steps, UNTRUSTED, ctx.plugins ?? {}, ctx.attach), privateTexts: [] });
+    if (ctx.carried && ctx.carriedKind === "unknown" && !ctx.stopAll) return { allow: false, tier: ctx.plugins?.[tool]?.tier ?? "T3", reason: UNKNOWN_TAINT, egress: true };
+    const hit = ctx.carried ? carriedHit(input, ctx, local, typedText(ctx.question)) : "";
+    if (hit && !ctx.stopAll && ctx.plugins?.[tool]) return { allow: false, tier: ctx.plugins[tool].tier, reason: `this plugin call would carry private text out of ORBIT: "${hit.slice(0, 80)}". Retry without it`, egress: true };
+    // a known kind decides for a local target: "private" (journal/LIFE/files) is checked, "local" (only local-plugin output) is free
+    const carriedPriv = !!ctx.carried && (!local || (ctx.carriedKind ? ctx.carriedKind === "private" : !ctx.localText?.length));
+    const privateIn = ctx.attach || ctx.pins || carriedPriv || !!ctx.privateText?.length || !!carriedLocal.length || called(ctx.steps, priv);
     return pluginDecision(tool, input, ctx.plugins?.[tool], { stopAll: ctx.stopAll, privateIn, question: typedText(ctx.question), outside: outsideIn(ctx.steps, UNTRUSTED, ctx.plugins ?? {}, ctx.attach),
       privateTexts: [...(ctx.privateText ?? []), ...carriedLocal, ...privateResults(ctx.steps, priv)] });
   }
@@ -214,10 +249,11 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   if (auto && !auto.ok) return no(auto.why);
   if (tool === "navigate") return dataIn ? no("navigate only as your first tool call, for the user's own request") : { allow: true, tier, reason: "first tool call" }; // core.ts:218 + 265
   // Web and agent tools stay on with private data in context; only a call whose outgoing query/URL/brief carries a piece of it is refused.
-  if ((ctx.attach || ctx.pins || privateIn || !!ctx.privateText?.length || !!ctx.localText?.length) && (LEAK_TOOLS.includes(tool) || LINK_TOOLS.includes(tool))) {
+  if (!ctx.egressAllowed && (ctx.attach || ctx.pins || privateIn || !!ctx.privateText?.length || !!ctx.localText?.length) && (LEAK_TOOLS.includes(tool) || LINK_TOOLS.includes(tool))) {
     const texts = [...(ctx.privateText ?? []), ...(ctx.localText ?? []), ...privateResults(ctx.steps, privateToolsIn(ctx))];
-    const hit = outboundLeak(outgoing(input ?? {}), texts, question, !texts.length);
-    if (hit) return no(`this ${tool} call would send private text out: "${hit.slice(0, 80)}" (from the user's private notes, journal or files). The tool is allowed: retry with a generic query/brief without that text, and if you can't, tell the user exactly which text blocked it; never tell the user to do the search himself`);
+    if (ctx.carried && ctx.carriedKind === "unknown") return { ...no(UNKNOWN_TAINT), egress: true };
+    const hit = outboundLeak(outgoing(input ?? {}), texts, question, !texts.length) || (ctx.carried ? carriedHit(input, ctx, false, question) : "");
+    if (hit) return { ...no(`this ${tool} call would send private text out: "${hit.slice(0, 80)}" (from the user's private notes, journal or files). The tool is allowed: retry with a generic query/brief without that text, and if you can't, tell the user exactly which text blocked it; never tell the user to do the search himself`), egress: true };
   }
 
   if (tier === "T3" && !APPROVAL_PATHS[tool]) return no("acts outside ORBIT with no owner approval path; the owner does this from its panel");
@@ -246,3 +282,4 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
 /** The ledger's policy.decision payload, T2/T3 only: tool, tier, verdict and the guard's fixed reason; never inputs or message text. */
 export const policyEvent = (tool: string, d: Decision) =>
   d.tier === "T2" || d.tier === "T3" ? { tool: tool.slice(0, 128), tier: d.tier, verdict: d.allow ? "allow" : "refuse", reason: d.reason.replace(/"[^"]*"/g, '"…"').slice(0, 300) } : null;
+

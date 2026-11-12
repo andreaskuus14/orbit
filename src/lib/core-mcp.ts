@@ -81,7 +81,7 @@ export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: st
     const row = policyEvent(name, verdict);
     if (row) void emit(t.sb, t.userId, "policy.decision", "core", { ...row, turn: t.turnId });
     t.record(name, input, out, evidence, Date.now() - at, operated);
-    if (!verdict.allow && t.turnId) t.trace.at(-1)!.policy = { verdict: "refuse", turn: t.turnId };
+    if (!verdict.allow && t.turnId) t.trace.at(-1)!.policy = { verdict: "refuse", turn: t.turnId, ...(verdict.allowOnce ? { allowOnce: verdict.allowOnce } : {}) };
     return toolResult(fixHint(name, out));
   });
   const gate = () => (signal.aborted || stopAllOn() ? { block: false as const } : doneGate(t.question, t.tools, blocks));
