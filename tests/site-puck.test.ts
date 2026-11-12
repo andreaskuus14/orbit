@@ -39,3 +39,11 @@ test("editor preview loads relative pictures from the workspace link, leaves abs
   assert.equal(withBase(`<img src="img/a.jpg"><canvas data-path="seq/f%03d.jpg"></canvas><img src="https://x.test/b.png"><img src="data:image/png;base64,A"><a href="#t">`, "/w/k/"),
     `<img src="/w/k/img/a.jpg"><canvas data-path="/w/k/seq/f%03d.jpg"></canvas><img src="https://x.test/b.png"><img src="data:image/png;base64,A"><a href="#t">`);
 });
+
+test("editCopy refuses body.N past the last paragraph (no appending) but still edits existing ones", () => {
+  const b = brief("brief-detailed.json"), sec = b.sections.find((s) => s.body.length)!;
+  const bad = editCopy(b, [{ section: sec.id, field: `body.${sec.body.length}`, value: "x" }]);
+  assert.ok("error" in bad);
+  const ok = editCopy(b, [{ section: sec.id, field: `body.${sec.body.length - 1}`, value: "Last one." }]);
+  assert.ok("brief" in ok && ok.brief.sections.find((s) => s.id === sec.id)!.body.at(-1) === "Last one." && ok.brief.sections.find((s) => s.id === sec.id)!.body.length === sec.body.length);
+});

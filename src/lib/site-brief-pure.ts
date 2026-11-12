@@ -127,7 +127,7 @@ export function editCopy(b: Brief, edits: CopyEdit[]): { brief: Brief; changed: 
     if (!sec) return { error: `no section "${e.section}"` };
     const [f, n, sub] = e.field.split(".") as [string, string?, string?], k = Number(n);
     if (f === "heading" && n === undefined) sec.heading = value.slice(0, 120);
-    else if (f === "body" && Number.isInteger(k) && k >= 0 && k <= sec.body.length && sub === undefined) sec.body[k] = value;
+    else if (f === "body" && Number.isInteger(k) && k >= 0 && k < sec.body.length && sub === undefined) sec.body[k] = value;
     else if (f === "items" && sec.items[k] && (sub === "title" || sub === "body" || sub === "label")) sec.items[k][sub] = value.slice(0, sub === "label" ? 24 : sub === "title" ? 120 : 600);
     else if (f === "cta" && sec.cta[k] && sub === "label") sec.cta[k].label = value.slice(0, 40);
     else return { error: `${e.section}.${e.field} is not editable copy (images, alt text, links and IDs are changed in the brief's assets/sections, not as copy)` };
