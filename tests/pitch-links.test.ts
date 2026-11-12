@@ -66,3 +66,12 @@ test("viewer page escapes the document", () => {
   assert.ok(h.includes("&#60;script&#62;"));
   assert.ok(h.includes('nonce="n"'));
 });
+
+test("pitch key is domain-separated; previews and the logged notice", async () => {
+  const { pitchKey, isPreviewUa } = await import("../src/lib/pitch-links-pure.ts");
+  assert.notDeepEqual(pitchKey(key), key);
+  for (const u of ["WhatsApp/2.23.20", "Microsoft Office Outlook SafeLinks", "Slackbot-LinkExpanding", "Mozilla/5.0 (compatible; Discordbot/2.0)", "TelegramBot (like TwitterBot)"]) assert.ok(isPreviewUa(u), u);
+  assert.ok(!isPreviewUa("Mozilla/5.0 (Windows NT 10.0) Chrome/130.0 Safari/537.36"));
+  assert.ok(viewerHtml("t", "x", "tok", "v", "n").includes("Opens of this link are logged."));
+  assert.ok(!viewerHtml("t", "x", "tok", "", "n").includes("sendBeacon")); // not a view: no beacon
+});

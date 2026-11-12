@@ -11,7 +11,7 @@ const base = { "Referrer-Policy": "no-referrer", "Cache-Control": "no-store", "X
 
 export async function GET(req: Request, { params }: Ctx) {
   const { token } = await params;
-  const r = await openLink(token, req.headers.get("user-agent"), req.headers.get("x-forwarded-for")).catch(() => ({ state: "bad" }));
+  const r = await openLink(token, req.headers.get("user-agent"), req.headers.get("x-forwarded-for"), req.method === "HEAD").catch(() => ({ state: "bad" }));
   if ("state" in r) return new Response("This link isn't available.", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8", ...base } });
   const nonce = randomBytes(16).toString("base64");
   return new Response(viewerHtml(r.title, r.text, token, r.viewId, nonce), { headers: { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": viewerCsp(nonce), ...base } });

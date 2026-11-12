@@ -6,12 +6,13 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 export const MAX_DAYS = 90, DEFAULT_DAYS = 14, MAX_VIEWS = 500, MAX_LINKS = 200;
 export const MAX_SECS = 4 * 3600; // one open counts at most 4 h on the page
-export const BEACON_LIMIT = 20, BEACON_WINDOW_MS = 60_000; // per link + /24 per minute (the page beats every 15 s)
+export const BEACON_LIMIT = 20, OPEN_LIMIT = 30, BEACON_WINDOW_MS = 60_000; // per verified link per minute (the page beats every 15 s)
 
 export type View = { id: string; at: string; secs: number; ua: string; ip: string };
 export type PitchLink = { id: string; contractId: string; n: number; title: string; nonce: string; at: string; exp: number; notify: boolean; revoked?: string; views: View[] };
 
-// Same scheme as the /w preview links (workspace-pure.ts): HMAC with this PC's preview key over id, expiry and the link's own nonce.
+// Same scheme as the /w preview links (workspace-pure.ts), on a key derived from that one (domain-separated: a /w sig is never a /p sig).
+export const pitchKey = (previewKey: Buffer) => createHmac("sha256", previewKey).update("pitch-v1").digest();
 const sign = (key: Buffer, id: string, exp: number, nonce: string) => createHmac("sha256", key).update(`pitch/${id}/${exp}/${nonce}`).digest("base64url").slice(0, 22);
 export const linkToken = (key: Buffer, l: Pick<PitchLink, "id" | "exp" | "nonce">) => `${l.id}.${l.exp}.${sign(key, l.id, l.exp, l.nonce)}`;
 
@@ -56,10 +57,14 @@ export function ipPrefix(forwardedFor: string | null | undefined): string {
   return /^[0-9a-f:]+$/i.test(ip) && ip.includes(":") ? ip.split(":").slice(0, 3).join(":").toLowerCase() : "";
 }
 
+/** Link unfurlers and mail scanners: they open links nobody read, so they are not views. */
+export const isPreviewUa = (ua: string | null | undefined) =>
+  /bot|crawl|spider|preview|slurp|facebookexternalhit|whatsapp|safelinks|microsoft office|outlook|slack|discord|telegram|skype|linkedin|embedly|headless/i.test(ua ?? "");
+
 /** "Chrome on Android"-level only, never the raw string. */
 export function coarseUa(ua: string | null | undefined): string {
   const s = ua ?? "";
-  if (/bot|crawl|spider|preview|slurp|facebookexternalhit/i.test(s)) return "Bot or link preview";
+  if (isPreviewUa(s)) return "Bot or link preview";
   const b = /Edg\//.test(s) ? "Edge" : /OPR\//.test(s) ? "Opera" : /Firefox\//.test(s) ? "Firefox" : /Chrome\//.test(s) ? "Chrome" : /Safari\//.test(s) ? "Safari" : "Browser";
   const o = /Android/.test(s) ? "Android" : /iPhone|iPad/.test(s) ? "iOS" : /Windows/.test(s) ? "Windows" : /Mac OS X/.test(s) ? "macOS" : /Linux/.test(s) ? "Linux" : "";
   return o ? `${b} on ${o}` : b;
@@ -71,7 +76,7 @@ export const viewSummary = (l: PitchLink) => ({ views: l.views.length, secs: l.v
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 /** The read-only viewer page. The script only reports seconds visible to /p/<token>/beacon. */
 export function viewerHtml(title: string, text: string, token: string, viewId: string, nonce: string): string {
-  const beat = `(()=>{let s=0,t=Date.now();const u=${JSON.stringify(`/p/${token}/beacon`)},v=${JSON.stringify(viewId)};
+  const beat = !viewId ? "" : `(()=>{let s=0,t=Date.now();const u=${JSON.stringify(`/p/${token}/beacon`)},v=${JSON.stringify(viewId)};
 const add=()=>{if(document.visibilityState==="visible")s+=(Date.now()-t)/1000;t=Date.now();};
 const send=()=>{add();navigator.sendBeacon(u,JSON.stringify({v,s:Math.floor(s)}));};
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")send();else t=Date.now();});
@@ -80,6 +85,6 @@ setInterval(()=>{if(document.visibilityState==="visible")send();},15000);})();`;
 <title>${esc(title)}</title><style>body{margin:0;background:#f7f7f5;color:#1a1a1a;font:16px/1.55 Georgia,serif}main{max-width:760px;margin:0 auto;padding:32px 16px}
 h1{font-size:1.5rem;margin:0 0 1rem}pre{white-space:pre-wrap;word-wrap:break-word;font:inherit;margin:0}
 @media (prefers-color-scheme:dark){body{background:#141414;color:#e8e8e6}}</style></head>
-<body><main><h1>${esc(title)}</h1><pre>${esc(text)}</pre></main><script nonce="${nonce}">${beat}</script></body></html>`;
+<body><main><h1>${esc(title)}</h1><pre>${esc(text)}</pre><p style="opacity:.6;font-size:.8rem;margin-top:2rem">Opens of this link are logged.</p></main><script nonce="${nonce}">${beat}</script></body></html>`;
 }
 export const viewerCsp = (nonce: string) => `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
