@@ -20,7 +20,7 @@ test("pay link host allowlist", () => {
 test("no Stripe key ⇒ refusal, fetch never called", async () => {
   let called = 0;
   const r = await stripePayLink(sent, undefined, (async () => { called++; return new Response("{}"); }) as typeof fetch);
-  assert.ok(typeof r === "object" && /STRIPE_SECRET_KEY/.test(r.error));
+  assert.ok("error" in r && /STRIPE_SECRET_KEY/.test(r.error));
   assert.equal(called, 0);
 });
 
@@ -41,7 +41,7 @@ test("Stripe link: gross cents, EUR, invoice number as product; key only in the 
   assert.equal(body.get("restrictions[completed_sessions][limit]"), "1");
   assert.ok(!String(seen!.init.body).includes("SECRET"));
   const bad = await stripePayLink(sent, "sk_live_SECRET", (async () => Response.json({ error: { message: "Invalid API Key" } }, { status: 401 })) as typeof fetch);
-  assert.ok(typeof bad === "object" && !bad.error.includes("SECRET"));
+  assert.ok("error" in bad && !bad.error.includes("SECRET"));
   const evil = await stripePayLink(sent, "sk_live_SECRET", (async () => Response.json({ url: "https://evil.ee/x" })) as typeof fetch);
   assert.equal(typeof evil, "object");
 });
