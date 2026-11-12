@@ -33,6 +33,7 @@ export function Comets({ level, reduced, onSelect }: { level: number; reduced: b
     const now = Date.now();
     items.forEach((it, i) => m.setColorAt(i, isUrgent(it.due, now) ? RED : CALM));
     if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    m.boundingSphere = null; // raycast uses a cached sphere: recompute it for the new set, or clicks miss
   }, [items]);
   useFrame(({ clock }) => {
     const m = ref.current;

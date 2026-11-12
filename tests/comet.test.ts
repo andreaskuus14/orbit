@@ -35,11 +35,25 @@ test("only allowlisted commitments; LIFE/journal and unconfirmed never become co
 
 test("invoices by number only, decisions by revisit tag, past and far ones dropped, capped", () => {
   const out = cometItems({
-    invoices: [{ id: "a", number: "2026-007", status: "sent", due: "2026-11-15" }, { id: "b", number: "8", status: "paid", due: "2026-11-15" }, { id: "c", number: "9", status: "sent", due: "2026-11-01" }],
+    invoices: [{ id: "a", number: "2026-007", status: "sent", due: "2026-11-15" }, { id: "b", number: "8", status: "paid", due: "2026-11-15" }, { id: "c", number: "9", status: "sent", due: "2026-11-11" }],
     decisions: [{ id: "d1", kind: "decision", title: "Decision: Use Blender", tags: ["decision", "revisit:2026-12-01"] }, { id: "d2", kind: "decision", title: "Closed", tags: ["revisit:2026-12-01", "revisited"] },
       { id: "d3", kind: "decision", title: "Far", tags: ["revisit:2027-06-01"] }],
   }, NOW);
-  assert.deepEqual(out.map((c) => [c.title, c.panel]), [["Invoice 2026-007", "business"], ["Revisit: Use Blender", "memory"]]);
+  assert.deepEqual(out.map((c) => [c.title, c.panel]), [["Invoice 9", "business"], ["Invoice 2026-007", "business"], ["Revisit: Use Blender", "memory"]]);
   const many = cometItems({ invoices: Array.from({ length: 40 }, (_, i) => ({ id: `i${i}`, number: `${i}`, status: "sent", due: "2026-11-20" })) }, NOW);
   assert.equal(many.length, MAX_COMETS);
+});
+
+test("due day ends at Tallinn midnight; overdue stays, red, at the CORE", async () => {
+  const { dueAt } = await import("../src/lib/comet-pure.ts");
+  assert.equal(dueAt("2026-11-12"), Date.parse("2026-11-12T21:59:59.999Z")); // EET, UTC+2
+  assert.equal(dueAt("2026-07-01"), Date.parse("2026-07-01T20:59:59.999Z")); // EEST, UTC+3
+  assert.equal(cometRadius(daysLeft("2026-11-01", NOW)), CORE_CLEAR);
+  assert.equal(isUrgent("2026-11-01", NOW), true);
+});
+
+test("commitments keep their own id, and dated rows survive past 50 undated ones", () => {
+  const undated = Array.from({ length: 60 }, (_, i) => ({ ...ok(`u${i}`, ""), id: `u${i}` }));
+  const out = cometItems({ commitments: [...undated, { ...ok("Late one", "2026-11-14"), id: "k7" }] }, NOW);
+  assert.deepEqual(out.map((c) => c.id), ["c:k7"]);
 });
