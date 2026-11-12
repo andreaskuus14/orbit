@@ -1,39 +1,43 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { decide, TIERS, type PolicyCtx, type AllowOnceHook } from "../src/lib/policy-pure.ts";
+import { decide, policyEvent, TIERS, NO_MODEL_ONCE, type PolicyCtx, type AllowOnceHook } from "../src/lib/policy-pure.ts";
 import { allowOnceBook, ALLOW_ONCE_MS, egressKey } from "../src/lib/allow-once-pure.ts";
 import { phraseHashes, hashLeak } from "../src/lib/phrase-hash-pure.ts";
 import { mergeTaint, parseTaint } from "../src/lib/durable-pure.ts";
 
 process.env.ORBIT_DATA_DIR = await mkdtemp(path.join(tmpdir(), "orbit-allow-once-"));
-const { coreTaintStore } = await import("../src/lib/durable.ts");
+const { coreTaintStore, hashKey } = await import("../src/lib/durable.ts");
 const G = globalThis as unknown as { __orbitDurable: { taint?: unknown; chain: Promise<unknown> } };
 const restart = async () => { await G.__orbitDurable.chain; G.__orbitDurable.taint = undefined; };
+const KEY = hashKey();
 
 const JOURNAL = "Today I felt anxious about the move and argued with my sister about the old flat again before dinner";
 const LOCAL = "meeting notes from the shared drive folder about the spring garden layout plan";
 const SAVE = "plugin__notes__save", SEND = "plugin__mail__send";
 const plugins: PolicyCtx["plugins"] = { [SAVE]: { mode: "auto", tier: "T2", local: true }, [SEND]: { mode: "auto", tier: "T2", local: false } };
-const base: PolicyCtx = { stopAll: false, attach: false, pins: false, steps: [], question: "save that", plugins };
+const base: PolicyCtx = { stopAll: false, attach: false, pins: false, steps: [], question: "save that", plugins, hashKey: KEY };
 
-test("phrase hashes find a copied phrase but not his own words or unrelated text", () => {
-  const h = phraseHashes([JOURNAL]);
+test("HMAC phrase hashes: per-install key (0600), copied phrase found, his own words and other keys not", async () => {
+  const st = await stat(path.join(process.env.ORBIT_DATA_DIR!, "taint-hash.key"));
+  assert.equal(st.mode & 0o777, 0o600); assert.equal(KEY.length, 32);
+  const h = phraseHashes([JOURNAL], KEY);
   assert.ok(h.every((x) => /^[0-9a-f]{16}$/.test(x)));
-  assert.equal(hashLeak("note: argued with my sister about the old flat", h), "argued with my sister");
-  assert.equal(hashLeak("argued with my sister", h, "write argued with my sister"), "");
-  assert.equal(hashLeak("buy milk and eggs tomorrow morning", h), "");
+  assert.equal(hashLeak("note: argued with my sister about the old flat", h, KEY), "argued with my sister");
+  assert.equal(hashLeak("argued with my sister", h, KEY, "write argued with my sister"), "");
+  assert.equal(hashLeak("argued with my sister about", h, "other key"), "");
+  assert.equal(hashLeak("buy milk and eggs tomorrow morning", h, KEY), "");
 });
 
 test("journal prose read → restart → local plugin save refused; local-only chat → restart → local→local allowed", async () => {
-  coreTaintStore.mark("chat-j", { kind: "private", p: phraseHashes([JOURNAL]), l: [] });
-  coreTaintStore.mark("chat-l", { kind: "local", p: [], l: phraseHashes([LOCAL]) });
+  coreTaintStore.mark("chat-j", { kind: "private", p: phraseHashes([JOURNAL], KEY), l: [] });
+  coreTaintStore.mark("chat-l", { kind: "local", p: [], l: phraseHashes([LOCAL], KEY) });
   await restart();
   const j = coreTaintStore.get("chat-j")!, l = coreTaintStore.get("chat-l")!;
   assert.equal(j.kind, "private"); assert.equal(l.kind, "local");
-  assert.ok(!JSON.stringify(await readFile(path.join(process.env.ORBIT_DATA_DIR!, "core-taint.json"), "utf8")).includes("sister")); // hashes only on disk
+  assert.ok(!(await readFile(path.join(process.env.ORBIT_DATA_DIR!, "core-taint.json"), "utf8")).includes("sister")); // hashes only on disk
   const ctx = (e: typeof j): PolicyCtx => ({ ...base, carried: true, carriedKind: e.kind ?? "unknown", carriedHashes: e.p, carriedLocalHashes: e.l });
   const jd = decide(SAVE, { text: JOURNAL }, ctx(j));
   assert.equal(jd.allow, false); assert.equal(jd.egress, true);
@@ -53,20 +57,21 @@ test("unknown taint kind (older file) fails closed for plugins and outbound tool
 });
 
 const hook = (b: ReturnType<typeof allowOnceBook>, chat: string, now: () => number): AllowOnceHook => ({
-  has: (t, i) => b.has(t, i, chat, now()), take: (t, i) => b.take(t, i, chat, now()), offer: (t, i) => ({ id: b.offer(t, i, chat, true, now()), journal: true }),
+  has: (t, i) => b.has(t, i, chat, now()), take: (t, i) => !!b.take(t, i, chat, now()), offer: (t, i, journal) => ({ id: b.offer(t, i, chat, journal, now()), journal }),
 });
+const jctx = (b: ReturnType<typeof allowOnceBook>, chat = "c1", now = () => 1_000): PolicyCtx =>
+  ({ ...base, carried: true, carriedKind: "private", carriedHashes: phraseHashes([JOURNAL], KEY), allowOnce: hook(b, chat, now) });
 
 test("allow once: exactly that call once; other args/target, replay, expired, other chat refused", () => {
   const b = allowOnceBook(); let t = 1_000;
-  const ctx: PolicyCtx = { ...base, carried: true, carriedKind: "private", carriedHashes: phraseHashes([JOURNAL]), allowOnce: hook(b, "c1", () => t) };
-  const input = { text: JOURNAL };
+  const ctx = jctx(b, "c1", () => t), input = { text: JOURNAL };
   const r = decide(SAVE, input, ctx);
   assert.equal(r.allow, false); assert.ok(r.allowOnce?.id); assert.equal(r.allowOnce.journal, true);
   assert.deepEqual(b.grant(r.allowOnce.id, t), { tool: SAVE, journal: true });
   assert.equal(b.grant(r.allowOnce.id, t), null); // a card's id grants once
   assert.equal(decide(SAVE, { text: JOURNAL + " more" }, ctx).allow, false); // different args
-  assert.equal(decide(SEND, input, { ...ctx, plugins }).allow, false); // different target
-  assert.equal(decide(SAVE, input, { ...ctx, allowOnce: hook(b, "c2", () => t) }).allow, false); // other chat
+  assert.equal(decide(SEND, input, ctx).allow, false); // different target
+  assert.equal(decide(SAVE, input, jctx(b, "c2", () => t)).allow, false); // other chat
   assert.equal(decide(SAVE, input, { ...ctx, allowOnce: undefined }).allow, false); // no hook (background, scheduler, Auto)
   const ok = decide(SAVE, { text: JOURNAL }, ctx);
   assert.equal(ok.allow, true); assert.match(ok.reason, /allowed once/);
@@ -79,11 +84,49 @@ test("allow once: exactly that call once; other args/target, replay, expired, ot
   assert.equal(egressKey("x", { a: 1, b: 2 }), egressKey("x", { b: 2, a: 1 }));
 });
 
-test("allow once still runs every other check (Stop-all)", () => {
-  const b = allowOnceBook();
-  const ctx: PolicyCtx = { ...base, carried: true, carriedKind: "private", carriedHashes: phraseHashes([JOURNAL]), allowOnce: hook(b, "c", () => 1) };
-  b.grant(decide(SAVE, { text: JOURNAL }, ctx).allowOnce!.id, 1);
+test("the card shows exactly the stored input; two offers of one tool show different args and grants don't cross", () => {
+  const b = allowOnceBook(), ctx = jctx(b);
+  const a = { to: "mari@example.com", text: JOURNAL }, c = { to: "jaan@example.com", text: `${JOURNAL} and more` };
+  const ra = decide(SEND, a, ctx), rc = decide(SEND, c, ctx);
+  const va = b.view(ra.allowOnce!.id, 1_000)!, vc = b.view(rc.allowOnce!.id, 1_000)!;
+  assert.equal(va.tool, SEND); assert.match(va.destination, /plugin mail \(send\).*to: mari@example\.com/);
+  assert.equal(va.args, JSON.stringify({ text: JOURNAL, to: "mari@example.com" }, null, 2)); // sorted keys, full text
+  assert.notEqual(va.args, vc.args); assert.match(vc.destination, /jaan@/);
+  b.grant(ra.allowOnce!.id, 1_000);
+  assert.equal(decide(SEND, c, ctx).allow, false); // grant for a doesn't cover c
+  assert.equal(decide(SEND, a, ctx).allow, true);
+});
+
+test("a grant that vanishes between has() and take() refuses; other checks still run (Stop-all)", () => {
+  const b = allowOnceBook(), ctx = jctx(b);
+  b.grant(decide(SAVE, { text: JOURNAL }, ctx).allowOnce!.id, 1_000);
+  assert.equal(decide(SAVE, { text: JOURNAL }, { ...ctx, allowOnce: { ...ctx.allowOnce!, take: () => false } }).allow, false);
   assert.equal(decide(SAVE, { text: JOURNAL }, { ...ctx, stopAll: true }).allow, false);
+});
+
+test("journal/LIFE text: model-bound tools are a hard refusal (no card); local-plugin-only text can be allowed once", () => {
+  const b = allowOnceBook();
+  const q = { query: "argued with my sister about the old flat" };
+  for (const tool of ["web_search", "ask_agent", "local_tts", "local_image"]) {
+    const d = decide(tool, tool === "ask_agent" ? { agent: "atlas", task: q.query } : tool === "web_search" ? q : { text: q.query }, jctx(b));
+    assert.equal(d.allow, false, tool); assert.equal(d.allowOnce, undefined, tool); assert.ok(d.reason.includes(NO_MODEL_ONCE), tool);
+  }
+  const lctx: PolicyCtx = { ...base, carried: true, carriedKind: "local", carriedLocalHashes: phraseHashes([LOCAL], KEY), allowOnce: hook(b, "c1", () => 1_000) };
+  const lq = { query: "meeting notes from the shared drive folder" };
+  const d = decide("web_search", lq, lctx);
+  assert.equal(d.allow, false); assert.ok(d.allowOnce?.id); assert.equal(d.allowOnce.journal, true); // warning still shown
+  b.grant(d.allowOnce.id, 1_000);
+  assert.equal(decide("web_search", lq, lctx).allow, true);
+  const att = decide(SEND, { body: "write to mari@example.com" }, { ...base, attach: true, allowOnce: hook(b, "c1", () => 1_000) });
+  assert.equal(att.allowOnce?.journal, true); // first-turn attachment: warned
+});
+
+test("unknown plugin tool: plain refusal, no card, and the ledger never gets the model's name", () => {
+  const b = allowOnceBook();
+  const d = decide("plugin__evil__exfil", { text: JOURNAL }, jctx(b));
+  assert.equal(d.allow, false); assert.equal(d.allowOnce, undefined); assert.equal(d.egress, undefined);
+  assert.equal(policyEvent("plugin__evil__exfil", d)?.tool, "unknown");
+  assert.equal(policyEvent("made_up_tool", decide("made_up_tool", {}, base))?.tool, "unknown");
 });
 
 test("no model or background path to a grant", async () => {
@@ -92,6 +135,6 @@ test("no model or background path to a grant", async () => {
   const src = (f: string) => readFile(new URL(`../src/${f}`, import.meta.url), "utf8");
   assert.ok(!/allowOnce\.grant\(/.test(await src("lib/core.ts"))); // only the requireUser route grants
   const route = await src("app/api/core/allow-once/route.ts");
-  assert.match(route, /requireUser\(\)/); assert.match(route, /allowOnce\.grant\(/);
+  assert.equal(route.match(/requireUser\(\)/g)?.length, 2); assert.match(route, /allowOnce\.grant\(/);
   assert.match(await src("lib/core.ts"), /budget\.background \? ""/); // hook off in background turns
 });

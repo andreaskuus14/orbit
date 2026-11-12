@@ -60,7 +60,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { afterBudget, afterTimeout, callTimeout, EXTRA_BUDGETS, isHeavy, isTimeout, MORE_ASK, MORE_MARK, SPLIT_HINT, stripMore } from "./long-work-pure";
 import { stepTier, stepsContext, callKey, remember, reused, STEP_THINKING, type Tier } from "./core-steps-pure";
 import type { CliSession } from "./claude";
-import { allowOnce, coreSessionStore as coreSessions, coreTaintStore as coreTaint } from "./durable";
+import { allowOnce, hashKey, coreSessionStore as coreSessions, coreTaintStore as coreTaint } from "./durable";
 import { phraseHashes } from "./phrase-hash-pure";
 import { egressTarget } from "./allow-once-pure";
 import { LIFE_TOOLS } from "./core-life";
@@ -313,16 +313,18 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   let answer = "";
   const voiceNote = typeof voice === "string" ? `${voice}\n\n` : voice ? "The user is SPEAKING to you: only the FIRST paragraph of \"final\" is read aloud. Make it a 1-3 sentence conversational summary (no lists, headings or links). Brevity applies only to that summary, never to the work: do every step the request needs, and when it needs more (a plan, a draft, results, steps), put the complete result below the summary after a blank line; it stays on screen.\n\n" : "";
   const taintRec = sessionKey ? coreTaint.get(sessionKey) : null; // private data from an earlier turn is still in this chat (C03)
-  const carried = !!taintRec, carriedKind = taintRec ? taintRec.kind ?? "unknown" as const : undefined; // kind + hashes survive a restart
+  let hkey: Buffer | undefined; try { hkey = hashKey(); } catch { /* unreadable key: hashes can't be checked, a carried chat fails closed */ }
+  const carried = !!taintRec, carriedKind = taintRec ? (hkey && taintRec.kind) || "unknown" as const : undefined; // kind + hashes survive a restart
   // Allow once: bound to this chat, foreground turns only (a background resume, the scheduler or Auto never see a grant)
   const chat = budget.background ? "" : sessionKey ?? "";
-  const once = chat ? { has: (t: string, i: unknown) => allowOnce.has(t, i, chat), take: (t: string, i: unknown) => { const ok = allowOnce.take(t, i, chat); if (ok) { void emit(sb, userId, "policy.allow_once", "core", { tool: t.slice(0, 128), target: egressTarget(t).slice(0, 128), stage: "used", journal: false }); logActivity({ area: "core", title: `Allow once used: ${t.slice(0, 80)} → ${egressTarget(t).slice(0, 60)}` }); } return ok; },
-    offer: (t: string, i: unknown, st: readonly string[]) => { const journal = (carried && carriedKind !== "local") || st.some((x) => LIFE_TOOLS.some((l) => x.startsWith(`You called ${l} `))); return { id: allowOnce.offer(t, i, chat, journal), journal }; } } : undefined;
+  const once = chat ? { has: (t: string, i: unknown) => allowOnce.has(t, i, chat),
+    take: (t: string, i: unknown) => { const g = allowOnce.take(t, i, chat); if (g) { void emit(sb, userId, "policy.allow_once", "core", { tool: t.slice(0, 128), target: egressTarget(t).slice(0, 128), stage: "used", journal: g.journal }); logActivity({ area: "core", title: `Allow once used: ${t.slice(0, 80)} → ${egressTarget(t).slice(0, 60)}` }); } return !!g; },
+    offer: (t: string, i: unknown, journal: boolean) => ({ id: allowOnce.offer(t, i, chat, journal), journal }) } : undefined;
   const outsideEarlier = history.length > 1 && !(sessionKey && outsideClean.has(sessionKey)); // the transcript/session still holds it
   const wsGate = await loadWsGate(userId, sessionKey); // workspace names + CORE's pending Build-it offer for this chat
   // Outbound calls are checked against this text (policy-pure decide()); an earlier turn's private results live only in this process.
   const privateText = [attach?.block ?? "", pinsIn ? project : "", ...(sessionKey ? carriedText.get(sessionKey) ?? [] : [])].filter(Boolean);
-  const policyCtx = () => ({ ws: wsGate, stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels(), carried, carriedKind, carriedHashes: taintRec?.p, carriedLocalHashes: taintRec?.l, allowOnce: once, outsideEarlier, privateText: [...privateText, ...worldPrivate], localText: sessionKey ? carriedLocal.get(sessionKey) ?? [] : [], ownLeads: ownLeadsIn(sessionKey), plugins: pluginGates() });
+  const policyCtx = () => ({ ws: wsGate, stopAll: stopAllOn(), attach: !!attach, pins: pinsIn, question, privateTools: MODULE_PRIVATE, autonomy: autonomyLevels(), carried, carriedKind, carriedHashes: taintRec?.p, carriedLocalHashes: taintRec?.l, hashKey: hkey, allowOnce: once, outsideEarlier, privateText: [...privateText, ...worldPrivate], localText: sessionKey ? carriedLocal.get(sessionKey) ?? [] : [], ownLeads: ownLeadsIn(sessionKey), plugins: pluginGates() });
   // Both engines: an allowed tool call's dispatch, then its eval row, trace row and activity log (decide() ran before).
   // Results over the step limit are clipped with a read_more pointer; the full text lives in this per-turn store (roadmap 20).
   const clips = (budget.clips ??= createClipStore()); // carried across a handoff like budget.done, so read_more refs in its steps stay valid
@@ -527,7 +529,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     if (sessionKey && carriesPrivate({ ...policyCtx(), steps })) {
       const priv = [...privateResults(steps, MODULE_PRIVATE), attach?.block ?? "", pinsIn ? project : ""].filter(Boolean);
       const modules = !!attach || pinsIn || steps.some((x) => MODULE_PRIVATE.some((t) => x.startsWith(`You called ${t} `)));
-      coreTaint.mark(sessionKey, { kind: modules ? "private" : "local", p: phraseHashes(priv), l: phraseHashes(privateResults(steps, localPluginReads({ ...policyCtx(), steps }))) });
+      if (!hkey) coreTaint.mark(sessionKey); // no key: unknown kind (fails closed)
+      else coreTaint.mark(sessionKey, { kind: modules ? "private" : "local", p: phraseHashes(priv, hkey), l: phraseHashes(privateResults(steps, localPluginReads({ ...policyCtx(), steps })), hkey) });
     }
     if (sessionKey) { if (outsideEarlier || outsideTextIn(steps)) outsideClean.delete(sessionKey); else outsideClean.add(sessionKey); }
     if (sessionKey) { const t = [...(carriedText.get(sessionKey) ?? []), ...privateResults(steps, MODULE_PRIVATE), attach?.block ?? ""].filter(Boolean); if (t.length) carriedText.set(sessionKey, t.slice(-40)); }

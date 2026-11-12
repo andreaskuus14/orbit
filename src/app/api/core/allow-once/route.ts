@@ -8,6 +8,15 @@ export const dynamic = "force-dynamic";
 
 // POST { id }: the owner's "Allow once" click on a CORE egress refusal card (allow-once-pure). Signed-in owner only; CSRF: src/middleware.ts
 // guards all /api/*. No CORE tool reaches this: the model, background turns, the scheduler and Auto can't create a grant.
+// GET ?id=: what the card shows before his click: tool, destination and the exact arguments (sorted keys, full text).
+export async function GET(req: Request) {
+  const { res } = await requireUser();
+  if (res) return res;
+  const id = new URL(req.url).searchParams.get("id") ?? "";
+  const v = /^[0-9a-f-]{36}$/.test(id) ? allowOnce.view(id) : null;
+  return v ? Response.json(v) : Response.json({ error: "This refusal can no longer be allowed (expired, already used, or ORBIT restarted)" }, { status: 410 });
+}
+
 export async function POST(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;

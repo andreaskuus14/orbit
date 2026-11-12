@@ -27,7 +27,7 @@ export type Tier = "T0" | "T1" | "T2" | "T3";
 /** egress: refused because the outgoing arguments would carry private text (the owner may Allow once). */
 export type Decision = { allow: boolean; tier: Tier; reason: string; egress?: boolean; allowOnce?: { id: string; journal: boolean } };
 /** core.ts binds it to the chat, foreground turns only (allow-once-pure book): never set for background turns, scheduler or Auto. */
-export type AllowOnceHook = { has(tool: string, input: unknown): boolean; take(tool: string, input: unknown): boolean; offer(tool: string, input: unknown, steps: readonly string[]): { id: string; journal: boolean } };
+export type AllowOnceHook = { has(tool: string, input: unknown): boolean; take(tool: string, input: unknown): boolean; offer(tool: string, input: unknown, journal: boolean): { id: string; journal: boolean } };
 /** stopAll: Stop-all switch; attach: files attached this turn; pins: pinned project notes in context;
  *  steps: this answer's tool results so far, in core.ts's "You called <tool> <json>\nRESULT:\n..." form; question: latest user message. */
 export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; steps: string[]; question: string; privateTools?: readonly string[]; autonomy?: Partial<Levels>;
@@ -41,6 +41,8 @@ export type PolicyCtx = { stopAll: boolean; attach: boolean; pins: boolean; step
   /** the owner clicked Allow once for exactly this call (allow-once-pure): egress checks are skipped, every other check still runs */
   egressAllowed?: boolean;
   allowOnce?: AllowOnceHook;
+  /** per-install HMAC key of the carried phrase hashes (durable.ts hashKey) */
+  hashKey?: string | Uint8Array;
   /** an earlier turn of this chat read outside text (pages, agents, invites, files…): it is still in the session, so the operator grant
    *  needs his own ask in this message, as after reading his stores (core.ts tracks it per chat) */
   outsideEarlier?: boolean;
@@ -205,18 +207,29 @@ export const carriesPrivate = (ctx: PolicyCtx) => ctx.attach || ctx.pins || call
 export const UNKNOWN_TAINT = "this chat held private data before ORBIT restarted and that text is no longer known here, so plugins and outbound tools are refused in it (the owner can Allow once on this card, or start a new chat)";
 /** Earlier turns' private text by hash: the outgoing phrase found, or "". Local targets skip local-plugin text (local → local is free). */
 const carriedHit = (input: Record<string, unknown> | undefined, ctx: PolicyCtx, local: boolean, question: string) =>
-  hashLeak(outgoing(input ?? {}), [...(ctx.carriedHashes ?? []), ...(local ? [] : ctx.carriedLocalHashes ?? [])], question);
+  hashLeak(outgoing(input ?? {}), [...(ctx.carriedHashes ?? []), ...(local ? [] : ctx.carriedLocalHashes ?? [])], Buffer.from(ctx.hashKey ?? ""), question);
+
+/** Private text in this call's context that may be journal/LIFE (or unknown): his modules, an earlier private turn, carried text.
+ *  Local-plugin output alone, attachments and pins are not (they still get the card's warning). */
+export const journalIn = (ctx: PolicyCtx) => (!!ctx.carried && ctx.carriedKind !== "local") || !!ctx.privateText?.length || called(ctx.steps, [...(ctx.privateTools ?? PRIVATE_TOOLS)]);
+/** Any private source at all: the card warns. */
+const anyPrivate = (ctx: PolicyCtx) => journalIn(ctx) || ctx.attach || ctx.pins || !!ctx.carried || !!ctx.localText?.length || localPluginReads(ctx).length > 0;
+export const NO_MODEL_ONCE = "Journal/LIFE text never goes to a model (owner rule), so this call can't be allowed once; retry without that text";
 
 /** decide() plus "Allow once": an egress refusal offers the owner's card; a call he allowed runs every other check again, then uses it up. */
 export function decide(tool: string, input: Record<string, unknown> | undefined, ctx: PolicyCtx): Decision {
   const d = decideRaw(tool, input, { ...ctx, egressAllowed: false });
   const once = ctx.allowOnce;
-  if (d.allow || !d.egress || !once) return d;
+  if (d.allow || !d.egress) return d;
+  // model-bound tools (agents, search, local models) never get journal/LIFE text, not even with his click (AGENTS.md rule 6)
+  if (LEAK_TOOLS.includes(tool) && journalIn(ctx)) return { ...d, egress: false, reason: `${d.reason}. ${NO_MODEL_ONCE}` };
+  if (!once) return d;
   if (once.has(tool, input ?? {})) {
     const d2 = decideRaw(tool, input, { ...ctx, egressAllowed: true });
-    return d2.allow && once.take(tool, input ?? {}) ? { ...d2, reason: "allowed once by the owner's click" } : d2;
+    if (!d2.allow) return d2;
+    return once.take(tool, input ?? {}) ? { ...d2, reason: "allowed once by the owner's click" } : d; // grant gone in between: refuse
   }
-  return { ...d, reason: `${d.reason}. The owner can click Allow once on this refusal; then the identical call may run one time`, allowOnce: once.offer(tool, input ?? {}, ctx.steps) };
+  return { ...d, reason: `${d.reason}. The owner can click Allow once on this refusal; then the identical call may run one time`, allowOnce: once.offer(tool, input ?? {}, anyPrivate(ctx)) };
 }
 
 function decideRaw(tool: string, input: Record<string, unknown> | undefined, ctx: PolicyCtx): Decision {
@@ -225,6 +238,7 @@ function decideRaw(tool: string, input: Record<string, unknown> | undefined, ctx
     const local = !!ctx.plugins?.[tool]?.local; // local → local (read notes, then save them) stays allowed across turns
     const priv = local ? [...(ctx.privateTools ?? PRIVATE_TOOLS)] : privateToolsIn(ctx), carriedLocal = local ? [] : ctx.localText ?? [];
     // the taint also stands for journal/LIFE/ws_read/attachment text; a local target ignores it only when carried local-plugin text explains it
+    if (!ctx.plugins?.[tool]) return pluginDecision(tool, input, undefined, { stopAll: ctx.stopAll, privateIn: true, question: "", outside: true, privateTexts: [] }); // unknown: plain refusal, no card
     if (ctx.egressAllowed) return pluginDecision(tool, input, ctx.plugins?.[tool], { stopAll: ctx.stopAll, privateIn: false, question: typedText(ctx.question), outside: outsideIn(ctx.steps, UNTRUSTED, ctx.plugins ?? {}, ctx.attach), privateTexts: [] });
     if (ctx.carried && ctx.carriedKind === "unknown" && !ctx.stopAll) return { allow: false, tier: ctx.plugins?.[tool]?.tier ?? "T3", reason: UNKNOWN_TAINT, egress: true };
     const hit = ctx.carried ? carriedHit(input, ctx, local, typedText(ctx.question)) : "";
@@ -281,5 +295,5 @@ function decideRaw(tool: string, input: Record<string, unknown> | undefined, ctx
 
 /** The ledger's policy.decision payload, T2/T3 only: tool, tier, verdict and the guard's fixed reason; never inputs or message text. */
 export const policyEvent = (tool: string, d: Decision) =>
-  d.tier === "T2" || d.tier === "T3" ? { tool: tool.slice(0, 128), tier: d.tier, verdict: d.allow ? "allow" : "refuse", reason: d.reason.replace(/"[^"]*"/g, '"…"').slice(0, 300) } : null;
+  d.tier === "T2" || d.tier === "T3" ? { tool: /^unknown (?:plugin )?tool /.test(d.reason) ? "unknown" : tool.slice(0, 128), /* never a model-chosen name */ tier: d.tier, verdict: d.allow ? "allow" : "refuse", reason: d.reason.replace(/"[^"]*"/g, '"…"').slice(0, 300) } : null;
 

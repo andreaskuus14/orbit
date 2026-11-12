@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -173,3 +174,15 @@ export async function claimEvents(sb: SupabaseClient, consumer: string, types: s
 // Allow-once approvals (policy-pure allowOnceBook): in memory only, so a restart drops every offer and grant (fails closed).
 const ag = globalThis as unknown as { __orbitAllowOnce?: AllowOnceBook };
 export const allowOnce: AllowOnceBook = (ag.__orbitAllowOnce ??= allowOnceBook());
+
+// taint-hash.key: per-install HMAC key for core-taint.json phrase hashes (phrase-hash-pure), created on first use, owner-only perms.
+let hk: Buffer | undefined;
+export function hashKey(): Buffer {
+  if (hk) return hk;
+  const f = file("taint-hash.key");
+  try { hk = readFileSync(f); if (hk.length >= 32) return hk; } catch { /* first use */ }
+  const k = randomBytes(32);
+  try { mkdirSync(orbitDataDir(), { recursive: true }); writeFileSync(f, k, { mode: 0o600, flag: "wx" }); hk = k; }
+  catch { hk = readFileSync(f); } // another process created it first (wx): use theirs; a read error throws (callers fail closed)
+  return hk;
+}
