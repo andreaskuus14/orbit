@@ -12,8 +12,13 @@ export function localLlmUrl(raw: string | undefined): string {
   } catch { return DEFAULT_URL; }
 }
 export const OLLAMA_URL = localLlmUrl(process.env.ORBIT_LOCAL_LLM_URL);
-/** ORBIT_LOCAL_LLM_MODEL (ORBIT_LOCAL_MODEL is the older name, still read); "" = local brain off. */
-export const localModelName = (env: Record<string, string | undefined>) => (env.ORBIT_LOCAL_LLM_MODEL?.trim() || env.ORBIT_LOCAL_MODEL?.trim() || "");
+/** Ollama "cloud" models (gpt-oss:120b-cloud, …:cloud) forward the text to ollama.com even through the local URL: never local. */
+export const isCloudModel = (m: string) => /[:-]cloud$/i.test(m.trim());
+/** ORBIT_LOCAL_LLM_MODEL (ORBIT_LOCAL_MODEL is the older name, still read); "" = local brain off (also for a cloud model). */
+export const localModelName = (env: Record<string, string | undefined>) => {
+  const m = env.ORBIT_LOCAL_LLM_MODEL?.trim() || env.ORBIT_LOCAL_MODEL?.trim() || "";
+  return isCloudModel(m) ? "" : m;
+};
 /** Appended to the system prompt of every local call: the local model gets no tools. */
 export const LOCAL_NOTE = "\n\nOFFLINE MODE: you are a small local model with no tools. Never call or describe tool calls; answer directly in plain text from what is given.";
 
@@ -64,6 +69,7 @@ export const PRIVATE_LABEL = "Processed on this PC by the local model. Not sent 
 /** null = the journal may go to the local model; otherwise why not (shown as is). optIn: ORBIT_LOCAL_PRIVATE=1. */
 export function privateBlocked(o: { model: string; optIn: string | undefined }): string | null {
   if (o.optIn?.trim() !== "1") return "Private journal help is off. To let the local model on this PC read your journal, set ORBIT_LOCAL_PRIVATE=1 in .env.local and restart ORBIT.";
+  if (isCloudModel(o.model)) return "That model runs on ollama.com, not on this PC: pick a local model for private work.";
   if (!o.model) return "The local brain is off: run tools\\ollama\\setup.ps1 first.";
   return null;
 }

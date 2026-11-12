@@ -40,7 +40,7 @@ async function call(path: string, body: FormData | object, ms: number): Promise<
   if (!u) throw new Error("ORBIT_LOCAL_AI_URL must point at this PC (http://127.0.0.1:<port>).");
   if (!(await ping(u, 3000)) && !(await autostart(u))) throw new Error(NOT_RUNNING);
   const json = !(body instanceof FormData);
-  const res = await fetch(`${u}${path}`, { method: "POST", body: json ? JSON.stringify(body) : body, headers: json ? { "content-type": "application/json" } : undefined, signal: AbortSignal.timeout(ms) })
+  const res = await fetch(`${u}${path}`, { method: "POST", redirect: "error", body: json ? JSON.stringify(body) : body, headers: json ? { "content-type": "application/json" } : undefined, signal: AbortSignal.timeout(ms) })
     .catch((e: unknown) => { throw new Error(e instanceof Error && e.name === "TimeoutError" ? `Local AI took longer than ${ms / MINUTE} minutes and was stopped waiting.` : NOT_RUNNING); });
   if (!res.ok) throw new Error(serviceError(res.status, await res.json().catch(() => null)));
   return new Uint8Array(await res.arrayBuffer());
@@ -105,6 +105,13 @@ export async function readDocument(file: unknown): Promise<string> {
   const j = (await callJson("/doc-to-md", form({ file: await vaultFile(name) }), 20 * MINUTE)) as { markdown?: unknown; pages?: unknown };
   if (typeof j?.markdown !== "string" || !j.markdown.trim()) throw new Error("No text found in that document.");
   return save(docMarkdown(name, j.markdown, Number(j.pages) || 0), docMdName(name), "text/markdown");
+}
+
+/** OCR/layout text per page of a PDF or scan, by Docling (RapidOCR) on this PC. Used by VAULT intake for pages with no text layer. */
+export async function ocrPages(bytes: Uint8Array, name: string): Promise<string[]> {
+  const j = (await callJson("/doc-to-md", form({ file: new File([bytes as BlobPart], name), per_page: "1" }), 20 * MINUTE)) as { byPage?: unknown };
+  if (!Array.isArray(j?.byPage)) throw new Error("Local AI is running an older server.py that cannot read pages one by one: restart it (close its window or reboot) and try again.");
+  return j.byPage.map((p) => (typeof p === "string" ? p : ""));
 }
 
 /** CORE tools local_3d / local_tts / local_transcribe. Errors come back as "Error: ..." text (core.ts's convention). */

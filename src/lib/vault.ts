@@ -209,6 +209,7 @@ export function purgeTrash(id: unknown): Promise<void> {
     if (!(await readMeta()).trash.some((x) => x.id === id)) throw new VaultError("Not in the trash", 404);
     await unlink(path.join(vaultDir(), TRASH_DIR, id as string)).catch((e) => { if (e?.code !== "ENOENT") throw e; });
     await updateMeta((m) => { m.trash = m.trash.filter((x) => x.id !== id); });
+    await unlink(path.join(vaultDir(), ".intake", `${id}.json`)).catch(() => {}); // its invoice/PO intake sidecar (vault-intake.ts), keyed by file id
   });
 }
 

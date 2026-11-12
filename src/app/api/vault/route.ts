@@ -17,6 +17,7 @@ function fail(e: unknown) {
 //   GET                         → { files (with id, version, hash, sync state, coverage, cloud), cloudOnly, cloudError, trash, usage }
 //   GET ?file=name&raw=1        → the file (Range supported), strict headers
 //   GET ?file=name&preview=1    → { text, truncated } (text/code only, first 20 KB)
+//   GET ?file=name&intake=1     → { intake: sidecar | null } (fields extracted from an incoming invoice / PO)
 //   GET ?q=text&content=1       → { results: [{ name, snippet }], notIndexed: [name] }
 export async function GET(req: Request) {
   const { sb, user, res } = await requireUser();
@@ -31,6 +32,7 @@ export async function GET(req: Request) {
       if (!range) return new Response(stream, { headers: { ...headers, "Content-Length": String(size) } });
       return new Response(stream, { status: 206, headers: { ...headers, "Content-Length": String(range[1] - range[0] + 1), "Content-Range": `bytes ${range[0]}-${range[1]}/${size}` } });
     }
+    if (file !== null && q.get("intake") === "1") return Response.json({ intake: await (await import("@/lib/vault-intake")).readIntake(file) });
     if (file !== null && q.get("preview") === "1") return Response.json(await previewText(file));
     if (q.get("content") === "1") return Response.json(await searchVaultInfo(q.get("q") ?? "", 50));
     let cloud: Map<string, number> | null = null, cloudError: string | null = null;
@@ -78,6 +80,9 @@ export async function POST(req: Request) {
     }
     const body = await req.json().catch(() => null) as { action?: unknown; name?: unknown; to?: unknown } | null;
     if (body?.action === "podcast") return new Response(await vaultPodcast((body as { names?: unknown }).names, req.signal) as BodyInit, { headers: { "Content-Type": "audio/wav" } });
+    // Intake: read-only field extraction on this PC (local model + local OCR only); { action: "intake-fix", name, index, value } corrects one field
+    if (body?.action === "intake") return Response.json({ intake: await (await import("@/lib/vault-intake")).runIntake(body.name, req.signal) });
+    if (body?.action === "intake-fix") { const b = body as { index?: unknown; value?: unknown }; return Response.json({ intake: await (await import("@/lib/vault-intake")).correctIntake(body.name, b.index, b.value) }); }
     if (body?.action === "sync") return Response.json(await syncToCloud(sb, user.id));
     if (body?.action === "skill" && typeof body.name === "string") return Response.json(await (await import("@/lib/book-skill")).makeSkill(body.name, req.signal)); // Book to Skill: one model call per chapter
     if (body?.action === "untrash") { // back from the trash, then a fresh cloud copy (it was removed on delete)
