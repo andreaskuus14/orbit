@@ -2,14 +2,17 @@
 // checked by the owner, a timeline of what actually happened, and the OPERATIONS delivery project. Stored in the ORBIT data dir
 // (prospect-crm.ts) keyed by prospect id, so no migration is needed. Tested in tests/prospect-crm.test.ts.
 
-export const SOURCES = ["manual", "web-find"] as const;
+import type { LeadLoop } from "./lead-loop-pure.ts";
+
+export const SOURCES = ["manual", "web-find", "lead-loop"] as const;
 export type Source = (typeof SOURCES)[number];
 /** Things that happened. "draft" is ORBIT writing; "sent", "reply", "call" are real contact; "stage" and "note" are bookkeeping. */
 export const EVENT_KINDS = ["draft", "sent", "reply", "call", "stage", "note"] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 export type CrmEvent = { at: string; kind: EventKind; text?: string };
 export type Crm = { source: Source; verified: boolean; verifiedAt?: string; key: string; events: CrmEvent[]; opsProject?: string;
-  /** Why it went to "Not now" (BUS08), his pick: feeds the conversion learning. */ lost?: { reason: LostReason; at: string } };
+  /** Why it went to "Not now" (BUS08), his pick: feeds the conversion learning. */ lost?: { reason: LostReason; at: string };
+  /** B2 lead loop: no-website proof, demo and pitch stage (lead-loop-pure). Auto never sends to these. */ lead?: LeadLoop };
 export const LOST_REASONS = ["no-reply", "price", "timing", "not-a-fit", "went-elsewhere", "other"] as const;
 export type LostReason = (typeof LOST_REASONS)[number];
 export type Store = Record<string, Crm>;

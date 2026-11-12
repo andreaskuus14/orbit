@@ -103,16 +103,17 @@ export async function tickAutonomy(sb: SupabaseClient, userId: string, now = Dat
 // The filter sees subject + body (exactly what goes out); the version is the draft stamp sendDraft claims.
 async function sendCandidates(sb: SupabaseClient, userId: string): Promise<Candidate[]> {
   const { emailIn, sendSubject } = await import("./business-pure");
-  // No drafted_at column yet (before 0026): an error, so nothing qualifies.
-  const { data } = await sb.from("prospects").select("id, name, contact, draft, updated_at, drafted_at").eq("user_id", userId).eq("stage", "lead").neq("draft", "").limit(100);
-  return (data ?? []).filter((p) => p.draft?.trim() && emailIn(p.contact ?? "")).map((p) => draftCandidate(p, sendSubject(p.name, p.draft)));
+  // No drafted_at (0026) or source (0027) column yet: an error, so nothing qualifies.
+  const { data } = await sb.from("prospects").select("id, name, contact, draft, updated_at, drafted_at, source").eq("user_id", userId).eq("stage", "lead").neq("draft", "").limit(100);
+  const { autoExcluded } = await import("./lead-loop-pure"); // B2: lead-loop leads are new to him, so only his own click sends them
+  return (data ?? []).filter((p) => p.draft?.trim() && emailIn(p.contact ?? "") && !autoExcluded(p)).map((p) => draftCandidate(p, sendSubject(p.name, p.draft)));
 }
 
 async function fireSend(sb: SupabaseClient, userId: string, p: { ref: string; seen: string }): Promise<Fired> {
   const { sendSubject, sendStamp } = await import("./business-pure");
-  const { data: row } = await sb.from("prospects").select("name, contact, draft, stage, updated_at, drafted_at").eq("user_id", userId).eq("id", p.ref).maybeSingle();
+  const { data: row } = await sb.from("prospects").select("name, contact, draft, stage, updated_at, drafted_at, source").eq("user_id", userId).eq("id", p.ref).maybeSingle();
   // Re-checked at send time: still auto, under the cap, untouched since queued (sendDraft also claims only that version), no money/promises.
-  if (!row || row.stage !== "lead" || row.updated_at !== p.seen || !row.drafted_at) return "skip";
+  if (!row || row.stage !== "lead" || row.updated_at !== p.seen || !row.drafted_at || (await import("./lead-loop-pure")).autoExcluded(row)) return "skip";
   if (!allows("business-send", "auto", { doneToday: doneToday(autonomyState(), "business-send", Date.now()), text: `${sendSubject(row.name, row.draft ?? "")}\n${row.draft ?? ""}`, known: true }).ok) return "skip";
   const { sendDraft } = await import("./business-send");
   const r = await sendDraft(sb, userId, p.ref, await sendStamp(row), "sent automatically by ORBIT, Autonomy: auto");

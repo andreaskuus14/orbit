@@ -8,6 +8,7 @@ import { dueFollowups, LANGS, STAGES, STAGE_LABEL, TEMPLATES, emailIn, sendStamp
 import { mapNodes, mapSummary } from "@/lib/business-map-pure";
 import { SIG_LABEL, WINDOWS, conversion, lostReasons, nextExperiment, scorecard, stalled, windowed, MIN_N, type Cell, type LRow } from "@/lib/outreach-score-pure";
 import { LOST_REASONS } from "@/lib/prospect-crm-pure";
+import { leadLabel, type Candidate } from "@/lib/lead-loop-pure";
 import { euro as euroCents } from "@/lib/invoices-pure";
 import type { Bucket, Split } from "@/lib/money-pure";
 import NicheCards from "./NicheCards";
@@ -113,6 +114,7 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
           </div>
           <FindNearby busy={busy} setBusy={setBusy} setErr={setErr} names={new Set(st.prospects.map((p) => p.name.toLowerCase()))}
             onAdd={(f) => act(`add:${f.name}`, { action: "add", source: "web-find", name: f.name, kind: f.kind, contact: f.contact, notes: f.why && `Found on the web (unchecked): ${f.why}` })} />
+          <LeadLoopBox busy={busy} setBusy={setBusy} setErr={setErr} done={load} />
           <div id="biz-add"><AddForm busy={busy === "add"} onAdd={(b) => act("add", { action: "add", ...b })} /></div>
           <Scorecard ps={st.prospects} />
           <VisibilityPanel />
@@ -252,6 +254,51 @@ function FindNearby({ busy, setBusy, setErr, names, onAdd }: { busy: string; set
   );
 }
 
+/** B2 lead loop: candidates → no-website proof → demo site → pitch draft. Each pass lands in the pipeline; nothing is sent. */
+function LeadLoopBox({ busy, setBusy, setErr, done }: { busy: string; setBusy: (k: string) => void; setErr: (e: string) => void; done: () => void }) {
+  const [text, setText] = useState("");
+  const [lang, setLang] = useState<"English" | "Estonian">("Estonian");
+  const [log, setLog] = useState<string[]>([]);
+  const { t } = useT();
+  const post = async (body: object) => {
+    const res = await fetch("/api/business/leads", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || `Request failed (${res.status})`);
+    return j;
+  };
+  const run = async () => {
+    setBusy("leads"); setErr(""); setLog([]);
+    const say = (l: string) => setLog((x) => [...x, l]);
+    try {
+      const { candidates } = (await post({ action: "parse", text })) as { candidates: Candidate[] };
+      for (const c of candidates) {
+        try {
+          const r = await post({ action: "check", candidate: c });
+          if (!r.prospect) { say(`${c.name}: skipped (${r.verdict.confidence}%): ${r.verdict.reasons[0]}`); continue; }
+          say(r.resume ? `${c.name}: continuing from the ${r.resume} step…` : `${c.name}: no website, ${r.verdict.confidence}%. Building demo…`);
+          if (r.warning) say(`${c.name}: ${r.warning}`);
+          if (r.resume !== "pitch") await post({ action: "demo", id: r.prospect.id, lang });
+          await post({ action: "pitch", id: r.prospect.id, lang });
+          say(`${c.name}: demo built, pitch drafted. Add their email, fill in [postal address], check it, then Approve & send yourself.`);
+        } catch (e) { say(`${c.name}: ${(e as Error).message}`); }
+        done();
+      }
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(""); }
+  };
+  return (
+    <details className="card space-y-2">
+      <summary className="cursor-pointer"><b>{t("biz.lead.title")}</b> <span className="muted text-xs">{t("biz.lead.what")}</span></summary>
+      <textarea className="field w-full" rows={4} aria-label={t("biz.lead.list")} placeholder={"name, city, category, Maps URL (optional)\nKask Pagariäri, Tartu, bakery"} value={text} onChange={(e) => setText(e.target.value)} />
+      <div className="flex gap-1.5">
+        <select className="chip" aria-label={t("biz.lead.lang")} value={lang} onChange={(e) => setLang(e.target.value as "English" | "Estonian")}><option>Estonian</option><option>English</option></select>
+        <button className="btn" disabled={!!busy || !text.trim()} onClick={() => void run()}>{busy === "leads" ? t("biz.lead.working") : t("biz.lead.run")}</button>
+      </div>
+      {log.length > 0 && <ul className="text-xs space-y-0.5" aria-live="polite">{log.map((l, i) => <li key={i}>{l}</li>)}</ul>}
+      <p className="muted text-xs">{t("biz.lead.safe")}</p>
+    </details>
+  );
+}
+
 function AddForm({ busy, onAdd }: { busy: boolean; onAdd: (b: { name: string; kind: string; contact: string }) => Promise<boolean> }) {
   const [f, setF] = useState({ name: "", kind: "", contact: "" });
   return (
@@ -307,7 +354,7 @@ function Row({ p, lit, due, busy, act, canSend, nightDraft = false }: { p: Prosp
   return (
     <li id={`biz-${p.id}`} className={`card space-y-1.5 transition-shadow ${lit ? "ring-2 ring-amber-400" : ""}`} aria-label={p.name}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="min-w-0"><b>{p.name}</b>{due && <span className="chip">Follow up due</span>}{p.kind && <span className="muted"> · {p.kind}</span>}{p.contact && <span className="muted select-all"> · {p.contact}</span>}</div>
+        <div className="min-w-0"><b>{p.name}</b>{due && <span className="chip">Follow up due</span>}{p.crm?.lead && <span className="chip" title={p.crm.lead.evidence.join("\n")}>{leadLabel(p.crm.lead)}</span>}{p.crm?.lead?.demo && <a className="chip" href={p.crm.lead.demo.preview} target="_blank" rel="noreferrer">{t("biz.lead.demo")}</a>}{p.kind && <span className="muted"> · {p.kind}</span>}{p.contact && <span className="muted select-all"> · {p.contact}</span>}</div>
         <select className="chip" aria-label={`Stage of ${p.name}`} value={p.stage} disabled={any} onChange={(e) => void update({ stage: e.target.value })}>
           {STAGES.map((s) => <option key={s} value={s}>{STAGE_LABEL[s]}</option>)}
         </select>
@@ -321,6 +368,7 @@ function Row({ p, lit, due, busy, act, canSend, nightDraft = false }: { p: Prosp
         <label className="flex items-center gap-1.5 text-xs"><span className="muted">{t("biz.lost.reason")}</span>
           <select className="chip" value={p.crm?.lost?.reason ?? ""} disabled={any} onChange={(e) => void act(`lost:${p.id}`, { action: "lost", id: p.id, reason: e.target.value || null })}>
             <option value="">{t("biz.lost.unknown")}</option>{LOST_REASONS.map((r) => <option key={r} value={r}>{t(`biz.lost.${r}` as "biz.lost.price")}</option>)}</select></label>)}
+      {p.crm?.lead?.person && <p className="text-xs error" role="note">{t("biz.lead.fie")}</p>}
       {unverified && <p className="text-xs"><span className="error">{t("biz.crm.web")}</span> <button className="chip" disabled={any} onClick={() => void act(`verify:${p.id}`, { action: "verify", id: p.id })}>{t("biz.crm.verify")}</button></p>}
       {p.stage === "paying" && p.crm?.opsProject && <p className="text-xs muted">✓ {t("biz.crm.delivery")}</p>}
       <Timeline p={p} busy={busy} act={act} />
