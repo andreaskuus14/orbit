@@ -58,7 +58,7 @@ import { coreEngine } from "./core-engine";
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterBudget, afterTimeout, callTimeout, EXTRA_BUDGETS, isHeavy, isTimeout, MORE_ASK, MORE_MARK, SPLIT_HINT, stripMore } from "./long-work-pure";
-import { stepTier, stepsContext, callKey, remember, reused, STEP_THINKING } from "./core-steps-pure";
+import { stepTier, stepsContext, callKey, remember, reused, STEP_THINKING, type Tier } from "./core-steps-pure";
 import type { CliSession } from "./claude";
 import { coreSessionStore as coreSessions, coreTaintStore as coreTaint } from "./durable";
 import { loadWsGate, settleWsPending } from "./core-workspace";
@@ -168,7 +168,7 @@ const carriedText = new Map<string, string[]>();
 // own ask on later turns. shortcut: in-memory; after a restart an ongoing chat counts as having outside text (fails closed).
 const outsideClean = new Set<string>();
 
-async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject?: MemoryProject, sessionKey?: string, lang: Lang = "en") {
+async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onDelta?: (text: string) => void, signal?: AbortSignal, onReset?: () => void, voice: boolean | string = false, onNavigate?: (to: NavTarget) => void, onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void, attach?: { block: string; images: PromptImage[] }, project = "", pinsIn = false, memoryProject?: MemoryProject, sessionKey?: string, lang: Lang = "en", onRoute?: (model: string) => void) {
   const budget = turnBudget.getStore() ?? { ms: TURN_MS, background: false, steps: [], trace: [], done: new Map<string, string>(), extra: 0 };
   const trace = budget.trace; // shared with a background resume (CoreHandoff.carry)
   const turnId = crypto.randomUUID(); // links policy.decision ledger rows to this turn's trace (failure report)
@@ -396,7 +396,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
         const tail = `\n\n${CORE_LANG_RULE[lang]}${voiceNote.replace(/"final"/g, "your answer")}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}`;
         try {
           const want = floor(tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL);
-          const r = await engineTurn({ question, tools: evalTools, sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: want, risky: held, effort, maxTurns: maxN, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast" && !held, turnId, exec, record, onDelta: sendDelta, onReset, onStep, verify });
+          const r = await engineTurn({ question, tools: evalTools, sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: want, risky: held, effort, maxTurns: maxN, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast" && !held, turnId, exec, record, onDelta: sendDelta, onReset, onStep, onRoute, verify });
           ran = r.model ?? want; if (r.down) down ??= r.down;
           if (r.escalated) { if (r.opus) toOpus(tier, r.tool); else { onReset?.(); tier = "smart"; } continue; } // as the loop: redone on the main model, or on Opus for T2/T3
           if (sess && sessionKey) coreSessions.set(sessionKey, { id: r.sessionId || sess.id, resume: true });
@@ -421,6 +421,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       // Deep steps leave 60 s for the review; too little time left → finish on the main model.
       if (tier === "deep" && deepLeft() - 60_000 < 30_000) { tier = "smart"; trace.push({ step: "fallback", detail: "deep → main model (time limit)", ms: 0, ok: false }); }
       const model = floor(planning || tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL);
+      onRoute?.(model); // the model that runs (after the Opus floor); core-turn.ts sends it only when it changes
       const effort = !planning && tier === "deep" ? deepFlags.effort || undefined : undefined;
       const timeoutMs = !planning && tier === "deep" ? Math.min(120_000, deepLeft() - 60_000) : callTimeout(!planning && isHeavy(question, steps), deepLeft());
       let r;
@@ -449,6 +450,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
         if (planning && !signal?.aborted) { noRoute = true; step--; continue; } // the fast model failed: this turn plans on its own model
         recover(e, effort); step--; continue;
       }
+      if (r.local) onRoute?.("local"); // Claude was unreachable or on hold for this step: the label shows the local model, then the next Claude step flips it back
       if (sess && !r.local) { sess = { id: sess.id, resume: true }; sessSent = true; sessSeen = steps.length; if (sessionKey) coreSessions.set(sessionKey, sess); }
       await recordUsage(sb, userId, "core.chat", r, r.local ? "local" : model);
       ran = r.local ? "local" : model;

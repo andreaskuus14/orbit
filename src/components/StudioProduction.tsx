@@ -15,8 +15,9 @@ import { editChanges, paramHistory, renderEstimate, trimPreview } from "@/lib/cl
 import { mmss } from "@/lib/clips/format";
 import { Captions, Voiceover } from "./LocalAi";
 import { ProjectDesk } from "./ProjectDesk";
+import StudioTrack from "./StudioTrack";
 
-type V = "ideas" | "production" | "review" | "edit" | "calendar" | "results" | "voice" | "captions" | "projects";
+type V = "ideas" | "production" | "review" | "edit" | "calendar" | "results" | "voice" | "captions" | "projects" | "track";
 type Data = { records: Rec[]; jobs: ClipJob[]; live: string[]; outcomes: Record<string, Outcome>; capacity: Capacity; bases: Record<string, VersionEdit> };
 const media = (p: string) => `/api/studio/clips/media?f=${encodeURIComponent(p)}`;
 const API = "/api/studio/production";
@@ -30,7 +31,7 @@ async function call<T>(method: string, body?: unknown): Promise<T> {
 export default function StudioProduction({ reduced, review, onReview, onOpenClips }: { reduced: boolean; review: string | null; onReview: (id: string | null) => void; onOpenClips: () => void }) {
   const { t } = useT();
   const views: View<V>[] = [{ id: "ideas", label: t("sp.v.ideas") }, { id: "production", label: t("sp.v.production") }, { id: "review", label: t("sp.v.review") }, { id: "edit", label: t("sp.v.edit") },
-    { id: "calendar", label: t("sp.v.calendar") }, { id: "results", label: t("sp.v.results") }, { id: "voice", label: "🎙 Voiceover" }, { id: "captions", label: "💬 Captions" }, { id: "projects", label: t("desk.projects") }];
+    { id: "calendar", label: t("sp.v.calendar") }, { id: "results", label: t("sp.v.results") }, { id: "voice", label: "🎙 Voiceover" }, { id: "captions", label: "💬 Captions" }, { id: "projects", label: t("desk.projects") }, { id: "track", label: "🎬 Production track" }];
   const [view, setView] = useWorkspaceView<V>("studio", views);
   const [data, setData] = useState<Data | null>(null);
   const [err, setErr] = useState("");
@@ -49,6 +50,7 @@ export default function StudioProduction({ reduced, review, onReview, onOpenClip
         {err ? <StateNote state="failed" what={err} kept={data ? t("state.keptScreen") : undefined} action={{ label: t("state.retry"), run: () => void load() }} />
         : !data && <StateNote state="loading" action={{ label: t("state.retry"), run: () => void load() }}>{t("sp.loading")}</StateNote>}
         {view === "voice" && <Voiceover />}
+        {view === "track" && <StudioTrack />}
         {view === "captions" && <Captions />}
         {view === "projects" && <ProjectDesk key={project || "unassigned"} project={project} onSelect={setProject} mode="studio" productions={data?.records} />}
         {data && view === "ideas" && <ShortsBoard jobs={data.jobs} active reduced={reduced} onOpen={onOpenClips}

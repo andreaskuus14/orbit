@@ -1,13 +1,13 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
-import { PersonaBusyError, personaView, runPersonaPlaytest, setPersonaContext } from "@/lib/personas";
+import { PersonaBusyError, calibratePersonas, personaView, runPersonaPlaytest, setPersonaContext } from "@/lib/personas";
 import { MAX_CONTEXT } from "@/lib/personas-pure";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 // Persona playtest (GAME DEV → Personas). GET: pasted context, last report, running. POST {action:"context", context} saves the owner's
-// pasted UI text/scripts; POST {action:"run"} runs a simulated-only playtest now (real Studio runs happen in the night shift slot).
+// pasted UI text/scripts; POST {action:"calibrate"} fits calibration factors against his imported analytics; POST {action:"run"} runs a simulated-only playtest now (real Studio runs happen in the night shift slot).
 // Proposals are added to the backlog by the client through /api/devworld, only on the owner's click.
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
@@ -34,5 +34,8 @@ export async function POST(req: Request) {
       return Response.json(await personaView(user.id));
     } catch (e) { return fail(e instanceof Error ? e.message : String(e), e instanceof PersonaBusyError ? 409 : 502); }
   }
-  return fail("action must be context or run");
+  if (b?.action === "calibrate") {
+    try { await calibratePersonas(sb, user.id); return Response.json(await personaView(user.id)); } catch (e) { return fail(e instanceof Error ? e.message : String(e), 409); }
+  }
+  return fail("action must be context, run or calibrate");
 }

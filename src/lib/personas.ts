@@ -3,6 +3,7 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { askClaude, recordUsage } from "./claude";
+import { compare, type Factors } from "./persona-calibration-pure";
 import { SEED_WORLD, isActive, validateDevWorld, type DevWorld } from "./devworld-pure";
 import { MAX_CONTEXT, WALK_SYSTEM, mergeMeasured, parseWalkthrough, pickMeasured, proposals, reportLine, scoreAll, walkthroughPrompt,
   type Measured, type PersonaResult, type Proposal, type Walkthrough } from "./personas-pure";
@@ -18,7 +19,8 @@ export type PersonaReport = {
   at: string; game: string; walk: Walkthrough; results: PersonaResult[]; proposals: Proposal[];
   measured: Measured[]; studio: string; line: string;
 };
-type Store = Record<string, { context?: string; report?: PersonaReport }>;
+export type Calibration = { at: string; asOf: string; report: string; factors: Factors };
+type Store = Record<string, { context?: string; report?: PersonaReport; calibration?: Calibration }>;
 
 const file = () => path.join(orbitDataDir(), "personas.json");
 const g = globalThis as unknown as { __orbitPersonas?: { busy: boolean; write: Promise<unknown> } };
@@ -35,10 +37,24 @@ function update(fn: (s: Store) => void): Promise<void> {
   return p;
 }
 
-export const personaView = async (userId: string) => { const u = (await load())[userId] ?? {}; return { context: u.context ?? "", report: u.report ?? null, running: S.busy }; };
+export const personaView = async (userId: string) => { const u = (await load())[userId] ?? {}; return { context: u.context ?? "", report: u.report ?? null, calibration: u.calibration ?? null, running: S.busy }; };
 export const setPersonaContext = (userId: string, context: string) => update((s) => { (s[userId] ??= {}).context = context.slice(0, MAX_CONTEXT); });
 /** Due for the night shift: no report in the last 20 hours. */
 export const personasDue = async (userId: string, now = Date.now()) => !S.busy && !(now - Date.parse((await load())[userId]?.report?.at ?? "") < 20 * 3_600_000);
+
+/** GAME DEV R1, on the owner's click: fits factors from the last report against his imported Roblox analytics; later reports show them next to the raw numbers. */
+export async function calibratePersonas(sb: SupabaseClient, userId: string): Promise<Calibration> {
+  const report = (await load())[userId]?.report;
+  if (!report) throw new Error("Run a persona playtest first.");
+  const world = await devWorld(sb, userId), game = pickGame(world);
+  const real = world.retention?.find((r) => r.game === game?.id);
+  if (!real) throw new Error("Import your Roblox analytics CSV (Release > Retention) first.");
+  const { factors } = compare(report.results, real);
+  if (!Object.keys(factors).length) throw new Error("The import has no numbers the personas can be compared with.");
+  const cal: Calibration = { at: new Date().toISOString(), asOf: real.asOf, report: report.at, factors };
+  await update((s) => { (s[userId] ??= {}).calibration = cal; });
+  return cal;
+}
 
 export class PersonaBusyError extends Error {}
 
@@ -48,7 +64,7 @@ export async function runPersonaPlaytest(sb: SupabaseClient, userId: string, opt
   S.busy = true;
   try {
     const world = await devWorld(sb, userId);
-    const game = world.games.find((x) => x.id === "pet-sim") ?? world.games.find((x) => x.platform === "roblox") ?? world.games[0];
+    const game = pickGame(world);
     if (!game) throw new Error("No game in GAME DEV to playtest.");
     const { measured, studio } = await studioRuns(sb, userId, opts.studioRuns, opts.day, opts.signal);
     opts.signal?.throwIfAborted();
@@ -67,6 +83,8 @@ export async function runPersonaPlaytest(sb: SupabaseClient, userId: string, opt
     return report;
   } finally { S.busy = false; }
 }
+
+const pickGame = (w: DevWorld) => w.games.find((x) => x.id === "pet-sim") ?? w.games.find((x) => x.platform === "roblox") ?? w.games[0];
 
 async function devWorld(sb: SupabaseClient, userId: string): Promise<DevWorld> {
   const { data } = await sb.from("game_saves").select("save").eq("user_id", userId).eq("game", "devworld").maybeSingle();

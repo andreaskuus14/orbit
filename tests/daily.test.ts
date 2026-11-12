@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { briefState, clipsState, leadsState, dailyText, digestMsg, digestDue, slotAt } from "../src/lib/daily-pure.ts";
+import { briefState, clipsState, leadsState, dailyText, digestMsg, digestDue, slotAt, statusDue, statusOf } from "../src/lib/daily-pure.ts";
 
 const at = (hhmm: string) => slotAt(new Date(2026, 10, 5, 12).getTime(), hhmm);
 const iso = (hhmm: string) => new Date(at(hhmm)).toISOString();
@@ -9,9 +9,10 @@ test("brief: planned before the slot, missed after the grace with no record", ()
   assert.equal(briefState({ briefings: [], runs: [] }, at("07:00")).state, "planned");
   assert.equal(briefState({ briefings: [], runs: [] }, at("08:00")).state, "planned"); // within 45 min
   const c = briefState({ briefings: [], runs: [] }, at("09:00"));
-  assert.equal(c.state, "planned"); // the scheduler still catches it up until 11:30
-  assert.match(c.evidence, /catches it up by 11:30/);
-  const m = briefState({ briefings: [], runs: [] }, at("11:45"));
+  assert.equal(c.state, "planned"); // the scheduler catches it up any time today
+  assert.match(c.evidence, /catches it up today/);
+  assert.equal(briefState({ briefings: [], runs: [] }, at("18:00")).state, "planned");
+  const m = briefState({ briefings: [], runs: [] }, at("23:59"));
   assert.equal(m.state, "missed");
   assert.match(m.next!, /usage limit/);
 });
@@ -19,9 +20,9 @@ test("brief: planned before the slot, missed after the grace with no record", ()
 test("brief: stored row = completed; verified only with articles", () => {
   assert.deepEqual([briefState({ briefings: [{ kind: "morning", created_at: iso("07:32"), article_count: 12 }], runs: [] }, at("09:00"))].map((x) => [x.state, x.verified]), [["completed", true]]);
   assert.equal(briefState({ briefings: [{ kind: "morning", created_at: iso("07:32"), article_count: 0 }], runs: [] }, at("09:00")).verified, false);
-  assert.equal(briefState({ briefings: [{ kind: "midday", created_at: iso("12:31"), article_count: 5 }], runs: [] }, at("13:00")).state, "missed"); // another kind doesn't count
+  assert.equal(briefState({ briefings: [{ kind: "midday", created_at: iso("12:31"), article_count: 5 }], runs: [] }, at("13:00")).state, "planned"); // another kind doesn't count
   assert.equal(briefState({ briefings: [{ kind: "manual", created_at: iso("12:00"), article_count: 4 }], runs: [] }, at("13:00")).state, "completed", "a brief he asked for after 07:30 stands in");
-  assert.equal(briefState({ briefings: [{ kind: "manual", created_at: iso("06:00"), article_count: 4 }], runs: [] }, at("13:00")).state, "missed", "one from before the slot doesn't");
+  assert.equal(briefState({ briefings: [{ kind: "manual", created_at: iso("06:00"), article_count: 4 }], runs: [] }, at("13:00")).state, "planned", "one from before the slot doesn't");
   assert.equal(briefState({ briefings: [], runs: [{ status: "failed", detail: "manual: feeds down", started_at: iso("06:00") }] }, at("07:00")).state, "planned", "a failed manual brief before 07:30 isn't today's brief");
 });
 
@@ -88,7 +89,7 @@ test("leads: a weekly loop isn't missed on its off days; its last run shows inst
 });
 
 test("digest: labels only, flags failures; tool text never upgrades a state", () => {
-  const v = { day: "2026-11-05", items: [briefState({ briefings: [], runs: [] }, at("12:00")), clipsState([], at("12:00")), leadsState({ automation: null, tasks: [] }, at("12:00"))] };
+  const v = { day: "2026-11-05", items: [briefState({ briefings: [], runs: [] }, at("23:59")), clipsState([], at("12:00")), leadsState({ automation: null, tasks: [] }, at("12:00"))] };
   const m = digestMsg(v);
   assert.equal(m.kind, "failed");
   assert.match(m.message, /^Brief: MISSED · Clips: nothing new · Leads: off$/);
@@ -110,4 +111,18 @@ test("digest due: once a day, from its time, retries at most every 30 min, never
   assert.equal(digestDue("off", {}, d, at("23:00")), false);
   assert.equal(digestDue("8:00", {}, d, at("08:01")), true);
   assert.equal(digestDue("25:00", {}, d, at("23:00")), false);
+});
+
+test("status event: done / needs-you / running per workflow; due once a day from the digest time", () => {
+  const v = { day: "2026-11-05", items: [
+    { wf: "brief" as const, state: "completed" as const, verified: true, evidence: "" },
+    { wf: "clips" as const, state: "waiting" as const, verified: false, evidence: "" },
+    { wf: "leads" as const, state: "planned" as const, verified: false, evidence: "" }] };
+  assert.deepEqual(statusOf(v), { brief: "done", clips: "needs-you", leads: "running" });
+  assert.equal(statusOf({ day: "", items: [{ wf: "leads", state: "missed", verified: false, evidence: "" }] }).leads, "needs-you");
+  assert.equal(statusDue(undefined, undefined, "2026-11-05", at("10:29")), false);
+  assert.equal(statusDue(undefined, undefined, "2026-11-05", at("10:30")), true);
+  assert.equal(statusDue(undefined, "2026-11-05", "2026-11-05", at("15:00")), false, "never twice a day");
+  assert.equal(statusDue("off", "2026-11-04", "2026-11-05", at("22:00")), true, "a PC that wakes late still emits it");
+  assert.equal(statusDue("08:00", undefined, "2026-11-05", at("08:00")), true);
 });
