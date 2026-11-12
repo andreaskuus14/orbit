@@ -51,6 +51,8 @@ type Data = {
   "nego.step": { nego: string; intent?: Intent; state: NegoState }; // negotiator (negotiator.ts): the negotiation id, intent and state only, never text or prices
   "invoice.status": { invoice: string; to: InvoiceStatus }; // invoices (invoices.ts): the invoice id and status only, never buyers or amounts
   "invoice.reminder": { invoice: string; via: "email" | "copy" | "unknown" };
+  "invoice.paylink": { invoice: string; via: "stripe" }; // a Stripe Payment Link made on his click: ids only
+  "invoice.paylink_off": { invoice: string; ok: boolean }; // ok false: switching the old link off failed, it may still take a payment
   "focus.start": { focus: string; minutes: number }; // time dilation (focus.ts): the block id and minutes only, never the goal
   "focus.end": { focus: string; minutes: number }; // minutes actually focused
   // Which model ran a CORE turn / agent task (model-log-pure.ts): metadata tokens only, never message text. risky: the job was held to
@@ -111,6 +113,8 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "company.step": { chain: id, role: oneOf(ROLES), status: oneOf(["started", "done", "approval", "failed"]) },
   "invoice.status": { invoice: id, to: oneOf(INVOICE_STATUSES) },
   "invoice.reminder": { invoice: id, via: oneOf(["email", "copy", "unknown"]) },
+  "invoice.paylink": { invoice: id, via: oneOf(["stripe"]) },
+  "invoice.paylink_off": { invoice: id, ok: bool },
   "focus.start": { focus: id, minutes: (v) => count(v) && (v as number) <= 1440 },
   "model.run": { kind: oneOf(["core", "agent"]), job: tok, model: tok, risky: bool, why: opt((v) => Array.isArray(v) && v.length <= 8 && v.every(tok)), down: opt(tok) },
   "focus.end": { focus: id, minutes: (v) => count(v) && (v as number) <= 1440 },
