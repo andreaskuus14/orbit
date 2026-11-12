@@ -2,10 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createHmac } from "node:crypto";
 import path from "node:path";
 import { decide, policyEvent, TIERS, NO_MODEL_ONCE, EGRESS_CLASS, LINK_TOOLS, LEAK_TOOLS, type PolicyCtx, type AllowOnceHook } from "../src/lib/policy-pure.ts";
 import { allowOnceBook, ALLOW_ONCE_MS, egressKey, visible } from "../src/lib/allow-once-pure.ts";
 import { phraseHashes, hashLeak } from "../src/lib/phrase-hash-pure.ts";
+import { outboundLeak } from "../src/lib/outbound-pure.ts";
 import { mergeTaint, parseTaint } from "../src/lib/durable-pure.ts";
 
 process.env.ORBIT_DATA_DIR = await mkdtemp(path.join(tmpdir(), "orbit-allow-once-"));
@@ -165,6 +167,23 @@ test("lead_*: the BUSINESS record name is not private text for lead tools; journ
     assert.equal(d.allow, false, JSON.stringify(input)); assert.ok(d.reason.includes(NO_MODEL_ONCE));
   }
   assert.equal(decide("lead_update", { lead: "Mari Tamm", note: "argued with my sister about the old flat" }, { ...jctx(allowOnceBook()), steps, question: "add a note to Mari Tamm" }).allow, false);
+});
+
+test("slug forms of a journal phrase (- _ . /) are refused in fetch_url and lead_create.source_url; plain URLs pass", () => {
+  const slugs = ["argued-with-my-sister-about-the-old-flat", "argued_with_my_sister", "argued.with.my.sister.html", "argued/with/my/sister", "ARGUED-With-My-Sister"];
+  for (const s of slugs) {
+    const url = `https://x.ee/${s}`;
+    assert.ok(outboundLeak(url, [JOURNAL]), `in-session ${s}`);
+    assert.ok(hashLeak(url, phraseHashes([JOURNAL], KEY), KEY), `hashed ${s}`);
+    assert.equal(decide("fetch_url", { url }, { ...jctx(allowOnceBook()), question: "open that" }).allow, false, `fetch_url ${s}`);
+    assert.equal(decide("lead_create", { name: "Acme", source_url: url }, { ...jctx(allowOnceBook()), question: "add this lead" }).allow, false, `lead ${s}`);
+  }
+  const ok = "https://news.example.com/2026/11/spring-garden-tips_for-beginners.html";
+  assert.equal(outboundLeak(ok, [JOURNAL]), ""); assert.equal(hashLeak(ok, phraseHashes([JOURNAL], KEY), KEY), "");
+  assert.equal(decide("fetch_url", { url: ok }, { ...jctx(allowOnceBook()), question: "open that" }).allow, true);
+  // a hash stored by the old tokenizer (hyphen kept inside a token) still matches after the change
+  const old = [createHmac("sha256", KEY).update("my well-known sister argued").digest("hex").slice(0, 16)];
+  assert.ok(hashLeak("https://x.ee/?q=my well-known sister argued", old, KEY));
 });
 
 test("card text: control, zero-width and bidi characters are shown, not applied", () => {

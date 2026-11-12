@@ -8,6 +8,8 @@ const NAME = /\p{Lu}[\p{Ll}'-]{2,}(?:\s+\p{Lu}[\p{Ll}'-]{2,})+/gu; // two+ capit
 export const RUN = 4; // a distinctive phrase: this many words in a row copied from private text
 const norm = (s: string) => s.toLowerCase().normalize("NFKC").replace(/\s+/g, " ").trim();
 export const words = (s: string) => norm(s).split(/[^\p{L}\p{N}@.+-]+/u).filter(Boolean);
+/** Leak-check tokens: letters/digits only, so a URL slug (argued-with-my_sister.html) splits like spaced prose. */
+export const tokens = (s: string) => norm(s).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 const digits = (s: string) => s.replace(/\D/g, "");
 
 /** Every string inside a tool input (query, url, task brief, nested fields), joined: what would leave ORBIT. */
@@ -31,7 +33,7 @@ export function outboundLeak(out: string, privateText: readonly string[], questi
     const p = m.split(/\s+/);
     for (let i = 0; i + 1 < p.length; i++) { const n = `${p[i]} ${p[i + 1]}`; if (!own(n) && priv.includes(norm(n))) return n; }
   }
-  const w = words(o), pw = ` ${words(priv).join(" ")} `, qw = ` ${words(q).join(" ")} `;
+  const w = tokens(o), pw = ` ${tokens(priv).join(" ")} `, qw = ` ${tokens(q).join(" ")} `;
   for (let i = 0; i + RUN <= w.length; i++) {
     const run = w.slice(i, i + RUN).join(" ");
     if (pw.includes(` ${run} `) && !qw.includes(` ${run} `)) return run;
