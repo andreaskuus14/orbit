@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   compactSchema, gates, outsideIn, parsePending, parsePlugins, parseToolId, pluginDecision, pluginPrompt, publicPlugin, resultText, toolGate, toolId, toolTier, validatePlugin, SUGGESTED, type Plugin,
 } from "../src/lib/plugins-pure.ts";
-import { carriesPrivate, decide, privateToolsIn, UNTRUSTED, type PolicyCtx } from "../src/lib/policy-pure.ts";
+import { carriesPrivate, decide, localPluginReads, UNTRUSTED, type PolicyCtx } from "../src/lib/policy-pure.ts";
 import { privateResults } from "../src/lib/outbound-pure.ts";
 import { authorize, parseAuthority } from "../src/lib/authority-pure.ts";
 import { makeInBlenderPrompt, modelName, openIfcPrompt, safePath } from "../src/lib/blender-pure.ts";
@@ -103,7 +103,7 @@ test("decide(): private text never goes into plugin arguments", () => {
   assert.equal(v.allow, false);
   assert.match(v.reason, /private/);
   assert.equal(decide("plugin__blender__get_scene_info", { note: "a chest" }, priv).allow, true);
-  assert.equal(decide("plugin__blender__get_scene_info", { a: "pay 450 €" }, ctx({ carried: true })).allow, false); // earlier turn's private data, text gone
+  assert.equal(decide("plugin__blender__get_scene_info", { a: "pay 450 €" }, ctx({ carried: true })).allow, true); // taint, text gone (restart): a local target is not refused blind (#584 review)
 });
 
 // audit3 F5: a local plugin (files/vault) may read his Journal: its text can't ride out in a remote plugin's arguments
@@ -121,10 +121,24 @@ test("decide(): local plugin text stays private on the next turn", () => {
   const g = { "plugin__files__read": { mode: "auto", tier: "T0", local: true }, "plugin__notion__create_page": { mode: "auto", tier: "T0", local: false } } as PolicyCtx["plugins"];
   const turn1 = ctx({ plugins: g, steps: ["You called plugin__files__read {}\nRESULT:\nJournal: fought with Mari Tamm about the rent today"] });
   assert.ok(carriesPrivate(turn1));
-  const saved = privateResults(turn1.steps, privateToolsIn(turn1)); // what core.ts keeps in carriedText
-  const turn2 = ctx({ plugins: g, question: "put that in Notion", carried: true, privateText: saved, steps: [] });
+  const saved = privateResults(turn1.steps, localPluginReads(turn1)); // what core.ts keeps in carriedLocal
+  const turn2 = ctx({ plugins: g, question: "put that in Notion", carried: true, localText: saved, steps: [] });
   assert.match(decide("plugin__notion__create_page", { text: "fought with Mari Tamm about the rent" }, turn2).reason, /private/);
+  assert.match(decide("web_search", { query: "fought with Mari Tamm about the rent" }, turn2).reason, /private text/);
   assert.equal(carriesPrivate(ctx({ plugins: g, steps: ["You called plugin__notion__create_page {}\nRESULT:\nok"] })), false); // remote alone: no taint
+});
+
+test("decide(): local → local stays allowed on the next turn; module text still checked", () => {
+  const g = { "plugin__files__read": { mode: "auto", tier: "T0", local: true }, "plugin__files__write": { mode: "auto", tier: "T0", local: true },
+    "plugin__blender__get_scene_info": { mode: "auto", tier: "T0", local: true }, "plugin__blender__execute_blender_code": { mode: "auto", tier: "T0", local: true } } as PolicyCtx["plugins"];
+  const next = (t: string, out: string, extra: Partial<PolicyCtx> = {}) => { const t1 = ctx({ plugins: g, steps: [`You called ${t} {}\nRESULT:\n${out}`] });
+    return ctx({ plugins: g, carried: carriesPrivate(t1), localText: privateResults(t1.steps, localPluginReads(t1)), steps: [], ...extra }); };
+  const notes = next("plugin__files__read", "Meeting with Mari Tamm about the rent on Friday");
+  assert.equal(decide("plugin__files__write", { text: "Meeting with Mari Tamm about the rent on Friday." }, { ...notes, question: "fix typos and save" }).allow, true);
+  const scene = next("plugin__blender__get_scene_info", "Objects: Tower Main Body, Roof Cone");
+  assert.equal(decide("plugin__blender__execute_blender_code", { code: "bpy.data.objects['Tower Main Body'].scale.z *= 2" }, { ...scene, question: "make it taller" }).allow, true);
+  assert.equal(decide("plugin__files__write", { text: "x" }, ctx({ plugins: g, carried: true, steps: [] })).allow, true); // after restart: taint without text
+  assert.match(decide("plugin__files__write", { text: "pay 450 € to Mari Tamm" }, ctx({ plugins: g, carried: true, privateText: ["Journal: pay 450 € to Mari Tamm"], steps: [] })).reason, /private/); // module text still checked
 });
 
 test("decide(): local plugin text can't go out through web_search, fetch_url or ask_agent", () => {
