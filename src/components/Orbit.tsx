@@ -10,6 +10,9 @@ import { PLANETS, planetById, type PanelId } from "@/lib/planets";
 import { WorldEmblem } from "./WorldEmblem";
 import { useTick } from "./useTick";
 import { AmbientLoop } from "./AmbientLoop";
+import { WakeSequence } from "./WakeSequence";
+import { Starfield } from "./Starfield";
+import { WorldHeaderArt } from "./WorldHeaderArt";
 import { isPlanetWorld, PLANET_WORLDS } from "@/lib/planet-worlds-pure";
 import { WorldPaused } from "./world-paused";
 import { CALL_ACTIVE, VOICE_ASK, voiceContext } from "./voice/bus";
@@ -693,6 +696,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {view === "3d" && !shown && <AmbientOverlay a={amb} />}
       {view === "3d" && !shown && living.open && <TimeTravel days={living.days} setDays={living.setDays} onClose={() => { living.setOpen(false); living.setDays(0); }} />}
       {view === "3d" && <BootSequence reduced={reduced} />}
+      {view && <WakeSequence skip={view === "3d"} />} {/* 3D has its own BootSequence intro; a 3D start uses up the wake */}
       {view === "3d" && (
         <div className="galaxy-layer absolute inset-0" data-dim={(panel === "core" && !dive) || undefined} style={galaxyGone && !staged ? { visibility: "hidden" } : undefined} inert={(galaxyGone && !staged) || undefined}>
           <Galaxy selected={approach ?? panel} onSelect={galaxySelect} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel && !dive} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={galaxyGone} universe={living.universe} ships={ships} dilation={dilation}
@@ -717,6 +721,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
         <nav aria-label={t("overview.aria")} inert={covered || undefined} className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <AmbientLoop />
+          <Starfield />
           <div className="overview-heading"><p>{t("overview.kicker")}</p><h1>{t("overview.title1")}<br />{t("overview.title2")}</h1><span>{t("overview.lede")}</span></div>
           {activityHome && <NeedsYou inline tasks={galaxyTasks} tasksFailed={galaxyTasksFailed} onOpenTask={openTask} onOpenGoal={openGoal} />}
           {!shown && <ContinueWork onOpenTask={openTask} onOpenGoal={openGoal} />}
@@ -785,7 +790,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {drawer && !WORLDS.includes(drawer) && (
         <aside ref={drawerDrag.ref} tabIndex={-1} className={`glass drawer${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
           aria-hidden={!panel || undefined} inert={!panel || undefined}>
-          <div className="drag-handle mb-3 flex items-center justify-between" {...(docked ? {} : drawerDrag.handle)}><h2 className="brand flex items-center gap-2 text-base">{drawer && drawer !== "profile" && <WorldEmblem id={drawer} size={28} />}<MaskText key={title} text={title} /></h2><button className="chip" onClick={() => setPanel(null)} aria-label={t("hud.closePanel")} title={t("hud.closeEsc")}>{t("common.close")}</button></div>
+          <div className="drag-handle mb-3 flex items-center justify-between" {...(docked ? {} : drawerDrag.handle)}><h2 className="brand world-header flex items-center gap-2 text-base">{drawer && drawer !== "profile" && <WorldEmblem id={drawer} size={28} />}<MaskText key={title} text={title} />{drawer && <WorldHeaderArt id={drawer} />}</h2><button className="chip" onClick={() => setPanel(null)} aria-label={t("hud.closePanel")} title={t("hud.closeEsc")}>{t("common.close")}</button></div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {drawer && panelBody(drawer)}
           </div>

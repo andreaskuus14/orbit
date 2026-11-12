@@ -4,6 +4,7 @@
 // planet's own workspace panel beside it. Same shell as the other worlds (MemoryWorld): mount-later canvas, warm
 // compile, lean quality, GL recovery, paused frameloop. LIFE data is read from ORBIT's own API and never leaves it.
 import { WorldEmblem } from "./WorldEmblem";
+import { WorldHeaderArt } from "./WorldHeaderArt";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
@@ -160,7 +161,7 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
       )}
 
       <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] flex max-h-[45dvh] flex-col gap-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label={`${planet.name} workspace`}>
-        <h2 className="brand flex items-center gap-2 text-base"><WorldEmblem id={id} size={28} />{t(`planet.${id}`)}</h2>
+        <h2 className="brand world-header flex items-center gap-2 text-base"><WorldEmblem id={id} size={28} />{t(`planet.${id}`)}<WorldHeaderArt id={id} /></h2>
         {!flat && <div className="planet-world-head" style={{ borderColor: planet.color }} aria-live="polite">
           {err ? <span className="error" role="alert">{err}</span> : !scene ? <span className="muted" role="status">{t("common.loading")}</span> : <>
             <span>{scene.summary}{fresh ? `, ${fresh} new today` : ""}</span>

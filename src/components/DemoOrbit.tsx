@@ -7,6 +7,7 @@ import type { PanelId } from "@/lib/planets";
 import { coreReply, DEMO_NOTE, DEMO_PROMPTS, DEMO_WORLDS, installDemoGuard, type DemoData, type DemoWorld } from "@/lib/demo-shell-pure";
 import { GalaxyLoader } from "./GalaxyLoader";
 import { WorldEmblem } from "./WorldEmblem";
+import { WorldHeaderArt } from "./WorldHeaderArt";
 
 const Loading = () => <div className="world-loading" role="status"><span className="world-loading-ring" aria-hidden="true" /><p>Opening world…</p></div>;
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
@@ -66,7 +67,7 @@ export default function DemoOrbit({ data, memoryCount }: { data: DemoData; memor
 
       {core && !world && (
         <section className="glass hud-panel absolute bottom-24 right-3 z-[30] flex max-h-[60dvh] w-[min(26rem,calc(100vw-1.5rem))] flex-col gap-2 overflow-y-auto p-3 text-sm" aria-label="CORE (scripted demo)">
-          <div className="flex items-center justify-between"><h2 className="brand flex items-center gap-2 text-base"><WorldEmblem id="core" size={28} />CORE <span className="muted text-xs font-normal">scripted demo</span></h2>
+          <div className="flex items-center justify-between"><h2 className="brand world-header flex items-center gap-2 text-base"><WorldEmblem id="core" size={28} />CORE <span className="muted text-xs font-normal">scripted demo</span><WorldHeaderArt id="core" /></h2>
             <button className="chip" onClick={() => setCore(false)}>Close</button></div>
           <ul className="space-y-2" aria-live="polite">{chat.map((m, i) => <li key={i}><p className="font-medium">{m.q}</p><p className="muted">{m.a}</p></li>)}</ul>
           <div className="flex flex-wrap gap-1.5">{DEMO_PROMPTS.map((p) => <button key={p} className="chip" onClick={() => ask(p)}>{p}</button>)}</div>

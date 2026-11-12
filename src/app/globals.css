@@ -941,3 +941,18 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .explore-grid button .world-emblem { float: left; margin: .1rem .7rem .2rem 0; }
 .explore-core .world-emblem { margin-right: .9rem; }
 .explore-core > span:not([aria-hidden]) { flex: 1; }
+
+/* Night visuals 2: panel header art, wake clip, starfield parallax. transform/opacity only. */
+.world-header { flex: 1; min-width: 0; min-height: calc(28px + 1.1rem); margin: -.25rem 0; padding: .55rem 0 .55rem .7rem; overflow: hidden; }
+/* Art fills only the space right of the title and fades into the panel black (the scrim), so title pixels never overlap it: contrast stays the plain panel header's. */
+.world-header-art { flex: 1 1 0; min-width: 0; align-self: stretch; height: calc(28px + 1.1rem); margin: -.55rem 0 -.55rem .5rem; object-fit: cover; object-position: right center; pointer-events: none;
+  border-radius: .5rem; mix-blend-mode: screen; -webkit-mask-image: linear-gradient(90deg, transparent, #000 55%), linear-gradient(transparent, #000 25%, #000 75%, transparent);
+  -webkit-mask-composite: source-in; mask-image: linear-gradient(90deg, transparent, #000 55%), linear-gradient(transparent, #000 25%, #000 75%, transparent); mask-composite: intersect; }
+.world-header-art[data-thin] { visibility: hidden; }
+.wake-sequence { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: #03050b; cursor: pointer; animation: fade-in .25s ease-out; }
+.wake-sequence video { width: min(100%, 960px); height: auto; }
+.starfield { position: fixed; inset: -24px; z-index: -1; pointer-events: none; --px: 0; --py: 0; }
+.starfield i { position: absolute; inset: 0; transition: transform .6s var(--ease-glide); will-change: transform; }
+.starfield-far { background: radial-gradient(1px 1px at 12% 18%, #cfe8ff 50%, transparent 51%), radial-gradient(1px 1px at 37% 72%, #cfe8ff 50%, transparent 51%), radial-gradient(1px 1px at 68% 31%, #fff 50%, transparent 51%), radial-gradient(1px 1px at 83% 84%, #cfe8ff 50%, transparent 51%), radial-gradient(1px 1px at 54% 9%, #fff 50%, transparent 51%); background-size: 340px 340px; opacity: .45; transform: translate3d(calc(var(--px) * -10px), calc(var(--py) * -10px), 0); }
+.starfield-near { background: radial-gradient(1.5px 1.5px at 22% 41%, #e6f1ff 50%, transparent 51%), radial-gradient(1.5px 1.5px at 71% 63%, #fde7b0 50%, transparent 51%), radial-gradient(1.5px 1.5px at 46% 88%, #e6f1ff 50%, transparent 51%); background-size: 520px 520px; opacity: .6; transform: translate3d(calc(var(--px) * -24px), calc(var(--py) * -24px), 0); }
+@media (prefers-reduced-motion: reduce) { .starfield i { transition: none; transform: none; } .wake-sequence { display: none; } }
