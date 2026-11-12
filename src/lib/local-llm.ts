@@ -8,7 +8,7 @@ export const LOCAL_MODEL = localModelName(process.env);
 export async function chatLocal(prompt: string, system: string, o: { signal?: AbortSignal; timeoutMs?: number; numCtx?: number } = {}) {
   const t0 = Date.now(), ms = o.timeoutMs ?? 120_000;
   const res = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ollamaRequest(LOCAL_MODEL, system, prompt, o.numCtx)),
+    method: "POST", redirect: "error", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ollamaRequest(LOCAL_MODEL, system, prompt, o.numCtx)),
     signal: o.signal ? AbortSignal.any([o.signal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms),
   });
   if (!res.ok) throw new Error(`Local model (Ollama) answered ${res.status}`);

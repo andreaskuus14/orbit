@@ -5,7 +5,7 @@ import { fenceUntrusted } from "./reach/pure.ts";
 export const FIELDS = ["supplier", "buyer", "document_no", "date", "due_date", "currency", "net", "vat", "gross", "line_item", "iban", "reference"] as const;
 export type Field = (typeof FIELDS)[number];
 export type Extracted = { field: Field; value: string; page: number; quote: string; uncertain: boolean; why: string[]; corrected?: number };
-export type Sidecar = { v: 1; fileId: string; file: string; hash: string | null; model: string; at: number; pages: { text: string; ocr: boolean }[]; fields: Extracted[] };
+export type Sidecar = { v: 1; fileId: string; file: string; hash: string | null; size: number; mtime: number; model: string; at: number; partial: boolean; stale?: boolean; pages: { text: string; ocr: boolean }[]; fields: Extracted[] };
 
 /** Under this many non-space characters a page counts as scanned (no text layer) and is OCR'd. */
 export const MIN_PAGE_CHARS = 20;
@@ -26,10 +26,10 @@ Fields: ${FIELDS.join(", ")}. Use "line_item" once per line (value: "description
 The quote must be copied character for character from the cited page. Leave out a field you cannot find; never guess.`;
 
 const PROMPT_MAX = 24_000;
-/** The pages as one fenced, untrusted block (document text can contain instructions; it is data). */
-export function intakePrompt(pages: string[]): string {
+/** The pages as one fenced, untrusted block (document text can contain instructions; it is data). partial: text was cut at PROMPT_MAX. */
+export function intakePrompt(pages: string[]): { prompt: string; partial: boolean } {
   const body = pages.map((t, i) => `=== page ${i + 1} ===\n${t.trim()}`).join("\n\n");
-  return fenceUntrusted("incoming invoice / purchase order (VAULT file)", body, PROMPT_MAX);
+  return { prompt: fenceUntrusted("incoming invoice / purchase order (VAULT file)", body, PROMPT_MAX), partial: body.length > PROMPT_MAX };
 }
 
 const clip = (v: unknown, n: number) => (typeof v === "string" ? v.trim().slice(0, n) : typeof v === "number" ? String(v) : "");
@@ -59,12 +59,30 @@ export function cents(v: string): number | null {
   return Number.isFinite(n) ? Math.round(n * 100) : null;
 }
 
+const AMOUNTS: Field[] = ["net", "vat", "gross"];
+const squash = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+/** Does the quote really contain the value (not just a label like "IBAN")? Amounts by cents, ISO dates also as D.M.YYYY, the rest without spaces. */
+export function valueInQuote(field: Field, value: string, quote: string): boolean {
+  if (AMOUNTS.includes(field)) {
+    const want = cents(value);
+    return want !== null && (quote.match(/\d[\d\s.,]*\d|\d/g) ?? []).some((t) => cents(t.trim()) === want || cents(t.replace(/\s/g, "")) === want);
+  }
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (iso) {
+    const [, y, m, d] = iso, q = squash(quote);
+    return [value, `${d}.${m}.${y}`, `${+d}.${+m}.${y}`, `${d}/${m}/${y}`].some((f) => q.includes(f));
+  }
+  const v = field === "line_item" ? value.split(";")[0] : value;
+  return !!squash(v) && squash(quote).includes(squash(v));
+}
+
 /** Flags every row: uncertain unless its quote is verbatim (whitespace-normalized) on its page; amounts also unless net + VAT = gross. */
 export function markUncertain(rows: Omit<Extracted, "uncertain" | "why">[], pages: string[]): Extracted[] {
   const out: Extracted[] = rows.map((r) => {
     const why: string[] = [];
     if (!r.quote) why.push("no quote");
     else if (!norm(pages[r.page - 1] ?? "").includes(norm(r.quote))) why.push(`quote not found on page ${r.page}`);
+    else if (!valueInQuote(r.field, r.value, r.quote)) why.push("the quote doesn't contain the value");
     return { ...r, uncertain: why.length > 0, why };
   });
   const one = (f: Field) => { const h = out.filter((r) => r.field === f); return h.length === 1 ? cents(h[0].value) : null; };
@@ -85,7 +103,10 @@ export function correct(s: Sidecar, index: unknown, value: unknown, now: number)
   return { ...s, fields };
 }
 
+/** Results from an older copy of the file (replaced or changed on disk since) are stale: the owner re-runs them. */
+export const isStale = (s: Sidecar, now: { size: number; mtime: number }) => s.size !== now.size || s.mtime !== now.mtime;
+
 export const parseSidecar = (j: unknown): Sidecar | null => {
   const o = j as Sidecar | null;
-  return o?.v === 1 && typeof o.fileId === "string" && Array.isArray(o.fields) && Array.isArray(o.pages) ? o : null;
+  return o?.v === 1 && typeof o.size === "number" && typeof o.fileId === "string" && Array.isArray(o.fields) && Array.isArray(o.pages) ? o : null;
 };

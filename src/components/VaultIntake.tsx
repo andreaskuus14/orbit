@@ -41,6 +41,8 @@ export function VaultIntake({ name, src, pdf }: { name: string; src: string; pdf
       {s && (
         <>
           <p className="muted text-xs">{s.fields.length} fields · {unsure} uncertain · {s.pages.filter((p) => p.ocr).length} of {s.pages.length} pages OCR'd · {s.model} · {new Date(s.at).toLocaleString()}</p>
+          {s.partial && <p className="error">Partial: the document was longer than the model reads at once; fields after the cut are missing.</p>}
+          {s.stale && <p className="error">The file was replaced after this extraction: extract the fields again.</p>}
           {!s.fields.length && <p className="muted">No fields found.</p>}
           <table className="w-full text-xs">
             <tbody>
