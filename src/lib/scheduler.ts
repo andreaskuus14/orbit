@@ -23,7 +23,7 @@ import { beat } from "./host-heartbeat";
 // Missed slots (PC asleep) are caught up within a few hours (the morning brief: any time that day), never twice.
 
 const TICK_MS = 60_000;
-const g = globalThis as unknown as { __orbitScheduler?: NodeJS.Timeout; __orbitTick?: unknown; __orbitBusy?: boolean; __orbitWarned?: boolean; __orbitCapsuleFallback?: boolean };
+const g = globalThis as unknown as { __orbitScheduler?: NodeJS.Timeout; __orbitTick?: unknown; __orbitBusy?: boolean; __orbitWarned?: boolean; __orbitCapsuleFallback?: boolean; __orbitBriefSkip?: boolean };
 
 async function tick(sb: SupabaseClient) {
   if (g.__orbitBusy) return;
@@ -61,7 +61,12 @@ async function tick(sb: SupabaseClient) {
         const k = (f.detail ?? "").split(":")[0] as BriefingKind;
         if (!last[k] || last[k]! < f.started_at) last[k] = f.started_at;
       }
-      for (const kind of dueSlots(new Date(), last)) {
+      // Briefings & digests Off/Ask/Stop-all: due slots are skipped, not run and not recorded as failed (no retry loop); his own Refresh still works.
+      const brief = allows("briefings", "background");
+      const due = dueSlots(new Date(), last);
+      if (!brief.ok && due.length && !g.__orbitBriefSkip) console.log(`[orbit] scheduled briefings skipped: ${brief.why}`);
+      g.__orbitBriefSkip = !brief.ok && due.length > 0;
+      for (const kind of brief.ok ? due : []) {
         console.log(`[orbit] scheduled ${kind} briefing starting`);
         await runPulse(sb, id, kind).then(
           (r) => console.log(`[orbit] ${kind} briefing ready (${r.briefing.article_count} articles)`),
@@ -69,7 +74,7 @@ async function tick(sb: SupabaseClient) {
         );
       }
       // Proactive suggestions (every 6 h, daytime) — after briefings so they see the freshest news.
-      if (!usageHold() && await proposalsDue(sb, id).catch(() => false)) { // background lane: waits near the usage budget / after a limit
+      if (brief.ok && !usageHold() && await proposalsDue(sb, id).catch(() => false)) { // background lane: waits near the usage budget / after a limit
         await generateProposals(sb, id).then(
           (rows) => console.log(`[orbit] agents proposed ${rows.length} new task(s)`),
           (e) => console.error("[orbit] proposals failed:", e instanceof Error ? e.message : e),
@@ -100,7 +105,7 @@ async function tick(sb: SupabaseClient) {
     // Invoices: a phone push when an overdue reminder draft is waiting, once per invoice per week (quiet hours and Stop-all skip it).
     await import("./invoices").then((x) => x.pushInvoiceReminders(), () => {});
     // Monthly agent scorecard (ANALYTICS): not awaited, a run takes up to ~50 min; it re-checks Stop-all and usage itself.
-    if (!limited) void maybeScorecard(sb, (users ?? []).map((u) => u.id));
+    if (!limited && allows("briefings", "background").ok) void maybeScorecard(sb, (users ?? []).map((u) => u.id));
     // ARCH weekly studio digest: Sunday from 17:00 (Monday catch-up); without Claude it still comes, focus from the numbers.
     await maybeArchDigest(sb, (users ?? []).map((u) => u.id)).catch((e) => console.error("[orbit] arch digest failed:", e instanceof Error ? e.message : e));
     // Weekly local backup (JSON export + uploaded files) to ORBIT_BACKUP_DIR, default ../orbit-backups.
