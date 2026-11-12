@@ -35,9 +35,9 @@ export default function InvoicesPanel({ prospects }: { prospects: { id: string; 
     setAgreed((n.negotiations as Negotiation[]).filter((x) => x.side === "sell" && x.state === "agreed"));
   }, []);
   useEffect(() => { if (open) load().catch((e: Error) => setMsg({ ok: false, text: e.message })); }, [open, load]);
-  const act = async (key: string, body: object, then?: (j: { result?: Invoice; message?: string; text?: string }) => void) => {
+  const act = async (key: string, body: object, then?: (j: { result?: Invoice; message?: string; text?: string; warning?: string }) => void) => {
     setBusy(key); setMsg(null);
-    try { const j = await call(body); then?.(j); if (j.message) setMsg({ ok: true, text: j.message }); await load(); }
+    try { const j = await call(body); then?.(j); if (j.message) setMsg({ ok: true, text: j.message }); if (j.warning) setMsg({ ok: false, text: j.warning }); await load(); }
     catch (e) { setMsg({ ok: false, text: (e as Error).message }); } finally { setBusy(""); }
   };
 
