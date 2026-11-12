@@ -18,9 +18,9 @@ const PDF = "application/pdf";
 const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 /** Runs `body` (has `extractText`, `PDF`, `DOCX`, `bytes`) in a child with cwd = `cwd`; resolves { code, out } where out is the last JSON line printed. */
-async function child(cwd: string, body: string, env: Record<string, string> = {}) {
+async function child(cwd: string, body: string, env: Record<string, string> = {}, parseMs = 400) {
   const code = `
-    const T = globalThis.setTimeout; globalThis.setTimeout = (f, ms, ...a) => T(f, ms === 30000 ? 400 : ms, ...a); // PARSE_MS 30 s -> 0.4 s
+    const T = globalThis.setTimeout; globalThis.setTimeout = (f, ms, ...a) => T(f, ms === 30000 ? ${parseMs} : ms, ...a); // PARSE_MS 30 s -> 0.4 s (real-worker parses keep 30 s: worker + parser startup is slow under load)
     const { extractText } = await import(${JSON.stringify(EXTRACT)});
     const PDF = ${JSON.stringify(PDF)}, DOCX = ${JSON.stringify(DOCX)};
     const t0 = Date.now(); const done = (o) => console.log(JSON.stringify({ ...o, ms: Date.now() - t0 }));
@@ -78,10 +78,10 @@ const b64 = (b: Buffer) => JSON.stringify(b.toString("base64"));
 const buf = (b: Buffer) => `const bytes = Buffer.from(${b64(b)}, "base64");`;
 
 test("a normal small PDF and Word file parse to their text through the real worker", async () => {
-  const a = await child(root, `${buf(pdf("Hello ORBIT pdf"))} done({ text: await extractText(bytes, PDF) });`);
+  const a = await child(root, `${buf(pdf("Hello ORBIT pdf"))} done({ text: await extractText(bytes, PDF) });`, {}, 30_000);
   assert.equal(a.code, 0, a.raw);
   assert.match(a.out.text, /Hello ORBIT pdf/);
-  const d = await child(root, `${buf(docx("Hello ORBIT word"))} done({ text: await extractText(bytes, DOCX) });`);
+  const d = await child(root, `${buf(docx("Hello ORBIT word"))} done({ text: await extractText(bytes, DOCX) });`, {}, 30_000);
   assert.equal(d.code, 0, d.raw);
   assert.equal(d.out.text, "Hello ORBIT word");
 });

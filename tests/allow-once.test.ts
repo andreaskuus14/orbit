@@ -127,7 +127,7 @@ test("private text to any model-bound tool is a hard refusal (no card), journal 
 test("every CORE tool is classified model, web or none: a new tool can't be added unclassified", () => {
   for (const t of [...LINK_TOOLS, ...LEAK_TOOLS, ...Object.keys(TIERS)]) assert.ok(EGRESS_CLASS[t], t);
   for (const t of ["ask_agent", "web_search", "local_tts", "local_image", "ws_picture_draft", "ws_inspire_image", "read_news", "find_outliers",
-    "start_mission", "queue_tonight", "higgsfield_draft", "automation_create", "create_goal", "propose_rule", "save_memory", "lead_create"]) assert.equal(EGRESS_CLASS[t], "model", t);
+    "start_mission", "queue_tonight", "higgsfield_draft", "automation_create", "create_goal", "propose_rule", "save_memory", "lead_create", "lead_update", "add_wish", "save_checkpoint"]) assert.equal(EGRESS_CLASS[t], "model", t);
 });
 
 // Tools that hand model-chosen text to a model now or via a stored background record: journal text ⇒ hard refusal; clean chat ⇒ runs.
@@ -136,6 +136,12 @@ const BG: [string, string, Record<string, unknown>][] = [
   ["queue_tonight", "look into it tonight", { text: "X" }],
   ["higgsfield_draft", "make 2 images of it", { prompt: "X", count: 2 }],
   ["automation_create", "create an automation every day at 8:00 that does it", { name: "daily", prompt: "X", when: "day", time: "08:00" }],
+  ["create_goal", "set a goal for it", { title: "X" }],
+  ["propose_rule", "make a rule for it", { text: "X" }],
+  ["save_memory", "remember this", { text: "X" }],
+  ["lead_update", "update the lead Mari Tamm", { lead: "Mari Tamm", note: "X" }],
+  ["add_wish", "I want a used RTX 4070 under 400€", { item: "X", maxPrice: 400 }],
+  ["save_checkpoint", "save a checkpoint for this", { lines: ["X"] }],
 ];
 test("background-work tools: journal text in the chat ⇒ refused without a card; clean chat ⇒ allowed; nothing private is stored", () => {
   const b = allowOnceBook(), J = "argued with my sister about the old flat", C = "fox photos in the snow";
@@ -147,6 +153,12 @@ test("background-work tools: journal text in the chat ⇒ refused without a card
     assert.equal(decide(tool, fill(J), { ...base, question }).allow, true, `${tool} clean chat`);
     assert.equal(decide(tool, fill(C), { ...base, carried: true, carriedKind: "unknown", question }).allow, false, `${tool} unknown taint`);
   }
+});
+
+test("lead_*: the BUSINESS record name is not private text for lead tools; journal text in a note still is", () => {
+  const steps = ["You called business_status {}\nRESULT:\nMari Tamm (lead) mari@example.com"];
+  assert.equal(decide("lead_update", { lead: "Mari Tamm", stage: "contacted" }, { ...base, steps, question: "mark Mari Tamm as contacted" }).allow, true);
+  assert.equal(decide("lead_update", { lead: "Mari Tamm", note: "argued with my sister about the old flat" }, { ...jctx(allowOnceBook()), steps, question: "add a note to Mari Tamm" }).allow, false);
 });
 
 test("card text: control, zero-width and bidi characters are shown, not applied", () => {
