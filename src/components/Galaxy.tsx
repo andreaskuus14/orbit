@@ -26,6 +26,9 @@ import { Filaments } from "./alien/Filaments";
 import { Lensing } from "./alien/Lensing";
 import { HoloRing, planetStandIn, ThoughtShell, useLiquidMetal, type SurfaceLook } from "./alien/LiquidPlanet";
 import { MicroWorld, Ringworld } from "./alien/MicroWorld";
+import { Landmarks } from "./alien/Landmarks";
+import { SurfaceProps } from "./alien/SurfaceProps";
+import { hasLandmark } from "@/lib/landmarks-pure";
 import { WindowDive, WindowPlanets } from "./alien/WindowPlanet";
 import { lensRadius } from "./alien/micro-pure";
 import { armCount, boostCap, coreScale, overviewBoost, planetDetail, shellCount } from "@/lib/alien-pure";
@@ -127,22 +130,24 @@ const planetSize = (p: PlanetDef) => p.size * LOOKS[p.id].scale * 1.25;
 
 // Every world has its own surface identity (c8): a pattern family (0 banded, 1 marbled, 2 cratered, 3 oceanic) and a
 // restrained palette; two stay alien liquid chrome (no surf). scale = size, ring = a banded ring, obsidian = dark mirror chrome.
-const SL = (fam: SurfaceLook["fam"], seed: number, a: string, b: string, c: string): SurfaceLook => ({ fam, seed, pal: [a, b, c] });
+const SL = (fam: SurfaceLook["fam"], seed: number, a: string, b: string, c: string, glow?: string, glowK?: number): SurfaceLook => ({ fam, seed, pal: [a, b, c], glow, glowK });
 // orbital = an equatorial ring with space elevators, climbers and ships (micro-world); halo = the ringworld showpiece.
+// c9 (approved style frames, 2026-11-11): each world reads as what it's for through its material, lit only by the CORE.
+// Families: 0 banded, 1 marbled, 2 cratered, 3 oceanic, 4 crystal, 5 plated machine, 6 magma; glow = light in its veins/seams/cracks.
 const LOOKS: Record<PlanetId, { scale: number; ring?: string; obsidian?: boolean; surf?: SurfaceLook; orbital?: boolean; halo?: boolean }> = {
-  memory: { scale: 0.75, surf: SL(1, 1, "#e6e2f0", "#9d93c4", "#4b3f8a") },
-  intelligence: { scale: 0.85, obsidian: true, surf: SL(0, 2, "#cfd8dc", "#6f8c99", "#2f4552") },
-  creation: { scale: 1.55, orbital: true, surf: SL(1, 3, "#efe2d6", "#c08aa0", "#6b3a55") },
-  operations: { scale: 1.9, ring: "#d9c39a", obsidian: true, surf: SL(0, 4, "#e8dcc4", "#b8946a", "#6c7d92") }, // orbits are spaced so its ring (size × 2.3) clears its neighbours
-  agents: { scale: 1.9, ring: "#c4b5fd", surf: SL(0, 5, "#ede3cf", "#c49a6c", "#8f88b0") }, // the biggest world
-  life: { scale: 0.63, obsidian: true, orbital: true, surf: SL(3, 6, "#8a9a78", "#1d4e6b", "#eef3f5") },
-  vault: { scale: 0.79, ring: "#e2e8ee", surf: SL(2, 7, "#b9a27a", "#7a6a52", "#3c342a") },
-  analytics: { scale: 1.0, ring: "#b3abea", obsidian: true },
-  studio: { scale: 1.1, orbital: true, surf: SL(0, 9, "#ecd9cc", "#b8725e", "#5a3a40") },
-  theater: { scale: 0.9, ring: "#fbbf24", obsidian: true, surf: SL(1, 10, "#f0e3c8", "#c9984a", "#5e4632") },
-  markets: { scale: 0.85, ring: "#34d399", surf: SL(3, 11, "#a7b39a", "#0f5a55", "#e9f1ef") },
-  business: { scale: 0.85, obsidian: true },
-  arch: { scale: 0.9, halo: true, surf: SL(2, 13, "#c3c7cf", "#8a909b", "#474c56") },
+  memory: { scale: 0.75, surf: SL(4, 1, "#3b2a6e", "#6d4fc4", "#c9b8ff", "#b49bff", 0.9) },                   // violet crystal, thoughts sealed inside
+  intelligence: { scale: 0.85, surf: SL(3, 2, "#3a8890", "#145870", "#dff6f8") },                             // storm ocean
+  creation: { scale: 1.55, orbital: true, surf: SL(2, 3, "#d07aa2", "#8e3b66", "#4a1f38", "#ff8cc4", 0.35) }, // magenta rock being shaped
+  operations: { scale: 1.9, ring: "#9fb3c8", surf: SL(5, 4, "#2a2f36", "#5b6470", "#9aa6b4", "#5cc8ff", 1.0) }, // titanium plates, lit seams
+  agents: { scale: 1.9, ring: "#c4b5fd", surf: SL(1, 5, "#3a3058", "#6e5ca4", "#a597dc") },                   // dark lavender, the night side full of cities
+  life: { scale: 0.63, orbital: true, surf: SL(3, 6, "#5f9652", "#1f5f80", "#eef3f5") },                      // green living world
+  vault: { scale: 0.79, ring: "#e2e8ee", obsidian: true, surf: SL(4, 7, "#0b0a0c", "#1c1820", "#a0702a", "#ffb347", 0.8) }, // obsidian with amber seams
+  analytics: { scale: 1.0, ring: "#b3c6ea", surf: SL(0, 8, "#3a80cc", "#b8d4f4", "#22508c") },                // precise blue bands
+  studio: { scale: 1.1, orbital: true, surf: SL(6, 9, "#1c1110", "#4a2620", "#ff5a2a", "#ff6a2a", 1.4) },     // volcanic, magma rivers
+  theater: { scale: 0.9, ring: "#e8c27a", surf: SL(0, 10, "#f2c27a", "#c46a26", "#6e3418") },                 // amber storm giant
+  markets: { scale: 0.85, ring: "#34d399", surf: SL(1, 11, "#0f6b4f", "#2fae7f", "#e8c05a", "#ffd36a", 0.55) }, // jade with gold veins
+  business: { scale: 0.85, surf: SL(1, 12, "#c9d2dc", "#6f88a3", "#d9a441", "#ffc94d", 1.0) },                // marble (toned down so it no longer blows out white), gold network
+  arch: { scale: 0.9, halo: true, surf: SL(2, 13, "#cfd3db", "#9aa1ad", "#5c626e") },
 };
 const CORE_RING = 3.7 * 0.62; // the CORE's outer ring at the overview (coreScale): worlds keep clear of it
 
@@ -430,7 +435,7 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
       if (!reduced) mesh.current.rotation.y += dt * 0.18 * l.spin; // busy worlds turn faster
       // Real backend events, CORE trails landing and lightning add a brief flare; a busy week keeps a warm glow.
       const m = liquid.mat;
-      m.emissiveIntensity = glow(pulses, p.id) * 0.8 + flash.current * 0.6 + l.glow * 0.3 + hit * 1.2;
+      m.emissiveIntensity = (glow(pulses, p.id) * 0.8 + flash.current * 0.6 + l.glow * 0.3 + hit * 1.2) * (look.surf ? 0.3 : 1); // c9: material worlds keep their surface; the halo shows the activity
       m.color.copy(base).lerp(QUIET_C, l.cool * 0.75).multiplyScalar(1 - l.dim); // a quiet week: cold and dim
       m.envMapIntensity = env0 * (1 - l.dim * 0.8); // reflections too, or chrome worlds never dim
       const h = halo.current;
@@ -506,6 +511,8 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
           onPointerOut={() => { clearTimeout(tapT.current); hovered.current = false; lensHit.current.on = false; onHover(p.id, false); document.body.style.cursor = ""; }}
         >
           {level > 0 && micro && <MicroWorld size={size} u={liquid.u} level={level} orbital={!!look.orbital} body={look.surf?.pal[0] ?? p.color} seed={index + 1} />}
+          {hasLandmark(p.id) && <Landmarks id={p.id} size={size} seed={index + 7} level={level} />}
+          <SurfaceProps id={p.id} size={size} seed={index + 7} level={level} />
         </mesh>
         <sprite ref={halo} scale={size * 4.2} visible={false} renderOrder={-1}>
           <spriteMaterial map={aura()} transparent opacity={0} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />

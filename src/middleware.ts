@@ -7,7 +7,7 @@ import { csp, cspApplies, newNonce } from "@/lib/csp-pure";
 
 // /w = workspace previews: the route checks the signed link + session itself (sandboxed pages' CSS/JS requests carry no cookies).
 // /remote, /screen + /api/remote = the paired-phone remote and read-only screen: its routes check their own device token (or, for /api/remote/owner, the session).
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/api/health", "/w", "/remote", "/screen", "/api/remote"];
+const PUBLIC_PATHS = ["/planets", "/login", "/auth/callback", "/manifest.webmanifest", "/api/health", "/w", "/remote", "/screen", "/api/remote"];
 
 export async function middleware(request: NextRequest) {
   if (crossSiteBlocked(request.method, request.nextUrl.pathname, { secFetchSite: request.headers.get("sec-fetch-site"), origin: request.headers.get("origin"), host: request.headers.get("host"), forwardedHost: request.headers.get("x-forwarded-host") }))
