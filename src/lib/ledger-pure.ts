@@ -53,6 +53,9 @@ type Data = {
   "invoice.reminder": { invoice: string; via: "email" | "copy" | "unknown" };
   "focus.start": { focus: string; minutes: number }; // time dilation (focus.ts): the block id and minutes only, never the goal
   "focus.end": { focus: string; minutes: number }; // minutes actually focused
+  // Which model ran a CORE turn / agent task (model-log-pure.ts): metadata tokens only, never message text. risky: the job was held to
+  // the Opus floor; why: the T2/T3 tool names or "risk:<flag>" hints behind it; down: the model a usage limit stepped it down from.
+  "model.run": { kind: "core" | "agent"; job: string; model: string; risky: boolean; why?: string[]; down?: string };
 };
 export type EventType = keyof Data;
 export type LedgerEvent = { [K in EventType]: { id: string; at: string; type: K; planet: string; data: Data[K]; caused_by?: string } }[EventType];
@@ -63,6 +66,7 @@ const bool = (v: unknown) => typeof v === "boolean";
 const oneOf = (xs: readonly string[]) => (v: unknown) => xs.includes(v as string);
 const opt = (f: (v: unknown) => boolean) => (v: unknown) => v === undefined || f(v);
 const id = str(128), name = str(200);
+const tok = (v: unknown) => typeof v === "string" && /^[\w.:[\]-]{1,64}$/.test(v); // one token (no spaces): a model id, tool name or job kind, never a sentence
 
 // Each type's data fields and their checks; unknown fields are dropped.
 const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean> } = {
@@ -108,6 +112,7 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "invoice.status": { invoice: id, to: oneOf(INVOICE_STATUSES) },
   "invoice.reminder": { invoice: id, via: oneOf(["email", "copy", "unknown"]) },
   "focus.start": { focus: id, minutes: (v) => count(v) && (v as number) <= 1440 },
+  "model.run": { kind: oneOf(["core", "agent"]), job: tok, model: tok, risky: bool, why: opt((v) => Array.isArray(v) && v.length <= 8 && v.every(tok)), down: opt(tok) },
   "focus.end": { focus: id, minutes: (v) => count(v) && (v as number) <= 1440 },
 };
 export const EVENT_TYPES = Object.keys(SHAPES) as EventType[];

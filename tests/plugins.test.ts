@@ -239,3 +239,29 @@ test("headers: http only, no protocol headers, masked for the panel; sign-in err
   assert.match(connectError(e401, { url: "https://e.com", headers: { Authorization: "Bearer abcdefgh123" } }), /^sign-in refused \(HTTP 401\)/);
   assert.equal(connectError(new Error("boom Bearer abcdefgh123"), { url: "https://e.com", headers: { Authorization: "Bearer abcdefgh123" } }), "boom •••");
 });
+
+test("oauth sign-in: config, 127.0.0.1-only redirect, state, expiry, PKCE vector", async () => {
+  const { validatePlugin, oauthRedirect, makeState, stateName, stateFresh, expiresAt, needsRefresh, connectError, SIGN_IN_FIRST } = await import("../src/lib/plugins-pure.ts");
+  const { pkceChallenge } = await import("../src/lib/yt-analytics-pure.ts");
+  assert.equal((validatePlugin({ name: "vid", url: "https://x.test/mcp", oauth: true }) as { oauth?: true }).oauth, true);
+  assert.match(validatePlugin({ name: "vid", command: "x", oauth: true }) as string, /http plugins/);
+  assert.match(validatePlugin({ name: "vid", url: "https://x.test/mcp", oauth: true, headers: { Authorization: "Bearer abc" } }) as string, /not both/);
+  assert.equal(oauthRedirect("127.0.0.1:3000"), "http://127.0.0.1:3000/api/plugins/oauth");
+  for (const h of ["localhost:3000", "192.168.1.5:3000", "orbit.example.com", "127.0.0.1.evil.test:3000", "", null]) assert.equal(oauthRedirect(h), null, String(h));
+  const s = makeState("vid", "r".repeat(43));
+  assert.equal(stateName(s), "vid");
+  for (const bad of ["vid", "vid.short", ".xxxxxxxxxxxxxxxxxxxx", "Bad_Name.xxxxxxxxxxxxxxxxxxxx", null]) assert.equal(stateName(bad), null, String(bad));
+  const t0 = Date.parse("2026-11-11T10:00:00Z");
+  assert.equal(stateFresh("2026-11-11T10:00:00Z", t0 + 9 * 60_000), true);
+  assert.equal(stateFresh("2026-11-11T10:00:00Z", t0 + 10 * 60_000), false);
+  assert.equal(stateFresh("2026-11-11T10:05:00Z", t0), false, "a state from the future isn't trusted");
+  assert.equal(stateFresh(undefined, t0), false);
+  assert.equal(expiresAt(3600, t0), t0 + 3_600_000);
+  assert.equal(expiresAt(undefined, t0), undefined);
+  assert.equal(needsRefresh(t0 + 60_000, t0), true);
+  assert.equal(needsRefresh(t0 + 3_600_000, t0), false);
+  assert.equal(needsRefresh(undefined, t0), false);
+  assert.equal(pkceChallenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", "RFC 7636 appendix B");
+  assert.equal(connectError(Object.assign(new Error("x"), { code: 401 }), { url: "https://x.test", oauth: true }), SIGN_IN_FIRST);
+  assert.equal(connectError(new Error("bad token tok-abcdefgh1234"), { url: "https://x.test" }, ["tok-abcdefgh1234"]), "bad token •••");
+});

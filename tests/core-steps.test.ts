@@ -66,4 +66,5 @@ test("routeEvent: labels the model that actually runs, not the core tier", () =>
   assert.deepEqual(routeEvent("sonnet", m), { type: "route", model: "smart", id: "sonnet" });
   assert.deepEqual(routeEvent("opus", m), { type: "route", model: "deep", id: "opus" }); // the Opus floor/redo on a fast or main tier
   assert.deepEqual(routeEvent("claude-fable-5-1", m), { type: "route", model: "deep", id: "claude-fable-5-1" });
+  assert.deepEqual(routeEvent("local", m), { type: "route", model: "local", id: "local" }); // the offline brain answered this step
 });

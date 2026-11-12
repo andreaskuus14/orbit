@@ -71,6 +71,9 @@ const PAIRS: [string, string, string][] = [
   ["BROWSER", "Make a screenshot of example.com", "Tee example.com kuvatõmmis"],
   ["BROWSER", "Click the Load more button on that site", "Kliki sellel saidil nuppu Lae veel"],
   ["BROWSER", "Scroll down the shop and read it", "Keri poodi alla ja loe seda"],
+  ["DECISIONS", "I decided to use Supabase because it is simple", "Otsustasin kasutada Supabase'i, sest see on lihtne"],
+  ["DECISIONS", "Revisit what I decided next month", "Vaata üle see, mida ma otsustasin"],
+  ["DECISIONS", "Remind me what I decided about the shop", "Tuleta mulle meelde, mida ma poe kohta otsustasin"],
   ["LOCALAI", "Make me a photo of a calm lake", "Tee mulle foto rahulikust järvest"],
 ];
 

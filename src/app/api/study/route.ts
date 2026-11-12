@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 // Study cards (MEMORY → Study cards). GET → {cards, queue, stats, lessons}. POST actions:
 // {action:"add", source, ref?, cards:[{front,back}]} | {action:"deck", text} | {action:"review", id, grade:1-4} | {action:"edit", id, front, back}
-// | {action:"books"} → {books} | {action:"quiz"} → {quiz: ≤10 due book cards} | {action:"bookCards", book} → {added, left}
+// | {action:"books"} → {books} | {action:"quiz"} → {quiz: ≤10 due book cards} | {action:"bookCards", book, retry?: chapter title} → {added, left}
 // | {action:"delete", id} | {action:"draft", memoryId} → {drafts} (one fast-model call, nothing saved).
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 const isId = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 300;
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
         if (!isId(b.book)) return fail("book is required");
         const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
         if (held) return fail(`Not right now: ${held}`, 503);
-        const r = await bookDeck(sb, user.id, b.book, 3, req.signal);
+        const r = await bookDeck(sb, user.id, b.book, 3, req.signal, typeof b.retry === "string" ? b.retry : undefined);
         return typeof r === "string" ? fail(r, 404) : Response.json(r);
       }
       default: return fail("Unknown action");

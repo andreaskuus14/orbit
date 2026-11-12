@@ -52,6 +52,7 @@ import { AgentScorecard } from "./AgentScorecard";
 import { OutcomesView, ReliabilityView, TimeCostView } from "./AnalyticsOutcomes";
 import { PredictionScore } from "./OrbitThinks";
 import { PerfRuns } from "./PerfRuns";
+import { ModelRuns } from "./ModelRuns";
 import { LessonChip, LessonsSection } from "./LessonsCard";
 import { getLang, LangSwitch, useT } from "./i18n";
 import { FailureReport } from "./FailureReport";
@@ -114,7 +115,7 @@ export function CorePanel({ initial, initialSkill, onConsumed, onOpenMemory, gre
   const [speaking, setSpeaking] = useState(false);
   useEffect(() => onSpeakingChange(setSpeaking), []);
   const [rows, setRows] = useState<LiveRow[]>([]); // this turn's live steps (core-live-pure.ts)
-  const [route, setRoute] = useState<"fast" | "smart" | "deep" | null>(null);
+  const [route, setRoute] = useState<"fast" | "smart" | "deep" | "local" | null>(null);
   const [bgTask, setBgTask] = useState<string | null>(null); // handed off: still streaming from the background turn
   const since = useRef(0);
   const [heard, setHeard] = useState(""); // last spoken question, shown as the voice transcript
@@ -296,7 +297,7 @@ export function CorePanel({ initial, initialSkill, onConsumed, onOpenMemory, gre
           if (ev.type === "background" && ev.taskId) { handedOff = true; bgId = ev.taskId; }
           if (ev.type === "done" || ev.type === "error") finished = true; return; } // detached by "+ New": the server finishes and saves it in its own chat
         if (ev.conversationId && ev.conversationId !== convo.current) { setChatId(ev.conversationId); void chats.reload(); }
-        if (ev.type === "route" && (ev.model === "fast" || ev.model === "smart" || ev.model === "deep")) {
+        if (ev.type === "route" && (ev.model === "fast" || ev.model === "smart" || ev.model === "deep" || ev.model === "local")) {
           setRoute(ev.model);
         } else if (ev.type === "delta" && ev.text) {
           partial += ev.text;
@@ -1009,6 +1010,7 @@ export function AnalyticsPanel() {
       <UsageMeter />
       <AgentScorecard />
       <PredictionScore />
+      <ModelRuns />
       <PerfRuns />
       <LifeStats />
       <h3 className="h3">{tr("an.recent")}</h3>

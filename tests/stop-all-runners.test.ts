@@ -15,6 +15,7 @@ import * as pure from "../src/lib/pure.ts";
 import * as claim from "../src/lib/task-claim-pure.ts";
 import { PAUSED_MSG } from "../src/lib/stop-all-pure.ts";
 import * as agentDefsPure from "../src/lib/agent-defs-pure.ts";
+import * as modelLogPure from "../src/lib/model-log-pure.ts";
 import * as execution from "../src/lib/execution.ts"; // the real execution-evidence module agents.ts uses
 
 test("the flag is durable and shared: another process's toggle is seen without a restart", async () => {
@@ -89,7 +90,7 @@ function fakeDb(rows: Record<string, unknown>[]) {
 function agentsWith(stop: { on: boolean }, askClaude: (...a: unknown[]) => Promise<unknown>) {
   return load("agents.ts", {
     "./authority": { authorizeAction: async () => ({ ok: true }) }, "./stop-all": { stopAllOn: () => stop.on }, "./stop-all-pure": { PAUSED_MSG }, "./completion-pure": completionPure, "./clip-store-pure": clipStorePure,
-    "./task-claim-pure": claim, "./pure": pure, "./agent-defs-pure": agentDefsPure, "./memory": { KINDS: ["note"] },
+    "./task-claim-pure": claim, "./pure": pure, "./agent-defs-pure": agentDefsPure, "./model-log-pure": modelLogPure, "./memory": { KINDS: ["note"] },
     "./migration-guard": { MigrationBlocked: class extends Error {}, requireMigration: async () => {}, refuse: () => new Error("missing") },
     "./claude": { askClaude, emit: async () => {}, recordUsage: async () => {}, chargeCall: (_b: unknown, s: AbortSignal) => s.throwIfAborted(),
       createBudget: () => ({ signal: new AbortController().signal, calls: 12, used: 0, minutes: 8, deadline: Date.now() + 1e6 }),

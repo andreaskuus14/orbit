@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
-import { readStore, readStoreSync, writeStore } from "./safe-file.ts";
-import { mkdir, readdir, unlink, writeFile } from "node:fs/promises";
+import { readStore, readStoreSync, updateStore, writeStore } from "./safe-file.ts";
+import { chmod, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 // .ts extensions: tests/plugins-io.test.ts loads this under node --experimental-strip-types (with a fake MCP server).
@@ -11,7 +11,9 @@ import { PAUSED_MSG } from "./stop-all-pure.ts";
 import { UNTRUSTED } from "./policy-pure.ts";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { CLIP } from "./clip-store-pure.ts";
-import { checkArgs, claimPending, cleanTool, connectError, gates, toolId, outsideIn, parsePending, parsePlugins, parseToolId, pluginAct, pluginPrompt, pluginSchemas, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import { randomToken, sameSecret } from "./yt-analytics-pure.ts";
+import { checkArgs, expiresAt, makeState, needsRefresh, SIGN_IN_FIRST, stateFresh, stateName, claimPending, cleanTool, connectError, gates, toolId, outsideIn, parsePending, parsePlugins, parseToolId, pluginAct, pluginPrompt, pluginSchemas, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
 
 // MCP plugins: <ORBIT data dir>/plugins.json (his servers + trust settings + the tool list from the last Test connection) and
 // plugin-pending.json (calls CORE queued for his Run click). CORE calls tools in-process through @modelcontextprotocol/sdk's client,
@@ -63,8 +65,9 @@ async function withClient<T>(p: Plugin, fn: (c: Client, timeout: number) => Prom
   const transport = p.command
     // stderr ignored: an unread pipe could fill up and stall the server (uvx prints install progress there)
     ? new (await import("@modelcontextprotocol/sdk/client/stdio.js")).StdioClientTransport({ command: p.command, args: p.args, env: p.env, stderr: "ignore" })
-    // shortcut: a static token in headers only; OAuth sign-in (servers like vidIQ that hand out tokens via a browser login) is next
-    : new (await import("@modelcontextprotocol/sdk/client/streamableHttp.js")).StreamableHTTPClientTransport(new URL(p.url!), p.headers ? { requestInit: { headers: p.headers } } : undefined);
+    : new (await import("@modelcontextprotocol/sdk/client/streamableHttp.js")).StreamableHTTPClientTransport(new URL(p.url!), p.oauth
+      ? { authProvider: await freshProvider(p), fetch: lockedFetch(p.name) }
+      : p.headers ? { requestInit: { headers: p.headers } } : undefined);
   const c = new Client({ name: "orbit", version: "1.0.0" });
   const handle = { close: () => c.close().catch(() => {}) };
   live.add(handle);
@@ -101,7 +104,7 @@ export async function testPlugin(name: string): Promise<{ ok: boolean; tools: nu
       }
       return out.flatMap((t) => cleanTool(t) ?? []).slice(0, 80);
     });
-  } catch (e) { error = connectError(e, p); }
+  } catch (e) { error = connectError(e, p, await oauthSecrets(p)); }
   await updatePlugins((l) => l.map((x) => (x.name === name ? { ...x, cache: { at: new Date().toISOString(), tools: error ? x.cache?.tools ?? [] : tools, ...(error ? { error } : {}) } } : x)));
   logActivity({ area: "system", title: `Plugin ${name}: test ${error ? "failed" : `ok, ${tools.length} tools`}`, ...(error ? { detail: error } : {}) });
   return error ? { ok: false, tools: 0, error } : { ok: true, tools: tools.length };
@@ -132,7 +135,8 @@ async function callTool(p: Plugin, tool: string, args: Record<string, unknown>, 
     // the request went out is not: it may have run
     const code = e instanceof McpError ? e.code : null;
     unknown = sent && (code === null || code === ErrorCode.RequestTimeout || code === ErrorCode.ConnectionClosed);
-    out = unknown ? `Error: plugin ${p.name} ${tool}: outcome unknown (${connectError(e, p)}). It may or may not have run; check ${p.name} before trying again.` : `Error: plugin ${p.name} ${tool} failed: ${connectError(e, p)}`;
+    const why = connectError(e, p, await oauthSecrets(p));
+    out = unknown ? `Error: plugin ${p.name} ${tool}: outcome unknown (${why}). It may or may not have run; check ${p.name} before trying again.` : `Error: plugin ${p.name} ${tool} failed: ${why}`;
   }
   const failed = out.startsWith("Error:");
   logActivity({ area: by === "owner" ? "system" : "core", title: `Plugin ${p.name} → ${tool}${by === "owner" ? " (your Run click)" : ""}: ${unknown ? "outcome unknown" : failed ? "failed" : "done"} in ${((Date.now() - t0) / 1000).toFixed(1)} s`, ...(failed ? { detail: out.slice(0, 300) } : {}) });
@@ -223,4 +227,151 @@ export async function discardPending(id: string): Promise<string | undefined> {
   let refused = false; // checked inside the save step, after any Run claim queued before it
   await savePending((l) => (running.has(id) ? ((refused = true), l) : l.filter((x) => x.id !== id)));
   return refused ? "It is running right now; wait for it to finish." : undefined;
+}
+
+// ---- OAuth sign-in (MCP authorization) for http plugins with "oauth": true ----
+// Same at-rest pattern as gcal-oauth.json: one file per plugin in <data dir>/plugin-oauth/ (dir 0700, file 0600, tmp + rename),
+// never in plugins.json, never in an API answer, a log, Activity or a prompt. The SDK runs discovery (protected-resource and
+// authorization-server metadata), dynamic client registration, PKCE (S256) and the token/refresh requests through this provider.
+type OAuthFile = { redirect?: string; client?: Record<string, unknown>; tokens?: Record<string, unknown> & { access_token: string; refresh_token?: string }; exp?: number; verifier?: string; state?: string; stateAt?: string };
+const oauthFile = (name: string) => path.join(orbitDataDir(), "plugin-oauth", `${name}.json`);
+const readOAuth = async (name: string): Promise<OAuthFile> => { try { return JSON.parse(await readFile(oauthFile(name), "utf8")) ?? {}; } catch { return {}; } };
+const og = globalThis as unknown as { __orbitOAuthLock?: Map<string, Promise<unknown>> };
+const locks = (og.__orbitOAuthLock ??= new Map());
+/** Queued, atomic (safe-file: unique tmp, fsync, rename with lock retry) read-modify-write of one plugin's file. fn returns the new
+ *  content, null = signed out (an empty {}), or undefined = no change. The folder is 0700 and the file 0600 (no-ops on Windows). */
+async function editOAuth(name: string, fn: (f: OAuthFile) => OAuthFile | null | undefined): Promise<void> {
+  const f = oauthFile(name);
+  await mkdir(path.dirname(f), { recursive: true, mode: 0o700 });
+  await updateStore(f, (text) => {
+    const next = fn(text ? JSON.parse(text) : {});
+    return { text: next === undefined ? undefined : JSON.stringify(next ?? {}), out: null };
+  });
+  await chmod(f, 0o600).catch(() => {});
+}
+/** Every token refresh of a plugin (ours ahead of expiry, or the SDK's after a 401) goes through this fetch: one at a time, and
+ *  the new tokens are saved before the next one starts. A refresh that waited behind another one, whose refresh token is no
+ *  longer the stored one, gets the stored newer tokens instead of spending the old refresh token (which a rotating server
+ *  answers with invalid_grant, and the SDK would then drop the good tokens). */
+function lockedFetch(name: string): typeof fetch {
+  return (url, init) => {
+    const form = init?.body instanceof URLSearchParams ? init.body : null;
+    if (form?.get("grant_type") !== "refresh_token") return fetch(url, init);
+    const run = (locks.get(name) ?? Promise.resolve()).catch(() => {}).then(async () => {
+      const { tokens: cur, exp } = await readOAuth(name), now = Date.now();
+      if (cur?.access_token && cur.refresh_token !== form.get("refresh_token") && !needsRefresh(exp, now))
+        return Response.json({ ...cur, ...(exp ? { expires_in: Math.floor((exp - now) / 1000) } : {}) });
+      const res = await fetch(url, init), text = await res.text();
+      if (res.ok) {
+        try {
+          const t = JSON.parse(text);
+          if (typeof t?.access_token === "string") await editOAuth(name, (f) => ({ ...f, tokens: { ...t, ...(cur?.issuer ? { issuer: cur.issuer } : {}) }, exp: expiresAt(t.expires_in, Date.now()) }));
+        } catch { /* the SDK reports the bad answer */ }
+      }
+      return new Response(text, { status: res.status, statusText: res.statusText, headers: res.headers });
+    });
+    locks.set(name, run);
+    return run;
+  };
+}
+/** Token values to blank out of any error text (a server echoing them back). */
+const oauthSecrets = async (p: Plugin) => {
+  if (!p.oauth) return [];
+  const t = (await readOAuth(p.name)).tokens;
+  return [t?.access_token, t?.refresh_token].filter((x): x is string => typeof x === "string");
+};
+
+/** interactive: only his Sign in click may start a browser login; a tool call or Test without tokens fails with SIGN_IN_FIRST. */
+function provider(p: Plugin, redirect: string | undefined, interactive: boolean, onRedirect: (u: URL) => void = () => {}): OAuthClientProvider {
+  const redirectUrl = redirect ?? "http://127.0.0.1:3000/api/plugins/oauth"; // set at his Sign in click; this default only feeds refresh
+  let seen: string | undefined; // the tokens this connection started with: only those may be dropped after a refused refresh
+  return {
+    get redirectUrl() { return redirectUrl; },
+    get clientMetadata() {
+      return { client_name: "ORBIT", redirect_uris: [redirectUrl], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none" };
+    },
+    state: async () => {
+      if (!interactive) throw new Error(SIGN_IN_FIRST);
+      const state = makeState(p.name, randomToken());
+      await editOAuth(p.name, (f) => ({ ...f, redirect: redirectUrl, state, stateAt: new Date().toISOString() }));
+      return state;
+    },
+    clientInformation: async () => (await readOAuth(p.name)).client as never,
+    saveClientInformation: (client) => editOAuth(p.name, (f) => ({ ...f, client: client as Record<string, unknown> })),
+    tokens: async () => { const t = (await readOAuth(p.name)).tokens; seen = t?.refresh_token ?? t?.access_token; return t as never; },
+    saveTokens: (tokens) => editOAuth(p.name, (f) => ({ ...f, tokens: tokens as OAuthFile["tokens"], exp: expiresAt(tokens.expires_in, Date.now()) })),
+    redirectToAuthorization: (u) => { if (!interactive) throw new Error(SIGN_IN_FIRST); onRedirect(u); },
+    saveCodeVerifier: (verifier) => editOAuth(p.name, (f) => ({ ...f, verifier })),
+    codeVerifier: async () => { const v = (await readOAuth(p.name)).verifier; if (!v) throw new Error("no sign-in in progress"); return v; },
+    invalidateCredentials: (scope) => editOAuth(p.name, (f) => {
+      if (scope === "all") return null;
+      const n = { ...f };
+      if (scope === "client") delete n.client;
+      if (scope === "tokens") {
+        if ((f.tokens?.refresh_token ?? f.tokens?.access_token) !== seen) return undefined; // newer tokens arrived meanwhile: keep them
+        delete n.tokens; delete n.exp;
+      }
+      if (scope === "verifier") delete n.verifier;
+      return n;
+    }),
+  };
+}
+
+/** Provider for a connection; refreshes first when the access token expires within 2 minutes (one refresh at a time per plugin). */
+async function freshProvider(p: Plugin): Promise<OAuthClientProvider> {
+  const f = await readOAuth(p.name), prov = provider(p, f.redirect, false);
+  if (f.tokens?.refresh_token && needsRefresh(f.exp, Date.now())) {
+    const { auth } = await import("@modelcontextprotocol/sdk/client/auth.js");
+    await auth(prov, { serverUrl: p.url!, fetchFn: lockedFetch(p.name) }).catch(() => {}); // a refused refresh drops the tokens (SDK invalidateCredentials); the connect then reports SIGN_IN_FIRST
+  }
+  return prov;
+}
+
+/** Test hook: the same refresh path a 401 takes inside the SDK transport. */
+export async function refreshOAuthNow(name: string) {
+  const p = loadPlugins().find((x) => x.name === name)!, f = await readOAuth(name);
+  const { auth } = await import("@modelcontextprotocol/sdk/client/auth.js");
+  return auth(provider(p, f.redirect, false), { serverUrl: p.url!, fetchFn: lockedFetch(name) });
+}
+
+export const oauthSignedIn = async (name: string) => !!(await readOAuth(name)).tokens?.access_token;
+
+/** His Sign in click: discovery + registration + PKCE; returns the authorization-server URL to open, or "" if already signed in. */
+export async function startOAuth(name: string, redirect: string): Promise<{ url?: string; error?: string }> {
+  const p = loadPlugins().find((x) => x.name === name);
+  if (!p?.oauth || !p.url) return { error: "not an oauth plugin" };
+  const { auth } = await import("@modelcontextprotocol/sdk/client/auth.js");
+  let url: URL | undefined;
+  await editOAuth(name, (f) => ({ ...f, redirect, ...(f.redirect && f.redirect !== redirect ? { client: undefined } : {}) })); // new port: register again
+  try {
+    const r = await auth(provider(p, redirect, true, (u) => { url = u; }), { serverUrl: p.url, fetchFn: lockedFetch(name) });
+    if (r === "AUTHORIZED") return {}; // refresh worked: nothing to open
+  } catch (e) { return { error: connectError(e, { url: p.url }, await oauthSecrets(p)) }; }
+  return url ? { url: url.href } : { error: "the server gave no sign-in page" };
+}
+
+/** The browser coming back: the state must be the one saved at his click (constant time, 10 min, used once). */
+export async function finishOAuth(state: string, code: string): Promise<{ name?: string; error?: string }> {
+  const name = stateName(state), p = name ? loadPlugins().find((x) => x.name === name) : undefined;
+  if (!name || !p?.oauth || !p.url) return { error: "state" };
+  let ok = false, f: OAuthFile = {};
+  await editOAuth(name, (x) => { // checked and cleared in one queued step: a second callback with the same state finds none
+    f = x;
+    ok = !!x.state && sameSecret(x.state, state) && stateFresh(x.stateAt, Date.now());
+    return x.state ? { ...x, state: undefined, stateAt: undefined } : undefined; // used once, also when wrong
+  });
+  if (!ok) return { name, error: "state" };
+  const { auth } = await import("@modelcontextprotocol/sdk/client/auth.js");
+  try {
+    await auth(provider(p, f.redirect, true), { serverUrl: p.url, authorizationCode: code, fetchFn: lockedFetch(name) });
+  } catch { return { name, error: "exchange" }; } // the SDK's message may quote the server's answer: not shown
+  await editOAuth(name, (x) => ({ ...x, verifier: undefined }));
+  logActivity({ area: "system", title: `Plugin ${name}: signed in` });
+  return { name };
+}
+
+/** Sign out: forget tokens and the registered client on this PC. shortcut: no RFC 7009 revoke call; add it if a server lists revocation_endpoint and he wants the grant killed server-side too. */
+export async function signOutOAuth(name: string) {
+  await editOAuth(name, () => null);
+  logActivity({ area: "system", title: `Plugin ${name}: signed out` });
 }

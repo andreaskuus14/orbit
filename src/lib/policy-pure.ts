@@ -9,6 +9,7 @@ import { WS_TOOLS, wsTainted, wsWriteBlocked } from "./core-workspace.ts";
 import type { WsGate } from "./ws-intent-pure.ts";
 import { createGoalBlocked } from "./goals-pure.ts";
 import { asksToRemember } from "./reflect-pure.ts";
+import { confirmsDecision } from "./decisions-pure.ts";
 import { checkpointBlocked } from "./checkpoint-pure.ts";
 import { draftBlocked } from "./higgsfield-pure.ts";
 import { tonightBlocked } from "./night-pure.ts";
@@ -65,7 +66,7 @@ export const TIERS: Record<string, Tier> = {
   roblox_lint: "T0", // selene on his exported project, read-only
   local_image: "T2", // ComfyUI on his PC (tools/comfyui): a new VAULT picture, the prompt never leaves the PC
   browse: "T1", // ORBIT's hidden browser on a public page: read-only (non-GET requests blocked), submits/logins refused for his click
-  watch_add: "T2", watch_list: "T0", watch_changes: "T0", // page watch (pagewatch.ts): a local record; the checks only read public pages
+  save_decision: "T2", watch_add: "T2", watch_list: "T0", watch_changes: "T0", // page watch (pagewatch.ts): a local record; the checks only read public pages
   daily_runs: "T0", // daily.ts: reads the three daily workflows' own records
 };
 
@@ -223,6 +224,7 @@ export function decide(tool: string, input: Record<string, unknown> | undefined,
   else if (tool === "propose_rule") blocked = ruleBlocked(question, dataIn);
   else if (tool === "watch_add") blocked = watchBlocked(question, dataIn);
   else if (tool === "ask_agent") blocked = agentBlocked(question, input?.agent, ctx.attach || untrustedIn(ctx.steps));
+  else if (tool === "save_decision" && input?.confirmed === true) blocked = !dataIn && !privateIn && confirmsDecision(typedText(question)) ? "" : "save a decision only after his latest message is a plain yes to the preview"; // the preview call writes nothing
   else if (tool === "save_checkpoint") blocked = checkpointBlocked(question);
   else if (isOpsTool(tool)) { if (ctx.stopAll) return no(PAUSED_MSG); blocked = opsBlocked(tool, question, dataIn, input, ctx.attach || ctx.pins ? [] : [...createdLeads(ctx.steps), ...(ctx.ownLeads ?? [])]) ?? ""; } // Stop-all halts operator writes outright
   else if (tool === "save_memory" && !asksToRemember(question)) blocked = "only save when the user asks; reflection handles the rest"; // core.ts:287

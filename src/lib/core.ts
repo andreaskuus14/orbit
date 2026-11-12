@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { inlineTask } from "./task-claim-pure";
 import { atLeastOpus, isRisky, turnRisk } from "./agent-defs-pure";
-import { needsOpus } from "./core-mcp-boost-pure";
+import { isLimitError, needsOpus } from "./core-mcp-boost-pure";
+import { runData } from "./model-log-pure";
 import { askClaude, askClaudeStream, emit, warmClaude, recordUsage, reviewDraft, MODEL, FAST_MODEL, DEEP_MODEL, DEEP_EFFORT, type PromptImage } from "./claude";
 
 // Cleared once the local CLI rejects --effort, so later deep turns don't fail on it again (until a restart).
@@ -220,11 +221,15 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const prevAnswer = [...history].reverse().find((h) => h.role === "assistant")?.content;
   let tier = attach ? "smart" as const : pickModel(question, prevAnswer);
   // Keyword hint (auth/money/approvals/sending, or "yes, go ahead" on such a proposal): start on the deep tier; a limit may still step it down.
-  if (isRisky(turnRisk(question, prevAnswer ?? ""))) tier = "deep";
+  const hint = turnRisk(question, prevAnswer ?? "");
+  if (isRisky(hint)) tier = "deep";
+  // model.run (ledger, tokens only): the model that actually ran, why it was held to Opus (tool names / risk flag names), a usage-limit step-down
+  let ran = "", down: string | undefined;
+  const why: string[] = Object.keys(hint).map((k) => `risk:${k}`);
   // held: a model below Opus reached for a T2/T3 tool (needsOpus), so the turn was redone on Opus: from then on every model
   // below runs at Opus or above, never locally, with no limit fallback
   let held = false;
-  const floor = (m: string) => (held ? atLeastOpus(m) : m), toOpus = (from: string) => { onReset?.(); held = true; if (tier === "fast") tier = "smart"; trace.push({ step: "fallback", detail: `${from} reached for a T2/T3 tool → redo on Opus`, ms: 0, ok: false }); };
+  const floor = (m: string) => (held ? atLeastOpus(m) : m), toOpus = (from: string, tool?: string) => { onReset?.(); held = true; ran = ""; if (tool) why.push(tool); if (tier === "fast") tier = "smart"; trace.push({ step: "fallback", detail: `${from} reached for a T2/T3 tool → redo on Opus`, ms: 0, ok: false }); };
   if (typeof voice === "string" && tier === "deep") tier = "smart"; // phone call: no screen, the reply must start fast. On-screen voice keeps full depth (only its summary is spoken)
   const maxN = maxSteps(process.env.ORBIT_CORE_MAX_STEPS, isHeavy(question, [])); // operator/research turns get more steps
   const system = systemPrompt(await at("profile", cachedProfile(sb, userId)), localDate(), maxN); // no clock: the same all day, so spare CLIs (warmCore) and prompt caching match
@@ -351,6 +356,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       return true;
     }
     // Fast/deep model unavailable or failed: redo this step on the main model.
+    if (tier === "deep" && isLimitError(e)) down ??= DEEP_MODEL;
     if (tier === "deep") trace.push({ step: "fallback", detail: `deep → main model (${String(e instanceof Error ? e.message : e).slice(0, 120)})`, ms: 0, ok: false });
     tier = "smart"; return true;
   };
@@ -390,8 +396,10 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
         // A redo after tools already ran carries their results, so writes aren't repeated.
         const tail = `\n\n${CORE_LANG_RULE[lang]}${voiceNote.replace(/"final"/g, "your answer")}${steps.length ? `YOUR TOOL RESULTS SO FAR:\n${steps.join("\n\n")}\n\n` : ""}`;
         try {
-          const r = await engineTurn({ question, tools: evalTools, sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: floor(tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL), risky: held, effort, maxTurns: maxN, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast" && !held, turnId, exec, record, onDelta: sendDelta, onReset, onStep, onRoute, verify });
-          if (r.escalated) { if (r.opus) toOpus(tier); else { onReset?.(); tier = "smart"; } continue; } // as the loop: redone on the main model, or on Opus for T2/T3
+          const want = floor(tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL);
+          const r = await engineTurn({ question, tools: evalTools, sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: want, risky: held, effort, maxTurns: maxN, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast" && !held, turnId, exec, record, onDelta: sendDelta, onReset, onStep, onRoute, verify });
+          ran = r.model ?? want; if (r.down) down ??= r.down;
+          if (r.escalated) { if (r.opus) toOpus(tier, r.tool); else { onReset?.(); tier = "smart"; } continue; } // as the loop: redone on the main model, or on Opus for T2/T3
           if (sess && sessionKey) coreSessions.set(sessionKey, { id: r.sessionId || sess.id, resume: true });
           answer = r.text;
           break;
@@ -443,8 +451,10 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
         if (planning && !signal?.aborted) { noRoute = true; step--; continue; } // the fast model failed: this turn plans on its own model
         recover(e, effort); step--; continue;
       }
+      if (r.local) onRoute?.("local"); // Claude was unreachable or on hold for this step: the label shows the local model, then the next Claude step flips it back
       if (sess && !r.local) { sess = { id: sess.id, resume: true }; sessSent = true; sessSeen = steps.length; if (sessionKey) coreSessions.set(sessionKey, sess); }
       await recordUsage(sb, userId, "core.chat", r, r.local ? "local" : model);
+      ran = r.local ? "local" : model;
       // Offline brain (claude.ts): no tools, so its reply is always the answer; the "local" trace step shows the badge.
       if (r.local && !trace.some((s) => s.step === "local")) trace.push({ step: "local", detail: "local brain: Claude was unreachable or on hold", ms: 0, ok: true });
       const reply = r.local ? { thought: "", final: parseAgentReply(r.text).final ?? r.text } : parseAgentReply(r.text);
@@ -462,7 +472,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       const thought = tier === "deep" ? (reply.tool ? "planned privately" : "answering") : reply.thought || (reply.final !== undefined ? "answering" : "");
       trace.push({ step: "think", detail: `${model} · ${thought}`.slice(0, 200), ms: r.ms, ok: true });
       if (planning && !r.local && (reply.final !== undefined || !reply.tool)) { synth = true; step--; continue; } // ready to answer: the turn's model writes it
-      if (reply.tool && !r.local && !held && needsOpus(reply.tool, model)) { toOpus(model); step--; continue; } // before it runs, as the engines
+      if (reply.tool && !r.local && !held && needsOpus(reply.tool, model)) { toOpus(model, reply.tool); step--; continue; } // before it runs, as the engines
       if (tier === "fast" && reply.tool) { onReset?.(); tier = "smart"; step--; continue; }
       if (reply.final !== undefined || !reply.tool || last) {
         answer = reply.final ?? (reply.tool ? "" : r.text); // a tool call on the last step is never shown as the answer
@@ -502,6 +512,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     if (signal?.aborted && stopped.length) throw new CoreStopped(stopped.join("\n\n"));
     throw e;
   } finally {
+    if (ran) void emit(sb, userId, "model.run", "core", runData({ kind: "core", job: "core", model: ran, risky: held, why, down })); // also a stopped turn: its model still ran
     if (sessionKey) settleWsPending(userId, sessionKey, steps);
     if (sessionKey && !carried && carriesPrivate({ ...policyCtx(), steps })) coreTaint.mark(sessionKey); // also when stopped mid-turn
     if (sessionKey) { if (outsideEarlier || outsideTextIn(steps)) outsideClean.delete(sessionKey); else outsideClean.add(sessionKey); }

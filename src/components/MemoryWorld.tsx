@@ -1,6 +1,7 @@
 "use client";
 // MEMORY world: every memory is a star. Positions come from /api/memories/map (server-side layout from embeddings),
 // links are faint threads, CORE-learned memories carry a ring. The list drawer lives on as "List view" in the side panel.
+import { WorldEmblem } from "./WorldEmblem";
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type RootState, type ThreeEvent } from "@react-three/fiber";
@@ -474,7 +475,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
 
       <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] flex max-h-[45dvh] flex-col gap-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label="MEMORY controls">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="brand text-base">MEMORY <span className="muted num text-xs font-normal">{data ? `${data.items.length}${data.total > data.items.length ? ` of ${data.total}` : ""} stars` : ""}</span></h2>
+          <h2 className="brand flex items-center gap-2 text-base"><WorldEmblem id="memory" size={28} />MEMORY <span className="muted num text-xs font-normal">{data ? `${data.items.length}${data.total > data.items.length ? ` of ${data.total}` : ""} stars` : ""}</span></h2>
           {!flat && List && <div className="flex gap-1.5">
             <button className="chip" aria-pressed={!list && !chron && !peep && !hall} onClick={() => { setList(false); setChron(false); setPeople(false); setPal(false); }}>Constellation</button>
             <button className="chip" aria-pressed={river} onClick={() => { setList(false); setChron(true); setPeople(false); setPal(false); }}>Chronicle</button>

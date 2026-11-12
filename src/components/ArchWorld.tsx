@@ -1,6 +1,7 @@
 "use client";
 // ARCH planet: a study workspace for small buildings. Blocks in metres on a plot; edit by typing to CORE or directly with the numbers.
 // Quantities and euros are computed in arch-pure.ts from the geometry, never by the AI. Learning tool, not certification.
+import { WorldEmblem } from "./WorldEmblem";
 import { WarmCompile } from "./WarmCompile";
 import { memo, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import * as THREE from "three";
@@ -11,6 +12,7 @@ import { ContactShadows, Edges, Line, OrbitControls, PerformanceMonitor } from "
 import { useGlRecovery } from "./useGlRecovery";
 import { useT } from "./i18n";
 import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
+import { domeArcs, hourSegments, type Vec } from "@/lib/arch-sunpath-pure";
 import { concepts as makeConcepts, type Brief } from "@/lib/arch-concepts-pure";
 import { COST_ASSUMPTIONS, COST_EXCLUDED, MAX, applyOps, boq, bulkTips, costLines, isOpening, isStraightWall, RULES, starterScene, STARTER_PRICES, type Op, type Part, type PriceItem, type Scene } from "@/lib/arch-pure";
 import { coach, type FloorType } from "@/lib/arch-structure-pure";
@@ -59,6 +61,8 @@ const BG = "#ebe7e0", GOLD = "#c9a24a", FAIL = "#dc2626"; // FAIL: structure coa
 const HOLO_C = { bg: "#020a10", table: "#04141c", rim: "#67e8f9", dot: "#22d3ee", edge: "#a5f3fc" }; // holotable mode
 const SCAN_BG = "#05080c"; // scans read best on near-black, like a dark studio
 const BP = { bg: "#0b2545", ground: "#0e2f56", fill: "#123a66", edge: "#e0f2fe", grid: ["#5b8bc4", "#1d4a7c"] as const }; // blueprint mode
+const DOME_R = 20; // m; sun-path dome radius over the plot
+const DOME_COLOR = { summer: "#ffb347", equinox: "#ffe066", winter: "#7ec8ff" } as const;
 const SITE = { lat: 59.437, lon: 24.754 }; // sun study default site (Tallinn); lat/long editable in the panel
 const TP = new THREE.Vector3(), TS = new THREE.Vector3(); // per-frame scratch
 const STEP_S = 0.45; // build animation: one part every 0.45 s, bottom to top
@@ -299,6 +303,14 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
       return { pos, dir, arc };
     } catch { return null; }
   }, [sunAt, sun.date, at.lat, at.lon, north]);
+  const [dome, setDome] = useState(false); // sun-path dome, off by default
+  const domeLines = useMemo(() => {
+    if (!dome) return null;
+    try {
+      const y = Number(sun.date.slice(0, 4)), m = (p: Vec): Vec => { const d = toModel({ x: p[0], y: p[1], z: p[2] }, north); return [d.x, d.y, d.z]; };
+      return { arcs: domeArcs(at.lat, at.lon, y, DOME_R).map((a) => ({ ...a, points: a.points.map(m) })), hours: hourSegments(at.lat, at.lon, y, DOME_R).map(m) };
+    } catch { return null; }
+  }, [dome, sun.date, at.lat, at.lon, north]);
   const SR = site.on ? 90 : 40; // the light (and its shadow box) reaches further when the neighbours are out
   const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * SR, Math.max(0.5, sunInfo.dir.y * SR), sunInfo.dir.z * SR] : [-14, 22, 12];
   const night = sun.on && !!sunInfo && sunInfo.pos.elevationDeg < 0;
@@ -493,13 +505,18 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
             </>; })()}
           </>}
           {sun.on && sunInfo && !scan && !holo && !ifc && <SunShadow scene={view} sun={{ ...sunInfo.pos, azimuthDeg: sunInfo.pos.azimuthDeg + site.north }} /* model bearing */ />}
+          {domeLines && !scan && <group>
+            {domeLines.arcs.filter((a) => a.points.length > 1).map((a) => <Line key={a.key} points={a.points} color={DOME_COLOR[a.key]} lineWidth={2} transparent opacity={0.85} />)}
+            {domeLines.hours.length > 1 && <Line points={domeLines.hours} segments color="#ffd27a" lineWidth={1} transparent opacity={0.35} />}
+            {sunInfo && sunInfo.pos.elevationDeg > 0 && <mesh position={[sunInfo.dir.x * DOME_R, sunInfo.dir.y * DOME_R, sunInfo.dir.z * DOME_R]}><sphereGeometry args={[0.45, 12, 8]} /><meshBasicMaterial color="#ffe9a8" toneMapped={false} /></mesh>}
+          </group>}
           {walk && !paused && <Walker key={scan?.name ?? "model"} rects={scan ? noRects : rects} plot={scanPlot ?? plotWD} onExit={() => setWalk(false)} />}
           <OrbitControls makeDefault enabled={!walk} enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced && !walk} autoRotateSpeed={0.8} />
         </Canvas>
       )}
 
       <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[45dvh] space-y-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label={tr("arch.controls")}>
-        <h2 className="brand text-base">{"ARCH"}</h2>
+        <h2 className="brand flex items-center gap-2 text-base"><WorldEmblem id="arch" size={28} />{"ARCH"}</h2>
         <ProjectDesk key={project || "unassigned"} project={project} onSelect={onProject} active={!paused} disabled={!ready || busy || lessonBusy || !!lesson || ["saving", "failed", "conflict"].includes(save.status)} />
         <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void send(); }}>
           <input className="field flex-1" placeholder={tr("arch.cmdPh")} value={cmd} maxLength={500} onChange={(e) => setCmd(e.target.value)} aria-label={tr("arch.cmd")} />
@@ -609,6 +626,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
           <button className="chip" aria-pressed={holo} onClick={() => setMode((m) => (m === "holo" ? "model" : "holo"))} title={tr("arch.holoTitle")}>{tr("arch.holo")}</button>
           <button className="chip" aria-pressed={walk} disabled={flat} onClick={() => setWalk((v) => !v)} title={tr("arch.walkTitle")}>🚶 {tr("arch.walk")}</button>
           <button className="chip" aria-pressed={sun.on} onClick={() => setSun((v) => ({ ...v, on: !v.on }))}>☀ {tr("arch.sun")}</button>
+          <button className="chip" aria-pressed={dome} disabled={!!scan} onClick={() => setDome((v) => !v)} title={tr("arch.sunDomeTitle")}>◠ {tr("arch.sunDome")}</button>
           <button className="chip" aria-pressed={dayOn} onClick={() => { setDayOn((v) => !v); setDaylight(null); }} title={tr("arch.dayTitle")}>🌤 {tr("arch.daylight")}</button>
           <button className="chip" aria-pressed={site.on} onClick={() => setSite((v) => ({ ...v, on: !v.on, draft: null }))} title={tr("arch.siteTitle")}>🏘 {tr("arch.site")}</button>
           <button className="chip" aria-pressed={sc.on} onClick={() => setSc((v) => ({ ...v, on: !v.on }))} title={tr("arch.structTitle")}>📐 {tr("arch.structure")}</button>
@@ -656,7 +674,8 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
               </div>
               <details><summary className="cursor-pointer muted">{tr("arch.exportChecks")}</summary>
                 <ul className="muted pl-4">{x.checks.map((c) => <li key={c.name}>{c.ok ? "✓" : "✗"} {c.name}{c.detail ? `: ${c.detail}` : ""}</li>)}</ul>
-                <p className="muted text-[11px]">{EXPORT_LIMITS[x.format]}</p></details>
+                <p className="muted text-[11px]">{EXPORT_LIMITS[x.format]}</p>
+                {x.format === "ifc" && <a className="underline text-[11px]" href="https://validate.buildingsmart.org" target="_blank" rel="noopener noreferrer">{tr("arch.ifcValidate")} ↗</a>}</details>
             </div>;
           })}
           <p className="muted text-[11px]">{tr("arch.exportHow")}</p>

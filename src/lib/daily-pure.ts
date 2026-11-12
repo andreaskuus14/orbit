@@ -27,7 +27,6 @@ export function slotAt(now: number, hhmm: string): number {
 
 export type BriefIn = { briefings: { kind: string; created_at: string; article_count: number }[]; runs: { status: string; detail: string | null; started_at: string }[] };
 
-const BRIEF_CATCHUP_MS = 4 * 3600_000; // scheduler.ts dueSlots catches a missed slot up for 4 h whenever ORBIT is on
 
 /** Today's 07:30 brief from `briefings` + `job_runs` (both already filtered to today, newest first). A brief he asked for after
  *  the slot ("manual") stands in for it. */
@@ -45,9 +44,9 @@ export function briefState(x: BriefIn, now: number, slot = "07:30"): DailyItem {
   if (run?.status === "failed") return { wf: "brief", state: "failed", verified: false, evidence: (run.detail ?? "").slice(0, 160), next: "Check the feeds in INTELLIGENCE, then ask for a new brief." };
   if (now < at) return { wf: "brief", state: "planned", verified: false, evidence: `runs at ${slot}` };
   if (now < at + GRACE_MS) return { wf: "brief", state: "planned", verified: false, evidence: `due at ${slot}, starting` };
-  const until = hm(new Date(at + BRIEF_CATCHUP_MS).toISOString());
-  if (now < at + BRIEF_CATCHUP_MS) return { wf: "brief", state: "planned", verified: false, evidence: `not run yet; ORBIT catches it up by ${until} while it is on` };
-  return { wf: "brief", state: "missed", verified: false, evidence: `no run recorded between ${slot} and ${until}`, next: "ORBIT was off, its scheduler was off (SUPABASE_SECRET_KEY), or Claude's usage limit held it. Ask CORE for a brief if you still want one." };
+  // scheduler.ts dueSlots catches the morning brief up any time the same day while ORBIT is on
+  if (now < slotAt(now, "23:59")) return { wf: "brief", state: "planned", verified: false, evidence: "not run yet; ORBIT catches it up today while it is on" };
+  return { wf: "brief", state: "missed", verified: false, evidence: `no run recorded between ${slot} and 23:59`, next: "ORBIT was off, its scheduler was off (SUPABASE_SECRET_KEY), or Claude's usage limit held it. Ask CORE for a brief if you still want one." };
 }
 
 export type ClipJobIn = { status: string; createdAt: string; updatedAt: string; error?: string; clips: { status: string; publish?: { status: string; at: string; destination?: string } }[] };
@@ -141,4 +140,16 @@ export function digestDue(at: string | undefined, st: DigestState, day: string, 
   const triedToday = !!st.tried && Date.parse(st.tried) >= slotAt(now, "00:00");
   if (triedToday && !st.failed) return false;
   return !triedToday || now - Date.parse(st.tried!) >= RETRY_MS;
+}
+
+/** The morning status event: each workflow done, needs-you (his move or a problem), or running (still on its way today). */
+export type StatusMark = "done" | "needs-you" | "running";
+export function statusOf(v: DailyView): Record<DailyItem["wf"], StatusMark> {
+  const mark = (s: DailyState): StatusMark => s === "completed" || s === "idle" ? "done" : s === "planned" || s === "attempted" ? "running" : "needs-you";
+  return Object.fromEntries(v.items.map((i) => [i.wf, mark(i.state)])) as Record<DailyItem["wf"], StatusMark>;
+}
+/** Once per local day, from `at` (ORBIT_DAILY_DIGEST, default 10:30; "off" still emits at 10:30: the event is local, not a push) to midnight. */
+export function statusDue(at: string | undefined, lastDay: string | undefined, day: string, now: number): boolean {
+  const t = /^([01]?\d|2[0-3]):[0-5]\d$/.test((at ?? "").trim()) ? at!.trim() : "10:30";
+  return lastDay !== day && now >= slotAt(now, t);
 }

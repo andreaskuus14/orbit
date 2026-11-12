@@ -7,6 +7,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { clearProjectSession } from "@/lib/project-desk-pure";
 import { createClient } from "@/lib/supabase/client";
 import { PLANETS, planetById, type PanelId } from "@/lib/planets";
+import { WorldEmblem } from "./WorldEmblem";
+import { useTick } from "./useTick";
+import { AmbientLoop } from "./AmbientLoop";
 import { isPlanetWorld, PLANET_WORLDS } from "@/lib/planet-worlds-pure";
 import { WorldPaused } from "./world-paused";
 import { CALL_ACTIVE, VOICE_ASK, voiceContext } from "./voice/bus";
@@ -135,6 +138,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [dilation, setDilation] = useState<{ startAt: number; endAt: number } | null>(null); // a time dilation focus block
   const [panel, setPanel] = useState<PanelId | null>(null);
   const [memoryCount, setMemoryCount] = useState(0);
+  const memoryShown = useTick(memoryCount);
   const [busy, setBusy] = useState(false);
   const [warning, setWarning] = useState(false);
   const [pulseBusy, setPulseBusy] = useState(false);
@@ -710,16 +714,17 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <PlanetWorld key={shown} id={shown} flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld}>{panelBody(shown)}</PlanetWorld>
       ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
         <nav aria-label={t("overview.aria")} inert={covered || undefined} className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
+          <AmbientLoop />
           <div className="overview-heading"><p>{t("overview.kicker")}</p><h1>{t("overview.title1")}<br />{t("overview.title2")}</h1><span>{t("overview.lede")}</span></div>
           {activityHome && <NeedsYou inline tasks={galaxyTasks} tasksFailed={galaxyTasksFailed} onOpenTask={openTask} onOpenGoal={openGoal} />}
           {!shown && <ContinueWork onOpenTask={openTask} onOpenGoal={openGoal} />}
           <ul className="overview-worlds">
             <li><button className={`planet-card${warning ? " warn" : ""}`} onClick={() => select("core")} style={{ borderColor: "#7dd3fc" }}>
-              <b>CORE</b><span className="muted text-sm">{busy ? t("overview.thinking") : warning ? t("overview.lastFailed") : t("overview.core")}</span></button></li>
+              <b><WorldEmblem id="core" size={26} className="planet-card-emblem" />CORE</b><span className="muted text-sm">{busy ? t("overview.thinking") : warning ? t("overview.lastFailed") : t("overview.core")}</span></button></li>
             {PLANETS.map((p) => (
               <li key={p.id}><button className="planet-card" onPointerEnter={() => warmWorld(p.id)} onFocus={() => warmWorld(p.id)} data-overview-planet={p.id} onClick={() => galaxySelect(p.id)} style={{ borderColor: p.color }}>
-                <b style={{ color: p.color }}>{t(`planet.${p.id}`)}</b>
-                <span className="muted text-sm">{p.id === "memory" ? tn("overview.memories", memoryCount) : p.id === "intelligence" && pulseBusy ? t("overview.pulseBusy") : p.id === "intelligence" && pulseFailed ? t("overview.pulseFailed") : p.id === "operations" && automationFailing ? t("overview.autoFailed") : p.id === "life" && lifeLine ? lifeLine : p.id === "agents" && runningTasks.length ? tn("overview.running", runningTasks.length) : t(`planet.${p.id}.blurb`)}</span></button></li>
+                <b style={{ color: p.color }}><WorldEmblem id={p.id} size={26} className="planet-card-emblem" />{t(`planet.${p.id}`)}</b>
+                <span className="muted text-sm">{p.id === "memory" ? tn("overview.memories", memoryShown) : p.id === "intelligence" && pulseBusy ? t("overview.pulseBusy") : p.id === "intelligence" && pulseFailed ? t("overview.pulseFailed") : p.id === "operations" && automationFailing ? t("overview.autoFailed") : p.id === "life" && lifeLine ? lifeLine : p.id === "agents" && runningTasks.length ? tn("overview.running", runningTasks.length) : t(`planet.${p.id}.blurb`)}</span></button></li>
             ))}
           </ul>
         </nav>
@@ -778,7 +783,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {drawer && !WORLDS.includes(drawer) && (
         <aside ref={drawerDrag.ref} tabIndex={-1} className={`glass drawer${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
           aria-hidden={!panel || undefined} inert={!panel || undefined}>
-          <div className="drag-handle mb-3 flex items-center justify-between" {...(docked ? {} : drawerDrag.handle)}><h2 className="brand text-base"><MaskText key={title} text={title} /></h2><button className="chip" onClick={() => setPanel(null)} aria-label={t("hud.closePanel")} title={t("hud.closeEsc")}>{t("common.close")}</button></div>
+          <div className="drag-handle mb-3 flex items-center justify-between" {...(docked ? {} : drawerDrag.handle)}><h2 className="brand flex items-center gap-2 text-base">{drawer && drawer !== "profile" && <WorldEmblem id={drawer} size={28} />}<MaskText key={title} text={title} /></h2><button className="chip" onClick={() => setPanel(null)} aria-label={t("hud.closePanel")} title={t("hud.closeEsc")}>{t("common.close")}</button></div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {drawer && panelBody(drawer)}
           </div>

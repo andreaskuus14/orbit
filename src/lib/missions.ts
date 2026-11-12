@@ -195,7 +195,13 @@ export async function listMissions(sb: SupabaseClient, userId: string): Promise<
 }
 
 /** Scheduler tick: keep this user's open missions moving (after approvals and restarts). */
+const resuming: Set<string> = ((globalThis as unknown as { __orbitMissionResume?: Set<string> }).__orbitMissionResume ??= new Set()); // survives a hot reload, like the goal drivers
 export async function resumeMissions(sb: SupabaseClient, userId: string) {
+  if (resuming.has(userId)) return; // a slow pass from the last tick (or an approval) is still going: never two at once
+  resuming.add(userId);
+  try { await resumePass(sb, userId); } finally { resuming.delete(userId); }
+}
+async function resumePass(sb: SupabaseClient, userId: string) {
   const { data } = await sb.from("missions").select(COLS).eq("user_id", userId).in("status", ["queued", "running", "waiting-approval"]);
   for (const r of (data ?? []) as Row[]) await reconcile(sb, userId, r).catch((e) => console.error("[orbit] mission resume failed:", r.id, e instanceof Error ? e.message : e));
 }

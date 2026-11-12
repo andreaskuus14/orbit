@@ -15,7 +15,7 @@ import {
 
 // GOALS runner. State: public.goals (migration 0010, RLS owner-only), one row per goal, the doc changed only by compare-and-swap on
 // `version`. Step work = ordinary top-level rows in public.tasks run through runTask, sharing the agent slots with chains (withSlot).
-// No timer anywhere: advance() runs when a step finishes (it loops on), on GET /api/goals (opening the goal / station), on GET
+// Driven by events, no timer of its own: advance() runs on the scheduler tick (resumeGoals), when a step finishes (it loops on), on GET /api/goals (opening the goal / station), on GET
 // /api/morning (opening ORBIT) and on the owner's Continue. Approvals: step OKs and plan changes only via POST /api/goals (UI click);
 // an agent's own side effects wait in the task's existing approval flow (/api/tasks/:id approve).
 
@@ -210,10 +210,10 @@ export function abortGoalDrivers() {
   return driving.size;
 }
 
-/** Opening ORBIT: nudge every live goal (no-op for ones already driving). */
-export async function resumeGoals(sb: SupabaseClient, userId: string) {
+/** Scheduler tick (and opening ORBIT): nudge every live goal (no-op for ones already driving). */
+export async function resumeGoals(sb: SupabaseClient, userId: string, maxRuns = Infinity) {
   const { data } = await sb.from("goals").select("id").eq("user_id", userId).in("status", ["approved", "running", "waiting"]);
-  for (const r of data ?? []) void advance(sb, userId, r.id);
+  for (const r of data ?? []) void advance(sb, userId, r.id, maxRuns);
 }
 
 export type GoalAction = "approve" | "edit" | "redraft" | "ok" | "proposal" | "pause" | "resume" | "stop" | "continue" | "metric" | "delete" | "milestones" | "replan" | "phrase";

@@ -1,0 +1,3 @@
+﻿"Konto number";"Dokumendi number";"Kuupäev";"Saaja/maksja konto";"Saaja/maksja nimi";"Saaja panga kood";"Tühi";"Deebet/Kreedit (D/C)";"Summa";"Viitenumber";"Arhiveerimistunnus";"Selgitus";"Teenustasu";"Valuuta";"Isikukood või registrikood"
+﻿"EE101010220012345678";"1";"03.11.2026";"EE121700017001234567";"Kohvik Tõru OÜ";"";"";"C";"1 240,00";"";"RO123";"Invoice 2026-002, thanks";"0,00";"EUR";"12345678"
+﻿"EE101010220012345678";"2";"04.11.2026";"EE121700017001234567";"Bolt";"";"";"D";"8,40";"";"RO124";"Ride";"0,00";"EUR";""

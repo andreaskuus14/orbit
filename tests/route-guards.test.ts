@@ -6,7 +6,7 @@ import ts from "typescript";
 
 // Static safety net for every API route (docs/SAFETY.md §6). Each exported handler must reach requireUser() (session + allowed
 // email) or, if public, its own named check. Each state-changing handler must be covered by crossSiteBlocked(): src/middleware.ts
-// runs it on every /api write, but its matcher skips paths ending in .png/.jpg/.svg/.webp, so a route whose LAST segment is
+// runs it on every /api write, but its matcher skips paths ending in .png/.jpg/.svg/.webp/.webm/.mp4, so a route whose LAST segment is
 // dynamic (/api/tasks/x.png) bypasses the middleware and must call crossSiteBlocked() itself. Exceptions need a reason below.
 
 const ROOT = "src/app/api";
@@ -33,7 +33,7 @@ const PUBLIC: Record<string, [string | null, string]> = {
 // "route METHOD" -> why that write handler (last segment dynamic) doesn't call crossSiteBlocked. Empty: keep it that way.
 const NO_CSRF: Record<string, string> = {};
 // The CSRF rule above relies on this exact matcher; if you change it, re-check which routes the middleware can miss.
-const MATCHER = String.raw`"/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|svg|webp)$).*)"`;
+const MATCHER = String.raw`"/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|svg|webp|webm|mp4)$).*)"`;
 
 
 function routeFiles(dir: string): string[] {
