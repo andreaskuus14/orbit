@@ -122,3 +122,23 @@ export function durableCheck(fails: { what: string; error: string; at: string }[
     fix: "Press Retry to hand one to its consumer once more (it won't create a duplicate).", retry };
   return { status: "ok" as const, detail: "Event progress and checkpoints are saving normally", retry };
 }
+
+/** A tainted chat (core-taint.json): kind = what put private data in it ("private": journal/LIFE/modules/attachments/pins; "local": only
+ *  local-plugin output), p/l = phrase hashes of that text (outbound-pure phraseHashes). No kind = an entry from before kinds: unknown. */
+export type TaintEntry = StoredSession & { kind?: "private" | "local"; p?: string[]; l?: string[] };
+export const MAX_TAINT_HASHES = 20_000; // shortcut: per chat, newest kept; a very long journal chat loses its oldest phrases, then fall back to the blind rule
+const hashes = (v: unknown) => Array.isArray(v) ? v.filter((h): h is string => typeof h === "string" && /^[0-9a-f]{16}$/.test(h)).slice(-MAX_TAINT_HASHES) : undefined;
+export function parseTaint(raw: unknown): Record<string, TaintEntry> {
+  const out: Record<string, TaintEntry> = parseSessions(raw, Infinity);
+  for (const k of Object.keys(out)) {
+    const v = (raw as Record<string, Record<string, unknown>>)[k];
+    if (v.kind === "private" || v.kind === "local") out[k] = { ...out[k], kind: v.kind, p: hashes(v.p) ?? [], l: hashes(v.l) ?? [] };
+  }
+  return out;
+}
+/** Merge this turn's taint into the stored entry. An entry of unknown kind stays unknown (fail closed); private beats local. */
+export function mergeTaint(old: TaintEntry | undefined, add: { kind: "private" | "local"; p: string[]; l: string[] }, at: number): TaintEntry {
+  if (old && !old.kind) return { ...old, at };
+  const cap = (a: string[] = [], b: string[]) => [...new Set([...a, ...b])].slice(-MAX_TAINT_HASHES);
+  return { id: "private", at, kind: old?.kind === "private" || add.kind === "private" ? "private" : "local", p: cap(old?.p, add.p), l: cap(old?.l, add.l) };
+}

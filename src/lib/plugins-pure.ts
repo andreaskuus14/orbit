@@ -262,7 +262,7 @@ export const pluginAct = (g: Gate, outside: boolean): "run" | "queue" => (g.mode
 
 export type PluginCheck = { stopAll: boolean; privateIn: boolean; privateTexts: readonly string[]; question: string; outside: boolean };
 /** decide()'s verdict for a plugin tool. A queued call counts as T2 (ORBIT's own queue); running it is his click in Profile → Plugins. */
-export function pluginDecision(id: string, input: Record<string, unknown> | undefined, g: Gate | undefined, c: PluginCheck): { allow: boolean; tier: Tier; reason: string } {
+export function pluginDecision(id: string, input: Record<string, unknown> | undefined, g: Gate | undefined, c: PluginCheck): { allow: boolean; tier: Tier; reason: string; egress?: boolean } {
   if (!g) return { allow: false, tier: "T3", reason: `unknown plugin tool "${id.slice(0, 100)}" (not added, disabled, or never tested in Profile → Plugins)` };
   const no = (reason: string) => ({ allow: false, tier: g.tier, reason });
   if (c.stopAll) return no(PAUSED_MSG);
@@ -270,7 +270,7 @@ export function pluginDecision(id: string, input: Record<string, unknown> | unde
   // Journal/LIFE/attached text never goes into a plugin's arguments: the plugin is another program (and may phone home).
   if (c.privateIn) {
     const hit = outboundLeak(outgoing(input ?? {}), c.privateTexts, c.question, !c.privateTexts.length);
-    if (hit) return no(`this plugin call would carry private text out of ORBIT: "${hit.slice(0, 80)}". Retry without it`);
+    if (hit) return { ...no(`this plugin call would carry private text out of ORBIT: "${hit.slice(0, 80)}". Retry without it`), egress: true };
   }
   const act = pluginAct(g, c.outside);
   return act === "queue" ? { allow: true, tier: "T2", reason: "queued for his Run click (Profile → Plugins)" } : { allow: true, tier: g.tier, reason: "allowed" };

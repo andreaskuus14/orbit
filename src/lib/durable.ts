@@ -1,16 +1,18 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CliSession } from "./claude";
 import { orbitDataDir } from "./data-dir.ts";
-import { TICK_MAX, ackTrack, type Dead, capSessions, emptyTrack, liveSession, parseCursors, parseSessions, parseTracks, planTake, type Cursors, type StoredSession, type Track } from "./durable-pure.ts";
+import { allowOnceBook, type AllowOnceBook } from "./allow-once-pure.ts";
+import { TICK_MAX, ackTrack, type Dead, capSessions, emptyTrack, liveSession, parseCursors, parseSessions, parseTracks, planTake, parseTaint, mergeTaint, type Cursors, type StoredSession, type TaintEntry, type Track } from "./durable-pure.ts";
 
 // Small state that must survive a restart (review finding 6), in <ORBIT data dir>:
 // core-sessions.json (CORE chat id → Claude CLI session) and event-cursors.json (events-feed consumer → last processed id).
 // Both are rebuildable: an unreadable file starts empty (sessions fall back to stateless; consumers restart from "now").
 
-const g = globalThis as unknown as { __orbitDurable?: { sessions?: Record<string, StoredSession>; taint?: Record<string, StoredSession>; taintBroken?: boolean; cursors?: Cursors; tracks?: Record<string, Track>; fails?: Record<string, { at: string; error: string }>; chain: Promise<unknown> } };
+const g = globalThis as unknown as { __orbitDurable?: { sessions?: Record<string, StoredSession>; taint?: Record<string, TaintEntry>; taintBroken?: boolean; cursors?: Cursors; tracks?: Record<string, Track>; fails?: Record<string, { at: string; error: string }>; chain: Promise<unknown> } };
 const S = (g.__orbitDurable ??= { chain: Promise.resolve() });
 const file = (name: string) => path.join(orbitDataDir(), name);
 
@@ -70,7 +72,7 @@ export const coreSessionStore = {
 // Fail closed: a file that exists but can't be read or parsed taints every chat and is left as is (not overwritten) for Doctor.
 function taint() {
   if (S.taint) return S.taint;
-  try { S.taint = parseSessions(JSON.parse(readFileSync(file("core-taint.json"), "utf8")), Infinity); }
+  try { S.taint = parseTaint(JSON.parse(readFileSync(file("core-taint.json"), "utf8"))); }
   catch (e) { S.taint = {}; if ((e as NodeJS.ErrnoException).code !== "ENOENT") S.taintBroken = true; }
   return S.taint;
 }
@@ -78,8 +80,11 @@ function taint() {
 export const taintBroken = () => (taint(), !!S.taintBroken);
 export const coreTaintStore = {
   has: (key: string) => taintBroken() || key in taint(),
-  mark(key: string) {
-    S.taint = { ...taint(), [key]: { id: "private", at: Date.now() } };
+  /** The chat's taint entry; a broken file gives one of unknown kind for every chat (fail closed). */
+  get: (key: string): TaintEntry | null => taintBroken() ? { id: "private", at: 0 } : taint()[key] ?? null,
+  /** add: what this turn carried (kind + phrase hashes of the private / local-plugin text). Without it: unknown kind. */
+  mark(key: string, add?: { kind: "private" | "local"; p: string[]; l: string[] }) {
+    S.taint = { ...taint(), [key]: add ? mergeTaint(taint()[key], add, Date.now()) : { id: "private", at: Date.now() } };
     if (!S.taintBroken) bg(save("core-taint.json", S.taint)); // a failed save is noted; the mark stays in memory (fail closed)
   },
   delete(key: string) {
@@ -164,4 +169,25 @@ export async function claimEvents(sb: SupabaseClient, consumer: string, types: s
     if (plan.act.length || !plan.drop.length) return plan.act;
   }
   return [];
+}
+
+// Allow-once approvals (policy-pure allowOnceBook): in memory only, so a restart drops every offer and grant (fails closed).
+const ag = globalThis as unknown as { __orbitAllowOnce?: AllowOnceBook };
+export const allowOnce: AllowOnceBook = (ag.__orbitAllowOnce ??= allowOnceBook());
+
+// taint-hash.key: per-install HMAC key for core-taint.json phrase hashes (phrase-hash-pure), created on first use, owner-only perms.
+export function hashKey(): Buffer {
+  const f = file("taint-hash.key"); // read each time (32 bytes): a key removed later is noticed, not served from memory
+  let k: Buffer | undefined;
+  try { k = readFileSync(f); }
+  catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; // unreadable: callers fail closed
+    // missing while chats still hold hashes made with the lost key: never regenerate silently (those checks would pass everything)
+    if (taintBroken() || Object.values(taint()).some((t) => t.p?.length || t.l?.length)) throw new Error("taint-hash.key is missing but core-taint.json has hashes");
+    k = randomBytes(32);
+    mkdirSync(orbitDataDir(), { recursive: true });
+    try { writeFileSync(f, k, { mode: 0o600, flag: "wx" }); } catch { k = readFileSync(f); } // another process won (wx): use theirs
+  }
+  if (k.length !== 32) throw new Error("taint-hash.key has the wrong length"); // empty / truncated / tampered: fail closed
+  return k;
 }

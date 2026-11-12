@@ -23,6 +23,7 @@ type Data = {
   "notify.shown": { kind: string; title: string };
   "morning.thumb": { kind: CardKind; key: string; up: boolean };
   "policy.decision": { tool: string; tier: "T0" | "T1" | "T2" | "T3"; verdict: "allow" | "refuse"; reason: string; turn?: string }; // no message text or LIFE data
+  "policy.allow_once": { tool: string; target: string; stage: "granted" | "used"; journal: boolean }; // owner's Allow once click: tool + target only, never the text
   "morning.click": { source: Source; key: string };
   "morning.done": { source: Source; key: string };
   "journal.saved": { memoryId: string };
@@ -85,6 +86,7 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "notify.shown": { kind: id, title: name },
   "morning.thumb": { kind: oneOf(CARD_KINDS), key: id, up: bool },
   "policy.decision": { tool: id, tier: oneOf(["T0", "T1", "T2", "T3"]), verdict: oneOf(["allow", "refuse"]), reason: str(300), turn: opt(id) },
+  "policy.allow_once": { tool: id, target: id, stage: oneOf(["granted", "used"]), journal: bool },
   "morning.click": { source: oneOf([...SOURCES, "markets"]), key: id },
   "morning.done": { source: oneOf([...SOURCES, "markets"]), key: id },
   "journal.saved": { memoryId: id },

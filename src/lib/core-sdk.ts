@@ -47,7 +47,7 @@ export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: strin
     const row = policyEvent(name, verdict);
     if (row) void emit(t.sb, t.userId, "policy.decision", "core", { ...row, turn: t.turnId });
     t.record(name, input, out, evidence, Date.now() - at, operated);
-    if (!verdict.allow && t.turnId) t.trace.at(-1)!.policy = { verdict: "refuse", turn: t.turnId };
+    if (!verdict.allow && t.turnId) t.trace.at(-1)!.policy = { verdict: "refuse", turn: t.turnId, ...(verdict.allowOnce ? { allowOnce: verdict.allowOnce } : {}) };
     return toolResult(out);
   });
   const names = sdkTools([...MODULE_TOOLS, ...pluginToolNames()]); // + his MCP plugins, each still behind decide()

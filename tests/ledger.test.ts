@@ -16,6 +16,7 @@ const DATA: Record<string, object> = {
   "notify.shown": { kind: "reminder", title: "Call mom" },
   "morning.thumb": { kind: "news", key: "news:Markets dip", up: false },
   "policy.decision": { tool: "save_memory", tier: "T2", verdict: "allow", reason: "allowed" },
+  "policy.allow_once": { tool: "plugin__notes__save", target: "notes", stage: "granted", journal: true },
   "morning.click": { source: "studio", key: "studio:review" },
   "morning.done": { source: "devworld", key: "bug:b1" },
   "journal.saved": { memoryId: "m2" },
