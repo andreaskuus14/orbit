@@ -14,7 +14,7 @@ Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue
 npm run dev
 ```
 
-Open http://localhost:3000. (Dev mode is slower than the installed build. For the perf test in step 4, use `npm run app:rebuild` instead.)
+Open http://127.0.0.1:3000. (Dev mode is slower than the installed build. For the perf test in step 4, use `npm run app:rebuild` instead.)
 
 **Database migrations.** Open Doctor → **Database migrations**. It lists every file still missing. Apply each one in the Supabase SQL editor (supabase.com → your project → SQL Editor → New query → paste the whole file → Run), oldest first. Running a file twice is harmless.
 
@@ -30,7 +30,7 @@ Doctor may also list other files (for example `0024_fact_entities.sql`). Apply w
 
 ## 2. Privacy steps for #560 (before 14 Nov)
 
-Entries typed in the LIFE panel before the new code ran were stored as ordinary typed text. Until 14 Nov ORBIT treats older typed commitments as private and skips them. Do these once so new entries are stored as LIFE:
+Entries typed in the LIFE panel before the new code ran were stored as ordinary typed text. Typed commitments from before 14 Nov stay private permanently. The risk is an old tab that was never reloaded: after 14 Nov it would still save plain typed entries that ORBIT then treats as safe. So reload every open LIFE tab before 14 Nov:
 
 1. Reload every open ORBIT tab that shows LIFE (Ctrl+Shift+R). An old tab still runs the old code.
 2. Let one loops scan run (wait for the next scheduled one, or open the morning brief). Then check Needs you and the morning brief: no LIFE or journal text appears in any loop title.
@@ -40,7 +40,7 @@ Entries typed in the LIFE panel before the new code ran were stored as ordinary 
 | Feature | Click path | You should see |
 |---|---|---|
 | Emblems and nebula | Home (2D view), then Explore | A round medallion emblem on each world card and panel header. A slow, seamless nebula loop behind the home cards. |
-| Wake clip | Mic on, say "Orbit, what time is it" | It wakes and answers. Say "Orbit of the moon is..." in normal speech: it must not wake. |
+| Wake word (#566) | Mic on, say "Orbit, what time is it" | It wakes and answers. Say "Orbit of the moon is..." in normal speech: it must not wake. |
 | Sun dome | ARCH → Sun path | Dome with three arcs (summer orange, equinox yellow, winter blue), hour lines, and the sun at the study time. |
 | Study cards | ARCH → Study → make cards from a book chapter | Cards each with a Source. A weekly quiz is offered. |
 | Weekly results | BUSINESS → This week | Views, leads, replies, revenue, each with its source, or "not connected". Never a made-up 0. |
@@ -63,5 +63,5 @@ Entries typed in the LIFE panel before the new code ran were stored as ordinary 
 - The newest lines (about 50) of `orbit-server.log`, plus `orbit-build.log` if the build failed and `orbit-launcher.log` if the app did not start (all in the `orbit` folder).
 - A screenshot of the screen where it went wrong, with the browser console open (F12 → Console) if the page is blank or an error shows.
 - A screenshot of Doctor, for any migration problem.
-- For perf: the newest file in `%LOCALAPPDATA%\orbit\perf-runs\`.
+- For perf: the newest file in `%LOCALAPPDATA%\orbit\perf-runs\` (if `ORBIT_DATA_DIR` is set, it is `perf-runs` under that folder instead).
 - Do not send journal or LIFE text, `.env.local` or passwords.
