@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
-import { currentPlan, planAction, resumePlans } from "@/lib/plans";
+import { currentStudioPlan as currentPlan, resumeStudioPlans, studioPlanAction as planAction } from "@/lib/plan-jobs";
 import { progressLine } from "@/lib/plans-pure";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
-  void resumePlans();
+  void resumeStudioPlans(); // owner lane: he has CORE open
   const plan = await currentPlan();
   return Response.json({ plan: plan && { ...plan, line: progressLine(plan) } });
 }
