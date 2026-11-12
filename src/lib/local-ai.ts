@@ -107,6 +107,13 @@ export async function readDocument(file: unknown): Promise<string> {
   return save(docMarkdown(name, j.markdown, Number(j.pages) || 0), docMdName(name), "text/markdown");
 }
 
+/** OCR/layout text per page of a PDF or scan, by Docling (RapidOCR) on this PC. Used by VAULT intake for pages with no text layer. */
+export async function ocrPages(bytes: Uint8Array, name: string): Promise<string[]> {
+  const j = (await callJson("/doc-to-md", form({ file: new File([bytes as BlobPart], name), per_page: "1" }), 20 * MINUTE)) as { byPage?: unknown };
+  if (!Array.isArray(j?.byPage)) throw new Error("Local AI is running an older server.py that cannot read pages one by one: restart it (close its window or reboot) and try again.");
+  return j.byPage.map((p) => (typeof p === "string" ? p : ""));
+}
+
 /** CORE tools local_3d / local_tts / local_transcribe. Errors come back as "Error: ..." text (core.ts's convention). */
 export async function runLocalTool(tool: string, i: Record<string, unknown>): Promise<string> {
   try {

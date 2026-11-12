@@ -15,15 +15,15 @@ const HEAP_MB = 512;
 const g = globalThis as unknown as { __orbitParseLimit?: ReturnType<typeof createLimiter> };
 const parseSlot = (g.__orbitParseLimit ??= createLimiter(2));
 
-function inWorker(buf: Buffer, type: string): Promise<string> {
+function inWorker(buf: Buffer, type: string, pages = false): Promise<string | string[]> {
   return new Promise((resolve, reject) => {
-    const w = new Worker(path.join(process.cwd(), "src/lib/parse-worker.mjs"), { workerData: { data: buf, type }, resourceLimits: { maxOldGenerationSizeMb: HEAP_MB } });
+    const w = new Worker(path.join(process.cwd(), "src/lib/parse-worker.mjs"), { workerData: { data: buf, type, pages }, resourceLimits: { maxOldGenerationSizeMb: HEAP_MB } });
     const end = (fn: () => void) => { clearTimeout(timer); clearInterval(watch); void w.terminate(); fn(); }; // later settles are no-ops
     // A global --max-old-space-size (e.g. in NODE_OPTIONS) overrides resourceLimits, so also watch the heap (Node >= 22.16).
     const heap = (w as unknown as { getHeapStatistics?: () => Promise<{ used_heap_size: number }> }).getHeapStatistics?.bind(w);
     const watch = setInterval(() => heap?.().then((h) => { if (h.used_heap_size > HEAP_MB * 1024 * 1024) end(() => reject(new Error("it is too large to read"))); }, () => {}), 250);
     const timer = setTimeout(() => end(() => reject(new Error("it took too long to read (over 30 s)"))), PARSE_MS);
-    w.once("message", (m: { text?: string; error?: string }) => end(() => (m.error !== undefined ? reject(new Error(m.error)) : resolve(m.text ?? ""))));
+    w.once("message", (m: { text?: string; pages?: string[]; error?: string }) => end(() => (m.error !== undefined ? reject(new Error(m.error)) : resolve(m.pages ?? m.text ?? ""))));
     w.once("error", (e: Error & { code?: string }) => end(() => reject(new Error(e.code === "ERR_WORKER_OUT_OF_MEMORY" ? "it is too large to read" : e.message))));
     w.once("exit", (code) => end(() => reject(new Error(`the document reader stopped (exit ${code})`))));
   });
@@ -34,10 +34,17 @@ async function parse(buf: Buffer, type: string): Promise<string> {
   if (type !== "application/pdf" && type !== DOCX) return "";
   // Zip bombs inflate into Buffers outside the worker's heap limit: refuse by the declared sizes first.
   if (type === DOCX && !(zipUncompressed(buf) <= MAX_UNZIPPED)) throw new Error("it unpacks to more than 50 MB");
-  return parseSlot(() => inWorker(buf, type));
+  return parseSlot(() => inWorker(buf, type)) as Promise<string>;
 }
 
 /** Pull readable text out of a PDF, Word or text document (used by memory uploads and CORE attachments). */
 export async function extractText(buf: Buffer, type: string): Promise<string> {
   return (await parse(buf, type)).replace(/\u0000/g, "").trim();
+}
+
+/** Text per page (PDF: one entry per page, same worker limits; other types: one entry). Scanned pages come back (almost) empty. */
+export async function extractPages(buf: Buffer, type: string): Promise<string[]> {
+  if (type !== "application/pdf") return [await extractText(buf, type)];
+  const pages = await parseSlot(() => inWorker(buf, type, true));
+  return [pages].flat().map((p) => p.replace(/\u0000/g, ""));
 }

@@ -5,6 +5,7 @@ import { VOICE_ASK } from "./voice/bus";
 import { VaultTextCompare } from "./VaultTextCompare";
 import { WorkspacePanel } from "./WorkspacePanel";
 import { ReadDocument } from "./LocalAi";
+import { VaultIntake } from "./VaultIntake";
 import { isDocName } from "@/lib/local-ai-pure";
 import { useT } from "./i18n";
 import { MAX_FILE, MEMORY_MAX, fmtSize, memoryType, latestGate, type CloudFile, type Kind } from "@/lib/vault-pure";
@@ -235,6 +236,7 @@ export function VaultPanel() {
           ? <pre className="card max-h-[60vh] overflow-auto whitespace-pre-wrap break-words text-xs">{text.text}{text.truncated && "\n\n… (first 20 KB shown)"}</pre>
           : <p className="muted">Loading preview…</p>)}
         {(open.type === "doc" || open.type === "other") && <p className="muted">No preview for this type. Download it to open.</p>}
+        {/\.(pdf|png|jpe?g)$/i.test(open.name) && <VaultIntake key={open.name} name={open.name} src={src} pdf={open.type === "pdf"} />}
         {err && <p className="error whitespace-pre-line">{err}</p>}
         {note && <p className="muted">{note}</p>}
         <div className="flex flex-wrap gap-2">

@@ -388,7 +388,7 @@ def ifc_summary(file: UploadFile = File(...)):
 
 
 @app.post("/doc-to-md")
-def doc_to_md(file: UploadFile = File(...)):
+def doc_to_md(file: UploadFile = File(...), per_page: str = Form("")):
     need(installed()["docs"], "Document reading (Docling)")
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in DOC_TYPES:
@@ -410,13 +410,18 @@ def doc_to_md(file: UploadFile = File(...)):
                 if res.document is None or (suffix == ".pdf" and not res.pages):
                     raise HTTPException(400, f"ORBIT couldn't read that document ({res.status.value}). Is it a PDF with at most {MAX_DOC_PAGES} pages?")
                 md = res.document.export_to_markdown()
+                # VAULT intake: OCR/layout text of each page on its own, so extracted fields can cite a page
+                by_page = [res.document.export_to_markdown(page_no=i) for i in range(1, len(res.pages) + 1)] if per_page == "1" else None
             except torch.cuda.OutOfMemoryError:
                 raise HTTPException(507, "The GPU ran out of memory. Close games/browsers using the GPU and try again.")
             finally:
                 del conv
     finally:
         os.unlink(path)
-    return {"markdown": md, "pages": len(res.pages), "status": res.status.value}
+    out = {"markdown": md, "pages": len(res.pages), "status": res.status.value}
+    if by_page is not None:
+        out["byPage"] = by_page
+    return out
 
 
 @app.exception_handler(HTTPException)
