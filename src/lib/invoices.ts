@@ -11,7 +11,7 @@ import { emailIn } from "./business-pure";
 import { resendMail } from "./business-send";
 import { localDay } from "./morning-pure";
 import {
-  approveProblem, reminderContent, dashboard, invoicePushes, editInvoice, invoicePdf, newInvoice, parseSeller, readyProblem, reminderDraft, setStatus, addRefund, dropRefund, setPayUrl, stripePayLink,
+  approveProblem, reminderContent, dashboard, invoicePushes, editInvoice, invoicePdf, newInvoice, parseSeller, readyProblem, reminderDraft, setStatus, addRefund, dropRefund, setPayUrl, stripePayLink, saveStripeLink,
   type From, type Invoice, type Seller,
 } from "./invoices-pure";
 
@@ -121,12 +121,14 @@ export const draftReminder = (b: Record<string, unknown>) => change(b.id, (i, s)
 /** His pasted pay link ({action:"paylink", id, url}; "" clears it). */
 export const savePayLink = (b: Record<string, unknown>) => change(b.id, (i) => setPayUrl(i, b.url, Date.now()));
 /** His "Create Stripe link" click only (never from Auto, the scheduler or a background job). */
-export async function makeStripeLink(b: Record<string, unknown>): Promise<Invoice | string> {
+export async function makeStripeLink(sb: SupabaseClient, userId: string, b: Record<string, unknown>): Promise<Invoice | string> {
   const i = (await load()).invoices.find((x) => x.id === b.id);
   if (!i) return "Not found";
-  const u = await stripePayLink(i, process.env.STRIPE_SECRET_KEY, fetch);
-  if (typeof u !== "string") return u.error;
-  return change(b.id, (cur) => setPayUrl(cur, u, Date.now()));
+  const link = await stripePayLink(i, process.env.STRIPE_SECRET_KEY, fetch);
+  if ("error" in link) return link.error;
+  const r = await change(b.id, (cur) => saveStripeLink(cur, link, Date.now())); // re-checked inside the write queue
+  if (typeof r !== "string") void emit(sb, userId, "invoice.paylink", "business", { invoice: r.id, via: "stripe" });
+  return r;
 }
 export const dropReminder = (id: unknown) => change(id, (i) => ({ ...i, reminder: null }));
 

@@ -133,6 +133,7 @@ export function editInvoice(i: Invoice, b: Record<string, unknown>, now: number)
   if (next.due < next.issued) return "Due date can't be before the invoice date";
   if (b.notes !== undefined) next.notes = clean(b.notes, 500);
   if (totals(next).gross > MAX_CENTS) return "That total is too large";
+  if (next.payUrl && totals(next).gross !== totals(i).gross) delete next.payUrl; // the old link would charge the old amount
   next.updated = new Date(now).toISOString();
   return next;
 }
@@ -266,24 +267,37 @@ export function setPayUrl(i: Invoice, v: unknown, now: number): Invoice | string
   if (u) next.payUrl = u; else delete next.payUrl;
   return next;
 }
-/** Stripe Payment Links API form body: one line, the invoice's gross total in EUR, invoice number as product name. */
+export const STRIPE_VERSION = "2025-09-30.clover"; // inline price_data on Payment Links since 2025-07-30.basil
+/** Stripe Payment Links API form body: one payment of the invoice's gross total in EUR, invoice number as product name. */
 export const stripeLinkBody = (i: Invoice) => new URLSearchParams({
   "line_items[0][quantity]": "1",
   "line_items[0][price_data][currency]": "eur",
   "line_items[0][price_data][unit_amount]": String(totals(i).gross),
   "line_items[0][price_data][product_data][name]": `Invoice ${i.number}`,
+  "restrictions[completed_sessions][limit]": "1",
   "metadata[orbit_invoice]": i.id,
 });
-/** Only on his click: create a Stripe Payment Link. Refuses without a key; the key never goes into an error or log. */
-export async function stripePayLink(i: Invoice, key: string | undefined, f: typeof fetch): Promise<string | { error: string }> {
+/** Only on his click: create a Stripe Payment Link. Refuses without a live key; the key never goes into an error or log.
+ *  Returns the link with the gross it charges, so the caller saves it only if the invoice still has that total. */
+export async function stripePayLink(i: Invoice, key: string | undefined, f: typeof fetch): Promise<{ url: string; gross: number } | { error: string }> {
   if (!key) return { error: "STRIPE_SECRET_KEY isn't set: paste a link instead" };
+  if (!/^(sk|rk)_live_/.test(key)) return { error: "STRIPE_SECRET_KEY is not a live key: a test link can't take a real payment" }; // fail closed
   if (i.status === "paid") return { error: "This invoice is already paid" };
-  if (totals(i).gross <= 0) return { error: "The invoice total is zero" };
-  const r = await f("https://api.stripe.com/v1/payment_links", { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/x-www-form-urlencoded" }, body: stripeLinkBody(i) });
+  const gross = totals(i).gross;
+  if (gross <= 0) return { error: "The invoice total is zero" };
+  const r = await f("https://api.stripe.com/v1/payment_links", {
+    method: "POST", body: stripeLinkBody(i),
+    headers: { authorization: `Bearer ${key}`, "content-type": "application/x-www-form-urlencoded", "stripe-version": STRIPE_VERSION, "idempotency-key": `orbit-inv-${i.id}-${gross}` },
+  });
   const j = (await r.json().catch(() => ({}))) as { url?: string; error?: { message?: string } };
   if (!r.ok) return { error: `Stripe refused: ${String(j.error?.message ?? r.status).slice(0, 200)}` };
   const u = parsePayUrl(j.url);
-  return typeof u === "string" && u ? u : { error: "Stripe returned no usable link" };
+  return typeof u === "string" && u ? { url: u, gross } : { error: "Stripe returned no usable link" };
+}
+/** Save a created link only if the invoice still charges what the link charges. */
+export function saveStripeLink(i: Invoice, link: { url: string; gross: number }, now: number): Invoice | string {
+  if (totals(i).gross !== link.gross) return "The invoice total changed while the link was made: create it again";
+  return setPayUrl(i, link.url, now);
 }
 
 /** The exact email a reminder approval covers (approval-pure contentHash; the panel and Remote hash the same shape). */
