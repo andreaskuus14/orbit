@@ -25,21 +25,22 @@ export type Turn = {
   /** core.ts's dispatch for an allowed call (navigate / module / runCoreTool) and its eval/trace/activity record, shared with the CLI loop. */
   exec: (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[], operator?: boolean) => Promise<string>;
   record: (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number, operator?: boolean) => void;
-  onDelta?: (d: string) => void; onReset?: () => void; onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void;
+  onDelta?: (d: string) => void; onReset?: () => void; onRoute?: (model: string) => void; onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void;
   /** core.ts's independent verifier (verifier.ts): null = not run; the MCP engine continues once on "not verified". */
   verify?: (answer: string) => Promise<{ ok: boolean; reason: string } | null>;
 };
 
 /** Runs the turn; returns the answer and the SDK session id (escalated: nothing answered, redo on the main model).
  *  Throws on an SDK error (core-turn.ts's describeFailure names it). */
-export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: string; escalated?: boolean; opus?: boolean }> {
+export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: string; escalated?: boolean; opus?: boolean; model?: string; tool?: string; down?: string }> {
   const { query, tool, createSdkMcpServer } = await import("@anthropic-ai/claude-agent-sdk");
   const abortController = new AbortController();
-  let escalated = false, opus = false;
+  let escalated = false, opus = false, escTool = "";
+  t.onRoute?.(t.model);
   const one = serial();
   const handler = (name: string) => (input: Record<string, unknown>) => one(async () => {
     opus = !t.risky && needsOpus(name, t.model ?? "");
-    if (t.escalate || opus) { escalated = true; abortController.abort(); return toolResult("Error: stopped"); }
+    if (t.escalate || opus) { escalated = true; escTool = name; abortController.abort(); return toolResult("Error: stopped"); }
     t.onReset?.(); t.onStep?.(name, input); // text before a tool call is not the answer (as in core.ts)
     const at = Date.now(), evidence: WriteEvidence[] = [];
     const { out, verdict, operated } = await gated(name, input, t.policy, t.steps, (op) => t.exec(name, input, evidence, op), t.attachBlock, authorizeTool);
@@ -78,5 +79,5 @@ export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: strin
   } catch (e) {
     if (!escalated || t.signal?.aborted) throw e;
   }
-  return escalated ? { text: "", sessionId, escalated, opus } : { text: answer, sessionId };
+  return escalated ? { text: "", sessionId, escalated, opus, model: t.model, tool: escTool } : { text: answer, sessionId, model: t.model };
 }

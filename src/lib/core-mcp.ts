@@ -58,10 +58,10 @@ const MCP_ENV = { MCP_TOOL_TIMEOUT: "180000", MCP_TIMEOUT: "30000" };
 const TURN_CAP_MS = 280_000; // the turn's own deadline (core.ts runCoreFor) aborts first; this only bounds a stuck CLI
 
 /** Runs the turn; same contract as core-sdk.ts sdkTurn (escalated: the fast model reached for a tool, core.ts redoes it on the main model). */
-export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: string; escalated?: boolean; opus?: boolean }> {
+export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: string; escalated?: boolean; opus?: boolean; model?: string; tool?: string; down?: string }> {
   const ac = new AbortController();
   const signal = t.signal ? AbortSignal.any([t.signal, ac.signal]) : ac.signal;
-  let escalated = false, opus = false, blocks = 0, hookSeen = false;
+  let escalated = false, opus = false, blocks = 0, hookSeen = false, escTool = "";
   const one = serial(); // parallel tool calls run one at a time, so each decide() sees the steps before it (as the SDK engine)
   const names = exposedTools(sdkTools([...MODULE_TOOLS, ...pluginToolNames()]), t.policy());
   // every tool is listed natively with its own description here, so the JSON loop's MODULE TOOLS pointer doesn't apply
@@ -71,7 +71,7 @@ export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: st
   const call = (name: string, raw: Record<string, unknown>) => one(async () => {
     if (!names.includes(name)) return toolResult(`Error: unknown tool "${name.slice(0, 60)}"; call only the tools listed for this turn`);
     opus = !b.route.risky && needsOpus(name, b.route.model); // a usage-limit step-down below Opus counts too
-    if ((t.escalate && b.route.tier === "fast") || opus) { escalated = true; ac.abort(); return toolResult("Error: stopped"); }
+    if ((t.escalate && b.route.tier === "fast") || opus) { escalated = true; escTool = name; ac.abort(); return toolResult("Error: stopped"); }
     const prepared = prepareArgs(name, raw); // JSON-string arrays → arrays, required props checked with a how-to-call error
     if ("error" in prepared) return toolResult(prepared.error);
     const input = prepared.args;
@@ -120,7 +120,7 @@ export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: st
     }));
     let r;
     try { r = await run(b.prompt); }
-    catch (e) { if (escalated && !t.signal?.aborted) return { text: "", sessionId: t.session?.id ?? "", escalated, opus }; throw e; }
+    catch (e) { if (escalated && !t.signal?.aborted) return { text: "", sessionId: t.session?.id ?? "", escalated, opus, model: b.route.model, tool: escTool, down: b.limitFrom }; throw e; }
     // No Stop hook ran (hooks off in this CLI): the same check after the run, with one automatic continue.
     const open = !hookSeen && !escalated ? await b.beforeGate() : "";
     const after = !hookSeen && !escalated ? gate() : { block: false as const };
@@ -142,7 +142,7 @@ export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: st
     await recordUsage(t.sb, t.userId, "core.chat", r, b.route.model);
     const res = (result as ReturnType<typeof mcpEvent>)?.result;
     t.trace.push({ step: "think", detail: `${b.route.model} · mcp · ${res?.turns ?? 0} turns · cache read ${res?.cacheRead ?? 0} tok`, ms: Date.now() - started, ok: true });
-    return { text: r.text, sessionId: t.session?.id ?? "" };
+    return { text: r.text, sessionId: t.session?.id ?? "", model: b.route.model, down: b.limitFrom };
   } finally {
     bridge.close();
     rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});

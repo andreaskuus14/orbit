@@ -32,7 +32,7 @@ type BoostIn = {
   userId: string; question: string; system: string; prompt: string; model: string; effort?: string; steps: string[]; trace: { step: string; detail: string; ms: number; ok: boolean }[];
   policy: () => { ws?: WsGate; attach?: boolean; pins?: boolean; carried?: boolean };
   record: (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number) => void;
-  signal?: AbortSignal; risky?: boolean;
+  signal?: AbortSignal; risky?: boolean; onRoute?: (model: string) => void;
 };
 const MODELS = { fast: FAST_MODEL, smart: MODEL, deep: DEEP_MODEL };
 const tierOf = (model: string) => (model === FAST_MODEL ? "fast" : model === DEEP_MODEL ? "deep" : "smart") as Route["tier"];
@@ -50,9 +50,11 @@ export async function boostTurn(t: BoostIn) {
   t.trace.push({ step: "route", detail: `${route.model}${route.effort ? ` · effort ${route.effort}` : ""} · ${route.why}${dir ? ` · native files in ${slug}` : ""}`, ms: 0, ok: true });
 
   const edited = new Set<string>();
-  let checks = 0, problems = "";
+  let checks = 0, problems = "", limitFrom: string | undefined;
   return {
     get route() { return route; },
+    /** The model a usage limit first stepped this turn down from (model.run log), if any. */
+    get limitFrom() { return limitFrom; },
     native: dir ? { slug: slug!, dir } : null,
     system: stableSystem(stripSkills(t.system), [SKILLS_NOTE, dir ? nativeNote(slug!, dir) : ""]),
     prompt: stripSkills(t.prompt),
@@ -93,10 +95,12 @@ export async function boostTurn(t: BoostIn) {
     /** Runs the CLI on the routed model; a usage-limit failure retries once per tier down (Opus → Sonnet → Haiku), noted in Activity. */
     run: async <R>(go: (model: string, effort: string | undefined) => Promise<R>): Promise<R> => {
       for (;;) {
+        t.onRoute?.(route.model); // again after each usage-limit step-down
         try { return await go(route.model, route.effort); }
         catch (e) {
           const next = isLimitError(e) ? downTier(route, MODELS) : null;
           if (!next) throw e;
+          limitFrom ??= route.model;
           logActivity({ area: "core", title: `CORE: ${route.model} usage limit reached; this turn continues on ${next.model}` });
           t.trace.push({ step: "fallback", detail: `${route.model} limit → ${next.model}`, ms: 0, ok: false });
           route = next;

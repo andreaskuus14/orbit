@@ -101,7 +101,10 @@ test("dueSlots fires once per slot and catches up within grace", () => {
   const now = new Date(2026, 9, 14, 8, 0); // Wed 08:00 local
   assert.deepEqual(dueSlots(now, {}), ["morning"]);
   assert.deepEqual(dueSlots(now, { morning: new Date(2026, 9, 14, 7, 31).toISOString() }), []);
-  assert.deepEqual(dueSlots(new Date(2026, 9, 14, 13, 0), {}), ["midday"]); // morning is past grace
+  assert.deepEqual(dueSlots(new Date(2026, 9, 14, 13, 0), {}), ["morning", "midday"]); // PC slept through 07:30: the morning brief catches up that day
+  assert.deepEqual(dueSlots(new Date(2026, 9, 14, 22, 0), {}), ["morning", "evening"]);
+  assert.deepEqual(dueSlots(new Date(2026, 9, 14, 13, 0), { morning: new Date(2026, 9, 14, 12, 1).toISOString() }), ["midday"], "caught up once: never twice");
+  assert.ok(!dueSlots(new Date(2026, 9, 15, 6, 0), {}).includes("morning"), "yesterday's brief is not run the next day before 07:30");
   const sun = new Date(2026, 9, 18, 18, 45); // Sunday
   assert.ok(dueSlots(sun, {}).includes("weekly"));
   assert.equal(lastSlotTime(SLOTS[3], new Date(2026, 9, 14, 12)).getDay(), 0);

@@ -8,7 +8,7 @@ import { orbitDataDir } from "./data-dir.ts";
 import { localDay } from "./morning-pure.ts";
 import { rowReceipt } from "./receipt-pure.ts";
 import { BUSINESS_LOOP } from "./business-loop-pure.ts";
-import { briefState, clipsState, dailyText, digestDue, digestMsg, leadsState, slotAt, type DailyItem, type DailyView, type DigestState } from "./daily-pure.ts";
+import { briefState, clipsState, dailyText, digestDue, digestMsg, leadsState, slotAt, type DailyItem, type DailyView, type DigestState, statusDue, statusOf } from "./daily-pure.ts";
 import { describeTrigger, lastDue, type Schedule } from "./pure.ts";
 
 const file = () => path.join(orbitDataDir(), "daily.json");
@@ -102,4 +102,23 @@ async function writeState(st: DigestState) {
   await mkdir(path.dirname(file()), { recursive: true });
   await writeFile(file() + ".tmp", JSON.stringify(st));
   await rename(file() + ".tmp", file());
+}
+
+/** Scheduler tick, after briefings: one "daily.status" event a day (brief / clips / leads: done, needs-you or running), what the
+ *  phone digest shows. The day is saved before emitting (no save, no emit), so it never goes out twice. Never throws. */
+export async function maybeDailyStatus(sb: SupabaseClient, userId: string, now = Date.now(), emit?: (data: Record<string, unknown>) => Promise<unknown>): Promise<boolean> {
+  try {
+    const day = localDay(new Date(now)), f = path.join(orbitDataDir(), "daily-status.json");
+    const st = await readFile(f, "utf8").then((t) => JSON.parse(t) as { day?: string }, () => ({}) as { day?: string });
+    if (!statusDue(process.env.ORBIT_DAILY_DIGEST, st.day, day, now)) return false;
+    await mkdir(path.dirname(f), { recursive: true });
+    await writeFile(f + ".tmp", JSON.stringify({ day }));
+    await rename(f + ".tmp", f);
+    const data = { day, ...statusOf(await dailyRuns(sb, userId, now)) };
+    await (emit ?? ((d) => import("./claude").then((m) => m.emit(sb, userId, "daily.status", "core", d))))(data);
+    return true;
+  } catch (e) {
+    console.error("[daily] status:", e instanceof Error ? e.message : e);
+    return false;
+  }
 }

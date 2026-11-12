@@ -942,11 +942,12 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .explore-core > span:not([aria-hidden]) { flex: 1; }
 
 /* Night visuals 2: panel header art, wake clip, starfield parallax. transform/opacity only. */
-.world-header { flex: 1; min-width: 0; margin: -.25rem 0; padding: .55rem 0 .55rem .7rem; overflow: hidden; }
+.world-header { flex: 1 0 auto; min-width: 0; min-height: calc(28px + 1.1rem); margin: -.25rem 0; padding: .55rem 0 .55rem .7rem; overflow: hidden; }
 /* Art fills only the space right of the title and fades into the panel black (the scrim), so title pixels never overlap it: contrast stays the plain panel header's. */
 .world-header-art { flex: 1 1 0; min-width: 0; align-self: stretch; height: calc(28px + 1.1rem); margin: -.55rem 0 -.55rem .5rem; object-fit: cover; object-position: right center; pointer-events: none;
   border-radius: .5rem; mix-blend-mode: screen; -webkit-mask-image: linear-gradient(90deg, transparent, #000 55%), linear-gradient(transparent, #000 25%, #000 75%, transparent);
   -webkit-mask-composite: source-in; mask-image: linear-gradient(90deg, transparent, #000 55%), linear-gradient(transparent, #000 25%, #000 75%, transparent); mask-composite: intersect; }
+.world-header-art[data-thin] { visibility: hidden; }
 .wake-sequence { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: #03050b; cursor: pointer; animation: fade-in .25s ease-out; }
 .wake-sequence video { width: min(100%, 960px); height: auto; }
 .starfield { position: fixed; inset: -24px; z-index: -1; pointer-events: none; --px: 0; --py: 0; }

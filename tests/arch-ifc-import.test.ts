@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { IfcAPI } from "web-ifc";
-import { starterScene } from "../src/lib/arch-pure.ts";
+import { IfcAPI, IFCBUILDING, IFCBUILDINGSTOREY, IFCPROJECT, IFCRELFILLSELEMENT, IFCRELVOIDSELEMENT, IFCSITE, IFCUNITASSIGNMENT, IFCWALL, IFCWINDOW } from "web-ifc";
+import { applyOps, starterScene } from "../src/lib/arch-pure.ts";
 import { toIfc } from "../src/lib/arch-ifc-pure.ts";
 import { sunPosition } from "../src/lib/sun-pure.ts";
 import { sunSite, dmsToDeg, ifcGroup, lengthScale, northFromTrueNorth, placeOnPlot, shadowStudyTimes } from "../src/lib/arch-ifc-import-pure.ts";
@@ -66,6 +66,23 @@ test("ARCH export → import: site, storeys, element counts and sizes come back"
   assert.ok(Math.abs(x1 - x0 - wall.w) < 1e-3 && Math.abs(z1 - z0 - wall.d) < 1e-3, `${x1 - x0} × ${z1 - z0}`);
   assert.ok(Math.abs(y0 - wall.y) < 1e-3 && Math.abs(y1 - (wall.y + wall.h)) < 1e-3);
   assert.ok(info.size.every((v) => v > 0 && v < 30));
+});
+
+test("web-ifc (outside parser) finds the required IFC4 structure in ARCH's export", async () => {
+  await ready;
+  const scene = applyOps(starterScene(), [{ op: "add", kind: "window", host: starterScene().parts.find((p) => p.kind === "wall")!.id, face: "s", w: 1.2 }], () => "w1").scene;
+  const m = api.OpenModel(new TextEncoder().encode(toIfc(scene, { site: SITE, time: new Date(0) })));
+  try {
+    const n = (t: number) => api.GetLineIDsWithType(m, t).size(), line = (id: number) => api.GetLine(m, id);
+    for (const [t, name] of [[IFCPROJECT, "project"], [IFCSITE, "site"], [IFCBUILDING, "building"], [IFCBUILDINGSTOREY, "storey"], [IFCUNITASSIGNMENT, "units"]] as const) assert.ok(n(t) >= 1, name);
+    assert.equal(n(IFCWALL), 4);
+    const voids = api.GetLineIDsWithType(m, IFCRELVOIDSELEMENT), fills = api.GetLineIDsWithType(m, IFCRELFILLSELEMENT);
+    assert.equal(voids.size(), 1); assert.equal(fills.size(), 1);
+    const v = line(voids.get(0)), f = line(fills.get(0));
+    assert.equal(api.GetLineType(m, v.RelatingBuildingElement.value), IFCWALL);
+    assert.equal(f.RelatingOpeningElement.value, v.RelatedOpeningElement.value);
+    assert.equal(api.GetLineType(m, f.RelatedBuildingElement.value), IFCWINDOW);
+  } finally { api.CloseModel(m); }
 });
 
 test("a rotated true north and millimetre units are honoured", async () => {

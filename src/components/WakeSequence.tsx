@@ -14,8 +14,9 @@ export function WakeSequence() {
   useEffect(() => {
     if (!on) return;
     const key = (e: KeyboardEvent) => { if (e.key === "Escape") setOn(false); };
+    const cap = setTimeout(() => setOn(false), 4000); // clip is 2.7 s: never let a stalled load hold the screen
     addEventListener("keydown", key);
-    return () => removeEventListener("keydown", key);
+    return () => { removeEventListener("keydown", key); clearTimeout(cap); };
   }, [on]);
   if (!on) return null;
   const done = () => setOn(false);
@@ -23,7 +24,7 @@ export function WakeSequence() {
     <div className="wake-sequence" onClick={done} aria-hidden="true">
       <video autoPlay muted playsInline preload="auto" onEnded={done} onError={done}>
         <source src="/ui/wake/core.webm" type="video/webm" />
-        <source src="/ui/wake/core.mp4" type="video/mp4" />
+        <source src="/ui/wake/core.mp4" type="video/mp4" onError={done} />{/* source errors do not bubble to <video> */}
       </video>
     </div>
   );

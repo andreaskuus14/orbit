@@ -75,6 +75,7 @@ export const MODULE_HINTS: Record<string, RegExp> = {
   DEALS: hint("wish|deal|buy|price|cheap|offer|€|eur|sale", `soovinimekir|soovin|${W}ost(?:a|an|u|ma)|hind|hinna|odav|soodus|pakkumi|allahind`),
   RULES: /\b(?:every|each|daily|weekly|weekdays?|whenever|when|rules?|iga|igal|kui|reegel|millal)\b|reegl|igapäev|iganädal|tööpäev|alati kui/i,
   CHECKPOINT: hint("checkpoint|remember|keep in mind|next (?:step|action)|decid|constraint|continue", "jäta[^.?!]{0,30}meelde|meeles|jätka|järgmine samm|otsus|salvesta|pane kirja"),
+  DECISIONS: hint("decid|decision|revisit", "otsus|vaata[nm]? üle"),
   ORGANIZE: hint("renam|trash|lead|prospect|\\bstage\\b|verif|accept|confirm|adjust|automat|pause|resume", "nimeta|prügikast|huvilis|etapp|kinnita|nihuta|automaat|peata"),
   LOCALAI: hint("(?:make|generate|draw|create|render)(?: me)? (?:an? |some |\\d+ )?(?:image|picture|photo)|local_image|comfy|\\b3d\\b|mesh|glb|voice ?over|text.to.speech|tts|read (?:it|this) (?:out|aloud)|narrat|caption|subtit|transcri|\\bsrt\\b", `${W}3d${E}|tee (?:mulle )?(?:pilt|foto)|hääl|helifail|ette lug|loe (?:see|seda) ette|subtiit|transkri`),
   ROBLOXFILES: hint("rojo|selene|lint|luau|roblox (?:code|script)|(?:check|review) (?:my |the )?(?:code|scripts?)|\\.rbxlx?\\b|export (?:my |the )?scripts?", `${W}skript|koodi (?:kontroll|üle)|kontrolli (?:koodi|skripte)`),
@@ -89,6 +90,7 @@ export function selectModules<T extends ModuleSpec>(mods: T[], text: string): T[
 
 /** One line per keyword-gated module for the capability index (name: what it does). */
 export const MODULE_ABOUT: Record<string, string> = {
+  DECISIONS: "decision records: \"I decided X because Y, revisit in 3 months\" saved after he confirms; due ones come back in Needs you (save_decision)",
   CHECKPOINT: "this chat's saved constraints, decisions, artifact versions and next action (save_checkpoint)",
   STUDIO: "YouTube Shorts clip channel: clips to review, scheduling, scout/niche, suggestions, multi-step clip jobs",
   LIFE: "habits, reminders, journal, calendar, day plan, git changes, his own files (vault)",

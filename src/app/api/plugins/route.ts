@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
-import { discardPending, isRunning, listPending, loadPlugins, runPending, testPlugin, updatePlugins } from "@/lib/plugins";
+import { discardPending, oauthSignedIn, signOutOAuth, isRunning, listPending, loadPlugins, runPending, testPlugin, updatePlugins } from "@/lib/plugins";
 import { checkState, publicPlugin, toolGate, toolId, validatePlugin, SUGGESTED } from "@/lib/plugins-pure";
 import { vaultDir } from "@/lib/vault";
 import { stopAllOn } from "@/lib/stop-all";
@@ -9,16 +9,17 @@ export const dynamic = "force-dynamic";
 
 // Profile → Plugins (MCP servers, plugins.ts). GET: plugins (env values masked), each tool's mode/tier, CORE's queued calls, suggestions.
 // POST {action:"add", plugin} | {action:"update", name, enabled?, local?, tools?, others?, timeoutSec?} | {action:"remove", name}
-//    | {action:"test", name} | {action:"run", id} (his Run click on a queued call) | {action:"discard", id}.
+//    | {action:"test", name} | {action:"signout", name} (sign-in itself: GET /api/plugins/oauth?name=) | {action:"run", id} (his Run click on a queued call) | {action:"discard", id}.
 // Only his clicks here add servers or run queued calls; CORE has no tool that changes this config.
 export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
-  const plugins = loadPlugins().map((p) => ({
+  const plugins = await Promise.all(loadPlugins().map(async (p) => ({
     ...publicPlugin(p),
+    ...(p.oauth ? { signedIn: await oauthSignedIn(p.name) } : {}),
     tools: (p.cache?.tools ?? []).map((t) => ({ id: toolId(p.name, t.name), name: t.name, description: t.description, ...toolGate(p, t), check: checkState(t), ...(t.schemaError ? { schemaError: t.schemaError } : {}) })),
     settings: p.tools,
-  }));
+  })));
   return Response.json({ plugins, pending: (await listPending()).map((q) => ({ ...q, running: isRunning(q.id) })), suggested: SUGGESTED, vault: vaultDir(), stopAll: stopAllOn() });
 }
 
@@ -45,7 +46,9 @@ export async function POST(req: Request) {
     });
   } else if (b.action === "remove") {
     err = await updatePlugins((l) => (l.some((x) => x.name === name) ? l.filter((x) => x.name !== name) : "no such plugin"));
-    if (!err) logActivity({ area: "system", title: `Plugin ${name} removed` });
+    if (!err) { await signOutOAuth(name).catch(() => {}); logActivity({ area: "system", title: `Plugin ${name} removed` }); }
+  } else if (b.action === "signout") {
+    if (!loadPlugins().some((x) => x.name === name)) err = "no such plugin"; else await signOutOAuth(name);
   } else if (b.action === "test") {
     const r = await testPlugin(name);
     if (!r.ok) err = r.error ?? "test failed"; else extra = { tested: r.tools };
