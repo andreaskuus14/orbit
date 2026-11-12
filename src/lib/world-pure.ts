@@ -12,8 +12,11 @@ export const MAX_RENDER = 6000;
 /** Kinds whose text he typed or confirmed outside LIFE/journal ("life", "journal", legacy "loop" and anything new are dropped). Allowlist so a new or unknown source kind fails closed. */
 export const SAFE_COMMIT_KINDS = new Set(["typed", "chat", "goal", "mission", "business"]);
 /** His confirmed commitments from dayplan.json, private-free: only owner "me", status "confirmed", allowlisted source kind. */
-export const worldCommitments = (cs: { text: string; owner: string; status: string; due?: string; source?: { kind?: string } }[]): Commitment[] =>
-  cs.filter((c) => c.owner === "me" && c.status === "confirmed" && SAFE_COMMIT_KINDS.has(c.source?.kind ?? "") && typeof c.text === "string" && c.text.trim())
+/** Deploy day of the `life` kind: LIFE-panel entries made before it were stored as `typed`, so older `typed` rows count as private. */
+export const TYPED_SAFE_FROM = "2026-11-12";
+export const worldCommitments = (cs: { text: string; owner: string; status: string; due?: string; at?: string; source?: { kind?: string } }[]): Commitment[] =>
+  cs.filter((c) => c.owner === "me" && c.status === "confirmed" && SAFE_COMMIT_KINDS.has(c.source?.kind ?? "") && typeof c.text === "string" && c.text.trim()
+    && (c.source?.kind !== "typed" || (typeof c.at === "string" && c.at.slice(0, 10) >= TYPED_SAFE_FROM)))
     .slice(0, 50).map((c) => ({ text: c.text.trim().slice(0, 300), ...(c.due && isDay(c.due) ? { due: c.due } : {}) }));
 const WEEKLY_KEYS = ["shortsViews", "shortsPublished", "leadsContacted", "studyHours"] as const;
 const STATUSES: GoalStatus[] = ["active", "paused", "done"];

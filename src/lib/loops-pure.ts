@@ -4,6 +4,7 @@
 import type { PanelId } from "./planets";
 import { dueFollowups, type Prospect } from "./business-pure.ts";
 import type { Commitment } from "./dayplan-pure";
+import { SAFE_COMMIT_KINDS } from "./world-pure.ts";
 
 export const DAY = 86_400_000;
 export const STALL_DAYS = 7; // goal/mission with no change this long
@@ -48,6 +49,7 @@ export function detectLoops(s: LoopSources): Loop[] {
   const old = (at: string, n: number) => Number.isFinite(Date.parse(at)) && days(at, s.now) >= n;
 
   for (const c of s.commitments ?? []) {
+    if (!SAFE_COMMIT_KINDS.has(c.source?.kind ?? "")) continue; // LIFE/journal or unknown kind: its text never becomes a loop title (brief, call opener)
     const due = c.due && c.due < s.today;
     if (c.status === "confirmed" && c.owner === "me" && due)
       add({ key: `promise:${norm(c.text)}`, kind: "promise", title: `You said you'd ${clip(c.text)}`, next: "Do it, set a new day, or close it if it no longer matters", since: c.at, evidence: { label: `Commitment inbox, due ${c.due}`, panel: "life" }, origin: c.source?.kind ?? "loop" });

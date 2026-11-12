@@ -15,10 +15,10 @@ test("each source raises its loop with evidence and a next step", () => {
   const loops = detectLoops({
     ...base,
     commitments: [
-      { id: "c1", text: "send the quote", owner: "me", due: "2026-10-25", status: "confirmed", at: daysAgo(5) },
-      { id: "c2", text: "Mari sends the photos", owner: "them", due: "2026-10-26", status: "confirmed", at: daysAgo(4) },
-      { id: "c3", text: "fix the shop page", owner: "me", status: "awaiting", at: daysAgo(4) },
-      { id: "c4", text: "later thing", owner: "me", due: "2026-11-30", status: "confirmed", at: daysAgo(4) }, // not due yet
+      { id: "c1", text: "send the quote", owner: "me", due: "2026-10-25", status: "confirmed", at: daysAgo(5), source: { kind: "typed" } },
+      { id: "c2", text: "Mari sends the photos", owner: "them", due: "2026-10-26", status: "confirmed", at: daysAgo(4), source: { kind: "typed" } },
+      { id: "c3", text: "fix the shop page", owner: "me", status: "awaiting", at: daysAgo(4), source: { kind: "typed" } },
+      { id: "c4", text: "later thing", owner: "me", due: "2026-11-30", status: "confirmed", at: daysAgo(4), source: { kind: "typed" } }, // not due yet
     ],
     goals: [{ id: "g1", title: "1k subs", status: "running", updated_at: daysAgo(9) }, { id: "g2", title: "fresh", status: "running", updated_at: daysAgo(2) }, { id: "g3", title: "old done", status: "done", updated_at: daysAgo(40) }],
     missions: [{ id: "m1", objective: "Ship update", status: "waiting-input", updated_at: daysAgo(8) }, { id: "m2", objective: "x", status: "completed", updated_at: daysAgo(30) }],
@@ -44,7 +44,7 @@ test("each source raises its loop with evidence and a next step", () => {
 
 test("dedupe: the same promise in chat and in the inbox is one loop", () => {
   const loops = detectLoops({ ...base,
-    commitments: [{ id: "c1", text: "Send the quote", owner: "me", due: "2026-10-25", status: "confirmed", at: daysAgo(5) }],
+    commitments: [{ id: "c1", text: "Send the quote", owner: "me", due: "2026-10-25", status: "confirmed", at: daysAgo(5), source: { kind: "typed" } }],
     messages: [{ id: "x", conversation_id: "c", content: "I'll send the quote.", created_at: daysAgo(3) }, { id: "y", conversation_id: "d", content: "I'll send the quote!", created_at: daysAgo(2) }] });
   assert.equal(loops.length, 1);
 });
@@ -81,5 +81,11 @@ test("loopOrigin: Turn into task keeps the loop's source kind; LIFE stays life, 
   assert.equal(loopOrigin(l("prospect")), "business");
   assert.equal(loopOrigin(l("inbox")), "loop");
   const found = detectLoops({ now: Date.parse("2026-11-10T12:00:00Z"), today: "2026-11-10", commitments: [{ id: "c1", text: "Write essay", owner: "me", due: "2026-11-01", status: "confirmed", at: "2026-10-30T00:00:00Z", source: { kind: "life" } }] } as LoopSources);
-  assert.equal(found[0] && loopOrigin(found[0]), "life");
+  assert.deepEqual(found, []); // an overdue LIFE commitment never becomes a loop title
+});
+
+test("detectLoops: only allowlisted source kinds become loops (life, journal, unknown, missing are skipped)", () => {
+  const c = (id: string, kind?: string) => ({ id, text: `secret ${id}`, owner: "me" as const, due: "2026-11-01", status: "confirmed" as const, at: "2026-10-30T00:00:00Z", ...(kind && { source: { kind } }) });
+  const found = detectLoops({ now: Date.parse("2026-11-10T12:00:00Z"), today: "2026-11-10", commitments: [c("a", "life"), c("b", "journal"), c("c", "new-kind"), c("d"), c("e", "chat")] } as LoopSources);
+  assert.deepEqual(found.map((l) => l.title), ["You said you'd secret e"]);
 });

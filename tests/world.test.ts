@@ -137,7 +137,7 @@ test("render: an open goal's forecast sentence is shown inert; done goals drop i
 
 test("worldCommitments: only his confirmed, non-private commitments reach the WORLD MODEL", async () => {
   const { worldCommitments } = await import("../src/lib/world-pure.ts");
-  const c = (text: string, o: object = {}) => ({ text, owner: "me", status: "confirmed", source: { kind: "typed" }, ...o });
+  const c = (text: string, o: object = {}) => ({ text, owner: "me", status: "confirmed", source: { kind: "typed" }, at: "2026-11-12T09:00:00Z", ...o });
   const out = worldCommitments([
     c("Send portfolio draft", { due: "2026-10-25" }), c("Close loop", { source: { kind: "chat" } }),
     c("Awaiting one", { status: "awaiting" }), c("Dismissed one", { status: "dismissed" }), c("Their promise", { owner: "them" }),
@@ -158,4 +158,12 @@ test("worldCommitments: a LIFE-panel capture (kind life) and a legacy loop task 
     { text: "Follow up Acme", owner: "me", status: "confirmed", source: { kind: "business" } },
   ]);
   assert.deepEqual(out.map((c) => c.text), ["Follow up Acme"]);
+});
+
+test("worldCommitments: typed rows from before the life-kind deploy count as private (old LIFE entries)", async () => {
+  const { worldCommitments, TYPED_SAFE_FROM } = await import("../src/lib/world-pure.ts");
+  assert.equal(TYPED_SAFE_FROM, "2026-11-12");
+  const t = (text: string, at?: string) => ({ text, owner: "me", status: "confirmed", source: { kind: "typed" }, ...(at && { at }) });
+  const out = worldCommitments([t("Old life gym", "2026-11-11T23:59:59Z"), t("No date"), t("New typed", "2026-11-12T00:00:00Z"), { ...t("Old chat"), at: "2026-10-01T00:00:00Z", source: { kind: "chat" } }]);
+  assert.deepEqual(out.map((c) => c.text), ["New typed", "Old chat"]);
 });
