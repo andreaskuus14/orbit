@@ -117,8 +117,8 @@ test("the worker really runs under the 512 MB heap cap (V8's own limit, read bac
   try {
     const r = await child(cwd, `${buf(Buffer.from("x"))} done({ limit: Number(await extractText(bytes, PDF)) });`);
     const mb = r.out.limit / 1024 / 1024;
-    // old space 512 MB plus V8's small young generation; the machine default is several GB, so this fails without resourceLimits
-    assert.ok(mb >= 512 && mb < 640, `worker heap_size_limit is ${mb.toFixed(0)} MB`);
+    // old space 512 MB plus young generation/code space (Node 22 ≈ 520 MB, Node 24 ≈ 704 MB); the machine default is several GB, so this fails without resourceLimits
+    assert.ok(mb >= 512 && mb < 1024, `worker heap_size_limit is ${mb.toFixed(0)} MB`);
   } finally { await rm(cwd, { recursive: true, force: true }); }
 });
 
