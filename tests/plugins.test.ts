@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import {
   compactSchema, gates, outsideIn, parsePending, parsePlugins, parseToolId, pluginDecision, pluginPrompt, publicPlugin, resultText, toolGate, toolId, toolTier, validatePlugin, SUGGESTED, type Plugin,
 } from "../src/lib/plugins-pure.ts";
-import { decide, UNTRUSTED, type PolicyCtx } from "../src/lib/policy-pure.ts";
+import { carriesPrivate, decide, privateToolsIn, UNTRUSTED, type PolicyCtx } from "../src/lib/policy-pure.ts";
+import { privateResults } from "../src/lib/outbound-pure.ts";
 import { authorize, parseAuthority } from "../src/lib/authority-pure.ts";
 import { makeInBlenderPrompt, modelName, openIfcPrompt, safePath } from "../src/lib/blender-pure.ts";
 
@@ -113,6 +114,26 @@ test("decide(): local plugin output never goes into a remote plugin call", () =>
   assert.equal(decide("plugin__notion__create_page", { text: "a chest" }, read("plugin__files__read")).allow, true);
   assert.match(decide("plugin__notion__create_page", { text: "fought with Mari Tamm about the rent" }, read("plugin__gone__read")).reason, /private/); // unknown locality: private
   assert.equal(decide("plugin__notion__create_page", { text: "fought with Mari Tamm about the rent" }, read("plugin__web__get")).allow, true); // remote → remote unchanged
+});
+
+// review of #584: the taint and carried text outlive the turn (core.ts:517/519 save them per chat)
+test("decide(): local plugin text stays private on the next turn", () => {
+  const g = { "plugin__files__read": { mode: "auto", tier: "T0", local: true }, "plugin__notion__create_page": { mode: "auto", tier: "T0", local: false } } as PolicyCtx["plugins"];
+  const turn1 = ctx({ plugins: g, steps: ["You called plugin__files__read {}\nRESULT:\nJournal: fought with Mari Tamm about the rent today"] });
+  assert.ok(carriesPrivate(turn1));
+  const saved = privateResults(turn1.steps, privateToolsIn(turn1)); // what core.ts keeps in carriedText
+  const turn2 = ctx({ plugins: g, question: "put that in Notion", carried: true, privateText: saved, steps: [] });
+  assert.match(decide("plugin__notion__create_page", { text: "fought with Mari Tamm about the rent" }, turn2).reason, /private/);
+  assert.equal(carriesPrivate(ctx({ plugins: g, steps: ["You called plugin__notion__create_page {}\nRESULT:\nok"] })), false); // remote alone: no taint
+});
+
+test("decide(): local plugin text can't go out through web_search, fetch_url or ask_agent", () => {
+  const g = { "plugin__files__read": { mode: "auto", tier: "T0", local: true } } as PolicyCtx["plugins"];
+  const c = ctx({ plugins: g, question: "search the web for it and ask atlas", steps: ["You called plugin__files__read {}\nRESULT:\nJournal: fought with Mari Tamm about the rent today"] });
+  assert.match(decide("web_search", { query: "fought with Mari Tamm about the rent" }, c).reason, /private text/);
+  assert.match(decide("fetch_url", { url: "https://x.example/?q=fought with Mari Tamm about the rent" }, c).reason, /private text/);
+  assert.match(decide("ask_agent", { agent: "atlas", task: "fought with Mari Tamm about the rent" }, c).reason, /private text/);
+  assert.equal(decide("web_search", { query: "best rent calculators" }, c).allow, true);
 });
 
 test("plugin results count as outside text for agents and operator writes", () => {

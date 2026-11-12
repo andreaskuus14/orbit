@@ -28,7 +28,7 @@ import { asksWhatToDo } from "./insights-pure";
 import { escapeTags, type MemoryProject } from "./core-chats-pure";
 import { olderTurnsSummary, selectChatSummaries } from "./core-context-pure";
 import { stopAllOn } from "./stop-all";
-import { operatorAllows, carriesPrivate, decide, outsideTextIn, policyEvent } from "./policy-pure";
+import { operatorAllows, carriesPrivate, privateToolsIn, decide, outsideTextIn, policyEvent } from "./policy-pure";
 import { FOLLOW_THROUGH, leadCheckHint, ownLeadsIn } from "./core-operator-pure";
 import { undoOf } from "./activity-pure";
 import { privateResults } from "./outbound-pure";
@@ -516,7 +516,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     if (sessionKey) settleWsPending(userId, sessionKey, steps);
     if (sessionKey && !carried && carriesPrivate({ ...policyCtx(), steps })) coreTaint.mark(sessionKey); // also when stopped mid-turn
     if (sessionKey) { if (outsideEarlier || outsideTextIn(steps)) outsideClean.delete(sessionKey); else outsideClean.add(sessionKey); }
-    if (sessionKey) { const t = [...(carriedText.get(sessionKey) ?? []), ...privateResults(steps, MODULE_PRIVATE), attach?.block ?? ""].filter(Boolean); if (t.length) carriedText.set(sessionKey, t.slice(-40)); }
+    if (sessionKey) { const t = [...(carriedText.get(sessionKey) ?? []), ...privateResults(steps, privateToolsIn({ ...policyCtx(), steps })), attach?.block ?? ""].filter(Boolean); if (t.length) carriedText.set(sessionKey, t.slice(-40)); }
   }
 
   if (!verifyRan) await verify(answer);
