@@ -7,7 +7,7 @@ import { api } from "./AgentMission";
 import { useT } from "./i18n";
 
 type Got = { plan: Plan; commitments: Commitment[] };
-const post = (body: object) => api<{ result: unknown }>("/api/dayplan", { method: "POST", body: JSON.stringify(body) });
+const post = (body: object) => api<{ result: unknown }>("/api/dayplan", { method: "POST", body: JSON.stringify({ ...body, from: "plan" }) });
 
 export function DayPlan({ onOpen }: { onOpen: (open: unknown) => void }) {
   const { t } = useT();

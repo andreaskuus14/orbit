@@ -558,7 +558,7 @@ function Learn({ queue, notes }: { queue: Watched[]; notes: { id: string; t: num
       if (!res.ok && res.status !== 409) throw new Error((await res.json().catch(() => ({}))).error || `Failed (${res.status})`);
       let n = 0;
       for (const task of followUps(follow)) {
-        const r = await fetch("/api/dayplan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ task }) }).catch(() => null);
+        const r = await fetch("/api/dayplan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ task, from: "theater" }) }).catch(() => null);
         if (r?.ok) n++;
       }
       keep(null); setEnd(""); setFollow(""); setMsg(t("thr.l.saved", { n }));
