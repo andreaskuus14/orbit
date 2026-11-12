@@ -112,6 +112,16 @@ test("a file that eats memory is killed at the heap cap, not left to grow", asyn
   } finally { await rm(cwd, { recursive: true, force: true }); }
 });
 
+test("the worker really runs under the 512 MB heap cap (V8's own limit, read back inside the worker)", async () => {
+  const cwd = await fakeCwd(`import { parentPort } from "node:worker_threads"; import v8 from "node:v8"; parentPort.postMessage({ text: String(v8.getHeapStatistics().heap_size_limit) });`);
+  try {
+    const r = await child(cwd, `${buf(Buffer.from("x"))} done({ limit: Number(await extractText(bytes, PDF)) });`);
+    const mb = r.out.limit / 1024 / 1024;
+    // old space 512 MB plus V8's small young generation; the machine default is several GB, so this fails without resourceLimits
+    assert.ok(mb >= 512 && mb < 640, `worker heap_size_limit is ${mb.toFixed(0)} MB`);
+  } finally { await rm(cwd, { recursive: true, force: true }); }
+});
+
 test("a worker that reports an error rejects with that reason", async () => {
   const cwd = await fakeCwd(`import { parentPort } from "node:worker_threads"; parentPort.postMessage({ error: "bad file" });`);
   try {
