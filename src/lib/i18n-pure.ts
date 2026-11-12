@@ -79,7 +79,7 @@ const BASE = {
   "morning.tile.clips": "clips to review", "morning.tile.live": "live today", "morning.tile.proposals": "proposals", "morning.tile.habits": "habits",
   "morning.best": "YESTERDAY'S BEST", "morning.views": " views", "morning.mission": "Today's mission", "morning.missionDone": "{done}/{total} done",
   "morning.failed.one": "{n} agent task failed overnight", "morning.failed.other": "{n} agent tasks failed overnight",
-  "morning.connectCal": "Connect Google Calendar", "morning.calFailed": "Calendar check failed", "morning.calExpired": "Google Calendar sign-in expired: reconnect", "morning.readAloud": "Read it aloud each morning",
+  "morning.connectCal": "Connect Google Calendar", "morning.calFailed": "Calendar check failed", "morning.calExpired": "Google Calendar sign-in expired: reconnect", "cal.import": "Import timetable (.ics)", "cal.fromLink": "From link", "cal.removeTt": "Remove timetable", "cal.linkPrompt": "Link to your timetable (.ics or webcal://)", "morning.readAloud": "Read it aloud each morning",
   "night.slept": "While you slept", "night.working": "working now…", "night.okStep": "OK step", "night.draft": "Read the draft (not sent)",
 
   "brief.aria": "Morning brief", "brief.mute": "Mute", "brief.muteAria": "Mute the brief", "brief.skip": "Skip", "brief.skipAria": "Skip the morning brief",
@@ -1011,7 +1011,7 @@ export const ET: Partial<Record<Key, string>> = {
   "morning.tile.clips": "klippi üle vaadata", "morning.tile.live": "täna avalikud", "morning.tile.proposals": "ettepanekud", "morning.tile.habits": "harjumused",
   "morning.best": "EILNE PARIM", "morning.views": " vaatamist", "morning.mission": "Tänane missioon", "morning.missionDone": "{done}/{total} tehtud",
   "morning.failed.one": "{n} agendi ülesanne ebaõnnestus öösel", "morning.failed.other": "{n} agendi ülesannet ebaõnnestus öösel",
-  "morning.connectCal": "Ühenda Google'i kalender", "morning.calFailed": "Kalendri kontroll ebaõnnestus", "morning.calExpired": "Google'i kalendri sisselogimine aegus: ühenda uuesti", "morning.readAloud": "Loe see igal hommikul ette",
+  "morning.connectCal": "Ühenda Google'i kalender", "morning.calFailed": "Kalendri kontroll ebaõnnestus", "morning.calExpired": "Google'i kalendri sisselogimine aegus: ühenda uuesti", "cal.import": "Impordi tunniplaan (.ics)", "cal.fromLink": "Lingist", "cal.removeTt": "Eemalda tunniplaan", "cal.linkPrompt": "Tunniplaani link (.ics või webcal://)", "morning.readAloud": "Loe see igal hommikul ette",
   "night.slept": "Kuni sa magasid", "night.working": "töötab praegu…", "night.okStep": "Kinnita samm", "night.draft": "Loe mustandit (pole saadetud)",
 
   "brief.aria": "Hommikuülevaade", "brief.mute": "Vaigista", "brief.muteAria": "Vaigista ülevaade", "brief.skip": "Jäta vahele", "brief.skipAria": "Jäta hommikuülevaade vahele",
