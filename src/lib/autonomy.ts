@@ -105,7 +105,9 @@ async function sendCandidates(sb: SupabaseClient, userId: string): Promise<Candi
   const { emailIn, sendSubject } = await import("./business-pure");
   // No drafted_at column yet (before 0026): an error, so nothing qualifies.
   const { data } = await sb.from("prospects").select("id, name, contact, draft, updated_at, drafted_at").eq("user_id", userId).eq("stage", "lead").neq("draft", "").limit(100);
-  return (data ?? []).filter((p) => p.draft?.trim() && emailIn(p.contact ?? "")).map((p) => draftCandidate(p, sendSubject(p.name, p.draft)));
+  const { crmOf, loadCrm } = await import("./prospect-crm");
+  const store = await loadCrm(); // B2: lead-loop leads are new to him, so only his own click sends them (a broken store throws: nothing qualifies)
+  return (data ?? []).filter((p) => p.draft?.trim() && emailIn(p.contact ?? "") && crmOf(store, { ...p, notes: "" }).source !== "lead-loop").map((p) => draftCandidate(p, sendSubject(p.name, p.draft)));
 }
 
 async function fireSend(sb: SupabaseClient, userId: string, p: { ref: string; seen: string }): Promise<Fired> {
