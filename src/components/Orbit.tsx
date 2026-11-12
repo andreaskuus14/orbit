@@ -694,7 +694,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {view === "3d" && !shown && <AmbientOverlay a={amb} />}
       {view === "3d" && !shown && living.open && <TimeTravel days={living.days} setDays={living.setDays} onClose={() => { living.setOpen(false); living.setDays(0); }} />}
       {view === "3d" && <BootSequence reduced={reduced} />}
-      {view === "2d" && <WakeSequence />} {/* 3D has its own BootSequence intro */}
+      {view && <WakeSequence skip={view === "3d"} />} {/* 3D has its own BootSequence intro; a 3D start uses up the wake */}
       {view === "3d" && (
         <div className="galaxy-layer absolute inset-0" data-dim={(panel === "core" && !dive) || undefined} style={galaxyGone && !staged ? { visibility: "hidden" } : undefined} inert={(galaxyGone && !staged) || undefined}>
           <Galaxy selected={approach ?? panel} onSelect={galaxySelect} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel && !dive} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={galaxyGone} universe={living.universe} ships={ships} dilation={dilation}

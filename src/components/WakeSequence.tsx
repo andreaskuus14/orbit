@@ -4,13 +4,13 @@ import { useEffect, useState } from "react";
 
 const KEY = "orbit.woke";
 
-export function WakeSequence() {
+export function WakeSequence({ skip = false }: { skip?: boolean }) {
   const [on, setOn] = useState(false);
   useEffect(() => {
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     try { if (sessionStorage.getItem(KEY)) return; sessionStorage.setItem(KEY, "1"); } catch { /* storage blocked: still play once for this mount */ }
+    if (skip || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     setOn(true);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- decided once, at session start
   useEffect(() => {
     if (!on) return;
     const key = (e: KeyboardEvent) => { if (e.key === "Escape") setOn(false); };
