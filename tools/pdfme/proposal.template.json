@@ -1,0 +1,430 @@
+{
+ "basePdf": {
+  "width": 210,
+  "height": 297,
+  "padding": [
+   16,
+   16,
+   20,
+   16
+  ]
+ },
+ "schemas": [
+  [
+   {
+    "name": "brandBar",
+    "type": "rectangle",
+    "position": {
+     "x": 16,
+     "y": 16
+    },
+    "width": 178,
+    "height": 12,
+    "rotate": 0,
+    "opacity": 1,
+    "readOnly": true,
+    "borderWidth": 0,
+    "borderColor": "",
+    "color": "#0f4c5c",
+    "radius": 0,
+    "required": false
+   },
+   {
+    "name": "accent",
+    "type": "rectangle",
+    "position": {
+     "x": 16,
+     "y": 28
+    },
+    "width": 178,
+    "height": 1,
+    "rotate": 0,
+    "opacity": 1,
+    "readOnly": true,
+    "borderWidth": 0,
+    "borderColor": "",
+    "color": "#e0a030",
+    "radius": 0,
+    "required": false
+   },
+   {
+    "name": "brandName",
+    "type": "text",
+    "position": {
+     "x": 20,
+     "y": 18.4
+    },
+    "width": 80,
+    "height": 8,
+    "fontSize": 13,
+    "fontName": "PoppinsBold",
+    "fontColor": "#ffffff",
+    "alignment": "left",
+    "verticalAlignment": "top",
+    "lineHeight": 1.35,
+    "characterSpacing": 0,
+    "backgroundColor": "",
+    "opacity": 1,
+    "required": false,
+    "overflow": "expand"
+   },
+   {
+    "name": "brandLine",
+    "type": "text",
+    "position": {
+     "x": 100,
+     "y": 19.4
+    },
+    "width": 90,
+    "height": 6,
+    "fontSize": 8,
+    "fontName": "Poppins",
+    "fontColor": "#ffffff",
+    "alignment": "right",
+    "verticalAlignment": "top",
+    "lineHeight": 1.35,
+    "characterSpacing": 0,
+    "backgroundColor": "",
+    "opacity": 1,
+    "required": false,
+    "overflow": "expand"
+   },
+   {
+    "name": "title",
+    "type": "text",
+    "position": {
+     "x": 16,
+     "y": 36
+    },
+    "width": 110,
+    "height": 10,
+    "fontSize": 20,
+    "fontName": "PoppinsBold",
+    "fontColor": "#0f4c5c",
+    "alignment": "left",
+    "verticalAlignment": "top",
+    "lineHeight": 1.35,
+    "characterSpacing": 0,
+    "backgroundColor": "",
+    "opacity": 1,
+    "required": false,
+    "overflow": "expand"
+   },
+   {
+    "name": "meta",
+    "type": "text",
+    "position": {
+     "x": 130,
+     "y": 37
+    },
+    "width": 64,
+    "height": 12,
+    "fontSize": 9,
+    "fontName": "Poppins",
+    "fontColor": "#52606d",
+    "alignment": "right",
+    "verticalAlignment": "top",
+    "lineHeight": 1.35,
+    "characterSpacing": 0,
+    "backgroundColor": "",
+    "opacity": 1,
+    "required": false,
+    "overflow": "expand"
+   },
+   {
+    "name": "forLabel",
+    "type": "text",
+    "position": {
+     "x": 16,
+     "y": 54
+    },
+    "width": 80,
+    "height": 5,
+    "fontSize": 8,
+    "fontName": "PoppinsBold",
+    "fontColor": "#e0a030",
+    "alignment": "left",
+    "verticalAlignment": "top",
+    "lineHeight": 1.35,
+    "characterSpacing": 0,
+    "backgroundColor": "",
+    "opacity": 1,
+    "required": false,
+    "overflow": "expand"
+   },
+   {
+    "name": "client",
+    "type": "text",
+    "position": {
+     "x": 16,
+     "y": 60
+    },
+    "width": 100,
+    "height": 16,
+    "fontSize": 10,
+    "fontName": "Poppins",
+    "fontColor": "#1f2933",
+    "alignment": "left",
+    "verticalAlignment": "top",
+    "lineHeight": 1.35,
+    "characterSpacing": 0,
+    "backgroundColor": "",
+    "opacity": 1,
+    "required": false,
+    "overflow": "expand"
+   },
+   {
+    "name": "intro",
+    "type": "text",
+    "position": {
+     "x": 16,
+     "y": 80
+    },
+    "width": 178,
+    "height": 12,
+    "fontSize": 10,
+    "fontName": "Poppins",
+    "fontColor": "#1f2933",
+    "alignment": "left",
+    "verticalAlignment": "top",
+    "lineHeight": 1.35,
+    "characterSpacing": 0,
+    "backgroundColor": "",
+    "opacity": 1,
+    "required": false,
+    "overflow": "expand"
+   },
+   {
+    "name": "items",
+    "type": "table",
+    "position": {
+     "x": 16,
+     "y": 100
+    },
+    "width": 178,
+    "height": 20,
+    "showHead": true,
+    "head": [
+     "Item",
+     "Qty",
+     "Unit price",
+     "Total"
+    ],
+    "headWidthPercentages": [
+     52,
+     10,
+     19,
+     19
+    ],
+    "tableStyles": {
+     "borderWidth": 0.2,
+     "borderColor": "#cfd8dc"
+    },
+    "headStyles": {
+     "fontName": "PoppinsBold",
+     "fontSize": 9,
+     "characterSpacing": 0,
+     "alignment": "left",
+     "verticalAlignment": "middle",
+     "lineHeight": 1.2,
+     "fontColor": "#ffffff",
+     "borderColor": "",
+     "backgroundColor": "#0f4c5c",
+     "borderWidth": {
+      "top": 0,
+      "right": 0,
+      "bottom": 0,
+      "left": 0
+     },
+     "padding": {
+      "top": 2.5,
+      "right": 2.5,
+      "bottom": 2.5,
+      "left": 2.5
+     }
+    },
+    "bodyStyles": {
+     "fontName": "Poppins",
+     "fontSize": 9,
+     "characterSpacing": 0,
+     "alignment": "left",
+     "verticalAlignment": "middle",
+     "lineHeight": 1.25,
+     "fontColor": "#1f2933",
+     "borderColor": "#cfd8dc",
+     "backgroundColor": "",
+     "alternateBackgroundColor": "#f3f7f8",
+     "borderWidth": {
+      "top": 0.1,
+      "right": 0,
+      "bottom": 0.1,
+      "left": 0
+     },
+     "padding": {
+      "top": 2.5,
+      "right": 2.5,
+      "bottom": 2.5,
+      "left": 2.5
+     }
+    },
+    "columnStyles": {
+     "alignment": {
+      "0": "left",
+      "1": "right",
+      "2": "right",
+      "3": "right"
+     }
+    },
+    "required": false,
+    "repeatHead": true
+   },
+   {
+    "name": "totals",
+    "type": "text",
+    "position": {
+     "x": 110,
+     "y": 124
+    },
+    "width": 84,
+    "height": 18,
+    "fontSize": 10,
+    "fontName": "PoppinsBold",
+    "fontColor": "#0f4c5c",
+    "alignment": "right",
+    "verticalAlignment": "top",
+    "lineHeight": 1.5,
+    "characterSpacing": 0,
+    "backgroundColor": "",
+    "opacity": 1,
+    "required": false,
+    "overflow": "expand"
+   },
+   {
+    "name": "timelineHead",
+    "type": "text",
+    "position": {
+     "x": 16,
+     "y": 144
+    },
+    "width": 80,
+    "height": 6,
+    "fontSize": 11,
+    "fontName": "PoppinsBold",
+    "fontColor": "#0f4c5c",
+    "alignment": "left",
+    "verticalAlignment": "top",
+    "lineHeight": 1.35,
+    "characterSpacing": 0,
+    "backgroundColor": "",
+    "opacity": 1,
+    "required": false,
+    "overflow": "expand"
+   },
+   {
+    "name": "timeline",
+    "type": "text",
+    "position": {
+     "x": 16,
+     "y": 151
+    },
+    "width": 178,
+    "height": 12,
+    "fontSize": 10,
+    "fontName": "Poppins",
+    "fontColor": "#1f2933",
+    "alignment": "left",
+    "verticalAlignment": "top",
+    "lineHeight": 1.35,
+    "characterSpacing": 0,
+    "backgroundColor": "",
+    "opacity": 1,
+    "required": false,
+    "overflow": "expand"
+   },
+   {
+    "name": "outHead",
+    "type": "text",
+    "position": {
+     "x": 16,
+     "y": 166
+    },
+    "width": 80,
+    "height": 6,
+    "fontSize": 11,
+    "fontName": "PoppinsBold",
+    "fontColor": "#0f4c5c",
+    "alignment": "left",
+    "verticalAlignment": "top",
+    "lineHeight": 1.35,
+    "characterSpacing": 0,
+    "backgroundColor": "",
+    "opacity": 1,
+    "required": false,
+    "overflow": "expand"
+   },
+   {
+    "name": "notIncluded",
+    "type": "text",
+    "position": {
+     "x": 16,
+     "y": 173
+    },
+    "width": 178,
+    "height": 10,
+    "fontSize": 10,
+    "fontName": "Poppins",
+    "fontColor": "#1f2933",
+    "alignment": "left",
+    "verticalAlignment": "top",
+    "lineHeight": 1.35,
+    "characterSpacing": 0,
+    "backgroundColor": "",
+    "opacity": 1,
+    "required": false,
+    "overflow": "expand"
+   },
+   {
+    "name": "termsHead",
+    "type": "text",
+    "position": {
+     "x": 16,
+     "y": 188
+    },
+    "width": 80,
+    "height": 6,
+    "fontSize": 11,
+    "fontName": "PoppinsBold",
+    "fontColor": "#0f4c5c",
+    "alignment": "left",
+    "verticalAlignment": "top",
+    "lineHeight": 1.35,
+    "characterSpacing": 0,
+    "backgroundColor": "",
+    "opacity": 1,
+    "required": false,
+    "overflow": "expand"
+   },
+   {
+    "name": "terms",
+    "type": "text",
+    "position": {
+     "x": 16,
+     "y": 195
+    },
+    "width": 178,
+    "height": 20,
+    "fontSize": 9,
+    "fontName": "Poppins",
+    "fontColor": "#52606d",
+    "alignment": "left",
+    "verticalAlignment": "top",
+    "lineHeight": 1.35,
+    "characterSpacing": 0,
+    "backgroundColor": "",
+    "opacity": 1,
+    "required": false,
+    "overflow": "expand"
+   }
+  ]
+ ]
+}
