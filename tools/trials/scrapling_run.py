@@ -25,7 +25,7 @@ def run(kind, url):
     if wait > 0: time.sleep(wait)
     t = time.perf_counter()
     try:
-        page = Fetcher.get(url, timeout=20) if kind == "fetcher" else DynamicFetcher.fetch(url, headless=True, network_idle=True, timeout=45000)
+        page = Fetcher.get(url, timeout=20, stealthy_headers=False, headers={"User-Agent": UA}) if kind == "fetcher" else DynamicFetcher.fetch(url, headless=True, network_idle=True, timeout=45000, extra_headers={"User-Agent": UA})
     except Exception as e:
         return {"error": f"{type(e).__name__}: {str(e)[:160]}"}
     finally: _last[host] = time.time()

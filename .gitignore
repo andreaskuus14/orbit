@@ -37,5 +37,8 @@ orbit-launcher.log.1
 
 # tools/trials: venv, recorded clips, results
 /tools/trials/.venv/
-/tools/trials/clips/**/*.wav
-/tools/trials/results/*.md
+/tools/trials/clips/**
+!/tools/trials/clips/**/
+!/tools/trials/clips/**/.gitkeep
+/tools/trials/results/*
+!/tools/trials/results/.gitkeep

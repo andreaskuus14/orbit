@@ -47,6 +47,7 @@ for (const t of tools.filter((x) => !only || x.name === only)) {
     if (t.install && (await rl.question('Type "yes" to run it (anything else skips this tool): ')).trim() !== "yes") r.verdict = "install not confirmed";
     else if (t.install && run(t.install).code) r.verdict = "install failed";
     else if (!t.ask) r.verdict = "ask command not configured";
+    else if ((await rl.question(`Index command: ${t.index || "(none)"}\nAsk command: ${t.ask}\nIt runs in ${root} (8 questions + a temporary edit of ${stale.file}, reverted). Type "yes" to run: `)).trim() !== "yes") r.verdict = "index/ask not confirmed";
     else {
       if (t.index) { const i = run(t.index); r.index = `${i.sec.toFixed(0)} s, exit ${i.code}`; }
       r.rows = questions.map((q) => { const a = ask(t, q.q); return { q: q.q, ok: grade(a.out, q.expect), sec: a.sec }; });
