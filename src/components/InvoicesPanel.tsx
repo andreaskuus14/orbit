@@ -8,7 +8,7 @@ import type { Negotiation } from "@/lib/negotiator-pure";
 // Invoices (roadmap B6) inside BUSINESS: his seller details, drafts made from a prospect or an agreed negotiation, the PDF,
 // sent/paid marked by him, who owes what, and reminder drafts for overdue ones. Only "Approve" on a reminder can send, after two clicks.
 
-type State = { seller: Seller | null; invoices: Invoice[]; dashboard: Dashboard; today: string };
+type State = { seller: Seller | null; invoices: Invoice[]; dashboard: Dashboard; today: string; stripe?: boolean };
 async function call(body?: object) {
   const res = await fetch("/api/business/invoices", { method: body ? "POST" : "GET", cache: "no-store", ...(body && { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
   const j = await res.json().catch(() => ({}));
@@ -84,14 +84,14 @@ export default function InvoicesPanel({ prospects }: { prospects: { id: string; 
       {!st && !msg && <p className="muted">Loading…</p>}
       {st && !st.invoices.length && <p className="muted">No invoices yet. Fill in Your details, then make one from a business or an agreed negotiation.</p>}
       <ul className="space-y-1.5">
-        {st?.invoices.map((i) => <Row key={i.id} i={i} today={st.today} open={lit === i.id} toggle={() => setLit(lit === i.id ? null : i.id)} busy={busy} act={act} />)}
+        {st?.invoices.map((i) => <Row key={i.id} i={i} today={st.today} stripe={st.stripe} open={lit === i.id} toggle={() => setLit(lit === i.id ? null : i.id)} busy={busy} act={act} />)}
       </ul>
     </section>
   );
 }
 
 type Act = (key: string, body: object, then?: (j: { result?: Invoice; message?: string; text?: string }) => void) => Promise<void>;
-function Row({ i, today, open, toggle, busy, act }: { i: Invoice; today: string; open: boolean; toggle: () => void; busy: string; act: Act }) {
+function Row({ i, today, stripe, open, toggle, busy, act }: { i: Invoice; today: string; stripe?: boolean; open: boolean; toggle: () => void; busy: string; act: Act }) {
   const v = view(i, today), t = totals(i), any = !!busy;
   const [f, setF] = useState(() => form(i));
   const [paidOn, setPaidOn] = useState(today);
@@ -150,6 +150,7 @@ function Row({ i, today, open, toggle, busy, act }: { i: Invoice; today: string;
                 </>}
                 {i.status === "paid" && !i.refunds?.length && <button className="chip" disabled={any} onClick={() => void act(`unpaid:${i.id}`, { action: "status", id: i.id, to: "sent" })}>Not paid after all</button>}
               </div>
+              {i.status !== "paid" && <PayLink i={i} stripe={stripe} busy={any} act={act} />}
               {i.status === "paid" && <Refunds i={i} today={today} busy={any} act={act} />}
               {v === "overdue" && !i.reminder && (
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -179,6 +180,19 @@ function Row({ i, today, open, toggle, busy, act }: { i: Invoice; today: string;
 }
 
 /** BUS06: money he paid back on a paid invoice, kept on its own day (Money, CSV and digests count it apart from "paid"). */
+function PayLink({ i, stripe, busy, act }: { i: Invoice; stripe?: boolean; busy: boolean; act: Act }) {
+  const { t } = useT();
+  const [url, setUrl] = useState(i.payUrl ?? "");
+  useEffect(() => setUrl(i.payUrl ?? ""), [i.payUrl]);
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" title={t("inv.payHint")}>
+      <input className="field w-64" type="url" aria-label={t("inv.pay")} placeholder={t("inv.pay")} maxLength={500} value={url} onChange={(e) => setUrl(e.target.value)} />
+      <button className="chip" disabled={busy || url === (i.payUrl ?? "")} onClick={() => void act(`pay:${i.id}`, { action: "paylink", id: i.id, url })}>{t("inv.paySave")}</button>
+      {stripe && !i.payUrl && <button className="chip" disabled={busy} onClick={() => void act(`stripe:${i.id}`, { action: "stripelink", id: i.id })}>{t("inv.payStripe")}</button>}
+    </div>
+  );
+}
+
 function Refunds({ i, today, busy, act }: { i: Invoice; today: string; busy: boolean; act: Act }) {
   const { t } = useT();
   const [f, setF] = useState({ amount: "", day: today, note: "" });
