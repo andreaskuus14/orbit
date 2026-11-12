@@ -1,5 +1,5 @@
 "use client";
-import { MAPPING, compare } from "@/lib/persona-calibration-pure";
+import { MIN_PER_STAGE, compare } from "@/lib/persona-calibration-pure";
 import type { PersonaResult } from "@/lib/personas-pure";
 import type { Retention } from "@/lib/gamedev-retention-pure";
 import type { Calibration } from "@/lib/personas";
@@ -19,11 +19,12 @@ export default function PersonaCalibration({ results, real, saved, busy, onSave 
           <thead><tr><th className="text-left">{t("gd.cal.metric")}</th><th>{t("gd.cal.raw")}</th><th>{t("gd.cal.real")}</th><th>{t("gd.cal.err")}</th><th>{t("gd.cal.factor")}</th><th>{t("gd.cal.adj")}</th></tr></thead>
           <tbody>{rows.map((r) => (
             <tr key={r.key} className="text-center">
-              <td className="text-left">{r.label}</td><td>{fmt(r.raw, r.unit)}</td><td>{fmt(r.real, r.unit)}</td>
+              <td className="text-left">{r.label}{r.est ? ` (${t("gd.cal.est")})` : ""}</td><td>{fmt(r.raw, r.unit)}</td><td>{fmt(r.real, r.unit)}</td>
               <td>{r.error === null ? "" : `${r.error > 0 ? "+" : ""}${fmt(r.error, r.unit)}`}</td><td>{r.factor ?? ""}</td><td>{saved ? fmt(r.calibrated, r.unit) : ""}</td>
             </tr>))}</tbody>
         </table>
-        <p className="muted text-[11px]">{t("gd.cal.mapping", { m: MAPPING })}</p>
+        <p className="muted text-[11px]">{t("gd.cal.mapping", { min: MIN_PER_STAGE })}</p>
+        <p className="muted text-[11px]">{t("gd.cal.fitnote")}</p>
         {saved && <p className="muted text-[11px]">{t("gd.cal.saved", { at: new Date(saved.at).toLocaleString(), rep: new Date(saved.report).toLocaleString(), asOf: saved.asOf })}</p>}
         <div><button className="chip" onClick={onSave} disabled={busy}>{t("gd.cal.btn")}</button></div>
       </>}

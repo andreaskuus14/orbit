@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { EN, ET } from "../src/lib/i18n-pure.ts";
 import { PERSONAS, scoreAll, type Walkthrough } from "../src/lib/personas-pure.ts";
 import { parseExport, type Retention } from "../src/lib/gamedev-retention-pure.ts";
-import { adjust, calibrate, cleanFactors, compare, factorFor, predict } from "../src/lib/persona-calibration-pure.ts";
+import { CalibrationError, calibrate, calibrationStatus, cleanFactors, compare, factorFor, METRICS, pickGame, predict } from "../src/lib/persona-calibration-pure.ts";
 
 // Fixtures (made up, shaped like a Creator Dashboard export): mature days through 2026-10-20.
 const RETENTION_CSV = `Date,New Users,Day 1 Retention,Day 7 Retention,Avg Session Time (min)
@@ -34,13 +35,14 @@ test("compare: real values, errors, shrunk factors, raw and calibrated side by s
   assert.equal(by.d1.n, 1000);
   assert.equal(by.d1.error, 0.784); // predicted 1.0
   assert.equal(by.d7.real, 0.048);
-  assert.equal(by.minutes.real, 10); // mean of the day averages
+  assert.equal(by.minutes.real, 10.133); // weighted by new users: (9*400 + 11*600 + 10*300 + 10*200) / 1500
+  assert.equal(by.minutes.n, 1500);
   assert.equal(by["funnel.rebirth"].real, 0.02);
   assert.equal(by["funnel.first_pet"].real, 0.5);
   // n = 1000: weight 1000/1100, so the factor lands just above the plain ratio 0.216
   assert.equal(by.d1.factor, 0.287); assert.equal(factors.d1.n, 1000);
   assert.equal(by.d1.calibrated, 0.287); // raw 1 x factor
-  assert.equal(by.minutes.factor, 1); assert.equal(by.minutes.calibrated, 10);
+  assert.equal(by.minutes.factor, 1.012); assert.equal(by.minutes.calibrated, 10.12);
 });
 
 test("unknowns stay unknown: no factor, calibrated = raw", () => {
@@ -59,15 +61,40 @@ test("factor: small samples barely move it, clamps, zero prediction refused", ()
   assert.equal(calibrate(0.9, 2, "rate"), 1); // rates never exceed 100%
 });
 
-test("future predictions use stored factors; metrics without one stay raw", () => {
+test("calibrated uses stored factors; metrics without one stay raw", () => {
   const { factors } = compare(everyone, retention());
-  const a = Object.fromEntries(adjust(noRebirth, factors).map((x) => [x.key, x]));
+  const a = Object.fromEntries(compare(noRebirth, retention(), factors).rows.map((x) => [x.key, x]));
   assert.equal(a.d1.calibrated, 0.287); assert.equal(a.d7.raw, 0);
-  assert.equal(adjust(noRebirth, {}).find((x) => x.key === "d1")!.calibrated, 1);
+  assert.equal(compare(noRebirth, retention(), {}).rows.find((x) => x.key === "d1")!.calibrated, 1);
   assert.equal(PERSONAS.length, 20);
+});
+
+test("only the derived metrics are marked as estimates", () => {
+  assert.deepEqual(METRICS.filter((m) => m.est).map((m) => m.key), ["d1", "d7", "minutes"]);
+});
+
+test("pickGame: the same choice for UI and server", () => {
+  const g = [{ id: "a", platform: "web" }, { id: "b", platform: "roblox" }, { id: "pet-sim", platform: "roblox" }];
+  assert.equal(pickGame(g, "a")!.id, "a");
+  assert.equal(pickGame(g, "nope")!.id, "pet-sim");
+  assert.equal(pickGame(g)!.id, "pet-sim");
+  assert.equal(pickGame(g.slice(0, 2))!.id, "b");
+  assert.equal(pickGame(g.slice(0, 1))!.id, "a");
+  assert.equal(pickGame([]), undefined);
+});
+
+test("status: owner-fixable calibration problems are 409, anything else (storage) is 500", () => {
+  assert.equal(calibrationStatus(new CalibrationError("x")), 409);
+  assert.equal(calibrationStatus(new Error("EACCES")), 500);
+  assert.equal(calibrationStatus("boom"), 500);
 });
 
 test("cleanFactors drops junk and out-of-range values", () => {
   assert.deepEqual(cleanFactors({ d1: { factor: 0.5, n: 10 }, d7: { factor: 99, n: 10 }, minutes: { factor: 1, n: 0 }, x: { factor: 1, n: 1 }, "funnel.join": "no" }), { d1: { factor: 0.5, n: 10 } });
   assert.deepEqual(cleanFactors(null), {});
+});
+
+test("calibration notes exist in EN and ET, the footnote takes the minutes figure", () => {
+  for (const k of ["gd.cal.mapping", "gd.cal.est", "gd.cal.fitnote"] as const) { assert.ok(EN[k]); assert.ok(ET[k]); assert.notEqual(ET[k], EN[k]); }
+  assert.match(EN["gd.cal.mapping"], /\{min\}/); assert.match(ET["gd.cal.mapping"]!, /\{min\}/);
 });
