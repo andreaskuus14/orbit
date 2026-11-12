@@ -58,7 +58,7 @@ export default function LifePanel({ open }: { open?: { tab: LifeView; start?: tr
   }, [load]);
   const planAct = useCallback(async (body: object) => {
     try {
-      const res = await fetch("/api/dayplan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const res = await fetch("/api/dayplan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, from: "life" }) });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
       setErr(null); await load(); return json.result as unknown;

@@ -176,7 +176,7 @@ export function eveningReport(p: DayPlan | null, now: number): { done: Block[]; 
 }
 
 // ── Commitment inbox ─────────────────────────────────────────────────────────────────────────────────────────────
-export type Commitment = { id: string; text: string; owner: "me" | "them"; due?: string; missing: string[]; status: "awaiting" | "confirmed" | "dismissed"; source: { kind: string; ref?: string }; at: string; min?: number; rank?: number };
+export type Commitment = { id: string; text: string; owner: "me" | "them"; due?: string; missing: string[]; status: "awaiting" | "confirmed" | "dismissed" | "done"; source: { kind: string; ref?: string }; at: string; min?: number; rank?: number };
 
 const PROMISE = /\b(i(?:'ll| will| shall)|i(?:'m| am) going to|i promise(?:d)?|i need to|i have to|i must|remind me to|let me)\b\s+(.{3,140}?)(?:[.!?\n]|$)/gi;
 const THEIRS = /\b(you(?:'ll| will)|(?:he|she|they)(?:'ll| will))\s+(.{3,140}?)(?:[.!?\n]|$)/gi;

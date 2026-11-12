@@ -134,3 +134,36 @@ test("render: an open goal's forecast sentence is shown inert; done goals drop i
   assert.match(s, /1000 subscribers.* · forecast: At your current pace you reach ~640 of 1,000 by Dec 31; you'd need \+12\/day, you're doing \+7\/day\./);
   assert.equal(s.includes("Target reached"), false);
 });
+
+test("worldCommitments: only his confirmed, non-private commitments reach the WORLD MODEL", async () => {
+  const { worldCommitments } = await import("../src/lib/world-pure.ts");
+  const c = (text: string, o: object = {}) => ({ text, owner: "me", status: "confirmed", source: { kind: "typed" }, at: "2026-11-14T09:00:00Z", ...o });
+  const out = worldCommitments([
+    c("Send portfolio draft", { due: "2026-10-25" }), c("Close loop", { source: { kind: "chat" } }),
+    c("Awaiting one", { status: "awaiting" }), c("Dismissed one", { status: "dismissed" }), c("Their promise", { owner: "them" }),
+    c("Journal secret", { source: { kind: "journal" } }), c("Life secret", { source: { kind: "life" } }), c("No source", { source: undefined }),
+  ]);
+  const text = render({ ...world(), commitments: out }, TODAY);
+  assert.match(text, /Send portfolio draft \(due 2026-10-25, in 2d\)/);
+  assert.match(text, /Close loop/);
+  for (const bad of ["Awaiting", "Dismissed", "Their promise", "Journal secret", "Life secret", "No source"]) assert.equal(text.includes(bad), false, bad);
+});
+
+test("worldCommitments: a LIFE-panel capture (kind life) and a legacy loop task never reach the WORLD MODEL", async () => {
+  const { worldCommitments } = await import("../src/lib/world-pure.ts");
+  const out = worldCommitments([
+    { text: "Life capture secret", owner: "me", status: "confirmed", source: { kind: "life" } },
+    { text: "Old loop task", owner: "me", status: "confirmed", source: { kind: "loop" } },
+    { text: "Finished task", owner: "me", status: "done", source: { kind: "typed" } },
+    { text: "Follow up Acme", owner: "me", status: "confirmed", source: { kind: "business" } },
+  ]);
+  assert.deepEqual(out.map((c) => c.text), ["Follow up Acme"]);
+});
+
+test("worldCommitments: typed rows from before the life-kind deploy count as private (old LIFE entries)", async () => {
+  const { worldCommitments, TYPED_SAFE_FROM } = await import("../src/lib/world-pure.ts");
+  assert.equal(TYPED_SAFE_FROM, "2026-11-14");
+  const t = (text: string, at?: string) => ({ text, owner: "me", status: "confirmed", source: { kind: "typed" }, ...(at && { at }) });
+  const out = worldCommitments([t("Old life gym", "2026-11-13T21:59:59Z"), t("No date"), t("New typed", "2026-11-13T22:00:00Z"), { ...t("Old chat"), at: "2026-10-01T00:00:00Z", source: { kind: "chat" } }]);
+  assert.deepEqual(out.map((c) => c.text), ["New typed", "Old chat"]); // 22:00Z on the 13th is already the 14th in Tallinn
+});

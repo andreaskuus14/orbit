@@ -112,3 +112,9 @@ test("ask_agent after outside content needs the owner's own ask for an agent (re
   assert.equal(ok("ask_agent", { agent: "atlas", request: "x" }, ctx({ question: "compare trailer tools" })), true); // nothing outside in context: unchanged
   assert.equal(ok("ask_agent", { agent: "atlas", request: "x" }, ctx({ steps: [step("studio_status")], question: "how is studio doing" })), true); // own ORBIT data isn't outside text
 });
+
+test("world-model commitment texts: a web_search carrying one is refused even with no tool step yet", () => {
+  const c = ctx({ question: "find gyms", privateText: ["Call Dr Tamm about the MRI results"] });
+  assert.equal(ok("web_search", { query: "Call Dr Tamm about the MRI results" }, c), false);
+  assert.equal(ok("web_search", { query: "gyms in Tallinn" }, c), true);
+});
