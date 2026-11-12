@@ -10,6 +10,7 @@ export type CometItem = { id: string; kind: CometKind; title: string; due: strin
 
 const DAY = 86_400_000;
 export const MAX_COMETS = 20;
+export const MAX_OVERDUE = 10;
 export const HORIZON_DAYS = 45; // further out than this is not a deadline you can see coming
 export const CORE_CLEAR = 3; // radius at 0 days left: just outside the CORE's outer ring (2.29)
 export const ORBIT_GAP = 0.4; // keep this far off every planet's orbit path
@@ -69,6 +70,7 @@ export function cometItems(src: { commitments?: RawCommit[]; invoices?: RawInvoi
     const day = tags.find((t) => /^revisit:\d{4}-\d{2}-\d{2}$/.test(t))?.slice(8);
     if (day && isDay(day)) out.push({ id: `d:${d.id}`, kind: "decision", title: `Revisit: ${d.title.replace(/^Decision:\s*/, "").slice(0, 200)}`, due: day, panel: "memory" });
   }
-  return out.filter((c) => daysLeft(c.due, now) <= HORIZON_DAYS)
-    .sort((a, b) => a.due.localeCompare(b.due) || a.id.localeCompare(b.id)).slice(0, MAX_COMETS);
+  const sorted = out.filter((c) => daysLeft(c.due, now) <= HORIZON_DAYS).sort((a, b) => a.due.localeCompare(b.due) || a.id.localeCompare(b.id));
+  const late = sorted.filter((c) => dueAt(c.due) < now); // overdue sort first; keep the newest MAX_OVERDUE so upcoming ones still fit
+  return [...late.slice(-MAX_OVERDUE), ...sorted.slice(late.length)].slice(0, MAX_COMETS);
 }

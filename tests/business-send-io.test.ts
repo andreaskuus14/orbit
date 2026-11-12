@@ -68,6 +68,15 @@ test("modified text after approval: refused, nothing sent, still To contact", as
   assert.equal(s.row.stage, "lead");
 });
 
+test("a draft with an unfilled [postal address] placeholder sends nothing", async () => {
+  const s = load();
+  s.row.draft += "\n\n[postal address]";
+  const r = await s.send(await s.seen());
+  assert.equal(s.sends.length, 0, JSON.stringify(r.body));
+  assert.notEqual(r.status, 200);
+  assert.equal(s.row.stage, "lead");
+});
+
 test("changed recipient after approval: refused, nothing sent", async () => {
   const s = load(), seen = await s.seen();
   s.row.contact = "someone-else@example.test";

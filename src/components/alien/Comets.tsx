@@ -13,7 +13,7 @@ const _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quatern
 
 export function Comets({ level, reduced, onSelect }: { level: number; reduced: boolean; onSelect: (id: PanelId) => void }) {
   const [items, setItems] = useState<CometItem[]>([]);
-  const [hover, setHover] = useState<number | null>(null);
+  const [hover, setHover] = useState<string | null>(null);
   const ref = useRef<THREE.InstancedMesh>(null);
   const on = level > 0;
   useEffect(() => {
@@ -42,19 +42,19 @@ export function Comets({ level, reduced, onSelect }: { level: number; reduced: b
     items.forEach((it, i) => {
       _p.set(...cometPosition(it, now));
       _q.setFromUnitVectors(UP, _s.copy(_p).normalize());
-      const k = (hover === i ? 1.6 : 1) * (reduced ? 1 : 1 + 0.08 * Math.sin(t * 3 + i));
+      const k = (hover === it.id ? 1.6 : 1) * (reduced ? 1 : 1 + 0.08 * Math.sin(t * 3 + i));
       m.setMatrixAt(i, _m.compose(_p, _q, _s.set(k, k, k)));
     });
     m.count = items.length;
     m.instanceMatrix.needsUpdate = true;
   });
   if (!on || !items.length) return null;
-  const h = hover !== null ? items[hover] : null;
+  const h = hover !== null ? items.find((x) => x.id === hover) ?? null : null;
   return (
     <>
       <instancedMesh ref={ref} args={[geo, undefined, MAX_COMETS]} frustumCulled={false}
         onClick={(e) => { e.stopPropagation(); const it = e.instanceId !== undefined ? items[e.instanceId] : null; if (it) onSelect(it.panel); }}
-        onPointerOver={(e) => { e.stopPropagation(); setHover(e.instanceId ?? null); }} onPointerOut={() => setHover(null)}>
+        onPointerOver={(e) => { e.stopPropagation(); setHover(e.instanceId !== undefined ? items[e.instanceId]?.id ?? null : null); }} onPointerOut={() => setHover(null)}>
         <meshBasicMaterial transparent opacity={0.85} toneMapped={false} depthWrite={false} blending={THREE.AdditiveBlending} />
       </instancedMesh>
       {h && (

@@ -33,7 +33,7 @@ test("only allowlisted commitments; LIFE/journal and unconfirmed never become co
   assert.deepEqual(out.map((c) => c.title), ["Send portfolio"]);
 });
 
-test("invoices by number only, decisions by revisit tag, past and far ones dropped, capped", () => {
+test("invoices by number only, decisions by revisit tag, far ones dropped, overdue kept, capped", () => {
   const out = cometItems({
     invoices: [{ id: "a", number: "2026-007", status: "sent", due: "2026-11-15" }, { id: "b", number: "8", status: "paid", due: "2026-11-15" }, { id: "c", number: "9", status: "sent", due: "2026-11-11" }],
     decisions: [{ id: "d1", kind: "decision", title: "Decision: Use Blender", tags: ["decision", "revisit:2026-12-01"] }, { id: "d2", kind: "decision", title: "Closed", tags: ["revisit:2026-12-01", "revisited"] },
@@ -56,4 +56,12 @@ test("commitments keep their own id, and dated rows survive past 50 undated ones
   const undated = Array.from({ length: 60 }, (_, i) => ({ ...ok(`u${i}`, ""), id: `u${i}` }));
   const out = cometItems({ commitments: [...undated, { ...ok("Late one", "2026-11-14"), id: "k7" }] }, NOW);
   assert.deepEqual(out.map((c) => c.id), ["c:k7"]);
+});
+
+test("overdue items are capped at 10 (oldest dropped) so upcoming ones still show", () => {
+  const late = Array.from({ length: 30 }, (_, i) => ({ id: `o${i}`, number: `${i}`, status: "sent", due: `2026-10-${String(i + 1).padStart(2, "0")}` }));
+  const out = cometItems({ invoices: [...late, { id: "up", number: "up", status: "sent", due: "2026-11-20" }] }, NOW);
+  assert.equal(out.length, 11);
+  assert.equal(out[0].id, "i:o20");
+  assert.equal(out[10].id, "i:up");
 });
