@@ -116,7 +116,8 @@ const SHAPES: { [K in EventType]: Record<keyof Data[K], (v: unknown) => boolean>
   "focus.end": { focus: id, minutes: (v) => count(v) && (v as number) <= 1440 },
 };
 export const EVENT_TYPES = Object.keys(SHAPES) as EventType[];
-export const LEDGER_PLANETS = [...PLANETS.map((p) => p.id), "core"];
+// "markets" still tags deal events and old rows keep "theater"/"markets": the planets are gone, the history stays valid.
+export const LEDGER_PLANETS = [...PLANETS.map((p) => p.id), "core", "markets", "theater"];
 
 /** ISO 8601 with a time and zone, and a real calendar day (Date.parse alone accepts Feb 30). Returns ms or NaN. */
 export function isoMs(v: unknown): number {
