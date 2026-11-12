@@ -194,7 +194,7 @@ function img(a: Asset, cls: string, eager = false, style = "") {
 const paras = (b: string[]) => b.map((p) => `<p>${esc(p)}</p>`).join("");
 const buttons = (c: Link[]) => (c.length ? `<p class="actions">${c.map((l, i) => `<a class="btn${i ? " btn-quiet" : ""}" href="${esc(l.href)}">${esc(l.label)}</a>`).join("")}</p>` : "");
 
-function section(x: Section, b: Brief): string {
+export function section(x: Section, b: Brief): string {
   const a = x.image ? b.assets.find((y) => y.id === x.image) : undefined;
   const head = `<h2 id="${x.id}-title">${directionOf(b.style) ? accentHeading(esc(x.heading), true) : esc(x.heading).replace(/\*([^*]+)\*/, "$1")}</h2>`, attrs = `id="${x.id}" class="sec sec-${x.kind}" data-section="${x.id}" aria-labelledby="${x.id}-title"`;
   switch (x.kind) {
