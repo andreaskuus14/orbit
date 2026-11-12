@@ -194,6 +194,7 @@ function Detail({ c, canSend, busy, act }: { c: Contract; canSend: boolean; busy
           {c.countersigned && <p className="ok">{proposal ? t("ct.agreed", { n: c.signed.n }) : <>Countersigned, marked by you on {c.countersigned.at.slice(0, 10)}. Save their signed copy in VAULT.</>}</p>}
         </div>)}
       {c.status !== "countersigned" && c.status !== "cancelled" && <button className="chip" disabled={!!busy} onClick={() => twice("cancel", () => void act("cancel", { action: "cancel", id: c.id }))}>{sure === "cancel" ? "Click again to cancel this contract" : "Cancel contract"}</button>}
+      <ShareLinks id={c.id} />
       <p className="muted text-[11px]">E-signature by the other party (a provider such as Dokobit or Smart-ID signing) is a future step and not connected: for now they sign the PDF and send it back.</p>
     </div>
   );
@@ -235,5 +236,55 @@ function SignBox({ name, hash, n, busy, onSign }: { name: string; hash: string; 
       <button className="btn" disabled={busy || !read || empty} onClick={() => void onSign({ ...sig, ...(sig.kind === "drawn" && { strokes: sig.strokes.filter((s) => s.length >= 4) }) } as Signature)}>
         {busy ? "Signing…" : "✍ Sign"}</button>
     </div>
+  );
+}
+
+type Link = { id: string; n: number; exp: number; notify: boolean; revoked: string | null; path: string; views: number; secs: number; last: string | null; recent: { at: string; secs: number; ua: string }[] };
+/** Tracked pitch links (pitch-links.ts): a read-only /p/ link he copies and sends himself. Creating one sends nothing. */
+function ShareLinks({ id }: { id: string }) {
+  const [links, setLinks] = useState<Link[] | null>(null);
+  const [err, setErr] = useState("");
+  const [days, setDays] = useState(14);
+  const [notify, setNotify] = useState(true);
+  const { t } = useT();
+  const call = async (body?: object) => {
+    setErr("");
+    const r = await fetch(body ? "/api/business/links" : `/api/business/links?contract=${encodeURIComponent(id)}`, { method: body ? "POST" : "GET", cache: "no-store", ...(body && { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return setErr(j.error ?? "Couldn't do that");
+    if (body) return call();
+    setLinks(j.links);
+  };
+  const url = (l: Link) => (typeof location === "undefined" ? l.path : location.origin + l.path);
+  const fmt = (s: number) => (s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`);
+  return (
+    <details className="text-xs" onToggle={(e) => { if ((e.target as HTMLDetailsElement).open && !links) void call(); }}>
+      <summary className="cursor-pointer">{t("pl.title")}</summary>
+      <div className="mt-1.5 space-y-1.5">
+        <p className="muted">{t("pl.hint")}</p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <label className="flex items-center gap-1">{t("pl.expires")} <input className="field w-14" type="number" min={1} max={90} value={days} onChange={(e) => setDays(Number(e.target.value))} /></label>
+          <label className="flex items-center gap-1"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> {t("pl.notify")}</label>
+          <button className="chip" onClick={() => void call({ action: "create", contractId: id, days, notify })}>{t("pl.make")}</button>
+        </div>
+        {err && <p className="error">{err}</p>}
+        {links?.length === 0 && <p className="muted">{t("pl.none")}</p>}
+        {links?.map((l) => {
+          const dead = l.revoked ? t("pl.revoked") : l.exp * 1000 <= Date.now() ? t("pl.expired") : "";
+          return (
+            <div key={l.id} className="space-y-1 rounded border border-white/10 p-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="chip">v{l.n}</span>
+                {dead ? <span className="muted">{dead}</span> : <>
+                  <input className="field min-w-0 flex-1" readOnly aria-label={t("pl.link")} value={url(l)} onFocus={(e) => e.target.select()} />
+                  <button className="chip" onClick={() => void navigator.clipboard?.writeText(url(l))}>{t("pl.copy")}</button>
+                  <button className="chip" onClick={() => void call({ action: "revoke", id: l.id })}>{t("pl.revoke")}</button></>}
+              </div>
+              <p className="muted">{t("pl.stats", { n: l.views, s: fmt(l.secs), d: new Date(l.exp * 1000).toISOString().slice(0, 10) })}{l.last && ` · ${t("pl.last", { d: l.last.slice(0, 16).replace("T", " ") })}`}</p>
+              {l.recent.length > 0 && <ul className="muted">{l.recent.map((v) => <li key={v.at}>{v.at.slice(0, 16).replace("T", " ")} · {fmt(v.secs)} · {v.ua}</li>)}</ul>}
+            </div>);
+        })}
+      </div>
+    </details>
   );
 }

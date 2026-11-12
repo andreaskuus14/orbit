@@ -20,17 +20,18 @@ const minutes = (t: number, dayStart: number) => Math.round((t - dayStart) / 60_
 
 async function gather(sb: SupabaseClient | null, userId: string | null, now: number): Promise<PlanItem[]> {
   const d0 = new Date(now); d0.setHours(0, 0, 0, 0);
-  const [ev, ap, goals, s] = await Promise.all([
+  const [ev, lessons, ap, goals, s] = await Promise.all([
     within(import("./gcal").then((x) => x.calendarEvents(1, now))).catch(() => null),
+    within(import("./ics").then((x) => x.timetableEvents(d0.getTime(), d0.getTime() + 36 * 3600_000, now))).catch(() => []), // timetable lessons (local .ics)
     sb ? within(import("./remote").then((x) => x.pendingApprovals(sb))).catch(() => []) : [],
     sb && userId ? within(import("./goals").then((x) => x.listGoals(sb, userId))).catch(() => []) : [],
     load(),
   ]);
   const items: PlanItem[] = [];
-  for (const e of ev ?? []) {
+  for (const e of [...(ev ?? []), ...lessons.map((l) => ({ ...l, lesson: true }))]) {
     if (e.allDay) continue;
     const start = Math.max(0, minutes(Date.parse(e.start), d0.getTime())), end = Math.min(24 * 60, minutes(Date.parse(e.end), d0.getTime()));
-    if (end > start) items.push({ id: `cal:${e.start}:${e.title.slice(0, 40)}`, title: e.title, min: end - start, flexible: false, fixed: { start, end }, source: { kind: "calendar", label: "Google Calendar", open: { panel: "life" } } });
+    if (end > start) items.push({ id: `${"lesson" in e ? "tt" : "cal"}:${e.start}:${e.title.slice(0, 40)}`, title: e.title, min: end - start, flexible: false, fixed: { start, end }, source: { kind: "calendar", label: "lesson" in e ? "Timetable" : "Google Calendar", open: { panel: "life" } } });
   }
   items.push(...approvalItems(ap));
   for (const g of goals) {
@@ -127,7 +128,7 @@ export const captureCommitments = (text: string, source: { kind: string; ref?: s
   return found;
 });
 /** His own confirmed task (e.g. an open loop he turned into one): goes straight into "Plan my day". */
-export const addTask = (text: string, source: { kind: string; ref?: string }, est?: { min?: number; rank?: number; due?: string }) => update((s) => {
+export const addTask = (text: string, source: { kind: string; ref?: string }, est?: { min?: number; rank?: number; due?: string; at?: string }) => update((s) => {
   const c: Commitment = { id: `c-${Date.now().toString(36)}-t`, text: text.slice(0, 200), owner: "me", missing: [], status: "confirmed", source, at: new Date().toISOString(), ...est };
   s.commitments = [c, ...s.commitments].slice(0, 200);
   return c;

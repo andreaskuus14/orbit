@@ -238,6 +238,7 @@ const oauthFile = (name: string) => path.join(orbitDataDir(), "plugin-oauth", `$
 const readOAuth = async (name: string): Promise<OAuthFile> => { try { return JSON.parse(await readFile(oauthFile(name), "utf8")) ?? {}; } catch { return {}; } };
 const og = globalThis as unknown as { __orbitOAuthLock?: Map<string, Promise<unknown>> };
 const locks = (og.__orbitOAuthLock ??= new Map());
+const REFRESH_TIMEOUT_MS = 20_000;
 /** Queued, atomic (safe-file: unique tmp, fsync, rename with lock retry) read-modify-write of one plugin's file. fn returns the new
  *  content, null = signed out (an empty {}), or undefined = no change. The folder is 0700 and the file 0600 (no-ops on Windows). */
 async function editOAuth(name: string, fn: (f: OAuthFile) => OAuthFile | null | undefined): Promise<void> {
@@ -261,7 +262,8 @@ function lockedFetch(name: string): typeof fetch {
       const { tokens: cur, exp } = await readOAuth(name), now = Date.now();
       if (cur?.access_token && cur.refresh_token !== form.get("refresh_token") && !needsRefresh(exp, now))
         return Response.json({ ...cur, ...(exp ? { expires_in: Math.floor((exp - now) / 1000) } : {}) });
-      const res = await fetch(url, init), text = await res.text();
+      // a hung token endpoint must not hold the lock (and every later refresh) forever; a timeout throws, the SDK reports it
+      const res = await fetch(url, { ...init, signal: AbortSignal.any([...(init?.signal ? [init.signal] : []), AbortSignal.timeout(Number(process.env.ORBIT_OAUTH_REFRESH_MS) || REFRESH_TIMEOUT_MS)]) }), text = await res.text();
       if (res.ok) {
         try {
           const t = JSON.parse(text);

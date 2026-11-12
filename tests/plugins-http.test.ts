@@ -54,7 +54,7 @@ test("a refused token says so and never shows the token", async () => {
 const { readdir, stat } = await import("node:fs/promises");
 const { pkceChallenge } = await import("../src/lib/yt-analytics-pure.ts");
 const { SIGN_IN_FIRST } = await import("../src/lib/plugins-pure.ts");
-const as = { clients: new Set<string>(), codes: new Map<string, { challenge: string; redirect: string; client: string }>(), valid: new Set<string>(), refresh: "", refreshes: 0, n: 0 };
+const as = { clients: new Set<string>(), codes: new Map<string, { challenge: string; redirect: string; client: string }>(), valid: new Set<string>(), refresh: "", refreshes: 0, n: 0, hang: false, hung: 0 };
 const json = (res: import("node:http").ServerResponse, code: number, o: unknown) => res.writeHead(code, { "content-type": "application/json" }).end(JSON.stringify(o));
 const body = async (req: import("node:http").IncomingMessage) => { let s = ""; for await (const c of req) s += c; return s; };
 const oauthHttp = createServer(async (req, res) => {
@@ -78,6 +78,7 @@ const oauthHttp = createServer(async (req, res) => {
       if (!c || c.client !== f.get("client_id") || c.redirect !== f.get("redirect_uri") || pkceChallenge(f.get("code_verifier") ?? "") !== c.challenge) return json(res, 400, { error: "invalid_grant" });
       return issue(60); // expires inside the 2-minute refresh window: the next connection must refresh first
     }
+    if (f.get("grant_type") === "refresh_token" && as.hang) { as.hung++; return; } // never answers
     if (f.get("grant_type") === "refresh_token" && f.get("refresh_token") === as.refresh) { as.refreshes++; return issue(3600); } // rotating: the old refresh token dies here
     return json(res, 400, { error: "invalid_grant" });
   }
@@ -146,4 +147,29 @@ test("oauth plugin: sign in with PKCE, refresh before expiry, list + run tools, 
   assert.equal(await P.oauthSignedIn("vid"), false);
   assert.doesNotMatch(await readFile(f, "utf8"), /secretvalue/);
   assert.equal((await P.testPlugin("vid")).error, SIGN_IN_FIRST);
+});
+
+test("oauth: a doubled sign-in callback is refused and keeps the tokens", async () => {
+  await P.updatePlugins((l) => [...l, { name: "dbl", url: `${base}/mcp`, oauth: true, args: [], env: {}, enabled: true, local: false, tools: {}, timeoutSec: 30 }]);
+  const login = await browserLogin("dbl");
+  assert.deepEqual(await P.finishOAuth(login.state, login.code), { name: "dbl" });
+  assert.deepEqual(await P.finishOAuth(login.state, login.code), { name: "dbl", error: "state" }, "the same callback twice (reload, double click) finds no saved state");
+  assert.equal(await P.oauthSignedIn("dbl"), true, "and the first sign-in stays");
+});
+
+test("oauth: a token endpoint that hangs doesn't hold the refresh lock forever", async () => {
+  process.env.ORBIT_OAUTH_REFRESH_MS = "300";
+  await P.updatePlugins((l) => [...l, { name: "hang", url: `${base}/mcp`, oauth: true, args: [], env: {}, enabled: true, local: false, tools: {}, timeoutSec: 30 }]);
+  const login = await browserLogin("hang");
+  assert.deepEqual(await P.finishOAuth(login.state, login.code), { name: "hang" });
+  const f = path.join(dir, "plugin-oauth", "hang.json");
+  await writeFile(f, JSON.stringify({ ...JSON.parse(await readFile(f, "utf8")), exp: Date.now() + 1000 }));
+  as.hang = true;
+  const t0 = Date.now();
+  try {
+    const r = await Promise.allSettled([P.refreshOAuthNow("hang"), P.refreshOAuthNow("hang")]); // the second waits on the lock behind the first
+    assert.ok(Date.now() - t0 < 5000, `both gave up in ${Date.now() - t0} ms`);
+    assert.ok(r.every((x) => x.status === "rejected"));
+    assert.ok(as.hung >= 1, "the refresh request did reach the server");
+  } finally { as.hang = false; delete process.env.ORBIT_OAUTH_REFRESH_MS; }
 });

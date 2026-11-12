@@ -102,3 +102,9 @@ test("retargeting a partial blend reverses smoothly without snapping", () => {
   const colorWeight = ease(0, 1, 1 / 60);
   assert.ok(colorWeight > 0 && colorWeight < 1);
 });
+
+test("on phones the ambient loop is cropped toward the bright right side of the clip", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /@media \(max-width: 600px\) \{ \.ambient-loop \{ object-position: 90% 50%; \} \}/);
+});

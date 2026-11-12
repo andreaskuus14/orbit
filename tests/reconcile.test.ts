@@ -102,3 +102,19 @@ test("sub-cent amounts are refused", () => {
   assert.equal(parseCents("0,05"), 5);
   assert.equal(parseCents("1 234,50"), 123450);
 });
+
+test("a file with U+FFFD (wrong encoding) is refused with a clear message, not parsed", () => {
+  const p = parseBank("Kuup\uFFFDev;Summa;Selgitus\n05.10.2026;620,00;Tellimus\n");
+  assert.deepEqual(p.lines, []);
+  assert.match(p.problem, /isn't UTF-8/);
+  assert.equal(parseBank("Kuupäev;Summa;Selgitus\n05.10.2026;620,00;Tellimus\n").problem, "", "proper UTF-8 with ä is fine");
+});
+
+test("the balance-word guard only applies when the row type is unknown", () => {
+  const head = '"Client account";"Row type";"Date";"Beneficiary/Payer";"Details";"Amount";"Currency";"Debit/Credit";"Archive ID";"Transaction type";"Reference number";"Document number"\n';
+  const known = parseBank(head + '"EE1";"20";"05.10.2026";"Balance Pilates OÜ";"Turnover bonus";"50,00";"EUR";"K";"";"MK";"";""\n');
+  assert.deepEqual(known.lines.map((l) => l.cents), [5000], "a real payment (type 20) is kept even with balance words in its text");
+  const unknown = parseBank("Date,Name,Amount\n05.10.2026,Balance Pilates,50\n", { day: 0, name: 1, amount: 2 });
+  assert.deepEqual(unknown.lines, []);
+  assert.deepEqual(unknown.skipped, [2], "without a row type the balance-like line is skipped and reported");
+});

@@ -13,7 +13,7 @@ test("CSP: scripts only by nonce (no unsafe-inline/eval in production); the rest
 
 test("CSP applies to pages, not to API routes or the sandboxed previews; nonces are fresh 128-bit values", () => {
   for (const p of ["/", "/login", "/remote", "/screen"]) assert.ok(cspApplies(p), p);
-  for (const p of ["/api/tasks", "/w", "/w/abc/index.html", "/_next/static/x.js"]) assert.ok(!cspApplies(p), p);
+  for (const p of ["/api/tasks", "/w", "/w/abc/index.html", "/p/tok", "/_next/static/x.js"]) assert.ok(!cspApplies(p), p);
   const a = newNonce(), b = newNonce();
   assert.notEqual(a, b); assert.equal(Buffer.from(a, "base64").length, 16);
 });

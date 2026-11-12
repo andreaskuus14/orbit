@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { pollMs } from "@/lib/poll-pure";
 import { usePoll } from "./use-poll";
-import type { Gate, Mode, Pending, SUGGESTED } from "@/lib/plugins-pure";
+import { takePluginsReturn, type Gate, type Mode, type Pending, type SUGGESTED } from "@/lib/plugins-pure";
 
 type Tool = Gate & { id: string; name: string; description: string; check: "checked" | "partial" | "unchecked" | "refused"; schemaError?: string };
 type P = { name: string; command?: string; args: string[]; url?: string; env: Record<string, string>; headers?: Record<string, string>; oauth?: boolean; signedIn?: boolean; enabled: boolean; local: boolean; others?: Mode; timeoutSec: number; note?: string;
@@ -39,7 +39,8 @@ export function PluginsSection() {
   }, []);
   const poll = useCallback(() => void call(), [call]);
   useEffect(() => { // the sign-in route comes back to /?plugins=<result>
-    const q = new URLSearchParams(location.search).get("plugins");
+    const { result: q, rest } = takePluginsReturn(location.search);
+    if (q !== null) history.replaceState(history.state, "", `${location.pathname}${rest}${location.hash}`);
     const m = q && SIGNIN[q];
     if (m) { if (q === "signed-in") setOut(m); else setErr(m); }
   }, []);
