@@ -28,6 +28,7 @@ import { HoloRing, planetStandIn, ThoughtShell, useLiquidMetal, type SurfaceLook
 import { MicroWorld, Ringworld } from "./alien/MicroWorld";
 import { WindowDive, WindowPlanets } from "./alien/WindowPlanet";
 import { lensRadius } from "./alien/micro-pure";
+import { Comets } from "./alien/Comets";
 import { armCount, boostCap, coreScale, overviewBoost, planetDetail, shellCount } from "@/lib/alien-pure";
 import { lifeRingGlow, lifeRingStep } from "@/lib/galaxy-life-pure";
 import { cullLabels, damp, spreadLabels, fmtCoord, HOME_POS, INTRO_SECS, introLabelAlpha } from "@/lib/cinematic-pure";
@@ -1097,6 +1098,7 @@ export default function Galaxy(props: GalaxyProps) {
         <WarmIn> {/* both arrive with data after the start-up compile */}
           {props.universe && <Universe u={props.universe} positions={positions} scales={scales} still={props.reduced || level === 0} level={level} />}
           {props.ships && <Ships tasks={props.ships.tasks} onOpen={props.ships.onOpen} positions={positions} reduced={props.reduced} />}
+          <Comets level={level} reduced={props.reduced} onSelect={props.onSelect} />
         </WarmIn>
         {/* a focused world may be approached until it nearly fills the view: its surface keeps resolving finer detail */}
         <OrbitControls makeDefault enabled={!staged} enablePan={false} minDistance={props.selected && props.selected in sizes ? sizes[props.selected] * 1.35 : 4} maxDistance={80} enableDamping />
