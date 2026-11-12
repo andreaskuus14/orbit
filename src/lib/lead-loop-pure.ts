@@ -90,6 +90,7 @@ export function parseSearch(answer: string): Search | null {
   let j: { website?: unknown; checked?: unknown };
   try { j = JSON.parse(answer.slice(s, e + 1)); } catch { return null; }
   const site = j.website ? httpsUrl(j.website) : null;
+  if (j.website && !site) return null; // an unparsable "website" (two URLs, "kask.ee (official)") is an unusable answer, not "no site"
   const links = (Array.isArray(j.checked) ? j.checked : []).map(httpsUrl).filter((x): x is URL => !!x).map(String).slice(0, 5);
   return { website: site && !isListing(String(site)) ? String(site) : null, links };
 }

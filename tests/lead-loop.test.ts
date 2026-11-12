@@ -32,6 +32,9 @@ test("parseSearch: listings are not a website; bad JSON is null", () => {
   assert.deepEqual(parseSearch('ok {"website":"https://facebook.com/kask","checked":["https://facebook.com/kask","ftp://x"]}'), { website: null, links: ["https://facebook.com/kask"] });
   assert.equal(parseSearch('{"website":"https://kask.ee/","checked":[]}')?.website, "https://kask.ee/");
   assert.equal(parseSearch("no json"), null);
+  assert.equal(parseSearch('{"website":"kask.ee (official)","checked":[]}'), null); // unparsable website fails closed
+  assert.equal(parseSearch('{"website":"https://a.ee https://b.ee","checked":[]}'), null);
+  assert.equal(parseSearch('{"website":null,"checked":[]}')?.website, null);
 });
 
 test("scoreNoWebsite: a found site fails; search + DNS needed to pass; never 100", () => {
