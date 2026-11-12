@@ -38,6 +38,7 @@ export async function timetableEvents(from: number, to: number, now = Date.now()
   if (s.url && now - s.at > REFRESH_MS) {
     const r = await importTimetable({ url: s.url });
     if (typeof r !== "string") s = (await load()) ?? s;
+    else await writeStore(file(), JSON.stringify({ ...s, at: now })); // failed: keep the old copy, but don't retry until the next window
   }
   return icsEvents(s.text, from, to);
 }

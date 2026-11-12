@@ -120,7 +120,7 @@ export function reconcile(lines: BankLine[], invoices: Invoice[]): Report {
   const open = invoices.filter((i) => i.status !== "draft"), used = new Set<string>(), matched: Match[] = [], bankOnly: BankLine[] = [];
   const pick = (l: BankLine): Pick<Match, "invoice" | "by"> | null => {
     const same = open.filter((i) => !used.has(i.id) && owed(i) === l.cents);
-    const byRef = same.find((i) => l.ref && digits(l.ref) === i.ref) ?? same.find((i) => digits(l.text).includes(i.ref) && i.ref.length >= 4);
+    const byRef = same.find((i) => l.ref && digits(l.ref) === i.ref) ?? same.find((i) => i.ref.length >= 4 && !!l.text.match(/\d+/g)?.some((d) => d === i.ref));
     if (byRef) return { invoice: byRef, by: "reference" };
     const byNo = same.find((i) => (l.text + " " + l.ref).includes(i.number));
     if (byNo) return { invoice: byNo, by: "number" };
