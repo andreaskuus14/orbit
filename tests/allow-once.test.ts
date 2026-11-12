@@ -186,6 +186,22 @@ test("slug forms of a journal phrase (- _ . /) are refused in fetch_url and lead
   assert.ok(hashLeak("https://x.ee/?q=my well-known sister argued", old, KEY));
 });
 
+test("lead_create.website: a journal slug is refused, a plain site allowed", () => {
+  const url = "https://x.ee/argued-with-my-sister-about";
+  assert.equal(decide("lead_create", { name: "Acme", website: url }, { ...jctx(allowOnceBook()), question: "add this lead" }).allow, false);
+  assert.equal(decide("lead_create", { name: "Acme", website: "https://acme.ee/pricing" }, { ...jctx(allowOnceBook()), question: "add this lead" }).allow, true);
+});
+
+test("hash cap: journal in turn 1, ~12k more private words, restart → the journal phrase in fetch_url is still refused", async () => {
+  const filler = Array.from({ length: 12_000 }, (_, i) => i % 5 ? `w${i}` : `w${i}-x${i}`).join(" "); // ~14.4k tokens; storing both splits would pass 20k
+  coreTaintStore.mark("chat-cap", { kind: "private", p: phraseHashes([JOURNAL], KEY), l: [] });
+  coreTaintStore.mark("chat-cap", { kind: "private", p: phraseHashes([filler], KEY), l: [] });
+  await restart();
+  const e = coreTaintStore.get("chat-cap")!;
+  const ctx: PolicyCtx = { ...base, carried: true, carriedKind: "private", carriedHashes: e.p, question: "open that" };
+  assert.equal(decide("fetch_url", { url: "https://x.ee/argued-with-my-sister-about-the-old-flat" }, ctx).allow, false);
+});
+
 test("card text: control, zero-width and bidi characters are shown, not applied", () => {
   assert.equal(visible("a\u202Eb\u200Bc\u0007d\ne"), "a⟦U+202E⟧b⟦U+200B⟧c⟦U+0007⟧d\ne");
   const b = allowOnceBook(), r = decide(SEND, { to: "x\u202E@evil.com", text: JOURNAL }, jctx(b));
