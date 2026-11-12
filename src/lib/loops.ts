@@ -70,6 +70,6 @@ export async function actLoop(key: unknown, action: unknown, now = Date.now()): 
   const d = decideLoop(s.found, key, action, now, localDay(new Date(now)));
   if (typeof d === "string") return d;
   const loop = s.found.find((l) => l.key === key)!;
-  if (d.action === "task") await (await import("./dayplan")).addTask(`${loop.next}: ${loop.title}`, { kind: loopOrigin(loop), ref: loop.key });
+  if (d.action === "task") await (await import("./dayplan")).addTask(`${loop.next}: ${loop.title}`, { kind: loopOrigin(loop), ref: loop.key }, { at: loop.since }); // keeps the source row's date, so an old typed row can't come back fresh past the cutoff
   return update((s) => { s.decided[key as string] = d; return d; });
 }

@@ -127,7 +127,7 @@ export const captureCommitments = (text: string, source: { kind: string; ref?: s
   return found;
 });
 /** His own confirmed task (e.g. an open loop he turned into one): goes straight into "Plan my day". */
-export const addTask = (text: string, source: { kind: string; ref?: string }, est?: { min?: number; rank?: number; due?: string }) => update((s) => {
+export const addTask = (text: string, source: { kind: string; ref?: string }, est?: { min?: number; rank?: number; due?: string; at?: string }) => update((s) => {
   const c: Commitment = { id: `c-${Date.now().toString(36)}-t`, text: text.slice(0, 200), owner: "me", missing: [], status: "confirmed", source, at: new Date().toISOString(), ...est };
   s.commitments = [c, ...s.commitments].slice(0, 200);
   return c;

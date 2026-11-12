@@ -13,10 +13,13 @@ export const MAX_RENDER = 6000;
 export const SAFE_COMMIT_KINDS = new Set(["typed", "chat", "goal", "mission", "business"]);
 /** His confirmed commitments from dayplan.json, private-free: only owner "me", status "confirmed", allowlisted source kind. */
 /** Deploy day of the `life` kind: LIFE-panel entries made before it were stored as `typed`, so older `typed` rows count as private. */
-export const TYPED_SAFE_FROM = "2026-11-12";
+export const TYPED_SAFE_FROM = "2026-11-14"; // a safe margin after the deploy day
+const tallinnDay = (at: string) => { const t = Date.parse(at); return Number.isFinite(t) ? new Date(t).toLocaleDateString("en-CA", { timeZone: "Europe/Tallinn" }) : ""; };
+/** One gate for world model and loops: allowlisted kind, and `typed` only from TYPED_SAFE_FROM on (his Tallinn day). Fails closed. */
+export const safeCommitment = (c: { at?: string; source?: { kind?: string } }) =>
+  SAFE_COMMIT_KINDS.has(c.source?.kind ?? "") && (c.source?.kind !== "typed" || (typeof c.at === "string" && tallinnDay(c.at) >= TYPED_SAFE_FROM));
 export const worldCommitments = (cs: { text: string; owner: string; status: string; due?: string; at?: string; source?: { kind?: string } }[]): Commitment[] =>
-  cs.filter((c) => c.owner === "me" && c.status === "confirmed" && SAFE_COMMIT_KINDS.has(c.source?.kind ?? "") && typeof c.text === "string" && c.text.trim()
-    && (c.source?.kind !== "typed" || (typeof c.at === "string" && c.at.slice(0, 10) >= TYPED_SAFE_FROM)))
+  cs.filter((c) => c.owner === "me" && c.status === "confirmed" && safeCommitment(c) && typeof c.text === "string" && c.text.trim())
     .slice(0, 50).map((c) => ({ text: c.text.trim().slice(0, 300), ...(c.due && isDay(c.due) ? { due: c.due } : {}) }));
 const WEEKLY_KEYS = ["shortsViews", "shortsPublished", "leadsContacted", "studyHours"] as const;
 const STATUSES: GoalStatus[] = ["active", "paused", "done"];
