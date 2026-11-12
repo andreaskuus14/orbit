@@ -4,7 +4,7 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { localDay } from "./morning-pure";
-import { BOOK_SYSTEM, DRAFT_SYSTEM, addCards, bookCards, bookPrompt, bookRef, quizPick, editCard as editCardPure, sourceCorrected, draftPrompt, dueToday, lessonCard, parseDrafts, parseStore, review, stats, studyable,
+import { BOOK_SYSTEM, DRAFT_SYSTEM, addCards, bookCards, bookTodo, bookPrompt, bookRef, quizPick, editCard as editCardPure, sourceCorrected, draftPrompt, dueToday, lessonCard, parseDrafts, parseStore, review, stats, studyable,
   type CardSource, type Draft, type Grade, type Store, type UserStudy } from "./study-pure";
 
 // Study cards I/O (logic: study-pure.ts). State: <ORBIT data dir>/study.json (local only). Days are the PC's local days.
@@ -37,7 +37,7 @@ const mine = async (userId: string) => (await load()).users[userId] ?? { cards: 
 export async function studyView(userId: string) {
   const [u, kept] = await Promise.all([mine(userId), import("./lessons").then((m) => m.lessonsView(userId)).then((v) => v.kept, () => [])]), d = today();
   const carded = new Set(u.cards.filter((c) => c.source === "lesson").map((c) => c.ref));
-  return { cards: u.cards, log: u.log.slice(-500), queue: dueToday(u, d).map((c) => c.id), stats: stats(u, d),
+  return { cards: u.cards, skipped: u.tried ?? [], log: u.log.slice(-500), queue: dueToday(u, d).map((c) => c.id), stats: stats(u, d),
     lessons: kept.filter((l) => !carded.has(l.id)).map((l) => ({ id: l.id, ...lessonCard(l) })) };
 }
 
@@ -79,20 +79,23 @@ export async function studyBooks(): Promise<string[]> {
 
 /** Cards for the next few chapters of a book that have none yet, read from the book's own text (not the skill summaries). Saved straight
  *  away: each card carries a quote checked against the chapter plus "Book, Chapter", and he can still edit or delete it. */
-export async function bookDeck(sb: SupabaseClient, userId: string, book: string, max = 3, signal?: AbortSignal): Promise<{ added: number; left: number } | string> {
+export async function bookDeck(sb: SupabaseClient, userId: string, book: string, max = 3, signal?: AbortSignal, retry?: string): Promise<{ added: number; left: number } | string> {
   const { listVault, readVaultText } = await import("./vault"), { chapters, isSkillFile } = await import("./book-skill-pure");
   const files = await listVault(), src = files.find((f) => !isSkillFile(f.name) && f.name.replace(/\.[^.]+$/, "") === book);
   if (!src || !files.some((f) => f.name === `${book}.skill.json`)) return "Make that book's skill in VAULT first";
   const text = await readVaultText(src.name, 600_000);
   if (!text) return "No readable text in that book";
-  const have = new Set((await mine(userId)).cards.map((c) => c.ref)), todo = chapters(text).filter((p) => !have.has(bookRef(book, p.title)));
-  const { askClaude, recordUsage } = await import("./claude");
+  const todo = bookTodo(await mine(userId), book, chapters(text), retry);
+  const { askClaude, recordUsage } = await import("./claude"), { usageHardHold } = await import("./usage-meter"), { stopAllOn } = await import("./stop-all");
   let added = 0;
   for (const p of todo.slice(0, max)) {
-    if (signal?.aborted) break;
+    if (signal?.aborted || stopAllOn() || usageHardHold()) break; // re-checked before every call: a limit can start mid-run
     const r = await askClaude(bookPrompt(book, p.title, p.body), BOOK_SYSTEM, { lane: "foreground", timeoutMs: 90_000, purpose: "study.book", signal });
     void recordUsage(sb, userId, "study.book", r);
-    added += await saveCards(userId, bookCards(r.text, book, p.title, p.body), "book", bookRef(book, p.title));
+    const ref = bookRef(book, p.title), cards = bookCards(r.text, book, p.title, p.body);
+    const n = await saveCards(userId, cards, "book", ref);
+    added += n;
+    if (!n) await update((u) => { u.tried = [...new Set([...(u.tried ?? []), ref])].slice(-2000); }, userId); // 0 valid cards still cost a call: don't resend
   }
   return { added, left: Math.max(0, todo.length - max) };
 }
