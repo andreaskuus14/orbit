@@ -27,6 +27,7 @@ export type Invoice = {
   reminded: { at: string; via: "email" | "copy" | "unknown" }[];
   pushedAt?: string; // last phone push about its waiting reminder (once a week at most)
   refunds?: Refund[]; // money he paid back on a paid invoice (BUS06); counted on its own day, never hidden in "paid"
+  payUrl?: string; // his card-payment link (Stripe Payment Link / PayPal.me), shown in reminders and on the PDF
   created: string; updated: string;
 };
 export type Refund = { day: string; cents: number; note: string; at: string }; // cents: gross (with VAT), as he paid it back
@@ -240,11 +241,51 @@ export function reminderDraft(i: Invoice, s: Seller | null, lang: unknown, today
   const t = euro(totals(i).gross), late = daysLate(i, today), me = s?.name || "";
   const pay = [s?.iban && `IBAN ${s.iban}${s.bank ? ` (${s.bank})` : ""}`, `reference number ${i.ref}`].filter(Boolean).join(", ");
   const text = lang === "Estonian"
-    ? `Tere${i.buyer.name ? `, ${i.buyer.name}` : ""}!\n\nTuletan meelde, et arve nr ${i.number} summas ${t} maksetähtaeg oli ${i.due} (${late} päeva tagasi) ja ma ei ole makset veel näinud. Palun tasuge see: ${pay.replace("reference number", "viitenumber")}.\n\nKui olete juba maksnud, siis palun vabandust ja andke mulle teada.\n\nLugupidamisega\n${me}`
-    : `Hello${i.buyer.name ? ` ${i.buyer.name}` : ""},\n\nA friendly reminder that invoice ${i.number} for ${t} was due on ${i.due} (${late} day${late === 1 ? "" : "s"} ago) and I haven't seen the payment yet. Please pay it to ${pay}.\n\nIf you've already paid, thank you, and please ignore this message.\n\nBest regards,\n${me}`;
+    ? `Tere${i.buyer.name ? `, ${i.buyer.name}` : ""}!\n\nTuletan meelde, et arve nr ${i.number} summas ${t} maksetähtaeg oli ${i.due} (${late} päeva tagasi) ja ma ei ole makset veel näinud. Palun tasuge see: ${pay.replace("reference number", "viitenumber")}.${i.payUrl ? `\nKaardiga saab maksta siin: ${i.payUrl}` : ""}\n\nKui olete juba maksnud, siis palun vabandust ja andke mulle teada.\n\nLugupidamisega\n${me}`
+    : `Hello${i.buyer.name ? ` ${i.buyer.name}` : ""},\n\nA friendly reminder that invoice ${i.number} for ${t} was due on ${i.due} (${late} day${late === 1 ? "" : "s"} ago) and I haven't seen the payment yet. Please pay it to ${pay}.${i.payUrl ? `\nYou can also pay by card here: ${i.payUrl}` : ""}\n\nIf you've already paid, thank you, and please ignore this message.\n\nBest regards,\n${me}`;
   const subject = (lang === "Estonian" ? `Meeldetuletus: arve ${i.number}` : `Reminder: invoice ${i.number}`) + (me ? ` (${me})` : "");
   return { text: text.trim(), subject: subject.replace(/[\r\n]+/g, " ").slice(0, 150), at: new Date(now).toISOString() }; // at doubles as the version he approves
 }
+// ---- Pay link ---------------------------------------------------------------------
+
+export const PAY_HOSTS = ["buy.stripe.com", "checkout.stripe.com", "paypal.me", "www.paypal.com"];
+/** His pasted pay link: "" clears it; only https on the allowlisted hosts, no credentials in it. */
+export function parsePayUrl(v: unknown): string | { error: string } {
+  const s = typeof v === "string" ? v.trim() : "";
+  if (!s) return "";
+  let u: URL;
+  try { u = new URL(s); } catch { return { error: "That isn't a link" }; }
+  if (u.protocol !== "https:" || u.username || u.password || u.port || !PAY_HOSTS.includes(u.hostname) || s.length > 500) return { error: `Pay link must be https on ${PAY_HOSTS.join(", ")}` };
+  return u.toString();
+}
+export function setPayUrl(i: Invoice, v: unknown, now: number): Invoice | string {
+  if (i.status === "paid") return "This invoice is already paid";
+  const u = parsePayUrl(v);
+  if (typeof u !== "string") return u.error;
+  const next = { ...i, updated: new Date(now).toISOString() };
+  if (u) next.payUrl = u; else delete next.payUrl;
+  return next;
+}
+/** Stripe Payment Links API form body: one line, the invoice's gross total in EUR, invoice number as product name. */
+export const stripeLinkBody = (i: Invoice) => new URLSearchParams({
+  "line_items[0][quantity]": "1",
+  "line_items[0][price_data][currency]": "eur",
+  "line_items[0][price_data][unit_amount]": String(totals(i).gross),
+  "line_items[0][price_data][product_data][name]": `Invoice ${i.number}`,
+  "metadata[orbit_invoice]": i.id,
+});
+/** Only on his click: create a Stripe Payment Link. Refuses without a key; the key never goes into an error or log. */
+export async function stripePayLink(i: Invoice, key: string | undefined, f: typeof fetch): Promise<string | { error: string }> {
+  if (!key) return { error: "STRIPE_SECRET_KEY isn't set: paste a link instead" };
+  if (i.status === "paid") return { error: "This invoice is already paid" };
+  if (totals(i).gross <= 0) return { error: "The invoice total is zero" };
+  const r = await f("https://api.stripe.com/v1/payment_links", { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/x-www-form-urlencoded" }, body: stripeLinkBody(i) });
+  const j = (await r.json().catch(() => ({}))) as { url?: string; error?: { message?: string } };
+  if (!r.ok) return { error: `Stripe refused: ${String(j.error?.message ?? r.status).slice(0, 200)}` };
+  const u = parsePayUrl(j.url);
+  return typeof u === "string" && u ? u : { error: "Stripe returned no usable link" };
+}
+
 /** The exact email a reminder approval covers (approval-pure contentHash; the panel and Remote hash the same shape). */
 export const reminderContent = (i: Pick<Invoice, "buyer" | "reminder">) => ({ to: emailIn(i.buyer.email) ?? "", subject: i.reminder?.subject ?? "", text: i.reminder?.text ?? "" });
 /** Why his approve click can't go ahead ("" = it can): a draft is waiting and it is still overdue. Its exact version is checked by approvalGate. */
@@ -342,7 +383,7 @@ export function invoicePdf(i: Invoice, s: Seller): Uint8Array {
   sum("Total EUR / Kokku", money(tot.gross), true);
   y -= 14;
   t(A4.m, "F2", 9, "Payment / Makse"); y -= 13;
-  for (const l of [`IBAN ${s.iban}${s.bank ? ` (${s.bank})` : ""}`, `Reference no / Viitenumber ${i.ref}`, `Due / Tähtaeg ${i.due}`]) { t(A4.m, "F1", 9, l); y -= 12; }
+  for (const l of [`IBAN ${s.iban}${s.bank ? ` (${s.bank})` : ""}`, `Reference no / Viitenumber ${i.ref}`, `Due / Tähtaeg ${i.due}`, i.payUrl && `Pay by card / Maksa kaardiga ${i.payUrl}`].filter(Boolean) as string[]) { t(A4.m, "F1", 9, l); y -= 12; }
   if (i.notes) { y -= 8; for (const l of wrap(i.notes, 9, A4.w - 2 * A4.m)) { if (y < A4.m + 20) newPage(); t(A4.m, "F1", 9, l); y -= 12; } }
   pages.push(page);
   pages.forEach((p, k) => p.ops.push(pdfText(A4.m, 28, "F1", 7, `${s.name} · invoice ${i.number} · page ${k + 1} of ${pages.length}`)));

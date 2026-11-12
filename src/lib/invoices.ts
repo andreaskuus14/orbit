@@ -11,7 +11,7 @@ import { emailIn } from "./business-pure";
 import { resendMail } from "./business-send";
 import { localDay } from "./morning-pure";
 import {
-  approveProblem, reminderContent, dashboard, invoicePushes, editInvoice, invoicePdf, newInvoice, parseSeller, readyProblem, reminderDraft, setStatus, addRefund, dropRefund,
+  approveProblem, reminderContent, dashboard, invoicePushes, editInvoice, invoicePdf, newInvoice, parseSeller, readyProblem, reminderDraft, setStatus, addRefund, dropRefund, setPayUrl, stripePayLink,
   type From, type Invoice, type Seller,
 } from "./invoices-pure";
 
@@ -58,7 +58,7 @@ const change = (id: unknown, fn: (i: Invoice, s: Store) => Invoice | string) => 
 
 export async function invoicesView() {
   const s = await load(), day = today();
-  return { seller: s.seller, invoices: [...s.invoices].sort((a, b) => b.created.localeCompare(a.created)), dashboard: dashboard(s.invoices, day), today: day };
+  return { seller: s.seller, invoices: [...s.invoices].sort((a, b) => b.created.localeCompare(a.created)), dashboard: dashboard(s.invoices, day), today: day, stripe: !!process.env.STRIPE_SECRET_KEY };
 }
 /** For the morning brief / night report; never throws. */
 /** Throws when invoices.json cannot be read: for callers that must tell "no invoices" from "could not read" (weekly outcome). */
@@ -118,6 +118,16 @@ export const draftReminder = (b: Record<string, unknown>) => change(b.id, (i, s)
   const r = reminderDraft(i, s.seller, b.lang, today(), Date.now());
   return typeof r === "string" ? r : { ...i, reminder: r, updated: r.at };
 });
+/** His pasted pay link ({action:"paylink", id, url}; "" clears it). */
+export const savePayLink = (b: Record<string, unknown>) => change(b.id, (i) => setPayUrl(i, b.url, Date.now()));
+/** His "Create Stripe link" click only (never from Auto, the scheduler or a background job). */
+export async function makeStripeLink(b: Record<string, unknown>): Promise<Invoice | string> {
+  const i = (await load()).invoices.find((x) => x.id === b.id);
+  if (!i) return "Not found";
+  const u = await stripePayLink(i, process.env.STRIPE_SECRET_KEY, fetch);
+  if (typeof u !== "string") return u.error;
+  return change(b.id, (cur) => setPayUrl(cur, u, Date.now()));
+}
 export const dropReminder = (id: unknown) => change(id, (i) => ({ ...i, reminder: null }));
 
 /** The PDF, once the Estonian basics are there. */
