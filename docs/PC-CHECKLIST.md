@@ -1,0 +1,67 @@
+# PC checklist
+
+Follow this the next time you sit at the Windows PC. It brings ORBIT up to date and checks that Wave 1 works. Work top to bottom. Open PowerShell in the `orbit` folder.
+
+## 1. Update
+
+```powershell
+git checkout main
+git pull
+npm ci
+npm run app:stop
+# if something still holds port 3000, stop it:
+Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+npm run dev
+```
+
+Open http://localhost:3000. (Dev mode is slower than the installed build. For the perf test in step 4, use `npm run app:rebuild` instead.)
+
+**Database migrations.** Open Doctor → **Database migrations**. It lists every file still missing. Apply each one in the Supabase SQL editor (supabase.com → your project → SQL Editor → New query → paste the whole file → Run), oldest first. Running a file twice is harmless.
+
+| File | Needed for |
+|---|---|
+| `supabase/migrations/0021_task_claim.sql` | Agent tasks start (required) |
+| `supabase/migrations/0022_proposal_basis.sql` | Approving suggestions (required) |
+| `supabase/migrations/0023_attempt_ids.sql` | Approvals that create projects, tasks, automations (required) |
+| `supabase/migrations/0025_task_origin.sql` | Scorecard replays carry an origin (optional) |
+| `supabase/migrations/0026_prospect_drafted_at.sql` | Prospect `drafted_at`; without it Auto never sends a draft (optional) |
+
+Doctor may also list other files (for example `0024_fact_entities.sql`). Apply whatever it lists. When Doctor shows none missing, this step is done.
+
+## 2. Privacy steps for #560 (before 14 Nov)
+
+Entries typed in the LIFE panel before the new code ran were stored as ordinary typed text. Until 14 Nov ORBIT treats older typed commitments as private and skips them. Do these once so new entries are stored as LIFE:
+
+1. Reload every open ORBIT tab that shows LIFE (Ctrl+Shift+R). An old tab still runs the old code.
+2. Let one loops scan run (wait for the next scheduled one, or open the morning brief). Then check Needs you and the morning brief: no LIFE or journal text appears in any loop title.
+
+## 3. Smoke test (about 10 minutes)
+
+| Feature | Click path | You should see |
+|---|---|---|
+| Emblems and nebula | Home (2D view), then Explore | A round medallion emblem on each world card and panel header. A slow, seamless nebula loop behind the home cards. |
+| Wake clip | Mic on, say "Orbit, what time is it" | It wakes and answers. Say "Orbit of the moon is..." in normal speech: it must not wake. |
+| Sun dome | ARCH → Sun path | Dome with three arcs (summer orange, equinox yellow, winter blue), hour lines, and the sun at the study time. |
+| Study cards | ARCH → Study → make cards from a book chapter | Cards each with a Source. A weekly quiz is offered. |
+| Weekly results | BUSINESS → This week | Views, leads, replies, revenue, each with its source, or "not connected". Never a made-up 0. |
+| Bank reconcile | BUSINESS → Money → Reconcile → pick a bank CSV | Rows matched to invoices. Nothing is marked paid until you click **Mark paid**. |
+| Tracked links | BUSINESS → Contracts → Share as a tracked link → Make link → Copy, open it on your phone | The page loads. The view appears in the list with the time. Revoke, then the link stops working. Nothing is sent. |
+| Decisions | Tell CORE: "I decided to ..., because ..., revisit on ..." | CORE shows what/why/revisit first and saves only after you say yes. When the revisit day comes, a card appears in Needs you. |
+| Timetable .ics | LIFE → Calendar card → Import, pick an `.ics` file; then Plan my day | Lessons show in the calendar and as fixed blocks in Plan my day. No Google sign-in needed. |
+| Model log | ANALYTICS → MODEL LOG (last 7 days) | Count per model. A flag if any risky job ran below Opus. After a few CORE turns, the list is not empty. |
+| vidIQ sign-in | Profile → Plugins → vidIQ → **Sign in** (from http://127.0.0.1:3000) | Browser sign-in, then back in Plugins with the row marked signed in. |
+
+## 4. Wave 1 proofs
+
+1. **Planet look (#521).** Stop dev, run `npm run app:rebuild`, then `npm run perf:run`. Hands off the PC for about 3 minutes (two window sizes). Compare to the previous run: exit code 2 means p95 over 15% slower. Also look at the planets next to the 12 approved style frames.
+2. **5 clean mornings.** Five days in a row, ORBIT is running and the phone digest matches what STUDIO and Agents show (done or needs-you). Note each day: date, ok or what was wrong.
+3. **Restore drill.** Profile → Time capsule → passphrase → **Run restore drill**. Then Doctor → Last recovery drill must show passed. Repeat about monthly.
+
+## 5. If something fails, send Claude
+
+- The step number and what you expected.
+- The newest lines (about 50) of `orbit-server.log`, plus `orbit-build.log` if the build failed and `orbit-launcher.log` if the app did not start (all in the `orbit` folder).
+- A screenshot of the screen where it went wrong, with the browser console open (F12 → Console) if the page is blank or an error shows.
+- A screenshot of Doctor, for any migration problem.
+- For perf: the newest file in `%LOCALAPPDATA%\orbit\perf-runs\`.
+- Do not send journal or LIFE text, `.env.local` or passwords.
