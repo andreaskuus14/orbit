@@ -186,9 +186,12 @@ export const carriesPrivate = (ctx: PolicyCtx) => ctx.attach || ctx.pins || call
 
 export function decide(tool: string, input: Record<string, unknown> | undefined, ctx: PolicyCtx): Decision {
   if (isPluginTool(tool)) { // MCP plugins: tier from annotations + his trust settings, private-text check on every argument (plugins-pure.ts)
-    const privateIn = ctx.attach || ctx.pins || !!ctx.carried || !!ctx.privateText?.length || called(ctx.steps, [...(ctx.privateTools ?? PRIVATE_TOOLS)]);
+    // a local plugin (files, vault) may have read his Journal: its output is private for a remote plugin; unknown locality fails closed
+    const localRead = ctx.plugins?.[tool]?.local ? [] : ctx.steps.map((s) => s.slice(11, s.indexOf(" ", 11))).filter((t) => isPluginTool(t) && ctx.plugins?.[t]?.local !== false);
+    const priv = [...(ctx.privateTools ?? PRIVATE_TOOLS), ...localRead];
+    const privateIn = ctx.attach || ctx.pins || !!ctx.carried || !!ctx.privateText?.length || called(ctx.steps, priv);
     return pluginDecision(tool, input, ctx.plugins?.[tool], { stopAll: ctx.stopAll, privateIn, question: typedText(ctx.question), outside: outsideIn(ctx.steps, UNTRUSTED, ctx.plugins ?? {}, ctx.attach),
-      privateTexts: [...(ctx.privateText ?? []), ...privateResults(ctx.steps, ctx.privateTools ?? PRIVATE_TOOLS)] });
+      privateTexts: [...(ctx.privateText ?? []), ...privateResults(ctx.steps, priv)] });
   }
   const tier = TIERS[tool] ?? "T3"; // unknown = fail closed
   const no = (reason: string): Decision => ({ allow: false, tier, reason });
