@@ -6,7 +6,7 @@ import { getJson } from "./reach/net";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
 import { usageHoldFor } from "./usage-meter";
-import { ANGLE_SYSTEM, REPLY_SYSTEM, anglePrompt, chatwootReplyRequest, replyPrompt, type ChatItem, type ChatMsg, appStoreFeed, appStoreRef, cluster, parseAppStore, parseReddit, redditSearch, type Complaint, type Theme } from "./complaints-pure";
+import { ANGLE_SYSTEM, REPLY_SYSTEM, anglePrompt, chatwootReplyRequest, replyPrompt, type ChatItem, type ChatMsg, applyDraft, claimSend, appStoreFeed, appStoreRef, cluster, parseAppStore, parseReddit, redditSearch, type Complaint, type Theme } from "./complaints-pure";
 
 // BUSINESS "What users hate": <ORBIT data dir>/business/complaints.json (one report per niche). Read-only: public App Store review RSS (for the
 // niche's rival links that are App Store pages) and Reddit search JSON, via reach/net (safeFetch + polite gaps). No logins, no posting.
@@ -87,26 +87,33 @@ function saveChats<T>(fn: (s: ChatItem[]) => T): Promise<T> {
 
 export const listChats = loadChats;
 
-/** Store one incoming chat message (dedupe on id) and draft a reply. Never sends. */
+/** Store one incoming chat message (dedupe on id) and draft a reply. Never sends. A failed or held draft is marked so the UI stops waiting. */
 export async function addChat(m: ChatMsg): Promise<void> {
   const fresh = await saveChats((s) => !s.some((c) => c.id === m.id) && !!s.push({ ...m }));
-  if (!fresh || stopAllOn() || usageHoldFor("background")) return;
-  const out = await askClaude(replyPrompt(m), REPLY_SYSTEM, { lane: "background", purpose: "business.chat", model: FAST_MODEL, timeoutMs: 90_000 });
-  const draft = out.text.trim().slice(0, 2000);
-  await saveChats((s) => { const c = s.find((x) => x.id === m.id); if (c) c.draft = draft; });
+  if (!fresh) return;
+  const fail = (why: string) => saveChats((s) => { const c = s.find((x) => x.id === m.id); if (c && c.draft === undefined) c.draftFailed = why.slice(0, 200); });
+  const held = stopAllOn() ? PAUSED_MSG : usageHoldFor("background");
+  if (held) { await fail(held); return; }
+  try {
+    const out = await askClaude(replyPrompt(m), REPLY_SYSTEM, { lane: "background", purpose: "business.chat", model: FAST_MODEL, timeoutMs: 90_000 });
+    const draft = out.text.trim().slice(0, 2000);
+    await saveChats((s) => { const c = s.find((x) => x.id === m.id); if (c) applyDraft(c, draft); });
+  } catch (e) { await fail(e instanceof Error ? e.message : "Draft failed"); throw e; }
 }
 
 /** Owner's Send click only: post the (possibly edited) reply into the Chatwoot conversation. */
 export async function sendChat(id: string, text: string, doFetch: typeof fetch = fetch): Promise<ChatItem> {
   const base = process.env.CHATWOOT_URL, token = process.env.CHATWOOT_API_TOKEN;
   if (!base || !token) throw new Error("Set CHATWOOT_URL and CHATWOOT_API_TOKEN");
-  const c = (await loadChats()).find((x) => x.id === id);
-  if (!c) throw new Error("Chat not found");
-  if (c.sentAt) throw new Error("Already sent");
   const content = text.trim();
-  if (!content) throw new Error("Reply is empty");
-  const { url, init } = chatwootReplyRequest(base, token, c, content);
-  const res = await doFetch(url, init);
-  if (!res.ok) throw new Error(`Chatwoot answered ${res.status}`);
-  return saveChats((s) => { const x = s.find((y) => y.id === id)!; x.draft = content; x.sentAt = new Date().toISOString(); return x; });
+  const c = await saveChats((s) => claimSend(s.find((x) => x.id === id), content, new Date().toISOString())); // check+set under the lock: no double send
+  try {
+    const { url, init } = chatwootReplyRequest(base, token, c, content);
+    const res = await doFetch(url, init);
+    if (!res.ok) throw new Error(`Chatwoot answered ${res.status}`);
+    return c;
+  } catch (e) {
+    await saveChats((s) => { const x = s.find((y) => y.id === id); if (x && x.sentAt === c.sentAt) delete x.sentAt; });
+    throw e;
+  }
 }
