@@ -4,16 +4,13 @@
 // and kinds with little history are never dropped. Pins in the night settings override the learning (autonomy "off" still wins).
 // It only reorders and trims the existing queue: same budget caps, Stop-all, window and autonomy checks; no new spend path.
 import type { ItemStatus, NightKind } from "./night-pure.ts";
-import type { PArea, Prediction } from "./predict-pure.ts";
 import { translate } from "./i18n-pure.ts";
 
 // His own asks (research), the free tidy-up and the health check always run first; only ORBIT's own initiatives are learned.
 export const LEARN_KINDS = ["goal", "business", "clips", "niche", "deals", "personas"] as const satisfies readonly NightKind[];
-// Where his later decision on a night result shows up in the predictions module (kinds without one learn from "done" only).
-export const AREA_OF: Partial<Record<NightKind, PArea>> = { business: "drafts", clips: "clips", niche: "niches", deals: "deals" };
 export const NOUN: Record<string, string> = Object.fromEntries(LEARN_KINDS.map((k) => [k, translate("en", `night.noun.${k}`)])); // UI: t(`night.noun.${k}`)
 const DAY = 86_400_000;
-export const HALF_LIFE = 21 * DAY, MAX_AGE = 120 * DAY, IGNORED_AFTER = 7 * DAY;
+export const HALF_LIFE = 21 * DAY, MAX_AGE = 120 * DAY;
 export const DROP = 0.25; // a sampled value below this skips the kind tonight…
 export const EXPLORE = 0.1; // …except this share of nights (the floor: a faded kind still gets tried)
 export const MIN_N = 3; // decided results before a kind can fade at all
@@ -25,18 +22,9 @@ export type Pin = "on" | "off";
 export type KindStat = { kind: NightKind; a: number; b: number; y: number; n: number }; // Beta(a, b); y of the last n results were good
 export type Learned = { weight: Partial<Record<NightKind, number>>; drop: NightKind[]; stats: KindStat[] };
 
-/** night.task results + his later decisions → one outcome per decided result. done = used; an "approval" result counts by what he
- *  decided in its area within a week (mostly approved = good); nothing decided after a week = ignored (bad). failed/skipped say nothing about him. */
-export function outcomes(events: TaskEvent[], preds: Pick<Prediction, "area" | "outcome" | "decidedAt">[], now: number): Outcome[] {
-  const decided = preds.filter((p) => p.outcome !== undefined && p.decidedAt);
-  return events.flatMap((e): Outcome[] => {
-    if (e.status === "done") return [{ kind: e.kind, at: e.at, ok: true }];
-    const area = AREA_OF[e.kind], t = Date.parse(e.at);
-    if (e.status !== "approval" || !area || !Number.isFinite(t)) return [];
-    const ds = decided.filter((p) => p.area === area && Date.parse(p.decidedAt!) >= t && Date.parse(p.decidedAt!) < t + IGNORED_AFTER);
-    if (ds.length) return [{ kind: e.kind, at: e.at, ok: ds.filter((p) => p.outcome).length * 2 >= ds.length }];
-    return now - t > IGNORED_AFTER ? [{ kind: e.kind, at: e.at, ok: false }] : []; // still within the week: not decided yet
-  });
+/** night.task results → one outcome per result he used: a "done" result counts as good. Approval, failed and skipped results say nothing yet. */
+export function outcomes(events: TaskEvent[]): Outcome[] {
+  return events.flatMap((e): Outcome[] => (e.status === "done" ? [{ kind: e.kind, at: e.at, ok: true }] : []));
 }
 
 /** Per learned kind: recency-weighted Beta(1 + good, 1 + bad) and raw counts over the last LAST results. */

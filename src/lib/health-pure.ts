@@ -80,7 +80,6 @@ const AREAS: [RegExp, string][] = [
   [/\bvault\b/i, "vault"],
   [/\barch\b/i, "arch"],
   [/\b(?:roblox|luau|game ?dev|forge)\b/i, "creation"],
-  [/\b(?:theater|watch)\b/i, "theater"],
   [/\b(?:agents?|tasks?|goals?|night shift|tonight|automations?)\b/i, "agents"],
   [/\b(?:core|chat|claude|voice|asr|tts)\b/i, "core"],
 ];

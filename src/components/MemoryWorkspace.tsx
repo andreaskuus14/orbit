@@ -10,7 +10,6 @@ import type { Key } from "@/lib/i18n-pure";
 import { mergedContent } from "@/lib/memory-hygiene-pure";
 import type { Decision, RItem } from "@/lib/memory-review-pure";
 import type { Dup, DupChoice } from "@/lib/memory-capture-pure";
-import { OrbitThinks } from "./OrbitThinks";
 import { SECTIONS, type Pack } from "@/lib/memory-pack-pure";
 
 const TYPES: MemoryType[] = ["preference", "fact", "temporary", "observation", "inferred", "superseded"];
@@ -235,7 +234,6 @@ export function MemoryReview({ onChanged }: { onChanged: () => void }) {
               {it.target !== "entity" && it.kind !== "rerun" && it.kind !== "version" && <button className="chip" onClick={() => setFix({ key: it.key, text: it.kind === "merge" ? mergedContent(it.items[0].text, it.items[1]?.text ?? "") ?? it.items[0].text : it.items[0].text })} disabled={!!busy}>{t("memrev.correct")}</button>}
               <button className="chip" onClick={() => act(it, "snoozed")} disabled={!!busy}>{t("memrev.snooze")}</button>
               <button className="chip" onClick={() => act(it, "dismissed")} disabled={!!busy}>{t(it.kind === "entity-same" ? "ent.no" : it.kind === "entity-which" ? "ent.skip" : "memrev.discard")}</button>
-              <OrbitThinks id={`hygiene:${it.key}`} />
             </div>
           )}
         </li>))}</ul>

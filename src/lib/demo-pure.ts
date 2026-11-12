@@ -9,7 +9,6 @@ import { insights, syncRecords, type LearnState } from "./clips/learn-pure.ts";
 import type { ClipJob } from "./clips/types";
 import type { Goal } from "./goals-pure.ts";
 import { progress, runsLeft } from "./goals-pure.ts";
-import { NOTE, STRATEGIES, valueHoldings } from "./markets-pure.ts";
 import { starterScene } from "./arch-pure.ts";
 import { usageSummary } from "./analytics-usage-pure.ts";
 import { latestPublished } from "./clips/engage-pure.ts";
@@ -137,21 +136,6 @@ export function demoFor(endpoint: string, query: Query = {}): unknown {
     }
     case "/api/life": return q.get("due") === "1" ? { due: [] } : life;
     case "/api/business": return { prospects, funnel: funnel(prospects), canSend: false };
-    case "/api/markets": {
-      const watchlist = names.slice(0, 3).map((_, i) => {
-        const spark = series(180, (d) => Math.round((24 + i * 15 + d * 0.08 + Math.sin(d / 6) * 0.7 + rand() * 0.2) * 100) / 100);
-        return { ticker: `DEMO${i + 1}`, price: spark[179], date: date(179), changePct: Math.round((spark[179] / spark[178] - 1) * 10000) / 100, spark };
-      });
-      const prices = Object.fromEntries(watchlist.map((w) => [w.ticker, w.price]));
-      const holdings = [{ ticker: "DEMO1", shares: 10, cost: 24 }], portfolio = valueHoldings(holdings, prices);
-      const account = { cash: 9760, started: date(0),
-        trades: [{ at: time(0), ticker: "DEMO1", side: "buy", qty: 10, price: 24 }], curve: watchlist[0].spark.map((v, d) => ({ d: date(d), eq: 9760 + 10 * v, spy: null })),
-        equity: 9760 + portfolio.value, ret: portfolio.pl / 10000, spy: null };
-      // accountView exposes valued positions, not its stored position dictionary.
-      const view = { ...account, positions: portfolio };
-      return { note: NOTE, watchlist, portfolio, alerts: [{ id: "alert-1", ticker: "DEMO1", kind: "above", value: 45, text: "DEMO1 above 45" }], paper: view,
-        bot: { ...view, strategy: "off", strategies: STRATEGIES, lastRun: date(179), log: ["Demo observation day: no trades needed"] } };
-    }
     case "/api/ledger/events": return { events }; // full 180-day input for time travel, not a live route
     case "/api/ledger": {
       const at = q.get("at") ?? DEMO_NOW, ms = isoMs(at);
@@ -159,7 +143,6 @@ export function demoFor(endpoint: string, query: Query = {}): unknown {
     }
     case "/api/devworld": return { world: { v: 1, games: [{ id: "lantern-maze", name: "Lantern Maze", platform: "web", stage: "beta", pitch: "Find a path through a growing garden.", notes: "Six playtests improved the first puzzle." }],
       bugs: [{ id: "gate-glow", game: "lantern-maze", title: "Gate glow lingers", detail: "Fade the light when the puzzle ends.", severity: "polish", status: "fixed", created: time(140), fixed: time(170) }] }, seeded: false, updatedAt: DEMO_NOW };
-    case "/api/theater": return { videos: videos.map((v) => ({ ...v, channel: "Velquori Lantern Journal" })), topic: "Lantern gardens", note: "Fictional demo catalogue" };
     case "/api/vault": return { files: [{ name: "lantern-sketches.txt", size: 1840, mtime: Date.parse(DEMO_NOW), type: "text", cloud: false }], cloudOnly: [], cloudError: null, usage: { bytes: 1840, count: 1 } };
     case "/api/arch": return { ops: [{ op: "plot", w: 24, d: 20, ground: "grass", trees: 8 }], say: "A garden plot for a small lantern pavilion." };
     case "/api/arch/scene": return starterScene(); // local scene input, not a live GET route

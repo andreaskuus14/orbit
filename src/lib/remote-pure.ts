@@ -97,7 +97,7 @@ export function verifyToken(token: unknown, secret: string, now: number): TokenR
 
 // ---- Commands ------------------------------------------------------------
 
-export const REMOTE_PANELS = ["core", "profile", "memory", "intelligence", "creation", "operations", "agents", "life", "vault", "analytics", "studio", "theater", "markets", "business", "arch"] as const;
+export const REMOTE_PANELS = ["core", "profile", "memory", "intelligence", "creation", "operations", "agents", "life", "vault", "analytics", "studio", "business", "arch"] as const;
 export type RemotePanel = (typeof REMOTE_PANELS)[number];
 export const MAX_COMMAND_BYTES = 8 * 1024;
 export const MAX_ASK_CHARS = 2000;

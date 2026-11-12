@@ -1,6 +1,14 @@
 // Notification center bus + history rules. Pure (no React); tested in tests/notify.test.ts. UI: src/components/NotificationCenter.tsx.
 import type { NavTarget } from "./nav-pure.ts";
-import { ago } from "./watch-pure.ts";
+
+/** "3 days ago" */
+function ago(iso: string, now: number): string {
+  const s = Math.max(0, (now - Date.parse(iso)) / 1000);
+  if (!Number.isFinite(s)) return "";
+  const [k, u] = s < 3600 ? [s / 60, "minute"] : s < 86400 ? [s / 3600, "hour"] : s < 30 * 86400 ? [s / 86400, "day"] : s < 365 * 86400 ? [s / (30 * 86400), "month"] : [s / (365 * 86400), "year"];
+  const v = Math.max(1, Math.floor(k));
+  return `${v} ${u}${v > 1 ? "s" : ""} ago`;
+}
 import { isProblem, signalFor, type Signal } from "./interruption-pure.ts";
 import type { HeraldCard } from "./herald-pure.ts";
 

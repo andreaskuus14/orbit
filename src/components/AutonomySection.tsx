@@ -7,7 +7,6 @@ import { AREAS, AREA_INFO, AUTO_CONFIRM, LEVEL_TEXT, LIMIT_MAX, type Area, type 
 import { changeStopAll } from "./nav-command";
 import { TwinCard } from "./TwinCard";
 import { KIND_LABEL, type TwinKind } from "@/lib/twin-pure";
-import { PredictionEligible } from "./OrbitThinks";
 import type { TrustSuggestion } from "@/lib/trust-pure";
 import type { Key } from "@/lib/i18n-pure";
 
@@ -124,7 +123,6 @@ export function AutonomySection() {
         ) : <p className="muted text-xs">None today.</p>}
       </div>
       {muted.length > 0 && <p className="muted text-xs">The twin stays quiet on {muted.map((k) => <button key={k} className="chip ml-1 text-xs" onClick={() => mute(k, false)} title="Let the twin argue on these again">{KIND_LABEL[k]} ✕</button>)}</p>}
-      <PredictionEligible />
       {err && <p className="error text-sm" role="alert">{err}</p>}
     </section>
   );

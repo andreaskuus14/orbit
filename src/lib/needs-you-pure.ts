@@ -145,7 +145,7 @@ export function groupNeeds(needs: Need[], min = 3): Need[] {
 /** Where a phone approval is decided on the PC (same targets as brief-pure briefDecisions). */
 function approvalOpen(key: string, detail = ""): BriefOpen {
   const k = key.split(":")[0];
-  return k === "clip" ? { panel: "studio", view: "review" } : k === "spend" ? { panel: "studio" } : k === "nego" && detail.startsWith("Deal") ? { panel: "markets", tab: "Deals" } : { panel: "business" };
+  return k === "clip" ? { panel: "studio", view: "review" } : k === "spend" ? { panel: "studio" } : { panel: "business" };
 }
 
 /** The morning's three: one finished artifact that has a link, one decision, one next action. Missing ones stay missing. */

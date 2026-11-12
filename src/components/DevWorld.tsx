@@ -2,7 +2,6 @@
 import { WarmCompile } from "./WarmCompile";
 import StateNote from "./StateNote";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
@@ -13,7 +12,6 @@ import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
 import { FrameMark } from "./dev-timing";
 import { ZoomRig } from "./ZoomRig";
-import { GAME_COMPONENTS } from "./GameLab";
 import RefBoard from "./RefBoard";
 import SoundFinder from "./SoundFinder";
 import ThumbMaker from "./ThumbMaker";
@@ -41,7 +39,7 @@ import { AssetRegister, ContractCard, EconomySim, EvidenceLog, ReleasePanel, Ret
 import { contractBrief } from "@/lib/gamedev-pure";
 import { backlogGoal, fixContext, importDrafts, parseBacklog, sortBacklog } from "@/lib/backlog-pure";
 import {
-  ART_KEYS, KINDS, PLATFORMS, PLAYABLE_IDS, PRIORITIES, SEVERITIES, STAGES, STATUSES, bugStats, isActive, qaPrompt, slugify, validateDevWorld,
+  ART_KEYS, KINDS, PLATFORMS, PRIORITIES, SEVERITIES, STAGES, STATUSES, bugStats, isActive, qaPrompt, slugify, validateDevWorld,
   type Bug, type DevWorld as World, type Game, type Kind, type Platform, type Priority, type Severity, type Stage, type Status,
 } from "@/lib/devworld-pure";
 
@@ -180,13 +178,13 @@ function Rig() {
 
 /* ---------- data + UI ---------- */
 
-type Props = { paused?: boolean /* kept mounted but hidden */; flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; onPlaying?: (p: boolean) => void };
+type Props = { paused?: boolean /* kept mounted but hidden */; flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void };
 
 // A screen-look "Fix with docs" fires before GAME DEV mounts: hold the error until the panel takes it.
 let pendingFix = "";
 if (typeof window !== "undefined") addEventListener(LUAU_FIX_EVENT, (e) => { pendingFix = String((e as CustomEvent<string>).detail ?? ""); });
 
-export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat, quality = "auto", paused = false }: Props) {
+export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality = "auto", paused = false }: Props) {
   const q = useLeanQuality(quality);
   const glr = useGlRecovery();
   const [world, setWorld] = useState<World | null>(null);
@@ -195,7 +193,6 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [hover, setHover] = useState<{ id: string | null; x: number; y: number }>({ id: null, x: 0, y: 0 });
-  const [playing, setPlaying] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const { t } = useT();
   const [tab, setTab] = useState<Tool>("games");
@@ -255,9 +252,6 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
     return true;
   }, [load]);
 
-  useEffect(() => { onPlaying?.(!!playing); }, [playing, onPlaying]);
-  useEffect(() => () => onPlaying?.(false), [onPlaying]);
-  useEffect(() => { if (paused) setPlaying(null); }, [paused]); // leaving (CORE replaces a running game) ends it, as unmounting did
   const onHover = useCallback((id: string | null, x: number, y: number) => {
     setHover((h) => (h.id === id && Math.abs(h.x - x) < 2 && Math.abs(h.y - y) < 2 ? h : { id, x, y }));
     document.body.style.cursor = id ? "pointer" : "";
@@ -273,12 +267,11 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
   const lastGk = useRef(gk);
   useEffect(() => { if (lastGk.current !== gk) { lastGk.current = gk; setFix(undefined); } }, [gk]); // a fix prompt never follows you to another game
   const hovered = games.find((g) => g.id === hover.id);
-  const Game = playing ? GAME_COMPONENTS[playing] : null;
   const far = Math.max(9, orbitR(games.length) * 1.5);
 
   return (
     <div className="absolute inset-0 globe-in" aria-label="Game-dev world">
-      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={playing || paused ? "never" : "always"} camera={{ position: [0, far * 0.45, far], fov: 42 }}
+      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, far * 0.45, far], fov: 42 }}
         dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         <WarmCompile world="creation" />
         {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
@@ -351,7 +344,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
         {tab !== "games" && tab !== "detail" ? null : !world ? (
           <StateNote state={loadErr ? "failed" : "loading"} what={loadErr || undefined} action={{ label: t("state.retry"), run: () => void load() }} />
         ) : game && tab === "detail" ? (
-          <GameDetail key={game.id} game={game} world={world} commit={commit} onBack={() => { setSelected(null); setTab("games"); }} onPlay={setPlaying}
+          <GameDetail key={game.id} game={game} world={world} commit={commit} onBack={() => { setSelected(null); setTab("games"); }}
             onDeleted={() => { setSelected(null); setTab("games"); }} onOpenTask={onOpenTask} onFix={(error) => { setFix({ key: Date.now(), error: `${contractBrief(game)}\n\n${error}`.slice(0, 2000) }); setTab("code"); }} />
         ) : tab === "games" ? (
           <>
@@ -382,8 +375,6 @@ export default function DevWorld({ onClose, reduced, onOpenTask, onPlaying, flat
       </section>
 
       <button className="chip world-back absolute z-[15] left-3 top-[4.5rem] min-[900px]:left-auto min-[900px]:top-auto min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
-      {/* Portal: like GameLab, so no ancestor's backdrop-filter traps the full-screen game. */}
-      {Game && createPortal(<Game onExit={() => setPlaying(null)} />, document.body)}
     </div>
   );
 }
@@ -411,8 +402,8 @@ function Art({ game }: { game: Game }) {
   return <img src={`/devworld/${game.art}.webp`} alt={`${game.name} art`} className="h-32 w-full rounded-xl object-cover" onError={() => setBroken(true)} />;
 }
 
-function GameDetail({ game, world, commit, onBack, onPlay, onDeleted, onOpenTask, onFix }: {
-  game: Game; world: World; commit: (w: World) => boolean; onBack: () => void; onPlay: (id: string) => void; onDeleted: () => void; onOpenTask?: (id: string) => void; onFix: (error: string) => void;
+function GameDetail({ game, world, commit, onBack, onDeleted, onOpenTask, onFix }: {
+  game: Game; world: World; commit: (w: World) => boolean; onBack: () => void; onDeleted: () => void; onOpenTask?: (id: string) => void; onFix: (error: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [qa, setQa] = useState<{ busy: boolean; msg: string; ok: boolean }>({ busy: false, msg: "", ok: true });
@@ -450,7 +441,6 @@ function GameDetail({ game, world, commit, onBack, onPlay, onDeleted, onOpenTask
       {game.pitch && <p className="text-sm">{game.pitch}</p>}
       {game.notes && <p className="muted whitespace-pre-wrap text-xs">{game.notes}</p>}
       <div className="flex flex-wrap gap-2">
-        {game.playable && GAME_COMPONENTS[game.playable] && <button className="btn" onClick={() => onPlay(game.playable!)} aria-label={`Play ${game.name}`}>▶ Play</button>}
         <button className="btn" onClick={() => void playtest()} disabled={qa.busy}>{qa.busy ? "Starting…" : "Playtest with QA"}</button>
         <button className="chip" onClick={() => setEditing(true)}>Edit game</button>
         <button className="chip" onClick={() => {
@@ -468,7 +458,7 @@ function GameDetail({ game, world, commit, onBack, onPlay, onDeleted, onOpenTask
 function GameForm({ initial, taken, onSave, onCancel }: { initial?: Game; taken: string[]; onSave: (g: Game) => void; onCancel: () => void }) {
   const [f, setF] = useState({
     name: initial?.name ?? "", platform: initial?.platform ?? ("roblox" as Platform), stage: initial?.stage ?? ("idea" as Stage),
-    pitch: initial?.pitch ?? "", notes: initial?.notes ?? "", art: initial?.art ?? "", playable: initial?.playable ?? "",
+    pitch: initial?.pitch ?? "", notes: initial?.notes ?? "", art: initial?.art ?? "",
   });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
   return (
@@ -477,7 +467,6 @@ function GameForm({ initial, taken, onSave, onCancel }: { initial?: Game; taken:
       if (!f.name.trim()) return;
       const g: Game = { id: initial?.id ?? slugify(f.name, taken), name: f.name, platform: f.platform, stage: f.stage, pitch: f.pitch, notes: f.notes };
       if (f.art) g.art = f.art as Game["art"];
-      if (f.playable) g.playable = f.playable as Game["playable"];
       onSave(g);
     }}>
       <label className="block text-xs">Name<input className="field mt-1 w-full" required maxLength={60} value={f.name} onChange={set("name")} /></label>
@@ -485,7 +474,6 @@ function GameForm({ initial, taken, onSave, onCancel }: { initial?: Game; taken:
         <label className="text-xs">Platform <select className="field py-1" value={f.platform} onChange={set("platform")}>{PLATFORMS.map((p) => <option key={p}>{p}</option>)}</select></label>
         <label className="text-xs">Stage <select className="field py-1" value={f.stage} onChange={set("stage")}>{STAGES.map((s) => <option key={s}>{s}</option>)}</select></label>
         <label className="text-xs">Art <select className="field py-1" value={f.art} onChange={set("art")}><option value="">none</option>{ART_KEYS.map((a) => <option key={a}>{a}</option>)}</select></label>
-        <label className="text-xs">Playable <select className="field py-1" value={f.playable} onChange={set("playable")}><option value="">no</option>{PLAYABLE_IDS.map((p) => <option key={p}>{p}</option>)}</select></label>
       </div>
       <label className="block text-xs">Pitch<textarea className="field mt-1 w-full" rows={2} maxLength={300} value={f.pitch} onChange={set("pitch")} /></label>
       <label className="block text-xs">Notes<textarea className="field mt-1 w-full" rows={4} maxLength={4000} value={f.notes} onChange={set("notes")} /></label>

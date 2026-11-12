@@ -2,12 +2,12 @@
 // small 3D scene. Pure: tests in tests/planet-worlds.test.ts. LIFE: only dates, counts and habit names; journal text never.
 import { STAGE_COLOR } from "./living-galaxy-pure.ts";
 
-export const PLANET_WORLDS = ["operations", "life", "vault", "analytics", "markets", "business"] as const;
+export const PLANET_WORLDS = ["operations", "life", "vault", "analytics", "business"] as const;
 export type PlanetWorldId = (typeof PLANET_WORLDS)[number];
 export const isPlanetWorld = (id: unknown): id is PlanetWorldId => (PLANET_WORLDS as readonly unknown[]).includes(id);
 
 export type Shape = "ship" | "crystal" | "column" | "moon" | "machine" | "tree" | "bloom" | "seed";
-/** orbit: a moving place circles the origin (MARKETS); spin: a turning machine (running OPERATIONS jobs). */
+/** orbit: a moving place circles the origin; spin: a turning machine (running OPERATIONS jobs). */
 export type Place = { key: string; label: string; sub: string; shape: Shape; at: [number, number, number]; size: number; color: string; fresh: boolean;
   orbit?: { r: number; speed: number; phase: number }; spin?: boolean };
 export type Zone = { label: string; at: [number, number, number] };
@@ -15,7 +15,7 @@ export type Scene = { places: Place[]; zones: Zone[]; summary: string };
 
 /** Where each world reads its data: the same GET its panel uses. */
 export const WORLD_SOURCE: Record<PlanetWorldId, string> = {
-  operations: "/api/tasks", life: "/api/life", vault: "/api/vault", analytics: "/api/activity", markets: "/api/markets", business: "/api/business",
+  operations: "/api/tasks", life: "/api/life", vault: "/api/vault", analytics: "/api/activity", business: "/api/business",
 };
 
 const DAY = 86_400_000;
@@ -90,20 +90,6 @@ function analytics(j: Record<string, unknown>, now: number): Scene {
     summary: `${items.length} events in ${TERRAIN_DAYS} days` };
 }
 
-/** MARKETS: each watched ticker circles the core; a bigger daily move orbits faster, green up / red down. */
-function markets(j: Record<string, unknown>, now: number): Scene {
-  const today = dayKey(now);
-  const fired = new Set(arr(j.alerts).filter((a) => str(a.firedOn) === today).map((a) => str(a.ticker)));
-  const places = arr(j.watchlist).slice(0, 40).map((w, i): Place => {
-    const t = str(w.ticker) || `#${i}`, ch = typeof w.changePct === "number" && Number.isFinite(w.changePct) ? w.changePct : null;
-    const r = 3 + i * 1.3;
-    return { key: t, label: t, sub: `${num(w.price) ? num(w.price).toFixed(2) : "no price"}${ch === null ? "" : ` · ${ch >= 0 ? "+" : ""}${ch.toFixed(2)}%`}`, shape: "moon",
-      at: [r, 0, 0], size: 0.45, color: ch === null ? "#a9b4c8" : ch >= 0 ? "#34d399" : "#f87171", fresh: fired.has(t),
-      orbit: { r, speed: r1((0.08 + Math.min(10, Math.abs(ch ?? 0)) * 0.06) * (i % 2 ? -1 : 1)), phase: r1(hash(t) * Math.PI * 2) } };
-  });
-  return { places, zones: [], summary: `${places.length} on the watchlist` };
-}
-
 const HALLS = ["running", "queued", "waiting", "done", "failed"] as const;
 const HALL_COLOR: Record<(typeof HALLS)[number], string> = { running: "#ffb04d", queued: "#38bdf8", waiting: "#b49cff", done: "#6dffae", failed: "#f87171" };
 const hallOf = (s: string): (typeof HALLS)[number] => (s === "running" || s === "queued" || s === "done" ? s : s === "failed" || s === "cancelled" ? "failed" : "waiting");
@@ -149,7 +135,7 @@ function life(j: Record<string, unknown>, now: number): Scene {
   return { places, zones: [], summary: `${habits.length} ${habits.length === 1 ? "habit" : "habits"}, journal streak ${s} ${s === 1 ? "day" : "days"}` };
 }
 
-const LAYOUT: Record<PlanetWorldId, (j: Record<string, unknown>, now: number) => Scene> = { business, vault, analytics, markets, operations, life };
+const LAYOUT: Record<PlanetWorldId, (j: Record<string, unknown>, now: number) => Scene> = { business, vault, analytics, operations, life };
 /** Raw GET JSON (anything) → the scene. Bad input gives an empty scene, never a throw. */
 export function worldScene(id: PlanetWorldId, json: unknown, now: number): Scene {
   return LAYOUT[id](json && typeof json === "object" ? (json as Record<string, unknown>) : {}, now);

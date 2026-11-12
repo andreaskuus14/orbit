@@ -15,7 +15,6 @@ const LAUNCH_U = 0.15; // the launch burn covers the first stretch, then the shi
 const KEYWORDS: [RegExp, PlanetId][] = [
   [/\b(youtube|video|videos|channel|clip|clips|thumbnail|shorts)\b/i, "studio"],
   [/\b(roblox|game|games|luau|playtest|gamedev)\b/i, "creation"],
-  [/\b(market|markets|stock|stocks|portfolio|crypto|watchlist)\b/i, "markets"],
   [/\b(client|clients|business|lead|leads|pipeline|outreach)\b/i, "business"],
   [/\b(architecture|architect|building|floor ?plan)\b/i, "arch"],
   [/\b(habit|habits|journal|reminder|reminders|sleep)\b/i, "life"],

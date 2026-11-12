@@ -2,12 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { asksDiary, cleanEntry, diaryBlock, pageEntries, parseStore, pickFacts, putEntry, templateEntry, type Entry, type FactsIn } from "../src/lib/diary-pure.ts";
 import type { LedgerEvent } from "../src/lib/ledger-pure.ts";
-import type { Prediction } from "../src/lib/predict-pure.ts";
 
 const NOW = Date.parse("2026-10-26T06:00:00Z");
 const ago = (h: number) => new Date(NOW - h * 3_600_000).toISOString();
 const ev = (type: string, data: object, h = 2) => ({ id: type + h, at: ago(h), type, planet: "core", data }) as LedgerEvent;
-const base = (): FactsIn => ({ now: NOW, events: [], lessons: [], preds: [], issues: [], episodes: [], day: "2026-10-26" });
+const base = (): FactsIn => ({ now: NOW, events: [], lessons: [], issues: [], episodes: [], day: "2026-10-26" });
 
 test("facts come from ORBIT's records only: LIFE ledger types and call episodes are ignored", () => {
   const x = base();
@@ -35,15 +34,11 @@ test("old records are outside the day; failures become wrong + next", () => {
   assert.ok(!JSON.stringify(f).includes("Old fixed thing"));
 });
 
-test("predictions and lessons: hits counted, the worst area named", () => {
+test("lessons: proposed lessons from the last day are noticed, old ones are not", () => {
   const x = base();
-  const p = (id: string, prob: number, outcome: boolean, area: Prediction["area"] = "clips"): Prediction => ({ id, area, at: ago(30), p: prob, why: "", f: [], outcome, decidedAt: ago(1) });
-  x.preds = [p("1", 0.8, true), p("2", 0.8, false), p("3", 0.9, false), p("4", 0.3, false, "deals")];
   x.lessons = [{ text: "He keeps Shorts under 30 s", status: "proposed", at: ago(2) }, { text: "Old", status: "proposed", at: ago(100) }];
   const f = pickFacts(x);
-  assert.ok(f.learned.includes("guessed 2 of 4 of his approvals right"));
   assert.ok(f.learned.includes("I noticed: He keeps Shorts under 30 s") && !f.learned.some((l) => l.includes("Old")));
-  assert.ok(f.wrong.includes("misjudged 2 decisions on clips"));
 });
 
 test("template: 3-6 sentences, wrong/tomorrow only with evidence", () => {

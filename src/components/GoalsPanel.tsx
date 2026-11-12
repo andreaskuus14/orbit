@@ -9,7 +9,6 @@ import type { Goal, MetricKind, StepDraft } from "@/lib/goals-pure";
 import { daily, forecast, type Forecast } from "@/lib/forecast-pure";
 import { EVIDENCE, EVIDENCE_KINDS, type EvidenceKind } from "@/lib/goal-autopilot-pure";
 import type { GoalTrack } from "@/lib/goal-autopilot";
-import { DreamsList } from "./DreamsList";
 import { useT } from "./i18n";
 import { localDay } from "@/lib/morning-pure";
 
@@ -153,7 +152,6 @@ export default function GoalsPanel({ agents, visible, onOpenTask, focusId }: { a
           ))}
         </ul>
       )}
-      <DreamsList onGoal={load} />
       {err && <p className="error" role="alert">{err}</p>}
     </div>
   );

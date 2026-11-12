@@ -8,23 +8,14 @@ const ago = (d: number) => new Date(NOW - d * DAY).toISOString();
 // A synthetic history: `y` good and `n - y` bad results for a kind, one a night going back.
 const hist = (kind: NightKind, y: number, n: number, from = 1): Outcome[] => Array.from({ length: n }, (_, i) => ({ kind, at: ago(from + i), ok: i < y }));
 
-test("outcomes: done = used; approvals resolve by his decisions in that area within a week, else ignored; failed/skipped say nothing", () => {
+test("outcomes: only done results count as used; approval/failed/skipped say nothing", () => {
   const ev: TaskEvent[] = [
     { at: ago(20), kind: "deals", status: "done" },
-    { at: ago(20), kind: "business", status: "approval" }, // he approved 2 of 3 drafts that week
-    { at: ago(15), kind: "clips", status: "approval" }, // ignored: nothing decided within the week
-    { at: ago(2), kind: "niche", status: "approval" }, // still open: no outcome yet
-    { at: ago(20), kind: "goal", status: "approval" }, // no area to read: no outcome
+    { at: ago(20), kind: "business", status: "approval" },
     { at: ago(5), kind: "clips", status: "failed" },
     { at: ago(5), kind: "personas", status: "skipped" },
   ];
-  const preds = [
-    { area: "drafts" as const, outcome: true, decidedAt: ago(19) }, { area: "drafts" as const, outcome: true, decidedAt: ago(18) },
-    { area: "drafts" as const, outcome: false, decidedAt: ago(17) }, { area: "drafts" as const, outcome: false, decidedAt: ago(30) }, // before the night: not his answer to it
-    { area: "clips" as const, outcome: true, decidedAt: ago(1) }, // a week too late
-    { area: "niches" as const, decidedAt: undefined },
-  ];
-  assert.deepEqual(outcomes(ev, preds, NOW).map((o) => `${o.kind}:${o.ok}`), ["deals:true", "business:true", "clips:false"]);
+  assert.deepEqual(outcomes(ev).map((o) => `${o.kind}:${o.ok}`), ["deals:true"]);
 });
 
 test("kindStats: recency-weighted Beta and raw last-10 counts", () => {

@@ -146,7 +146,7 @@ export function lifeSection(x: { habits: { scheduledToday: boolean; doneToday: b
 export const RECAP_AWAY_MS = 3 * 3_600_000;
 export const RECAP_MAX_MS = 7 * DAY; // older last-seen values are clamped: a recap of "everything since March" isn't a recap
 // live: Shorts that went live in the window. approvals: waiting now (state, not a change, so it never opens a recap alone).
-export type MorningSince = { from: number; done: number; failed: number; clips: number; reminders: string[]; alerts: string[]; live?: number; approvals?: number };
+export type MorningSince = { from: number; done: number; failed: number; clips: number; reminders: string[]; live?: number; approvals?: number };
 
 /** The start of the away window, or null when the user wasn't away long enough (or lastSeen is missing/in the future). */
 export function awaySince(lastSeen: number | null, now: number): number | null {
@@ -160,12 +160,11 @@ export function parseSince(raw: string | null, now: number): number | null {
   return Number.isFinite(t) && t < now ? Math.max(t, now - RECAP_MAX_MS) : null;
 }
 
-/** What happened in [from, now]. Server-local days for alerts (markets' firedOn is a server-local "YYYY-MM-DD"). */
+/** What happened in [from, now]. Server-local days. */
 export function sinceSection(x: {
   tasks: { status: string }[]; // root tasks already filtered to finished_at ≥ from
   jobs: { updatedAt: string; clips: { status: string; publish?: { status?: string; at?: string; scheduledFor?: string } }[] }[];
   reminders: { text: string; at: string; fired?: string }[];
-  alerts: { text: string; firedOn?: string }[];
   approvals?: number;
 }, from: number, now: number): MorningSince {
   const inWin = (t: number) => t >= from && t <= now;
@@ -178,7 +177,6 @@ export function sinceSection(x: {
     clips: x.jobs.filter((j) => inWin(Date.parse(j.updatedAt))).reduce((k, j) => k + j.clips.filter((c) => c.status === "ready").length, 0),
     // A one-off came due while away whether or not a window showed it yet. shortcut: recurring ones move `at` forward and are missed.
     reminders: x.reminders.filter((r) => inWin(Date.parse(r.fired ?? r.at))).map((r) => plain(r.text)).slice(0, 3),
-    alerts: x.alerts.filter((a) => a.firedOn && a.firedOn >= fromDay && a.firedOn <= localDay(new Date(now))).map((a) => a.text).slice(0, 3),
     // Uploaded now, or scheduled for a time that has passed (YouTube made it public then).
     live: x.jobs.flatMap((j) => j.clips).filter((c) => { const p = c.publish, t = Date.parse(p?.scheduledFor ?? (p?.status === "done" ? p.at ?? "" : ""));
       return (p?.status === "done" || p?.status === "scheduled") && inWin(t); }).length,
@@ -188,7 +186,7 @@ export function sinceSection(x: {
 
 /** Client-side counts from the bell's history (localStorage). */
 export const countSince = (items: { at: number }[], from: number) => items.filter((i) => i.at >= from).length;
-export const sinceEmpty = (s: MorningSince, notes: number) => !s.done && !s.failed && !s.clips && !s.live && !s.reminders.length && !s.alerts.length && !notes;
+export const sinceEmpty = (s: MorningSince, notes: number) => !s.done && !s.failed && !s.clips && !s.live && !s.reminders.length && !notes;
 
 /** JARVIS-style spoken recap on return: only what changed, then what's waiting on you. "" when nothing happened. */
 export function sinceSpoken(s: MorningSince, notes: number): string {
@@ -199,7 +197,6 @@ export function sinceSpoken(s: MorningSince, notes: number): string {
     s.done && `${n(s.done, "agent task")} finished`,
     s.failed && `${s.failed} failed`,
     s.reminders.length && `${n(s.reminders.length, "reminder")} came due`,
-    s.alerts.length && `${n(s.alerts.length, "market alert")} fired`,
   ].filter(Boolean) as string[];
   const list = bits.length > 1 ? `${bits.slice(0, -1).join(", ")} and ${bits.at(-1)}` : bits[0] ?? `${n(notes, "new notification")}`;
   const wait = s.approvals ? ` ${n(s.approvals, "approval")} ${s.approvals === 1 ? "is" : "are"} waiting for you.` : "";
