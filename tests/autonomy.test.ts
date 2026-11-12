@@ -9,7 +9,7 @@ import { planNight, NIGHT_DEFAULTS, type PlanInput } from "../src/lib/night-pure
 import { validate } from "../src/lib/ledger-pure.ts";
 
 // What ORBIT did on its own before Autonomy existed: these ran unattended (night shift, scout, sleep loop, deal hunt, calls).
-const RAN_ALONE_TODAY: Area[] = ["research", "brief", "memory", "studio-prepare", "business-drafts", "goals", "night-shift", "deals", "calls", "operator-build", "operator-organize"]; // operator: standing grants, AGENTS.md rule 6
+const RAN_ALONE_TODAY: Area[] = ["research", "brief", "briefings", "memory", "studio-prepare", "business-drafts", "goals", "night-shift", "deals", "calls", "operator-build", "operator-organize"]; // operator: standing grants, AGENTS.md rule 6
 
 test("defaults pin today's behaviour: owner clicks work everywhere, unattended work only where it already ran, no auto anywhere", () => {
   for (const a of AREAS) {
@@ -239,4 +239,19 @@ test("month names and relative years are held like dates", () => {
 test("the ledger gets every fired auto action, also an unknown-result publish", () => {
   assert.deepEqual(autoLedger("studio-publish", "j/c", "unsure"), { area: "studio-publish", action: "publish", ref: "j/c", result: "unsure" });
   assert.equal(autoLedger("business-send", "x".repeat(200), "done").ref.length, 128);
+});
+
+test("Briefings & digests: default On, old saves without the key stay On, Off/Ask/Stop-all skip all four background calls", async () => {
+  assert.equal(parseAutonomy(JSON.stringify({ levels: { research: "off" } })).levels.briefings, "do");
+  assert.equal(autonomyAllows("briefings", "background").ok, true);
+  for (const levels of [{ briefings: "off" as const }, { briefings: "ask" as const }]) assert.equal(autonomyAllows("briefings", "background", { levels }).ok, false);
+  assert.equal(autonomyAllows("briefings", "background", { stopAll: true }).ok, false);
+  assert.equal(autonomyAllows("briefings", "owner", { levels: { briefings: "ask" } }).ok, true); // his Refresh / opening the brief
+  // The gates sit on the four call sites (IO modules can't load here, so check the source).
+  const { readFileSync } = await import("node:fs");
+  const sch = readFileSync(new URL("../src/lib/scheduler.ts", import.meta.url), "utf8"), arch = readFileSync(new URL("../src/lib/arch-digest.ts", import.meta.url), "utf8");
+  assert.match(sch, /for \(const kind of brief\.ok \? due : \[\]\)/);
+  assert.match(sch, /if \(brief\.ok && !usageHold\(\) && await proposalsDue/);
+  assert.match(sch, /allows\("briefings", "background"\)\.ok\) void maybeScorecard/);
+  assert.match(arch, /allows\("briefings", "background"\)\.ok\) \{[^\n]*\n\s*const r = await askClaude/);
 });

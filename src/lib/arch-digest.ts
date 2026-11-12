@@ -6,6 +6,7 @@ import { askClaude, recordUsage, FAST_MODEL } from "./claude";
 import { orbitDataDir } from "./data-dir";
 import { stopAllOn } from "./stop-all";
 import { usageHold } from "./usage-meter";
+import { allows } from "./autonomy";
 import { DIGEST_SYSTEM, buildDigest, digestDue, digestPrompt, digestStats, parseDigest, type ArchDigest } from "./arch-digest-pure";
 
 // ARCH weekly studio digest (roadmap 5.6): Sunday from 17:00 (Monday catch-up), scheduler tick, background lane. At most one
@@ -40,7 +41,7 @@ export async function maybeArchDigest(sb: SupabaseClient, userIds: string[], now
       if (error) { console.error("[orbit] arch digest failed:", error.message); continue; }
       const s = digestStats((data ?? []).filter((m) => isCurrent(m, { now: Date.now() })));
       let ai = null;
-      if (s.list.length && !usageHold()) { // held near the usage budget: the digest still comes, with a focus from the numbers
+      if (s.list.length && !usageHold() && allows("briefings", "background").ok) { // Briefings & digests Off/Ask: numbers-only focus, no model call; held near the usage budget: the digest still comes, with a focus from the numbers
         const r = await askClaude(digestPrompt(s.list), DIGEST_SYSTEM, { lane: "background", model: FAST_MODEL, purpose: "arch.digest" }).catch(() => null);
         if (r) { await recordUsage(sb, id, "arch.digest", r, FAST_MODEL).catch(() => {}); ai = parseDigest(r.text, s.list.length); }
       }

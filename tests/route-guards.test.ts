@@ -28,6 +28,7 @@ const PUBLIC: Record<string, [string | null, string]> = {
   "remote/screen GET": ["deviceFromCookie", "read-only second screen; device-token cookie"],
   "remote/shortcut POST": ["findShortcut", "Apple Shortcuts; per-action Bearer token"],
   "remote/thumb GET": ["deviceFromCookie", "paired phone; device-token cookie"],
+  "business/chatwoot POST": ["chatwootSecretOk", "Chatwoot webhook: shared secret, constant-time; stores + drafts only, never sends"],
   "remote/ntfy-act POST": ["spendAct", "ntfy Approve/Reject button: HMAC-signed, 24 h, one-use token per single reversible approval"],
 };
 // "route METHOD" -> why that write handler (last segment dynamic) doesn't call crossSiteBlocked. Empty: keep it that way.
