@@ -1,0 +1,8 @@
+{
+  "note": "repo/license are verified live from the GitHub API. install/index/ask are what the tool's README says; ask uses {q}. 'ask' and 'index' left empty are not guessed: fill them from the README before running, or the script reports 'not configured'. Commands run in the ORBIT repo root.",
+  "tools": [
+    { "name": "Graphify", "repo": "Graphify-Labs/graphify", "install": "uv tool install graphifyy", "index": "", "ask": "graphify query {q}" },
+    { "name": "Graft", "repo": "", "search": "graft code index", "install": "", "index": "", "ask": "" },
+    { "name": "Codebase Memory MCP", "repo": "DeusData/codebase-memory-mcp", "install": "", "index": "", "ask": "" }
+  ]
+}

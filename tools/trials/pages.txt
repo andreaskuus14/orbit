@@ -1,0 +1,11 @@
+# url<TAB>expected key strings, separated by ; (all must appear in the extracted text). Public pages only; edit freely.
+https://en.wikipedia.org/wiki/Tallinn	Tallinn;Estonia;Old Town;Baltic Sea
+https://en.wikipedia.org/wiki/Web_scraping	Web scraping;data extraction;HTML
+https://nodejs.org/en/learn/getting-started/introduction-to-nodejs	Node.js;JavaScript runtime
+https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API	Fetch API;Response;Promise
+https://docs.python.org/3/library/json.html	json;JSON;dump
+https://www.err.ee/	ERR;Eesti
+https://news.ycombinator.com/	Hacker News;comments
+https://www.bbc.com/news	BBC;News
+https://quotes.toscrape.com/js/	Quotes to Scrape;Albert Einstein;The world as we have created it
+https://react.dev/learn	React;Components;JSX
