@@ -36,9 +36,11 @@ const off = await switchStopAll(sb, "u", false);
 let ranAfterOff = false;
 await finishBackground(sb, "u", "c", "t4", "CORE: d", (s) => { ranAfterOff = !s.aborted; return Promise.resolve({ text: "x", citations: [], trace: [] }); });
 console.log(JSON.stringify({ liveBefore, cancelled: on.cancelled, onState: on.stop.on, warning: on.warning ?? null, cancelledRows, liveAfter, ranWhileOn, offState: off.stop.on, nowOn: stop.stopAllOn(), ranAfterOff }));
+const { readFile } = await import("node:fs/promises");
+for (let i = 0; i < 100 && !/turned off/.test(await readFile(process.env.ORBIT_DATA_DIR + "/activity.jsonl", "utf8").catch(() => "")); i++) await new Promise((r) => setTimeout(r, 50)); // logActivity is fire-and-forget
 process.exit(0);`;
   const { stdout } = await promisify(execFile)(process.execPath, ["--no-warnings", "--experimental-transform-types", "--import", pathToFileURL(path.join(root, "tests/fixtures/ts-resolve.mjs")).href,
-    "--input-type=module", "-e", code], { cwd: root, env: { ...process.env, ORBIT_DATA_DIR: dir }, timeout: 60_000 });
+    "--input-type=module", "-e", code], { cwd: root, env: { ...process.env, ORBIT_DATA_DIR: dir, ORBIT_STUDIO_DIR: await mkdtemp(path.join(tmpdir(), "orbit-stoprun-studio-")) }, timeout: 60_000 });
   const got = JSON.parse(stdout.trim().split("\n").pop()!);
   assert.deepEqual(got, { liveBefore: 2, cancelled: 2, onState: true, warning: null, cancelledRows: 2, liveAfter: 0, ranWhileOn: false, offState: false, nowOn: false, ranAfterOff: true });
   const saved = JSON.parse(await readFile(path.join(dir, "stop-all.json"), "utf8"));

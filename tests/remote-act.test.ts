@@ -12,12 +12,12 @@ import { promisify } from "node:util";
 const root = path.join(import.meta.dirname, "..");
 const mod = (p: string) => JSON.stringify(pathToFileURL(path.join(root, p)).href);
 
-async function child(body: string, thumb = true) {
+async function child(body: string, thumbFile = true) {
   const studio = await mkdtemp(path.join(tmpdir(), "orbit-ract-"));
   await mkdir(path.join(studio, "jobs"), { recursive: true });
   await mkdir(path.join(studio, "clips"), { recursive: true });
-  if (thumb) await writeFile(path.join(studio, "clips", "t.jpg"), "jpg");
-  const clip = { id: "clip-1", start: 10, end: 40, title: "t", hook: "h", reason: "r", score: 0.8, status: "ready", ...(thumb && { thumb: "clips/t.jpg" }) };
+  if (thumbFile) await writeFile(path.join(studio, "clips", "t.jpg"), "jpg");
+  const clip = { id: "clip-1", start: 10, end: 40, title: "t", hook: "h", reason: "r", score: 0.8, status: "ready", thumb: "clips/t.jpg" }; // thumb listed; thumbFile=false leaves it missing on disk
   await writeFile(path.join(studio, "jobs", "lq3k2a-abc123.json"), JSON.stringify({ v: 1, id: "lq3k2a-abc123", source: "a.mp4", createdAt: "2026-10-01T00:00:00Z",
     updatedAt: "2026-10-01T00:00:00Z", status: "done", progress: 1, step: "done", warnings: [], clips: [clip], options: { count: 5, maxSec: 45, captions: true } }));
   const code = `const sb = { from: () => { const c = { select: () => c, eq: () => c, not: () => c, in: () => c, limit: () => c, then: (ok, bad) => Promise.resolve({ data: [], error: null }).then(ok, bad) }; return c; } };
@@ -78,6 +78,24 @@ console.log(JSON.stringify({ staleTry, rej, final: await status() }));`);
   assert.deepEqual(got.rej, { status: 200, ok: true, message: "Rejected" });
   assert.equal(got.final, "rejected");
 });
+
+// The PC changes the clip after the phone's list was built but before the action takes the job lock (remote-act.ts re-check).
+for (const [name, change] of [["rejected on the PC", "c.status = 'rejected'"], ["turned into a retry", "c.retryOf = 'clip-0'"]]) {
+  test(`clip ${name} while the tap was in flight: refused`, { timeout: 90_000 }, async () => {
+    const got = await child(`const { withJobLock, saveJob } = await import(${mod("src/lib/clips/factory.ts")});
+let p;
+await withJobLock(async () => {
+  p = act(item.id, "approve", { kind: "clip", seen: item.seen });
+  await new Promise((r) => setTimeout(r, 300)); // decideApproval listed the item and now waits on this lock
+  const job = await getJob("lq3k2a-abc123"); const c = job.clips[0]; ${change}; await saveJob(job);
+});
+const r = await p;
+console.log(JSON.stringify({ r, final: await status() }));`);
+    assert.equal(got.r.status, 409);
+    assert.match(got.r.error, /no longer waiting/);
+    assert.notEqual(got.final, "approved");
+  });
+}
 
 test("no preview file on disk: the phone can't approve what he couldn't see", { timeout: 90_000 }, async () => {
   const got = await child(`const r = await act(item.id, "approve", { kind: "clip", seen: item.seen });
