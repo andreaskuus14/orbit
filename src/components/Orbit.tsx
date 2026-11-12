@@ -239,6 +239,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
   // Back from Google's YouTube consent screen (?studio=…): reopen STUDIO; StudioStats reads and clears the query.
   useEffect(() => { if (new URLSearchParams(location.search).has("studio")) setPanel("studio"); }, []);
+  // Back from a plugin's sign-in (?plugins=…): open Profile, where PluginsSection shows the result and clears the query.
+  useEffect(() => { if (new URLSearchParams(location.search).has("plugins")) setPanel("profile"); }, []);
   const [perfRun, setPerfRun] = useState(false);
   useEffect(() => { setPerfRun(new URLSearchParams(location.search).get("perfrun") === "1"); }, []);
   useEffect(() => {

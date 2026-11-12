@@ -934,6 +934,7 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
   box-shadow: 0 0 32px -4px currentColor, inset 0 0 24px -12px currentColor; color: rgba(125, 211, 252, .35); }
 .planet-card:hover::after, .planet-card:focus-visible::after { opacity: 1; }
 .ambient-loop { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1; opacity: .55; pointer-events: none; animation: ambient-in 1.2s ease-out; }
+@media (max-width: 600px) { .ambient-loop { object-position: 90% 50%; } } /* portrait crop keeps ~32% of the width: the clip's bright nebula is on the right (measured over its frames) */
 .orbit-overview:has(.ambient-loop) { isolation: isolate; }
 @keyframes ambient-in { from { opacity: 0; } to { opacity: .55; } }
 @media (prefers-reduced-motion: reduce) { .world-emblem, .planet-card::after { transition: none; } .planet-card:hover .planet-card-emblem { transform: none; } .ambient-loop { animation: none; } }

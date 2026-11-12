@@ -408,3 +408,10 @@ export const stateFresh = (at: string | undefined, now: number) => !!at && now -
 export const expiresAt = (expiresIn: unknown, now: number) => (typeof expiresIn === "number" && expiresIn > 0 ? now + expiresIn * 1000 : undefined);
 /** Refresh ahead of expiry, so a tool call never starts on a token about to die. */
 export const needsRefresh = (exp: number | undefined, now: number) => exp !== undefined && exp - now < REFRESH_SKEW_MS;
+
+/** The sign-in route comes back to /?plugins=<result>: the result, and the query string without it (so a reload doesn't read it twice). */
+export function takePluginsReturn(search: string): { result: string | null; rest: string } {
+  const q = new URLSearchParams(search), result = q.get("plugins");
+  q.delete("plugins");
+  return { result, rest: q.size ? `?${q}` : "" };
+}

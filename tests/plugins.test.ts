@@ -265,3 +265,10 @@ test("oauth sign-in: config, 127.0.0.1-only redirect, state, expiry, PKCE vector
   assert.equal(connectError(Object.assign(new Error("x"), { code: 401 }), { url: "https://x.test", oauth: true }), SIGN_IN_FIRST);
   assert.equal(connectError(new Error("bad token tok-abcdefgh1234"), { url: "https://x.test" }, ["tok-abcdefgh1234"]), "bad token •••");
 });
+
+test("takePluginsReturn reads ?plugins= and leaves the other query parameters", async () => {
+  const { takePluginsReturn } = await import("../src/lib/plugins-pure.ts");
+  assert.deepEqual(takePluginsReturn("?plugins=signed-in"), { result: "signed-in", rest: "" });
+  assert.deepEqual(takePluginsReturn("?a=1&plugins=signin-state&b=2"), { result: "signin-state", rest: "?a=1&b=2" });
+  assert.deepEqual(takePluginsReturn(""), { result: null, rest: "" });
+});
