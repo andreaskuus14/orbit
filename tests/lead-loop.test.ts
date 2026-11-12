@@ -87,7 +87,7 @@ test("review #2: http/www tries, error states, title, likely vs proven", () => {
 });
 
 test("review #3: Auto exclusion lives on the row and both Auto paths use it", () => {
-  assert.ok(autoExcluded({ source: "lead-loop" }) && !autoExcluded({ source: null }) && !autoExcluded({}));
+  assert.ok(autoExcluded({ source: "lead-loop" }) && !autoExcluded({ source: null }) && autoExcluded({})); // B8: any non-null source, and an unknown one, fails closed
   const auto = readFileSync(new URL("../src/lib/autonomy.ts", import.meta.url), "utf8");
   assert.equal((auto.match(/autoExcluded\(/g) ?? []).length, 2); // sendCandidates and fireSend
   assert.ok(!/prospect-crm/.test(auto.slice(auto.indexOf("async function sendCandidates"), auto.indexOf("async function fireSend")))); // not the CRM file
@@ -125,4 +125,28 @@ test("review #6: re-run resumes the unfinished step", () => {
 test("review #7 + #8: Estonian header row; FIE is a natural person", () => {
   assert.deepEqual(parseCandidates("Nimi;Linn;Tegevusala\nKask OÜ;Tartu;pagar"), [{ name: "Kask OÜ", city: "Tartu", category: "pagar" }]);
   assert.ok(isNaturalPerson("Mari Kask FIE") && isNaturalPerson("FIE Mari") && !isNaturalPerson("Fiesta OÜ"));
+});
+
+test("B8 parseMapsCsv: gosom headers, business fields only, dedupe, cap", async () => {
+  const { MAPS_MAX, parseMapsCsv, mapsNotes, autoExcluded: ex } = await import("../src/lib/lead-loop-pure.ts");
+  const head = "input_id,link,title,category,address,open_hours,website,phone,review_count,review_rating,complete_address,owner,user_reviews,emails";
+  const row = (n: string, city = "Tartu") => `q1,https://www.google.com/maps/place/x,${n},Hair salon,"Rüütli 1, Tartu",{},https://mari.ee,+372 5555 5555,12,4.8,"{""city"":""${city}""}","{""name"":""Mari Maasikas""}","[{""Name"":""Jaan Tamm"",""Description"":""great,\nnice""}]",mari@gmail.com`;
+  const r = parseMapsCsv(`﻿${head}\n${row("Mari FIE")}\n${row("Mari FIE")}\n${row("Lumi OÜ", "Tallinn")}\n`)!;
+  assert.deepEqual(r.leads[0], { name: "Mari FIE", category: "Hair salon", address: "Rüütli 1, Tartu", city: "Tartu", phone: "+372 5555 5555", website: "https://mari.ee", maps: "https://www.google.com/maps/place/x" });
+  assert.equal(r.leads.length, 2); assert.equal(r.over, 0);
+  const all = JSON.stringify(r) + mapsNotes(r.leads[0]);
+  for (const bad of ["Jaan Tamm", "great", "Maasikas", "gmail", "4.8"]) assert.ok(!all.includes(bad), bad);
+  assert.match(mapsNotes(r.leads[0]), /natural person/); assert.doesNotMatch(mapsNotes(r.leads[1]), /natural person/);
+  const big = parseMapsCsv([head, ...Array.from({ length: MAPS_MAX + 7 }, (_, i) => row(`B${i}`))].join("\r\n"))!;
+  assert.equal(big.leads.length, MAPS_MAX); assert.equal(big.over, 7);
+  assert.equal(parseMapsCsv("name,city\nA,B"), null);
+  assert.ok(ex({ source: "maps-import" }) && ex({ source: "lead-loop" }) && ex({ source: "anything" }) && ex({}));
+  assert.ok(!ex({ source: null }));
+});
+
+test("B8 route: import dedupes against existing prospects and saves source maps-import", () => {
+  const src = readFileSync("src/app/api/business/leads/route.ts", "utf8");
+  const imp = src.slice(src.indexOf('b.action === "import"'), src.indexOf("const held"));
+  assert.match(imp, /duplicateOf\(known/); assert.match(imp, /source: MAPS_SOURCE/); assert.doesNotMatch(imp, /send|askClaude|fetch\(/i);
+  assert.match(readFileSync("src/lib/autonomy.ts", "utf8"), /!autoExcluded\(p\)/);
 });

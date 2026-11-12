@@ -195,4 +195,50 @@ export const nextStep = (l: Pick<LeadLoop, "stage" | "demo">): "demo" | "pitch" 
 
 /* Auto guard, on the prospect row itself (0027 prospects.source): lead-loop leads only go out by his own click. */
 export const LEAD_SOURCE = "lead-loop";
-export const autoExcluded = (p: { source?: string | null }) => p.source === LEAD_SOURCE;
+// Fail closed: any tagged source (lead-loop, maps-import, anything later) is never Auto's to send; only untagged manual rows are.
+export const autoExcluded = (p: { source?: string | null }) => p.source !== null;
+
+/* B8 Maps import: ORBIT never scrapes. He runs gosom/google-maps-scraper on his own PC (docs/PC-CHECKLIST.md) and pastes its CSV;
+   only business fields are kept (reviews, reviewer names, emails, owner and the rest are dropped) and rows land as source maps-import. */
+export const MAPS_SOURCE = "maps-import", MAPS_MAX = 500;
+export type MapsLead = { name: string; category: string; address: string; city: string; phone: string; website: string; maps: string };
+
+/** Whole-text CSV (comma), quoted fields may hold commas, "" and newlines (gosom's JSON columns do). */
+function csvRows(text: string): string[][] {
+  const rows: string[][] = []; let row: string[] = [], cur = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"' && text[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === ",") { row.push(cur); cur = ""; }
+    else if (c === "\n" || c === "\r") { if (c === "\r" && text[i + 1] === "\n") i++; row.push(cur); rows.push(row); row = []; cur = ""; }
+    else cur += c;
+  }
+  if (cur || row.length) rows.push([...row, cur]);
+  return rows.filter((r) => r.some((x) => x.trim()));
+}
+
+/** gosom CSV → business-only leads (deduped by name + city, first MAPS_MAX), plus how many rows were over the cap; null = not a gosom CSV. */
+export function parseMapsCsv(text: string): { leads: MapsLead[]; over: number } | null {
+  const [head, ...rows] = csvRows(String(text ?? "").replace(/^\uFEFF/, ""));
+  const h = (head ?? []).map((x) => x.trim().toLowerCase()), at = (k: string) => h.indexOf(k);
+  if (at("title") < 0 || at("link") < 0) return null;
+  const seen = new Set<string>(), leads: MapsLead[] = []; let over = 0;
+  for (const r of rows) {
+    const get = (k: string, max: number) => (at(k) >= 0 ? clean(r[at(k)], max) : "");
+    const name = get("title", 120); if (!name) continue;
+    let city = ""; try { city = clean((JSON.parse(r[at("complete_address")] ?? "") as { city?: unknown }).city, 80); } catch { /* no city column */ }
+    const key = `${name}\n${city}`.toLowerCase(); if (seen.has(key)) continue;
+    seen.add(key);
+    if (leads.length === MAPS_MAX) { over++; continue; }
+    const maps = get("link", 500), website = get("website", 300);
+    leads.push({ name, category: get("category", 80), address: get("address", 200), city, phone: get("phone", 40), website: httpsUrl(website) ? website : "", maps: MAPS.test(maps) ? maps : "" });
+  }
+  return { leads, over };
+}
+
+/** The prospect's notes for one imported lead (FIE rows carry the consent warning). */
+export const mapsNotes = (l: MapsLead) => [
+  "Maps import (draft: check it before any outreach).", isNaturalPerson(l.name) && `Warning: ${FIE_WARNING}`,
+  l.address && `Address: ${l.address}`, l.city && `City: ${l.city}`, l.phone && `Phone: ${l.phone}`, l.website && `Website: ${l.website}`, l.maps && `Maps: ${l.maps}`,
+].filter(Boolean).join("\n");
