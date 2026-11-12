@@ -358,10 +358,9 @@ export async function runScoutNow() {
 }
 
 async function tick() {
-  if (stopAllOn()) return; // Stop-all: no insights refresh, plan resume, autopilot or scheduled scout/niche runs
-  // CORE's proactive insights + plan resume ride on this timer (local files only; each self-limits to every 15 min / once)
+  if (stopAllOn()) return; // Stop-all: no insights refresh, autopilot or scheduled scout/niche runs
+  // CORE's proactive insights ride on this timer (local files only; each self-limits to every 15 min / once)
   void import("../insights").then((m) => m.refreshInsights()).catch((e) => console.error("[orbit] insights failed:", msg(e)));
-  void import("../plans").then((m) => m.resumePlans()).catch((e) => console.error("[orbit] plan resume failed:", msg(e)));
   void import("./autopilot").then((m) => m.autopilotTick()).catch((e) => console.error("[orbit] autopilot check failed:", msg(e))); // no quota: auto-clip after a scout run, packaging
   if (S.running || !apiKey()) return;
   try { // start() re-checks S.running after the await

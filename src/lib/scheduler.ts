@@ -45,7 +45,7 @@ async function tick(sb: SupabaseClient) {
       void kickQueue(sb, id); // tasks still queued after a restart (the in-process queue is gone) start again
       void import("./bg-resume").then((m) => m.resumeBackgroundTurns(sb, id)); // background CORE turns a restart cut off (bg-resume-pure.ts)
       void import("./approval-expiry").then((m) => m.expireApprovals(sb, id)); // agent approvals unanswered for 48 h → rejected, never approved
-      void import("./plan-jobs").then((m) => m.tickPlanJobs(sb, id)); // plan-file jobs: one step per session, resumed from their plan file
+      void import("./plan-jobs").then((m) => { void m.tickPlanJobs(sb, id); void m.tickStudioPlans(); }); // plan-file jobs + STUDIO plans (Autonomy-gated): one step per session, resumed from their plan file
       void nightOwnsCompany().then((night) => resumeChains(sb, id, night)).catch((e) => console.error("[orbit] agent teams resume failed:", e?.message ?? e)); // continue after approvals/restarts
       // Goals without a browser: one step per goal per tick; inside the night-shift window the night shift owns them (its switch and budget).
       // Goals Off/Ask in Profile → Autonomy: no unattended steps; his Continue click and opening ORBIT (owner lane) still advance them.
