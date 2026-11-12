@@ -1,7 +1,7 @@
 // Y2: the Production track state machine (track-pure.ts). Generation is faked; nothing spends or renders.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { advance, approve, artifactContent, fullVideoProblem, generate, newTrack, revise, STAGES, submit, summary, trackProblem, useFrameProblem, type Track } from "../src/lib/clips/track-pure.ts";
+import { advance, approve, approvedFrames, artifactContent, cachedSha, fullVideoProblem, generate, newTrack, reopenChanged, revise, STAGES, submit, summary, trackProblem, useFrameProblem, type Track } from "../src/lib/clips/track-pure.ts";
 import { contentHash } from "../src/lib/approval-pure.ts";
 
 const AT = "2026-11-11T10:00:00Z";
@@ -90,11 +90,12 @@ test("upstream resubmit clears this and every later approval and reopens there (
   assert.equal(await approve(t, "render", "renders/final.mp4", await h("render", { ref: "renders/final.mp4", sha: "s0" }), AT), "");
   submit(t, "style", { ref: "frames/b.png", sha: "s0" }, AT);
   assert.equal(STAGES[t.stage].id, "style");
-  assert.ok(!t.frames.some((f) => f.approved) && !t.out.motion?.approved && !t.out.render?.approved);
+  assert.ok(!t.out.motion?.approved && !t.out.render?.approved);
+  assert.deepEqual(t.frames.map((f) => !!f.approved), [true, false]); // other frames keep their approval
   assert.match(await fullVideoProblem(t), /motion test/);
   const u = await toMotionApproved(); // a script change also drops the motion test approval
   submit(u, "script", { ref: "vault/script2.md", sha: "s0" }, AT);
-  assert.equal(STAGES[u.stage].id, "script"); assert.ok(!u.out.motion?.approved);
+  assert.equal(STAGES[u.stage].id, "script"); assert.ok(!u.out.motion?.approved && !u.frames.some((f) => f.approved));
 });
 
 test("render can't be approved without an approved style frame", async () => {
@@ -126,4 +127,55 @@ test("review: render waits for him; revise goes back to animation, keeps approva
   assert.equal(STAGES[t.stage].id, "animation"); assert.equal(t.revisions, 1);
   assert.equal(await fullVideoProblem(t), "");
   assert.equal(trackProblem(t, "t1"), ""); assert.equal(trackProblem({}, "t1"), "bad track");
+});
+
+test("approve: refused for a stage the track hasn't reached", async () => {
+  const t = await toStyle();
+  t.out.render = { ref: "renders/final.mp4", sha: "s0", at: AT };
+  assert.match(await approve(t, "render", "renders/final.mp4", await h("render", { ref: "renders/final.mp4", sha: "s0" }), AT), /Finish Style frames first/);
+  assert.equal(t.out.render.approved, undefined);
+});
+
+test("a frame or motion test changed on disk after a later stage: track reopens there", async () => {
+  const t = await toMotionApproved();
+  assert.equal(await advance(t), "");
+  assert.equal(await reopenChanged(t), false);
+  t.out.motion!.sha = "s1"; // refreshShas saw a new file
+  assert.equal(await reopenChanged(t), true);
+  assert.equal(STAGES[t.stage].id, "motion");
+  assert.equal(t.out.motion!.approved, undefined);
+  const u = await toMotionApproved();
+  assert.equal(await advance(u), "");
+  u.frames[0].sha = "s1";
+  assert.equal(await reopenChanged(u), true);
+  assert.equal(STAGES[u.stage].id, "style");
+  assert.equal(u.out.motion!.approved, undefined);
+  assert.match(await advance(u), /approve a style frame/);
+  assert.equal(await reopenChanged(u), false);
+});
+
+test("generate motion test needs an approved style frame", async () => {
+  const t = await toStyle();
+  submit(t, "style", { ref: "frames/a.png", sha: "s0" }, AT);
+  t.stage = STAGES.findIndex((s) => s.id === "motion");
+  const g = fakeGen();
+  assert.deepEqual(await generate(t, "motion", "q1", [], g.gen), { error: "No approved style frame: approve one first" });
+  assert.equal(g.calls(), 0);
+});
+
+test("adding a style frame keeps the other frames approved", async () => {
+  const t = await toStyle();
+  submit(t, "style", { ref: "frames/a.png", sha: "s0" }, AT);
+  await approve(t, "style", "frames/a.png", await h("style", { ref: "frames/a.png", sha: "s0" }), AT);
+  submit(t, "style", { ref: "frames/b.png", sha: "s0" }, AT);
+  assert.deepEqual((await approvedFrames(t)).map((f) => f.ref), ["frames/a.png"]);
+});
+
+test("sha cache: re-hashes only when mtime or size changes", async () => {
+  const c = new Map(); let n = 0; const hash = async () => `h${++n}`;
+  assert.equal(await cachedSha(c, "f", { mtimeMs: 1, size: 10 }, hash), "h1");
+  assert.equal(await cachedSha(c, "f", { mtimeMs: 1, size: 10 }, hash), "h1");
+  assert.equal(await cachedSha(c, "f", { mtimeMs: 2, size: 10 }, hash), "h2");
+  assert.equal(await cachedSha(c, "f", { mtimeMs: 2, size: 11 }, hash), "h3");
+  assert.equal(await cachedSha(c, "f", null, hash), ""); assert.equal(c.size, 0);
 });

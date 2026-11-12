@@ -5,13 +5,14 @@ import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { readState, saveState, studioRoot, withJobLock } from "@/lib/clips/factory";
 import { fileSha, generateForTrack, refreshShas } from "@/lib/clips/track";
-import { STAGES, advance, approve, newTrack, revise, submit, summary, trackProblem, type StageId, type Track } from "@/lib/clips/track-pure";
+import { STAGES, advance, approve, newTrack, reopenChanged, revise, submit, summary, trackProblem, type StageId, type Track } from "@/lib/clips/track-pure";
 
 // STUDIO Production track (Y2, track-pure.ts). GET = every track with its one-page state; POST { action, ... } = his clicks.
 // generate = his click on an AI Story quote (seen hash), through approveStory's guards; publishing stays the Clip Factory publish click.
 const dir = () => path.join(studioRoot(), "tracks");
 const isId = (x: unknown): x is string => typeof x === "string" && /^[a-z0-9]{6,12}-[a-f0-9]{6}$/.test(x);
-const get = async (id: string) => { const t = await readState<Track>(dir(), id, trackProblem); if (t) await refreshShas(t); return t; };
+// reopenChanged in memory: GET shows it, the next POST (under the lock) saves it
+const get = async (id: string) => { const t = await readState<Track>(dir(), id, trackProblem); if (t) { await refreshShas(t); await reopenChanged(t); } return t; };
 const save = (t: Track) => saveState(t.id, path.join(dir(), `${t.id}.json`), t);
 
 export async function GET() {
@@ -32,6 +33,9 @@ export async function POST(req: Request) {
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!b) return Response.json({ error: "Bad request" }, { status: 400 });
   const at = new Date().toISOString();
+  // hash outside the job lock; inside it the sha cache answers with a stat
+  if (isId(b.id)) await get(b.id);
+  if (b.action === "submit" && typeof b.ref === "string") await fileSha(b.ref.trim());
   return withJobLock(async () => {
     if (b.action === "create") {
       if (typeof b.title !== "string" || b.title.trim().length < 2) return Response.json({ error: "Title required" }, { status: 400 });
