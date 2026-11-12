@@ -52,6 +52,7 @@ import { AgentScorecard } from "./AgentScorecard";
 import { OutcomesView, ReliabilityView, TimeCostView } from "./AnalyticsOutcomes";
 import { PredictionScore } from "./OrbitThinks";
 import { PerfRuns } from "./PerfRuns";
+import { ModelRuns } from "./ModelRuns";
 import { LessonChip, LessonsSection } from "./LessonsCard";
 import { getLang, LangSwitch, useT } from "./i18n";
 import { FailureReport } from "./FailureReport";
@@ -1009,6 +1010,7 @@ export function AnalyticsPanel() {
       <UsageMeter />
       <AgentScorecard />
       <PredictionScore />
+      <ModelRuns />
       <PerfRuns />
       <LifeStats />
       <h3 className="h3">{tr("an.recent")}</h3>

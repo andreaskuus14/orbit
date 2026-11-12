@@ -46,6 +46,7 @@ const DATA: Record<string, object> = {
   "invoice.reminder": { invoice: "i1", via: "copy" },
   "focus.start": { focus: "f1", minutes: 50 },
   "focus.end": { focus: "f1", minutes: 48 },
+  "model.run": { kind: "core", job: "core", model: "opus", risky: true, why: ["save_memory"] },
 };
 let n = 0;
 const ev = (type: string, at: string, data: object = DATA[type], extra: object = {}) => {

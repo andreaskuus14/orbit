@@ -19,6 +19,7 @@ import { stopAllOn } from "./stop-all";
 import { authorizeAction } from "./authority";
 import { PAUSED_MSG } from "./stop-all-pure";
 import { isRisky, modelForJob, reviewerFor, riskFlags, type JobKind } from "./agent-defs-pure";
+import { runData } from "./model-log-pure";
 import { attemptId, attemptTag, completionState, INTERRUPTED, interruptedPatch, startedBeforeBoot, startedThenFailed, type WriteEvidence } from "./completion-pure";
 import { registerSource, taskExecution as execOf, track } from "./execution";
 import { claimFilter, missingOwnerColumn } from "./task-claim-pure";
@@ -495,6 +496,7 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
   // Owner's ORBIT_MODEL* setting per tier, raised to the Opus floor when the agent's tools or the request touch auth/money/approvals/sending.
   const risk = riskFlags(`${agent.tools.join(" ")} ${task.request}`);
   const model = modelForJob(TIER_JOB[agent.tier ?? "main"], risk, (agent.tier && TIER_MODEL[agent.tier]) || MODEL);
+  let ran = false; // model.run (ledger, tokens only: job kind, model, risk flag names): once per task, after its first model call succeeded
   let seen = "", checked = false; // seen: every tool result, what the self-check lets the answer cite
   try {
     const halt = () => { if (stopAllOn()) live.get(taskId)?.abort(); signal.throwIfAborted(); }; // Stop-all set by another process aborts here too
@@ -505,6 +507,7 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
       chargeCall(budget, signal);
       const r = await askClaude(prompt, system, { signal, purpose: `agent.${agent.slug}`, model });
       await recordUsage(sb, userId, `agent.${agent.slug}`, r);
+      if (!ran) { ran = true; void emit(sb, userId, "model.run", "agents", runData({ kind: "agent", job: TIER_JOB[agent.tier ?? "main"], model, risky: isRisky(risk), why: Object.keys(risk).map((k) => `risk:${k}`) })); }
       const reply = parseAgentReply(r.text);
       if (reply.garbled && !forceFinal) { trace.push({ step: "fallback", detail: "reply used function-call markup → asked again", ms: r.ms, ok: false }); continue; }
       trace.push({ step: "think", detail: `${model} · ${reply.thought || (reply.final ? "answering" : "")}`.slice(0, 300), ms: r.ms, ok: true });

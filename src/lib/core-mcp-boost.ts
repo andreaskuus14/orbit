@@ -50,9 +50,11 @@ export async function boostTurn(t: BoostIn) {
   t.trace.push({ step: "route", detail: `${route.model}${route.effort ? ` · effort ${route.effort}` : ""} · ${route.why}${dir ? ` · native files in ${slug}` : ""}`, ms: 0, ok: true });
 
   const edited = new Set<string>();
-  let checks = 0, problems = "";
+  let checks = 0, problems = "", limitFrom: string | undefined;
   return {
     get route() { return route; },
+    /** The model a usage limit first stepped this turn down from (model.run log), if any. */
+    get limitFrom() { return limitFrom; },
     native: dir ? { slug: slug!, dir } : null,
     system: stableSystem(stripSkills(t.system), [SKILLS_NOTE, dir ? nativeNote(slug!, dir) : ""]),
     prompt: stripSkills(t.prompt),
@@ -98,6 +100,7 @@ export async function boostTurn(t: BoostIn) {
         catch (e) {
           const next = isLimitError(e) ? downTier(route, MODELS) : null;
           if (!next) throw e;
+          limitFrom ??= route.model;
           logActivity({ area: "core", title: `CORE: ${route.model} usage limit reached; this turn continues on ${next.model}` });
           t.trace.push({ step: "fallback", detail: `${route.model} limit → ${next.model}`, ms: 0, ok: false });
           route = next;
