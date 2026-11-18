@@ -3,12 +3,14 @@ import { randomUUID } from "node:crypto";
 import { access, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { CLAUDE_BIN, FAST_MODEL, MODEL, type createLaneLimiter } from "./claude";
+import { orbitDataDir } from "./data-dir";
 import { safeFetch } from "./memory";
 import { allowedImage, urls } from "./refs-pure";
 import { parseStreamJsonLine, takeLines, type StreamResult } from "./streamjson";
 import {
-  LAYOUT_CAPS, MAX_IMAGE_B64, createCaptureTap, historyId, historyLabel, isLayout, parseHistory, pushHistory, type HistoryEntry, PLAN_TTL_MS, POSITION_NOTE, STATUS_PROMPT, buildPrompt, hookSettingsJson, pinTarget, rawRiskLines, safeHookPath, consoleErrors, createToolTap, parsePlaytest, playtestPrompt, createToolGuard, denyFor, guardEvent, imageFromStreamLine, lastJsonLine, safeModel, safePath, mcpConfigJson, parseBuildResult, parseConfig, parsePlan,
+  LAYOUT_CAPS, MAX_IMAGE_B64, createCaptureTap, historyId, historyLabel, isLayout, parseHistory, pushHistory, type HistoryEntry, PLAN_TTL_MS, POSITION_NOTE, STATUS_PROMPT, buildPrompt, hookSettingsJson, pinTarget, rawRiskLines, safeHookPath, consoleErrors, createToolTap, parsePlaytest, playtestPrompt, createToolGuard, denyFor, newRobloxTool, guardEvent, imageFromStreamLine, lastJsonLine, safeModel, safePath, mcpConfigJson, parseBuildResult, parseConfig, parsePlan,
   parseScanResult, parseScenePlan, parseStatus, planExpired, planPrompt, scanPrompt, toolFlags,
   type BuildResult, type Item, type Mode, type PlanResult, type PlaytestResult, type ScanResult, type ScenePlan,
 } from "./roblox-pure";
@@ -37,7 +39,28 @@ export async function runStudio(run: StudioRun): Promise<Run> {
   if (!cfg.configured) throw new Error("Roblox Studio bridge is not set up");
   const go = () => spawnStudio(run, cfg);
   const slot = lanes();
-  return slot ? slot("foreground", go) : go();
+  // Roblox ships new Studio MCP tools now and then; the fail-closed init check stops on one ORBIT has never seen. Deny it from now
+  // on (only ever adds denials) and retry, a few at most per run. Every other refusal stays a hard stop.
+  for (let tries = 0; ; tries++) {
+    try { return await (slot ? slot("foreground", go) : go()); } catch (e) {
+      const t = tries < 5 ? newRobloxTool(e instanceof Error ? e.message : String(e)) : null;
+      if (!t) throw e;
+      await learnNewTool(t);
+      console.warn(`[orbit] Roblox MCP offers a new tool (${t}); denied from now on, retrying`);
+    }
+  }
+}
+
+// New Roblox tools met at runtime (bare names), always denied. Lives in ORBIT's data dir, not the repo: update KNOWN_TOOLS when seen.
+const newToolsFile = () => path.join(orbitDataDir(), "roblox-new-tools.json");
+const learnedTools = (): string[] => {
+  try { const a = JSON.parse(readFileSync(newToolsFile(), "utf8")); return Array.isArray(a) ? a.filter((x): x is string => typeof x === "string" && /^[A-Za-z0-9_]{1,64}$/.test(x)) : []; }
+  catch { return []; }
+};
+async function learnNewTool(t: string) {
+  const all = [...new Set([...learnedTools(), t])];
+  await mkdir(path.dirname(newToolsFile()), { recursive: true });
+  await writeFile(newToolsFile(), JSON.stringify(all));
 }
 
 /** Maps and packs search, insert and generate many things: they get longer than the other plans/builds. */
@@ -53,7 +76,7 @@ const [NODE_MAJOR, NODE_MINOR] = process.versions.node.split(".").map(Number);
 async function spawnStudio({ mode, item, allowed, guard, prompt, timeoutMs: ms, onLine }: StudioRun, cfg: { command: string; args: string[] }): Promise<Run> {
   const model = mode === "status" ? FAST_MODEL : MODEL;
   if (!safeModel(model)) throw new Error("ORBIT_MODEL / ORBIT_MODEL_FAST contains invalid characters");
-  const disallowed = denyFor(allowed);
+  const disallowed = denyFor(allowed, learnedTools());
   // Per-run temp dir holds the system prompt and the mcp-config; removed after the run.
   const dir = await mkdtemp(path.join(os.tmpdir(), "orbit-rbx-"));
   try {

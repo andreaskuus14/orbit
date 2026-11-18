@@ -38,7 +38,14 @@ export const isLayout = (i?: Item): i is Item & { kind: LayoutKind } => i?.kind 
 const writeTools = (item: Item): string[] => !isLayout(item) ? WRITE[item.kind]
   : [...(item.objects?.length ? ["insert_asset"] : []), ...new Set((item.generate ?? []).map((g) => g.tool)), ...(item.generate?.length ? ["wait_job_finished"] : [])];
 /** Every known Studio tool not in `allowed` (full names in, full names out). --disallowedTools removes a tool outright, while the permission mode alone proved not to. */
-export const denyFor = (allowed: string[]) => [...new Set([...DENY_TOOLS, ...KNOWN_TOOLS])].map(full).filter((t) => !allowed.includes(t));
+/** `extra`: tools Roblox added after KNOWN_TOOLS that ORBIT met at runtime (newRobloxTool); always denied too. */
+export const denyFor = (allowed: string[], extra: string[] = []) => [...new Set([...DENY_TOOLS, ...KNOWN_TOOLS, ...extra])].map(full).filter((t) => !allowed.includes(t));
+/** The init refusal names a Roblox tool ORBIT has never seen (Roblox shipped a new one): its bare name, to deny from now on and
+ *  retry. Anything else (a known tool, a built-in, another server) stays a hard stop. */
+export function newRobloxTool(msg: string): string | null {
+  const m = new RegExp(`doesn't allow here \\(${full("")}([A-Za-z0-9_]{1,64})\\)`).exec(msg);
+  return m && !KNOWN_TOOLS.includes(m[1]) ? m[1] : null;
+}
 
 /** The minimal tool set for one run. A build is bound to its item: an asset may only be inserted, a description only generated. */
 export function toolFlags(mode: Mode, item?: Item): { allowed: string[]; disallowed: string[] } {
