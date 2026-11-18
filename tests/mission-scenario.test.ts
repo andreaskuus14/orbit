@@ -99,7 +99,7 @@ function world(req: string[]) {
   const w = {
     ...db, req,
     writes: 0, dest: new Map<string, string>(), crashNext: false, // the fake destination: what actually landed, keyed by idempotency key
-    proposals: 0, calls: [0, 0, 0], hang: -1, goalsOff: false, // hang: the step index whose next model call never returns (the process dies mid-step)
+    proposals: 0, calls: [0, 0, 0], hang: -1, goalsOff: false, script: undefined as ((prompt: string) => Row) | undefined, // hang: the step index whose next model call never returns (the process dies mid-step)
   };
   return w;
 }
@@ -130,7 +130,7 @@ function boot(w: World, missing = new Set<string>()) {
     reviewDraft: async (_t: string, d: string) => ({ text: d, reviewed: false }),
     askClaude: async (prompt: string) => {
       if (w.hang >= 0 && prompt.includes(`REQUEST:\n${w.req[w.hang]}`)) { w.calls[w.hang]++; w.hang = -1; return new Promise(() => {}); }
-      return { text: JSON.stringify(model(w, p, prompt)), ms: 1 };
+      return { text: JSON.stringify(w.script ? w.script(prompt) : model(w, p, prompt)), ms: 1 };
     },
   };
   const mods: Row = {
@@ -378,4 +378,23 @@ test("chain runs to the end from scheduler ticks alone; reads never drive; resta
   };
   await run(false);
   await run(true);
+});
+
+test("a sub-agent's long result stays readable by its parent via read_more (one clip store per task tree)", async () => {
+  const w = world([]); DBG = w;
+  const prompts: string[] = [];
+  w.script = (prompt) => {
+    prompts.push(prompt);
+    if (prompt.includes("REQUEST:\nCHILD-REQ")) return { final: "## Answer\n" + "fact. ".repeat(1500) + "TAIL-MARKER" };
+    if (prompt.includes("TAIL-MARKER")) return { final: "Done: the sub-agent's last line was TAIL-MARKER." };
+    const refs = [...prompt.matchAll(/read_more \{"ref":"(r\d+)","offset":(\d+)\}/g)];
+    if (refs.length) { const m = refs[refs.length - 1]; return { tool: "read_more", input: { ref: m[1], offset: Number(m[2]) } }; }
+    return { tool: "delegate", input: { agent: "atlas", title: "facts", request: "CHILD-REQ" } };
+  };
+  const A = boot(w);
+  const { data: t } = await w.sb.from("tasks").insert({ user_id: "owner", agent: "nova", title: "parent", request: "PARENT-REQ" }).select("id").single();
+  const out = await A.agents.runTask(w.sb, "owner", t.id);
+  assert.equal(out.status, "done", JSON.stringify(out));
+  assert.match(out.result, /TAIL-MARKER/);
+  assert.ok(!prompts.some((p) => /unknown ref/.test(p)), "no expired ref");
 });
