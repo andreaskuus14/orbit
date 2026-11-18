@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useT } from "./i18n";
 import { fmtSize } from "@/lib/vault-pure";
 
 // WORKSPACES: the real files CORE built (ask CORE "build me a website"). Browse, read, move to trash, open the live preview.
@@ -48,6 +49,14 @@ export function WorkspacePanel() {
     } catch (e) { setErr((e as Error).message); }
   };
 
+  const { t } = useT();
+  const [trusted, setTrusted] = useState("");
+  const trust = async () => {
+    if (!confirm(t("ws.trustAsk", { ws: ws ?? "" }))) return;
+    try { const r = await call<{ marked: number }>("/api/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "trust", ws }) }); setTrusted(t("ws.trusted", { n: r.marked })); setErr(""); }
+    catch (e) { setErr((e as Error).message); }
+  };
+
   return (
     <section className="space-y-2" aria-label="Workspaces">
       <h3 className="h3">Workspaces</h3>
@@ -71,7 +80,9 @@ export function WorkspacePanel() {
             <button className="chip" onClick={() => { current.current = null; setWs(null); void load(); }}>← All workspaces</button>
             <span className="min-w-0 flex-1 truncate">{ws}</span>
             {files && <a className="chip" href={files.preview} target="_blank" rel="noopener noreferrer">▶ Open preview</a>}
+            {files && files.files.length > 0 && <button className="chip" onClick={() => void trust()} title={t("ws.trustTitle")}>{t("ws.trust")}</button>}
           </div>
+          {trusted && <p className="muted text-xs" role="status">{trusted}</p>}
           {check && (
             <div className="card space-y-2" aria-label="Site check">
               <p className="text-xs">{check.line} <span className="muted">· {new Date(check.at).toLocaleString()}</span></p>
