@@ -211,3 +211,19 @@ test("isPrivateIp: NAT64, 6to4 and hex IPv4-mapped forms are refused; public map
     "::ffff:0:7f00:1", "fec0::1", "feff::1", "2001::1", "2001:0:4136:e378::1"]) assert.equal(isPrivateIp(ip), true, ip);
   for (const ip of ["::ffff:808:808", "2606:4700::1111", "2001:4860:4860::8888"]) assert.equal(isPrivateIp(ip), false, ip);
 });
+
+test("Bing News links give up the publisher URL; Google headlines match the same story on Bing", async () => {
+  const { bingNewsUrl, bareHeadline, sameHeadline } = await import("../src/lib/pure.ts");
+  assert.equal(bingNewsUrl("http://www.bing.com/news/apiclick.aspx?ref=FexRss&aid=&tid=x&url=https%3a%2f%2fabout.roblox.com%2fnewsroom%2f2026%2f11%2fintroducing-classmates&c=1"), "https://about.roblox.com/newsroom/2026/11/introducing-classmates");
+  assert.equal(bingNewsUrl("https://www.bing.com/news/search?q=roblox&format=rss"), null); // the feed's own link
+  assert.equal(bingNewsUrl("http://www.bing.com/news/apiclick.aspx?url=https%3a%2f%2fwww.bing.com%2fx"), null);
+  assert.equal(bingNewsUrl("https://www.bbc.com/news/x"), "https://www.bbc.com/news/x");
+  assert.equal(bareHeadline("Roblox opens office in Brazil - Valor Econômico", "Valor Econômico"), "Roblox opens office in Brazil");
+  assert.equal(bareHeadline("Roblox opens office in Brazil - Valor"), "Roblox opens office in Brazil");
+  assert.ok(sameHeadline("Introducing Classmates, a new way for US college students to connect on Roblox", "Introducing Classmates: A New Way for U.S. College Students to Connect on Roblox"));
+  assert.ok(!sameHeadline("Roblox opens office in Brazil", "Fortnite adds new map in Brazil today"));
+  assert.ok(!sameHeadline("Roblox news", "Roblox news")); // too short to trust
+  const { hostMatchesSource } = await import("../src/lib/pure.ts");
+  for (const [h, src] of [["www.cnn.com", "CNN"], ["aldailynews.com", "Alabama Daily News"], ["www.kold.com", "KOLD"], ["finance.yahoo.com", "Yahoo Finance"], ["www.deseret.com", "Deseret News"], ["www.bloomberg.com", "Bloomberg.com"]]) assert.ok(hostMatchesSource(h, src), `${h} ${src}`);
+  for (const [h, src] of [["www.ign.com", "Eurogamer.net"], ["www.msn.com", "CBS News"], ["www.cnn.com", "Fox News"]]) assert.ok(!hostMatchesSource(h, src), `${h} ${src}`);
+});
