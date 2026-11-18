@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useT } from "./i18n";
 import { fmtSize } from "@/lib/vault-pure";
 
 // WORKSPACES: the real files CORE built (ask CORE "build me a website"). Browse, read, move to trash, open the live preview.
@@ -48,10 +49,11 @@ export function WorkspacePanel() {
     } catch (e) { setErr((e as Error).message); }
   };
 
+  const { t } = useT();
   const [trusted, setTrusted] = useState("");
   const trust = async () => {
-    if (!confirm(`Let CORE continue the files in ${ws}?\n\nOnly for files CORE made or you wrote yourself. Files from agents, reports or pasted web text could carry hidden instructions.`)) return;
-    try { const r = await call<{ marked: number }>("/api/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "trust", ws }) }); setTrusted(`CORE may now continue ${r.marked} files here.`); setErr(""); }
+    if (!confirm(t("ws.trustAsk", { ws: ws ?? "" }))) return;
+    try { const r = await call<{ marked: number }>("/api/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "trust", ws }) }); setTrusted(t("ws.trusted", { n: r.marked })); setErr(""); }
     catch (e) { setErr((e as Error).message); }
   };
 
@@ -78,7 +80,7 @@ export function WorkspacePanel() {
             <button className="chip" onClick={() => { current.current = null; setWs(null); void load(); }}>← All workspaces</button>
             <span className="min-w-0 flex-1 truncate">{ws}</span>
             {files && <a className="chip" href={files.preview} target="_blank" rel="noopener noreferrer">▶ Open preview</a>}
-            {files && files.files.length > 0 && <button className="chip" onClick={() => void trust()} title="Files made before 19 Nov 2026 aren't marked as CORE's own, so CORE won't build on them until you allow it">🔓 Let CORE continue these files</button>}
+            {files && files.files.length > 0 && <button className="chip" onClick={() => void trust()} title={t("ws.trustTitle")}>{t("ws.trust")}</button>}
           </div>
           {trusted && <p className="muted text-xs" role="status">{trusted}</p>}
           {check && (
