@@ -6,7 +6,8 @@ import { createClient } from "@supabase/supabase-js";
 import { CLAUDE_BIN } from "./claude";
 import { runDoctor } from "./doctor";
 import { check, summarize, type Check } from "./doctor-pure";
-import { bootNotice, consumed, effortCheck, parseState, readRange, scanLogs, type BootResult, type Mark } from "./doctor-boot-pure";
+import { lookup } from "node:dns/promises";
+import { bootNotice, consumed, effortCheck, parseState, readRange, scanLogs, waitForNet, type BootResult, type Mark } from "./doctor-boot-pure";
 
 // Startup self-test: once per server boot (globalThis guard survives dev hot reloads and Next's separate module copies), runs the doctor
 // plus a few local smoke checks and scans the server/launcher logs for crashes since the last boot. Result is kept for /api/doctor?boot=1.
@@ -85,6 +86,8 @@ async function selfTest(): Promise<BootResult> {
   const scan = scanLogs(srv.text, lch.text);
   // No user session at boot: the anon client is enough to prove the database answers (RLS just returns nothing).
   // Missing settings still run the doctor (its env check names them); the placeholder URL just makes the database check fail.
+  const host = (() => { try { return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").hostname; } catch { return ""; } })();
+  if (!(await waitForNet(host, lookup))) console.warn("[orbit] boot self-test: still no network after 60 s; checking anyway");
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:9", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "missing", { auth: { persistSession: false, autoRefreshToken: false } });
   // CLAUDE_BIN comes from env/constants, never from a request. The version comes from the doctor's own claude check.
   const [doc, extra, help] = await Promise.all([runDoctor(sb).then((r) => r.checks), smokeChecks(), run(`"${CLAUDE_BIN}" --help`)]);

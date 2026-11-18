@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bootNotice, consumed, effortCheck, parseState, readRange, scanLogs, READ_CAP } from "../src/lib/doctor-boot-pure.ts";
+import { bootNotice, consumed, effortCheck, parseState, readRange, scanLogs, waitForNet, READ_CAP } from "../src/lib/doctor-boot-pure.ts";
 import { check } from "../src/lib/doctor-pure.ts";
 
 const LAUNCH = "2026-10-17 18:13:05  [orbit] ORBIT server exited unexpectedly (code 3221226505) after 812 s.\n2026-10-17 18:13:06  [orbit] Starting ORBIT server (npm run start) on port 3000.";
@@ -81,4 +81,18 @@ test("state file: corrupt or malformed parts are dropped", () => {
 test("huge lines are capped before matching", () => {
   assert.deepEqual(scanLogs("x".repeat(5000) + " FATAL ERROR", "").crashes, []);
   assert.deepEqual(scanLogs("FATAL ERROR " + "x".repeat(5000), "").crashes.map((c) => c.id), ["fatal"]);
+});
+
+test("boot waits for the network: Wi-Fi up after 9 s → true; never up → false after 60 s; no host → no wait", async () => {
+  let t = 0, upAt = 9_000;
+  const clock = () => t, sleep = async (ms: number) => { t += ms; };
+  const lookup = async () => { if (t < upAt) throw new Error("ENOTFOUND"); };
+  assert.equal(await waitForNet("x.supabase.co", lookup, 60_000, 3_000, sleep, clock), true);
+  assert.equal(t, 9_000);
+  t = 0; upAt = Infinity;
+  assert.equal(await waitForNet("x.supabase.co", lookup, 60_000, 3_000, sleep, clock), false);
+  assert.ok(t <= 60_000);
+  let called = false;
+  assert.equal(await waitForNet("", async () => { called = true; }), true);
+  assert.equal(called, false);
 });

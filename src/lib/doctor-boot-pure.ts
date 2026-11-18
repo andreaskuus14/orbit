@@ -102,3 +102,17 @@ export const effortCheck = (help: string | null, version: string | null): Check 
   return /--effort\b/.test(help) ? { id: "effort", label: L, status: "ok", detail: `Supported${version ? ` by ${version}` : ""}` }
     : { id: "effort", label: L, status: "warn", detail: "This Claude Code is too old for --effort, so deep answers fall back to the main model", fix: "Run: claude update (or npm i -g @anthropic-ai/claude-code), then restart ORBIT." };
 };
+
+/** Wait until `host` resolves (the network is up), checking every `stepMs`, for at most `maxMs`. A laptop that wakes before its
+ *  Wi-Fi otherwise shows a red boot check ("Couldn't reach the database") for a problem that fixed itself seconds later.
+ *  Returns whether the network came up; the self-test runs either way, so a real outage still shows. */
+export async function waitForNet(host: string, lookup: (h: string) => Promise<unknown>, maxMs = 60_000, stepMs = 3_000,
+  sleep = (ms: number) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now()): Promise<boolean> {
+  if (!host) return true;
+  const end = now() + maxMs;
+  for (;;) {
+    if (await lookup(host).then(() => true, () => false)) return true;
+    if (now() + stepMs > end) return false;
+    await sleep(stepMs);
+  }
+}
