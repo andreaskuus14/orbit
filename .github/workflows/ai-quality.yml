@@ -30,6 +30,10 @@ jobs:
           cache-dependency-path: package-lock.json
       # Reproducible install from the committed lockfile; fails if package.json and the lockfile disagree.
       - run: npm ci --no-audit --no-fund
+        env:
+          # onnxruntime-node 1.21.0's install script downloads its Linux CUDA build from a GitHub release that now 404s, which
+          # fails every install. CI has no GPU; the CPU runtime is what the tests use.
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
       - run: npx tsc --noEmit -p .
       - run: npm test
       - run: npm run eval:ai
