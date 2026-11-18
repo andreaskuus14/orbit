@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { evalRunId } from "./eval-run.ts";
 import { zipStore } from "./zip-pure.ts";
 import { link, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
@@ -222,6 +222,31 @@ export async function readCheckFile(uid: string, slug: string, name: (typeof CHE
   const dir = await realWsDir(uid, slug);
   const f = dir && path.join(dir, ".orbit-check", name);
   try { return f && (await lstat(path.dirname(f))).isDirectory() && (await lstat(f)).isFile() ? await readFile(f) : null; } catch { return null; }
+}
+
+// <workspace>/.orbit-own.json: path → sha256 of files CORE's own ws_write (or ORBIT's template) wrote. A file read back later with the
+// same hash is CORE's own earlier work, not outside text (core-workspace wsTainted); any other writer changes the hash. Dot file: never listed or served.
+const OWN = ".orbit-own.json";
+const hash = (t: string) => createHash("sha256").update(t).digest("hex");
+async function ownMap(dir: string): Promise<Record<string, string>> {
+  try { const j = JSON.parse(await readFile(path.join(dir, OWN), "utf8")); return j && typeof j === "object" && !Array.isArray(j) ? j : {}; } catch { return {}; }
+}
+/** Record a file CORE itself just wrote (after writeWsFile succeeded). */
+export function markOwn(uid: string, slug: string, rel: string, text: string): Promise<void> {
+  return serial(async () => {
+    const dir = await realWsDir(uid, slug);
+    if (!dir) return;
+    const m = await ownMap(dir);
+    m[rel] = hash(text);
+    const tmp = path.join(dir, `${OWN}.${randomBytes(4).toString("hex")}.tmp`);
+    await writeFile(tmp, JSON.stringify(m));
+    await rename(tmp, path.join(dir, OWN));
+  });
+}
+/** True when `text` is exactly what CORE last wrote to this file. */
+export async function isOwnFile(uid: string, slug: string, rel: string, text: string): Promise<boolean> {
+  const dir = await realWsDir(uid, slug);
+  return !!dir && (await ownMap(dir))[rel] === hash(text);
 }
 
 /** Moves the file to <workspace>/.trash/<time>-<random>-<path with / → __>; keeps the newest TRASH_MAX there (bounds disk use). */
