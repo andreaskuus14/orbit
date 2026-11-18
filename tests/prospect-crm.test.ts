@@ -78,3 +78,12 @@ test("BUS07 delivery plan names the agreed version when there is one", async () 
   assert.match(d[2], /agreed version/);
   assert.doesNotMatch(deliveryPlan({ name: "Cake", kind: "", fee: 0 }).description, /Agreed:/);
 });
+
+test("list_prospects line: stage, contact, last touch, draft state; private notes stay short", async () => {
+  const { prospectLine } = await import("../src/lib/prospect-crm-pure.ts");
+  const p = { id: "p1", name: "Cafe Kuu", kind: "cafe", contact: "info@kuu.ee", stage: "contacted", notes: "No website.\nMenu on Facebook.", draft: "Hi, saw your menu.", updated_at: "2026-11-10T10:00:00Z" };
+  const line = prospectLine(p, { source: "web-find", verified: false, key: "k", events: [{ at: "2026-11-09T09:00:00Z", kind: "sent" }] });
+  assert.match(line, /\[p:p1\] Cafe Kuu: stage contacted; kind cafe; contact info@kuu\.ee \(unverified\); last contact 2026-11-09, no reply yet; draft ready \(not sent\); source web-find; updated 2026-11-10/);
+  assert.match(line, /notes: No website\. Menu on Facebook\./);
+  assert.match(prospectLine({ ...p, contact: "", draft: "", notes: "" }), /no contact; never contacted; no draft; updated/);
+});

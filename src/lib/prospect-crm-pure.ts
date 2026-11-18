@@ -85,3 +85,18 @@ export function deliveryPlan(p: { name: string; kind: string; fee: number }, agr
     ].join("\n"),
   };
 }
+
+/** One BUSINESS prospect as the read-only list_prospects tool shows it to Closer, Outreach and Prospector. */
+export function prospectLine(p: { id: string; name: string; kind: string; contact: string; stage: string; notes: string; draft: string; updated_at: string }, c?: Crm): string {
+  const t = c ? touch(c.events) : null;
+  const bits = [
+    `stage ${p.stage}`,
+    p.kind && `kind ${p.kind}`,
+    p.contact ? `contact ${p.contact}${c && !c.verified ? " (unverified)" : ""}` : "no contact",
+    t ? `last contact ${t.last.slice(0, 10)}${t.replied ? ", replied" : ", no reply yet"}` : "never contacted",
+    p.draft ? "draft ready (not sent)" : "no draft",
+    c && `source ${c.source}`,
+    `updated ${p.updated_at.slice(0, 10)}`,
+  ].filter(Boolean);
+  return `- [p:${p.id}] ${p.name}: ${bits.join("; ")}${p.notes ? `\n  notes: ${p.notes.replace(/\s+/g, " ").slice(0, 300)}` : ""}${p.draft ? `\n  draft: ${p.draft.replace(/\s+/g, " ").slice(0, 400)}` : ""}`;
+}
