@@ -4,6 +4,7 @@ import { NO_CALL_FOR_TOOLS, holdAnswerCall, toolAllowed } from "./answer-call-pu
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClipStore } from "./clip-store-pure";
 import { isCurrent, scopeTags } from "./memory-types-pure";
+import { STALLED, raceStall, stalledMsg } from "./stall-pure";
 import { askClaude, recordUsage, emit, reviewDraft, MODEL, SMART_MODEL, FAST_MODEL, createBudget, chargeCall, stopKind, stoppedReport, BudgetError, type Budget } from "./claude";
 import { createMemory, searchMemories, fetchPage, safeFetch, MEMORY_COLUMNS, KINDS, type Kind } from "./memory";
 import { runPulse, topicFeedUrl } from "./pulse";
@@ -452,7 +453,16 @@ export async function runTask(sb: SupabaseClient, userId: string, taskId: string
   if (live.has(taskId)) return { status: "cancelled", result: null, error: "Already running" }; // never twice in one process
   const ac = new AbortController();
   live.set(taskId, ac);
-  try { return await runTaskInner(sb, userId, taskId, depth, budget, AbortSignal.any([ac.signal, budget.signal, ...(parentSignal ? [parentSignal] : [])]), limits); }
+  try {
+    const work = runTaskInner(sb, userId, taskId, depth, budget, AbortSignal.any([ac.signal, budget.signal, ...(parentSignal ? [parentSignal] : [])]), limits);
+    const r = Number.isFinite(budget.deadline) ? await raceStall(work, budget.deadline) : await work; // no deadline: nothing to watch
+    if (r !== STALLED) return r;
+    ac.abort(new Error(STALLED));
+    const error = stalledMsg(budget.minutes);
+    console.error("[orbit] task stalled", taskId);
+    await sb.from("tasks").update({ status: "failed", error, finished_at: new Date().toISOString() }).eq("id", taskId).eq("status", "running").then(() => {}, () => {});
+    return { status: "failed", result: null, error };
+  }
   finally { live.delete(taskId); }
 }
 
