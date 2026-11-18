@@ -8,7 +8,7 @@ import { STALLED, raceStall, stalledMsg } from "./stall-pure";
 import { askClaude, recordUsage, emit, reviewDraft, MODEL, SMART_MODEL, FAST_MODEL, createBudget, chargeCall, stopKind, stoppedReport, BudgetError, type Budget } from "./claude";
 import { createMemory, searchMemories, fetchPage, safeFetch, MEMORY_COLUMNS, KINDS, type Kind } from "./memory";
 import { runPulse, topicFeedUrl } from "./pulse";
-import { localNews, readArticle } from "./news";
+import { localNews, readArticle, resolveNewsUrl } from "./news";
 import { scrapePage } from "./scrape";
 import { parseMode } from "./scrape-pure";
 import { findCountry } from "./countries-pure";
@@ -101,6 +101,8 @@ export const TOOLS: Record<string, Tool> = {
       if (!q) return "Error: query is required";
       const { res } = await safeFetch(topicFeedUrl(q), "application/rss+xml, application/xml, text/xml");
       const items = parseFeed((await res.text()).slice(0, 2_000_000)).items.slice(0, 10);
+      // Publisher links, not Google redirects (agents cite these); unresolvable ones stay as they are.
+      await Promise.all(items.map(async (it) => { it.url = await resolveNewsUrl(it.url, { title: it.title, source: it.source }).catch(() => it.url); }));
       return items.map((it, n) => `${n + 1}. ${it.title} — ${it.source ?? "unknown"}, ${it.published ?? "date unknown"}\n   ${it.url}${it.summary ? `\n   ${it.summary.slice(0, 200)}` : ""}`).join("\n") || "No results.";
     },
   },
@@ -217,7 +219,7 @@ export const TOOLS: Record<string, Tool> = {
       const out: string[] = [];
       for (const it of items) {
         if (out.length >= 3) break;
-        const art = await readArticle(it.url, 2500);
+        const art = await readArticle(it.url, 2500, true, { title: it.title, source: it.source });
         if (art) pages.set(art.url, art);
         if (art) out.push(`### ${it.title} — ${it.source ?? ""}, ${it.published ?? ""}\nURL: ${art.url}\n${art.text}`);
       }

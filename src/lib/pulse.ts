@@ -194,7 +194,7 @@ async function briefing(sb: SupabaseClient, userId: string, kind: PulseKind, foc
     await Promise.all(Array.from({ length: 4 }, async () => {
       for (let c = cursor++; c < readTop.length; c = cursor++) {
         for (const a of readTop[c].slice(0, 3)) {
-          const art = await readArticle(a.url, 2500, false); // bulk: plain downloads only, keeps briefings fast
+          const art = await readArticle(a.url, 2500, false, { title: a.title, source: a.source }); // bulk: plain downloads only, keeps briefings fast
           if (!art) continue;
           fullText.set(a.id, art.text); readUrl.set(a.id, art.url);
           if (art.url !== a.url) {

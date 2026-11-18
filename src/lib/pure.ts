@@ -276,6 +276,46 @@ export function decodeGoogleNewsId(id: string): { url: string | null; needsApi: 
   return m ? { url: m[0].replace(/[\x00-\x20]+$/, ""), needsApi: false } : { url: null, needsApi: true };
 }
 
+/** The publisher URL inside a Bing News RSS link (bing.com/news/apiclick.aspx?...&url=<encoded>), or null. */
+export function bingNewsUrl(link: string): string | null {
+  try {
+    const u = new URL(link);
+    if (!/(^|\.)bing\.com$/.test(u.hostname)) return /^https?:$/.test(u.protocol) ? link : null;
+    const real = u.searchParams.get("url");
+    return real && /^https?:\/\//i.test(real) && !/(^|\.)bing\.com$/.test(new URL(real).hostname) ? real : null;
+  } catch { return null; }
+}
+
+/** Google News titles end in " - Publisher"; this drops that tail. */
+export const bareHeadline = (title: string, source?: string | null) => {
+  const t = title.trim();
+  if (source && t.toLowerCase().endsWith(` - ${source.toLowerCase()}`)) return t.slice(0, -(source.length + 3)).trim();
+  return t.replace(/\s+[-–|]\s+[^-–|]{2,60}$/, "").trim() || t;
+};
+
+/** Same story headline: at least 70% of the shorter title's words (3+ letters) appear in the other. */
+export function sameHeadline(a: string, b: string): boolean {
+  const words = (t: string) => new Set(t.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N} ]+/gu, " ").split(/\s+/).filter((w) => w.length >= 3));
+  const x = words(a), y = words(b);
+  const [small, big] = x.size <= y.size ? [x, y] : [y, x];
+  if (small.size < 3) return false;
+  let hit = 0;
+  for (const w of small) if (big.has(w)) hit++;
+  return hit / small.size >= 0.7;
+}
+
+/** The link's site is the named publisher ("Yahoo Finance" ↔ finance.yahoo.com, "Alabama Daily News" ↔ aldailynews.com):
+ *  some host label shares 5+ letters in a row with the name, or all of a short label (cnn, kold). */
+export function hostMatchesSource(host: string, source: string): boolean {
+  const name = source.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const labels = host.toLowerCase().replace(/^www\./, "").split(".").slice(0, -1).filter((l) => l.length >= 3);
+  return labels.some((l) => {
+    const need = Math.min(5, l.length);
+    for (let i = 0; i + need <= l.length; i++) if (name.includes(l.slice(i, i + need))) return true;
+    return false;
+  });
+}
+
 /** Main story text of a news page: prefers <article>/<main>, drops short boilerplate lines (menus, captions, buttons). */
 export function extractArticle(html: string, maxChars = 4000): { title: string; text: string } {
   const pick = html.match(/<article[\s>][\s\S]*?<\/article>/i)?.[0] ?? html.match(/<main[\s>][\s\S]*?<\/main>/i)?.[0] ?? html;

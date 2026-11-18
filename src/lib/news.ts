@@ -1,5 +1,5 @@
 import { safeFetch } from "./memory";
-import { decodeGoogleNewsId, extractArticle, extractLinks, parseFeed } from "./pure";
+import { bareHeadline, bingNewsUrl, decodeGoogleNewsId, hostMatchesSource, extractArticle, extractLinks, parseFeed, sameHeadline } from "./pure";
 import { renderPage } from "./browser";
 import { googleNewsSearchUrl, googleNewsTopUrl, isEditionOf, LOCAL_FEEDS } from "./local-news-pure";
 
@@ -32,8 +32,28 @@ async function viaGoogleApi(id: string): Promise<string | null> {
   return typeof url === "string" && /^https?:\/\//.test(url) ? url : null;
 }
 
-/** The publisher's own URL for a Google News link (or the input unchanged for any other link). */
-export async function resolveNewsUrl(url: string): Promise<string> {
+/** The same story on Bing News (its links carry the publisher URL in plain sight): Google's unwrap call lands on the EU
+ *  consent page from Estonia. Sends only the public headline. */
+async function viaBing(title: string, source?: string | null): Promise<string | null> {
+  const q = bareHeadline(title, source);
+  if (q.length < 12) return null;
+  // Plain headline first; then with the publisher's name, which finds stories Bing ranks low (live 18 Nov: 6/10 → 7/10).
+  for (const query of source ? [q, `${q} ${source.replace(/\.(com|net|org)$/i, "")}`] : [q]) {
+    const { res } = await safeFetch(`https://www.bing.com/news/search?q=${encodeURIComponent(query)}&format=rss`, "application/rss+xml, application/xml, text/xml", UA);
+    for (const it of parseFeed((await res.text()).slice(0, 1_000_000)).items) {
+      const real = bingNewsUrl(it.url);
+      // Same headline AND the named publisher's site: a look-alike headline elsewhere is a different article.
+      if (real && sameHeadline(q, it.title) && (!source || hostMatchesSource(new URL(real).hostname, source))) return real;
+    }
+  }
+  return null;
+}
+
+export type NewsHint = { title: string; source?: string | null };
+
+/** The publisher's own URL for a Google News link (or the input unchanged for any other link). With the headline (hint),
+ *  a link Google won't unwrap is found on Bing News instead. */
+export async function resolveNewsUrl(url: string, hint?: NewsHint): Promise<string> {
   let u: URL;
   try { u = new URL(url); } catch { return url; }
   if (u.hostname !== "news.google.com") return url;
@@ -47,6 +67,7 @@ export async function resolveNewsUrl(url: string): Promise<string> {
   else {
     try { real = await viaGoogleApi(id); } catch { real = null; }
   }
+  if (!real && hint?.title) { try { real = await viaBing(hint.title, hint.source); } catch { real = null; } }
   if (real) { cache.set(id, real); if (cache.size > 5000) cache.clear(); }
   return real ?? url;
 }
@@ -54,11 +75,11 @@ export async function resolveNewsUrl(url: string): Promise<string> {
 /** Full text of a web page or news article (main content only). Plain download first; if that gets
  *  nothing readable (JavaScript-built page, bot wall), the hidden browser loads it. Null if both fail. */
 export type Page = { url: string; title: string; text: string; links: { text: string; url: string }[] };
-export async function readArticle(url: string, maxChars = 4000, useBrowser = true): Promise<Page | null> {
+export async function readArticle(url: string, maxChars = 4000, useBrowser = true, hint?: NewsHint): Promise<Page | null> {
   let real = url;
   let plain: Page | null = null;
   try {
-    real = await resolveNewsUrl(url);
+    real = await resolveNewsUrl(url, hint);
     if (new URL(real).hostname === "news.google.com") return null;
     const { res, url: finalUrl } = await safeFetch(real, "text/html", UA);
     if ((res.headers.get("content-type") ?? "").includes("html")) {
