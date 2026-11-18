@@ -84,5 +84,9 @@
     "esbuild@0.25.12": true,
     "onnxruntime-node@1.21.0": true,
     "protobufjs@7.6.6": true
+  },
+  "overrides": {
+    "hono": "4.13.16",
+    "@hono/node-server": "2.1.6"
   }
 }
