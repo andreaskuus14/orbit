@@ -16,5 +16,6 @@ export async function POST(req: Request) {
   const b = await req.json().catch(() => ({}));
   if (b && "model" in b) return Response.json({ engine: coreEngine(), fallback: envEngine(), model: await setCoreModelPref(b.model) }); // mcp engine: auto | opus | sonnet
   const r = await setCoreEngine(b?.engine ?? null);
-  return typeof r === "string" ? Response.json({ error: r }, { status: 400 }) : Response.json({ engine: r, fallback: envEngine(), model: coreModelPref() });
+  // An engine name is a string too, so the error is an object (it used to report every successful switch as a 400).
+  return typeof r === "object" ? Response.json({ error: r.error }, { status: 400 }) : Response.json({ engine: r, fallback: envEngine(), model: coreModelPref() });
 }

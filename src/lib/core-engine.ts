@@ -15,9 +15,9 @@ export const envEngine = () => pickEngine(null, process.env.ORBIT_CORE_ENGINE);
 export const coreEngine = (): Engine => pickEngine(saved(), process.env.ORBIT_CORE_ENGINE);
 
 /** null = back to the env/default. Refuses anything else than json/cli, mcp, sdk. */
-export async function setCoreEngine(raw: unknown): Promise<Engine | string> {
+export async function setCoreEngine(raw: unknown): Promise<Engine | { error: string }> {
   const e = raw === null ? null : parseEngine(raw);
-  if (raw !== null && !e) return "engine must be json, mcp or sdk";
+  if (raw !== null && !e) return { error: "engine must be json, mcp or sdk" };
   await mkdir(path.dirname(file()), { recursive: true });
   await writeFile(file() + ".tmp", JSON.stringify({ engine: e, at: new Date().toISOString() }));
   await rename(file() + ".tmp", file());
