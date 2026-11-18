@@ -109,7 +109,10 @@ export function leadNotes(notes: string, note: string, next: string): string {
 export type NewLead = { name: string; contact: string; notes: string };
 /** lead_create input (one lead or {leads: [...]}) → prospect rows, or an error. Web text is stored as a record only. */
 export function leadInputs(input: Record<string, unknown>): NewLead[] | string {
-  const list = Array.isArray(input.leads) ? input.leads : [input];
+  // The model often sends {"leads": "[{...}]"} as a JSON string (live 19 Nov, both engines): read it as the list it is.
+  const given = typeof input.leads === "string" ? (() => { try { return JSON.parse(input.leads as string) as unknown; } catch { return undefined; } })() : input.leads;
+  if (typeof input.leads === "string" && !Array.isArray(given)) return "leads must be a list of {name, source_url, …}";
+  const list = Array.isArray(given) ? given : [input];
   if (!list.length || list.length > 10) return "give 1-10 leads";
   const out: NewLead[] = [];
   for (const raw of list) {
