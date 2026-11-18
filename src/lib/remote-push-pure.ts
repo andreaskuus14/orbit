@@ -7,7 +7,7 @@ import { ET, type Key, type Lang } from "./i18n-pure.ts";
 
 // ---- What gets sent ---------------------------------------------------------
 
-export type PushKind = "clip" | "spend" | "send" | "scheduled" | "published" | "failed" | "stop" | "night" | "call" | "deal" | "auto" | "contract" | "invoice" | "habit" | "health" | "view";
+export type PushKind = "clip" | "spend" | "send" | "scheduled" | "published" | "failed" | "stop" | "night" | "call" | "deal" | "auto" | "contract" | "invoice" | "habit" | "health" | "view" | "login";
 export type PushMessage = { title: string; body: string; url: string; tag: PushKind; habit?: string }; // habit: id for the SW's one-tap Done
 export const PUSH_GAP_MS = 2 * 60_000;
 
@@ -26,6 +26,7 @@ export function pushLabel(kind: PushKind, n = 1): PushMessage {
     deal: ["Deal found", "Something on your wishlist is at a good price.", "r-call"], // deals.ts, outside quiet hours; never the item or price
     invoice: ["Invoice reminder ready", "Read it and approve it in Remote.", "r-appr"], // invoices.ts sends its own title (invoice number, days overdue)
     contract: [many ? `${n} contracts ready` : "Contract ready", "It waits for your signature in BUSINESS on the PC. Only you can sign it.", "r-appr"], // contracts.ts; never parties or prices
+    login: ["Claude login expired on the PC", "ORBIT paused its background work. Run claude, then /login.", "r-queue"], // usage-meter.ts: once per outage
     health: [many ? `${n} ORBIT problems need a look` : "An ORBIT problem needs a look", "See the doctor's System card on the PC.", "r-queue"], // system-health.ts: once per incident, never details
     view: ["Your link was opened", "Someone opened a shared BUSINESS link for the first time. See BUSINESS on the PC.", "r-queue"], // pitch-links.ts; never who or which
     habit: ["Habit time", "One of your habits is up. Tap Done when it's done.", "r-habit"], // habit-nudge.ts; never the habit's name
@@ -64,7 +65,7 @@ export type GateResult = { slot: Slot; send: number; wakeAt?: number };
 /** One event of `kind`: send now (with anything held), hold it for the next window, or drop it in quiet hours (failures never). */
 export function gate(slot: Slot | undefined, kind: PushKind, now: number, q: Quiet = DEFAULT_QUIET): GateResult {
   const s = slot ?? { last: -Infinity, held: 0 };
-  if (kind !== "failed" && quietAt(now, q)) return { slot: { ...s, held: 0 }, send: 0 }; // dropped: Remote still lists what's waiting
+  if (kind !== "failed" && kind !== "login" && quietAt(now, q)) return { slot: { ...s, held: 0 }, send: 0 }; // dropped: Remote still lists what's waiting
   if (now - s.last >= PUSH_GAP_MS) return { slot: { last: now, held: 0 }, send: s.held + 1 };
   return { slot: { ...s, held: s.held + 1 }, send: 0, wakeAt: s.last + PUSH_GAP_MS };
 }

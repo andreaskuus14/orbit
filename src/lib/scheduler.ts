@@ -8,7 +8,7 @@ import { dueSlots, type BriefingKind } from "./pure";
 import { generateProposals, proposalsDue } from "./proactive";
 import { maybeBackup } from "./backup";
 import { stopAllOn } from "./stop-all";
-import { usageHold, usageLimited } from "./usage-meter";
+import { loginProbeDue, usageHold, usageLimited } from "./usage-meter";
 import { maybeSleep } from "./sleep";
 import { maybeWeeklyScout } from "./niche";
 import { maybeNightShift, nightOwnsCompany } from "./night";
@@ -37,6 +37,8 @@ async function tick(sb: SupabaseClient) {
     if (stopAllOn()) return; // Stop-all: no automations, queue starts, chain resumes, briefings, proposals or backups
     void import("./habit-nudge").then((m) => m.tickHabits()).catch((e) => console.error("[orbit] habit nudges failed:", e instanceof Error ? e.message : e)); // LIFE, local, no model
     if (allows("calls", "background").ok) void import("./call").then((c) => c.maybeCall()); // "ORBIT wants to talk": rings the paired phone when call-pure says so; never throws
+    // Claude login expired: one tiny owner-lane call every 15 min (background calls would go to the local brain during the pause); when it works, usage-meter clears the pause and work resumes next tick.
+    if (loginProbeDue()) void import("./claude").then((c) => c.askClaude("Reply with OK.", "", { lane: "foreground", model: c.FAST_MODEL, purpose: "login.probe" })).catch(() => {});
     const limited = usageLimited(); // a real Claude limit: start nothing that needs Claude, and don't burn briefing slots (failed runs count as ran)
     for (const { id } of users ?? []) {
       if (limited) continue;

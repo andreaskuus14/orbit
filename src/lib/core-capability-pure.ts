@@ -1,5 +1,6 @@
 // CORE capability helpers: the tool-step cap, honest failure text, fallback notes and the DEV "CORE config" readout.
 // Pure (no imports with side effects): tested in tests/core-capability.test.ts. See docs/CORE-CAPABILITY.md.
+import { loginFailed } from "./usage-meter-pure.ts";
 
 /** Model calls per CORE turn (the last one must answer). ORBIT_CORE_MAX_STEPS, default 8; operator/research turns
  *  (search + several checks + save) get at least 16. Hard cap 20; the turn deadline and background handoff still apply. */
@@ -28,7 +29,7 @@ export function sessionInput(prompt: string, transcript: string, resumed: boolea
 export function describeFailure(msg: string): string {
   const m = msg.slice(0, 400);
   if (/usage limit|hit your limit|rate_limit|API Error: 429|rate limit (?:reached|exceeded)/i.test(m)) return `Claude usage limit reached, so CORE could not answer. ${m.match(/resets?[^.\n]*/i)?.[0] ?? "Try again later."}`.trim();
-  if (/\/login|not logged in|invalid api key|oauth token|token (?:has )?expired|authentication|unauthori[sz]ed|401/i.test(m)) return "Claude login expired or missing on the ORBIT PC: run `claude` there and sign in again (/login). CORE did not answer.";
+  if (loginFailed(m) || /authentication|unauthori[sz]ed|401/i.test(m)) return "Claude login expired or missing on the ORBIT PC: run `claude` there and sign in again (/login). CORE did not answer.";
   if (/timed out/i.test(m)) return `${m} CORE did not finish; nothing after the last completed step was done.`;
   if (/Could not start|ENOENT/i.test(m)) return `Claude Code is not reachable: ${m}`;
   return m || "CORE failed";

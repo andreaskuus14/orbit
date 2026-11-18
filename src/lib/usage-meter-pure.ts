@@ -2,10 +2,16 @@
 // Every `claude -p` call is recorded by claude.ts → usage-meter.ts. Max limits are rolling windows (5 h and 7 days) whose exact
 // sizes aren't public, so the owner sets his own 5-hour budget (calls and/or tokens); background lanes back off near it.
 
+/** The Claude CLI's sign-in is gone or expired (seen live: "Failed to authenticate: OAuth session expired and could not be refreshed").
+ *  One rule for CORE's message, failure reports and the background pause. */
+export const loginFailed = (text: string) =>
+  /failed to authenticate|oauth (?:token|session)|session expired|could not be refreshed|\/login|not logged in|not signed in|invalid api key|token (?:has )?expired|authentication_failed/i.test(text);
+
 export type Call = { at: number; purpose: string; model: string; inTok: number; outTok: number; ms: number; turns?: number; cost?: number; ok: boolean };
 export type MeterSettings = { calls5h: number; tokens5h: number; warnPct: number }; // tokens5h 0 = no token budget
 export type Limit = { until: number; at: number; text: string };
-export type Meter = { calls: Call[]; settings: MeterSettings; limit: Limit | null };
+export type Login = { at: number; probed: number; text: string };
+export type Meter = { calls: Call[]; settings: MeterSettings; limit: Limit | null; login?: Login | null };
 
 export const H5 = 5 * 3_600_000;
 export const D7 = 7 * 86_400_000;
@@ -43,6 +49,19 @@ export function usageLevel(m: Meter, now: number) {
   return { pct: Math.round(pct), heavy: pct >= s.warnPct };
 }
 
+export const PROBE_MS = 15 * 60_000;
+/** A login outage, updated by one call's outcome: the first auth failure opens it (push once), a later one only moves `probed`,
+ *  any successful call closes it. Returns what changed so the caller can log/push exactly once. */
+export function noteLogin(m: Meter, ok: boolean, errText: string, now: number): "down" | "still" | "back" | null {
+  if (ok) { if (!m.login) return null; m.login = null; return "back"; }
+  if (!loginFailed(errText)) return null;
+  if (m.login) { m.login.probed = now; return "still"; }
+  m.login = { at: now, probed: now, text: errText.slice(0, 300) };
+  return "down";
+}
+/** While the login is down: true once every PROBE_MS, so one tiny call checks whether he signed in again. */
+export const probeDue = (m: Meter, now: number) => !!m.login && now - m.login.probed >= PROBE_MS;
+
 /** "15:00", or "Mon 15:00" when it's more than 20 h away. */
 const when = (t: number, now: number) => new Date(t).toLocaleString([], { ...(t - now > 20 * 3_600_000 ? { weekday: "short" as const } : {}), hour: "2-digit", minute: "2-digit" });
 
@@ -53,6 +72,7 @@ export const hardHoldReason = (m: Meter, now: number): string => (m.limit && m.l
 export function holdReason(m: Meter, now: number): string {
   const hard = hardHoldReason(m, now);
   if (hard) return hard;
+  if (m.login) return "Claude login expired on the ORBIT PC: run `claude`, then /login";
   const l = usageLevel(m, now);
   return l.heavy ? `Heavy use: ${l.pct}% of your 5-hour budget (${m.settings.calls5h} calls${m.settings.tokens5h ? ` / ${m.settings.tokens5h.toLocaleString()} tokens` : ""})` : "";
 }
@@ -101,7 +121,7 @@ export function patchSettings(b: Record<string, unknown>, cur: MeterSettings): M
 /** usage-meter.json text → meter; bad entries are dropped, anything unreadable starts empty (it's only a meter). */
 export function parseMeter(raw: string | null): Meter {
   const m = emptyMeter();
-  let o: { calls?: unknown; settings?: unknown; limit?: unknown };
+  let o: { calls?: unknown; settings?: unknown; limit?: unknown; login?: unknown };
   try { o = JSON.parse(raw ?? ""); } catch { return m; }
   if (!o || typeof o !== "object") return m;
   if (Array.isArray(o.calls)) m.calls = o.calls.filter((c): c is Call => !!c && typeof c.at === "number" && typeof c.purpose === "string"
@@ -110,5 +130,7 @@ export function parseMeter(raw: string | null): Meter {
   if (s && typeof s !== "string") m.settings = s;
   const l = o.limit as Limit | null;
   if (l && typeof l.until === "number" && typeof l.at === "number") m.limit = { until: l.until, at: l.at, text: String(l.text ?? "").slice(0, 300) };
+  const g = o.login as Login | null;
+  if (g && typeof g.at === "number") m.login = { at: g.at, probed: typeof g.probed === "number" ? g.probed : g.at, text: String(g.text ?? "").slice(0, 300) };
   return m;
 }
