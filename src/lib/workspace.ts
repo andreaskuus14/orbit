@@ -243,6 +243,19 @@ export function markOwn(uid: string, slug: string, rel: string, text: string): P
     await rename(tmp, path.join(dir, OWN));
   });
 }
+/** His "Let CORE continue these files" (WORKSPACES): marks every current text file as CORE's own, for files made before ORBIT
+ *  recorded ownership. His call, since only he knows nothing in them came from an agent, a report or pasted web text. Images are skipped. */
+export async function trustWorkspace(uid: string, slug: string): Promise<{ marked: number } | { error: string }> {
+  const files = await listFiles(uid, slug);
+  if (!files) return { error: `no workspace "${slug}"` };
+  let marked = 0;
+  for (const f of files) {
+    if (/\.(?:png|jpe?g|webp|gif)$/i.test(f.path)) continue;
+    const r = await readWsFile(uid, slug, f.path);
+    if (r) { await markOwn(uid, slug, f.path, r.text); marked++; }
+  }
+  return { marked };
+}
 /** True when `text` is exactly what CORE last wrote to this file. */
 export async function isOwnFile(uid: string, slug: string, rel: string, text: string): Promise<boolean> {
   const dir = await realWsDir(uid, slug);

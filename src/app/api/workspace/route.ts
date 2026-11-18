@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
-import { createWorkspace, zipWorkspace, listFiles, listWorkspaces, previewUrl, readCheckFile, readWsFile, trashWsFile, writeWsFile } from "@/lib/workspace";
+import { createWorkspace, zipWorkspace, listFiles, listWorkspaces, previewUrl, readCheckFile, readWsFile, trashWsFile, trustWorkspace, writeWsFile } from "@/lib/workspace";
 import { contentType, isSlug } from "@/lib/workspace-pure";
 import { workspaceDir } from "@/lib/workspace";
 import { serverStatus, startServer, stopServer } from "@/lib/ws-server";
@@ -75,6 +75,12 @@ export async function POST(req: Request) {
       logActivity({ area: "system", title: `Workspace server started: ${b.ws} (local demo)` });
     } else return bad("Unknown op");
     return Response.json(await serverInfo(user.id, b.ws));
+  }
+  if (b.action === "trust") { // his click: files made before ownership was recorded may be continued by CORE (core-workspace wsTainted)
+    if (!isSlug(b.ws)) return bad("Missing ws");
+    const r = await trustWorkspace(user.id, b.ws);
+    if (!("error" in r)) logActivity({ area: "system", title: `Workspace ${b.ws}: CORE may continue its ${r.marked} files` });
+    return "error" in r ? bad(r.error) : Response.json(r);
   }
   if (!isSlug(b.ws) || typeof b.path !== "string") return bad("Missing ws or path");
   if (b.action === "write") return typeof b.content === "string" ? out(await writeWsFile(user.id, b.ws, b.path, b.content)) : bad("Missing content");
