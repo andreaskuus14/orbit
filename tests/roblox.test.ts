@@ -105,6 +105,13 @@ test("runtime init check", () => {
   assert.equal(checkInitTools([5], allowed), "5");
 });
 
+test("auto_setup_avatar (added to Roblox's MCP Nov 2026) is denied in every mode", () => {
+  for (const mode of ["status", "plan", "scan", "playtest"] as const) {
+    const f = toolFlags(mode);
+    assert.ok(f.disallowed.includes(R("auto_setup_avatar")) && !f.allowed.includes(R("auto_setup_avatar")), mode);
+  }
+});
+
 test("stream events for the guard", () => {
   assert.deepEqual(guardEvent(JSON.stringify({ type: "system", subtype: "init", tools: ["a"] })), { init: ["a"] });
   assert.deepEqual(guardEvent(JSON.stringify({ type: "system", subtype: "init" })), { init: null });
