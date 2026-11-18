@@ -64,7 +64,8 @@ export async function dailyRuns(sb: SupabaseClient, userId: string, now = Date.n
     clips(now).catch((e) => failed("clips", e)),
     leads(sb, userId, now, ev).catch((e) => failed("leads", e)),
   ]);
-  return { day: localDay(new Date(now)), items };
+  const loginDown = await import("./usage-meter").then((m) => m.loginDown(), () => false);
+  return { day: localDay(new Date(now)), items, ...(loginDown ? { loginDown } : {}) };
 }
 
 /** CORE's daily_runs tool (read-only). */

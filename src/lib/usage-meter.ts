@@ -3,7 +3,7 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { orbitDataDir } from "./data-dir.ts";
 import { logActivity } from "./activity.ts";
-import { D7, H5, addCall, emptyMeter, hardHoldReason, holdReason, parseLimitError, parseMeter, patchSettings, usageLevel, windowStats, type Call, type Meter } from "./usage-meter-pure.ts";
+import { D7, H5, addCall, emptyMeter, hardHoldReason, holdReason, noteLogin, parseLimitError, probeDue, parseMeter, patchSettings, usageLevel, windowStats, type Call, type Meter } from "./usage-meter-pure.ts";
 
 // Usage meter store: <ORBIT data dir>/usage-meter.json, kept in memory and saved at most every 2 s (atomic tmp + rename).
 // recordCall is called by claude.ts after every CLI call; usageHold() is what background lanes check before starting.
@@ -38,6 +38,12 @@ export function recordCall(c: Omit<Call, "at">, errText = "") {
   try {
     const now = Date.now(), m = meter();
     addCall(m, { ...c, at: now }, now);
+    const login = noteLogin(m, c.ok, errText, now);
+    if (login === "down") {
+      console.error("[orbit] Claude login expired: background work paused until it works again");
+      logActivity({ area: "system", title: "Claude login expired: background work paused. Run `claude`, then /login, on this PC", detail: errText.slice(0, 200) });
+      void import("./remote-push").then((p) => p.pushNotify("login"), () => {});
+    } else if (login === "back") logActivity({ area: "system", title: "Claude login works again: background work resumed" });
     const until = c.ok ? null : parseLimitError(errText, now);
     if (until) {
       m.limit = { until, at: now, text: errText.slice(0, 300) };
@@ -57,7 +63,11 @@ export const usageHoldFor = (lane: "foreground" | "background") => (lane === "fo
 export const pastBudget = () => !!usageHold() && !usageHardHold();
 
 /** A real usage/rate limit (not just heavy use) is active: nothing that calls Claude should start. */
-export const usageLimited = () => { const l = meter().limit; return !!l && l.until > Date.now(); };
+export const usageLimited = () => { const m = meter(), l = m.limit; return (!!l && l.until > Date.now()) || !!m.login; };
+/** The Claude CLI sign-in expired and no call has worked since. */
+export const loginDown = () => !!meter().login;
+/** True at most once per PROBE_MS while the login is down (marks the probe as started). */
+export function loginProbeDue(): boolean { const m = meter(), now = Date.now(); if (!probeDue(m, now)) return false; m.login!.probed = now; save(); return true; }
 
 export function usageView() {
   const m = meter(), now = Date.now();

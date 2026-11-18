@@ -2,6 +2,7 @@
 // Builds a reviewable diagnostic package from an existing trace. It is only shown, copied or downloaded: never sent anywhere.
 // Credentials are always redacted; personal content (request, answer, tool inputs/outputs) is left out unless `includePersonal`.
 import { redact } from "./health-pure.ts";
+import { loginFailed } from "./usage-meter-pure.ts";
 
 type Evidence = { kind: string; id: string; path?: string };
 export type ReportStep = { step: string; detail?: string; ms?: number; ok?: boolean; evidence?: Evidence[]; policy?: { verdict?: string; turn?: string }; answerEval?: { pass?: boolean; flags?: string[] } };
@@ -32,7 +33,7 @@ export function errorCategory(text: string): Category {
   if (/\bbudget\b|\bcap reached\b|\btoo many (tool )?calls\b/.test(s)) return "budget";
   if (/time ?out|timed out|etimedout|time limit/.test(s)) return "timeout";
   if (/\b429\b|rate.?limit|overloaded|\b529\b/.test(s)) return "rate_limit";
-  if (/\b401\b|\b403\b|unauthori[sz]ed|forbidden|not signed in|api key/.test(s)) return "auth";
+  if (loginFailed(s) || /\b401\b|\b403\b|unauthori[sz]ed|forbidden|api key/.test(s)) return "auth";
   if (/econn\w*|enotfound|fetch failed|network|unreachable|socket/.test(s)) return "network";
   if (/\bmodel\b|claude|anthropic|parse|json/.test(s)) return "model";
   if (/^error:|\berror\b/.test(s)) return "tool";

@@ -13,7 +13,7 @@
 
 export type DailyState = "planned" | "attempted" | "completed" | "waiting" | "failed" | "uncertain" | "missed" | "off" | "idle";
 export type DailyItem = { wf: "brief" | "clips" | "leads"; state: DailyState; verified: boolean; evidence: string; next?: string };
-export type DailyView = { day: string; items: DailyItem[] };
+export type DailyView = { day: string; items: DailyItem[]; loginDown?: boolean }; // loginDown: the Claude CLI sign-in expired (usage-meter)
 
 const GRACE_MS = 45 * 60_000; // a run that hasn't left a record 45 min after its slot is missed
 const RUN_STALE_MS = 30 * 60_000; // a "running" row older than this is a dead run, not a live one
@@ -116,13 +116,14 @@ export const needsAttention = (i: DailyItem) => ["failed", "uncertain", "missed"
 /** CORE's daily_runs tool text: one line per workflow with its evidence and next step. */
 export function dailyText(v: DailyView): string {
   return [`Daily runs ${v.day} (states come from ORBIT's own records; "verified" means the record proves it):`,
+    ...(v.loginDown ? ["- Claude login: EXPIRED — background work is paused → run `claude`, then /login, on the PC"] : []),
     ...v.items.map((i) => `- ${LABEL[i.wf]}: ${i.state}${i.state === "completed" ? (i.verified ? ", verified" : ", not verified") : ""} — ${i.evidence}${i.next ? ` → ${i.next}` : ""}`)].join("\n");
 }
 
 /** The once-a-day phone digest. Labels and counts only: the ntfy topic may be on the public server, so no names, titles or text. */
 export function digestMsg(v: DailyView): { kind: string; title: string; message: string; tags: string[]; priority: 3 | 4; click?: string } {
-  const bad = v.items.filter((i) => i.state === "failed" || i.state === "missed" || i.state === "uncertain");
-  const message = v.items.map((i) => `${LABEL[i.wf]}: ${MARK[i.state]}${i.state === "completed" && i.verified ? " ✓" : ""}`).join(" · ");
+  const bad = [...(v.loginDown ? [null] : []), ...v.items.filter((i) => i.state === "failed" || i.state === "missed" || i.state === "uncertain")];
+  const message = [...(v.loginDown ? ["Claude login: EXPIRED"] : []), ...v.items.map((i) => `${LABEL[i.wf]}: ${MARK[i.state]}${i.state === "completed" && i.verified ? " ✓" : ""}`)].join(" · ");
   return { kind: bad.length ? "failed" : "daily", title: bad.length ? `ORBIT daily: ${bad.length} need${bad.length > 1 ? "" : "s"} a look` : "ORBIT daily", message, tags: [bad.length ? "warning" : "sunrise"], priority: bad.length ? 4 : 3 };
 }
 
