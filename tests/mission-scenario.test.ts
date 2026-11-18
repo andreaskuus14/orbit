@@ -13,6 +13,7 @@ import * as missionsPure from "../src/lib/missions-pure.ts";
 import * as taskClaimPure from "../src/lib/task-claim-pure.ts";
 import * as stopAllPure from "../src/lib/stop-all-pure.ts";
 import * as pure from "../src/lib/pure.ts";
+import * as stallPure from "../src/lib/stall-pure.ts";
 import * as foregroundPure from "../src/lib/foreground-pure.ts";
 import * as clipStorePure from "../src/lib/clip-store-pure.ts";
 import * as memoryTypesPure from "../src/lib/memory-types-pure.ts";
@@ -134,7 +135,7 @@ function boot(w: World, missing = new Set<string>()) {
   };
   const mods: Row = {
     "./claude": claude, "./authority": { authorizeAction: async () => ({ ok: true }) }, "./stop-all": stopAll, "./stop-all-pure": stopAllPure, "./completion-pure": completionPure, "./answer-call-pure": answerCallPure, "./task-claim-pure": taskClaimPure,
-    "./company-pure": companyPure, "./chains-pure": chainsPure, "./missions-pure": missionsPure, "./durable": { noteWrite: () => {} }, "./pure": pure,
+    "./company-pure": companyPure, "./chains-pure": chainsPure, "./missions-pure": missionsPure, "./durable": { noteWrite: () => {} }, "./pure": pure, "./stall-pure": stallPure,
     "./memory": { KINDS: ["note"], createMemory: (_sb: unknown, userId: string, input: Row) => ctx.__memory({ ...input, user_id: userId }) }, "./core-ui": { needsSelfReview: () => false }, "./completion": { verifyRow: async () => {} },
     "./foreground-pure": foregroundPure, "./clip-store-pure": clipStorePure, "./memory-types-pure": memoryTypesPure, "./mission-checks-pure": missionChecksPure, "./research-pilot-pure": researchPilotPure, "./agent-defs-pure": agentDefsPure, "./model-log-pure": modelLogPure,
     "./capability": { capabilityStart: async () => ({ block: "", headsUp: "" }) },

@@ -13,6 +13,7 @@ import * as missionsPure from "../src/lib/missions-pure.ts";
 import * as taskClaimPure from "../src/lib/task-claim-pure.ts";
 import * as stopAllPure from "../src/lib/stop-all-pure.ts";
 import * as pure from "../src/lib/pure.ts";
+import * as stallPure from "../src/lib/stall-pure.ts";
 import * as foregroundPure from "../src/lib/foreground-pure.ts";
 import * as clipStorePure from "../src/lib/clip-store-pure.ts";
 import * as outboundPure from "../src/lib/outbound-pure.ts";
@@ -174,7 +175,7 @@ function boot(w: World) {
   };
   const mods: Row = {
     "./claude": claude, "./stop-all": stopAll, "./stop-all-pure": stopAllPure, "./completion-pure": completionPure, "./answer-call-pure": answerCallPure, "./task-claim-pure": taskClaimPure,
-    "./company-pure": companyPure, "./chains-pure": chainsPure, "./missions-pure": missionsPure, "./durable": { noteWrite: () => {} }, "./pure": pure, "./research-pilot-pure": pilot,
+    "./company-pure": companyPure, "./chains-pure": chainsPure, "./missions-pure": missionsPure, "./durable": { noteWrite: () => {} }, "./pure": pure, "./stall-pure": stallPure, "./research-pilot-pure": pilot,
     "./memory": { KINDS: ["note"] }, "./core-ui": { needsSelfReview: () => false }, "./completion": { verifyRow: async () => {} },
     "./foreground-pure": foregroundPure, "./clip-store-pure": clipStorePure, "./outbound-pure": outboundPure, "./mission-checks-pure": missionChecksPure, "./agent-defs-pure": agentDefsPure, "./model-log-pure": modelLogPure,
     "./capability": { capabilityStart: async () => ({ block: "", headsUp: "" }) }, "./workspace": ws,
