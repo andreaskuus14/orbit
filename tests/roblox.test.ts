@@ -105,10 +105,11 @@ test("runtime init check", () => {
   assert.equal(checkInitTools([5], allowed), "5");
 });
 
-test("auto_setup_avatar (added to Roblox's MCP Nov 2026) is denied in every mode", () => {
+test("tools Roblox added to its MCP in Nov 2026 are denied in every mode", () => {
+  const added = ["auto_setup_avatar", "create_skill", "edit_skill", "list_skills", "generate_avatar", "generate_scene", "open_cloud_invoke", "save_place", "submit_feedback"];
   for (const mode of ["status", "plan", "scan", "playtest"] as const) {
     const f = toolFlags(mode);
-    assert.ok(f.disallowed.includes(R("auto_setup_avatar")) && !f.allowed.includes(R("auto_setup_avatar")), mode);
+    for (const t of added) assert.ok(f.disallowed.includes(R(t)) && !f.allowed.includes(R(t)), `${mode} ${t}`);
   }
 });
 

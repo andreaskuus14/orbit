@@ -9,7 +9,9 @@ export const GENERATE_TOOLS = ["generate_mesh", "generate_procedural_model", "ge
 export const BUILD_TOOLS = [...READ_TOOLS, "insert_asset", ...GENERATE_TOOLS, "screen_capture", "wait_job_finished"];
 /** Never allowed. */
 export const DENY_TOOLS = ["execute_luau", "multi_edit", "script_search", "user_keyboard_input", "user_mouse_input",
-  "http_get", "upload_image", "store_image", "subagent", "skill", "auto_setup_avatar"];
+  "http_get", "upload_image", "store_image", "subagent", "skill", "auto_setup_avatar",
+  // Added by Roblox Nov 2026: write/cloud/feedback/skill tools ORBIT never needs.
+  "create_skill", "edit_skill", "list_skills", "generate_avatar", "generate_scene", "open_cloud_invoke", "save_place", "submit_feedback"];
 /** Script reading is allowed ONLY in scan runs (read-only free-model check); every other run denies it. */
 export const SCAN_ONLY_TOOLS = ["script_read", "script_grep"];
 export const SCAN_TOOLS = ["get_studio_state", "list_roblox_studios", "search_game_tree", "inspect_instance", ...SCAN_ONLY_TOOLS];
@@ -17,7 +19,7 @@ export const SCAN_TOOLS = ["get_studio_state", "list_roblox_studios", "search_ga
 export const PLAYTEST_ONLY_TOOLS = ["start_stop_play", "character_navigation", "get_console_output"];
 export const PLAYTEST_TOOLS = ["get_studio_state", "list_roblox_studios", "search_game_tree", "inspect_instance", "screen_capture", ...PLAYTEST_ONLY_TOOLS];
 
-/** Every tool the Roblox Studio MCP server listed (Oct 2026; auto_setup_avatar added Nov 2026, denied). shortcut: a tool Roblox adds later is caught only by the runtime init check (checkInitTools), update this list when they add tools. */
+/** Every tool the Roblox Studio MCP server listed (Oct 2026; 9 more added Nov 2026, all denied). shortcut: a tool Roblox adds later is caught only by the runtime init check (checkInitTools), update this list when they add tools. */
 export const KNOWN_TOOLS = [...BUILD_TOOLS, ...DENY_TOOLS, ...SCAN_ONLY_TOOLS, ...PLAYTEST_ONLY_TOOLS, "capture_plugin_gui", "list_plugin_guis", "segment_mesh"];
 
 export const MAX_GENERATIONS = 3;

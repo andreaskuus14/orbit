@@ -40,10 +40,10 @@ export async function runStudio(run: StudioRun): Promise<Run> {
   const go = () => spawnStudio(run, cfg);
   const slot = lanes();
   // Roblox ships new Studio MCP tools now and then; the fail-closed init check stops on one ORBIT has never seen. Deny it from now
-  // on (only ever adds denials) and retry, a few at most per run. Every other refusal stays a hard stop.
+  // on (only ever adds denials) and retry, up to 10 per run. Every other refusal stays a hard stop.
   for (let tries = 0; ; tries++) {
     try { return await (slot ? slot("foreground", go) : go()); } catch (e) {
-      const t = tries < 5 ? newRobloxTool(e instanceof Error ? e.message : String(e)) : null;
+      const t = tries < 10 ? newRobloxTool(e instanceof Error ? e.message : String(e)) : null;
       if (!t) throw e;
       await learnNewTool(t);
       console.warn(`[orbit] Roblox MCP offers a new tool (${t}); denied from now on, retrying`);
