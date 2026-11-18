@@ -18,7 +18,7 @@ export function createClipStore(limit = CLIP) {
     read(input: Record<string, unknown>): string {
       const ref = typeof input.ref === "string" ? input.ref : "";
       const text = full.get(ref);
-      if (text === undefined) return `Error: unknown ref "${ref}" (refs only last for this answer)`;
+      if (text === undefined) return `Error: unknown ref "${ref}" (refs only last for this answer or task tree)`;
       const offset = Math.max(0, Math.floor(Number(input.offset) || 0));
       if (offset >= text.length) return `Error: offset past the end (${text.length} chars)`;
       const end = offset + limit;

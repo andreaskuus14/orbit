@@ -287,7 +287,7 @@ export const TOOLS: Record<string, Tool> = {
       if (error) throw error;
       const out = await runTask(ctx.sb, ctx.userId, child.id, ctx.depth + 1, ctx.budget, ctx.signal);
       return out.status === "done" || out.status === "awaiting_approval"
-        ? `${agent} ${out.status === "done" ? "finished" : "is waiting for approval"} (task ${child.id}):\n${(out.result ?? "").slice(0, 4000)}`
+        ? `${agent} ${out.status === "done" ? "finished" : "is waiting for approval"} (task ${child.id}):\n${out.result ?? ""}` // clipped with a read_more pointer by the shared store
         : `Error: ${agent} could not finish: ${out.error ?? out.status}`;
     },
   },
@@ -466,6 +466,8 @@ export async function runTask(sb: SupabaseClient, userId: string, taskId: string
   finally { live.delete(taskId); }
 }
 
+const treeClips = new WeakMap<Budget, ReturnType<typeof createClipStore>>();
+
 async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, depth: number, budget: Budget, signal: AbortSignal, limits: { tools?: string[]; priv?: boolean }) {
   // Refuse tasks this worker doesn't own: claimed elsewhere, cancelled, or finished. A cancel stays cancelled.
   let claimed: boolean;
@@ -502,7 +504,9 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
   const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const system = systemPrompt(agent, today);
   const transcript: string[] = [];
-  const clips = createClipStore(5800); // transcript keeps 6000 chars per step; the rest stays readable via read_more
+  // One store per task tree (the budget is shared with delegated sub-tasks), so a ref in a sub-agent's result stays readable by its parent.
+  let clips = treeClips.get(budget);
+  if (!clips) treeClips.set(budget, (clips = createClipStore(5800))); // transcript keeps 6000 chars per step; the rest stays readable via read_more
   // Owner's ORBIT_MODEL* setting per tier, raised to the Opus floor when the agent's tools or the request touch auth/money/approvals/sending.
   const risk = riskFlags(`${agent.tools.join(" ")} ${task.request}`);
   const model = modelForJob(TIER_JOB[agent.tier ?? "main"], risk, (agent.tier && TIER_MODEL[agent.tier]) || MODEL);
@@ -592,7 +596,7 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
         for (const p of ctx.pages.values()) if (!had.has(p.url)) trace.push({ step: "source", detail: p.url.slice(0, 300), ms: 0, ok: true, url: p.url, at: new Date().toISOString(), evidence: (p.text ?? "").slice(0, EVIDENCE_CHARS) });
       }
       trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, 160)} → ${out.slice(0, 160)}`, ms: Date.now() - t0, ok: !out.startsWith("Error:") });
-      transcript.push(`STEP ${step + 1}: you called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 500)}\nRESULT:\n${clips.clip(out).slice(0, 6000)}`);
+      transcript.push(`STEP ${step + 1}: you called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 500)}\nRESULT:\n${(reply.tool === "read_more" ? out : clips.clip(out)).slice(0, 6000)}`); // read_more output already carries its own pointer
       await save({}); // live trace for the UI
     }
     throw new Error("Agent loop ended without an answer");
