@@ -224,6 +224,23 @@ export function dueSlots(now: Date, lastRun: Partial<Record<BriefingKind, string
 export type AgentStep = { thought: string; tool?: string; input?: Record<string, unknown>; final?: string; garbled?: true };
 
 /** Read one agent reply. Agents must answer with a single JSON object; anything unparseable counts as a final answer. */
+/** The "final" string of a malformed reply envelope (no tool in it), unescaped, or null. Reads to the closing quote or, if cut off, the end. */
+function looseFinal(t: string): string | null {
+  if (!/^\s*\{\s*"(?:thought|final)"/.test(t) || /"tool"\s*:/.test(t)) return null;
+  const m = /"final"\s*:\s*"/.exec(t);
+  if (!m) return null;
+  let out = "";
+  for (let i = m.index + m[0].length; i < t.length; i++) {
+    const c = t[i];
+    if (c === '"') break;
+    if (c !== "\\") { out += c; continue; }
+    const n = t[++i];
+    if (n === "u" && /^[0-9a-f]{4}$/i.test(t.slice(i + 1, i + 5))) { out += String.fromCharCode(parseInt(t.slice(i + 1, i + 5), 16)); i += 4; }
+    else out += ({ n: "\n", t: "\t", r: "", b: "", f: "" } as Record<string, string>)[n] ?? n ?? "";
+  }
+  return out.trim() || null;
+}
+
 export function parseAgentReply(text: string): AgentStep {
   const t = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const start = t.indexOf("{"), end = t.lastIndexOf("}");
@@ -237,9 +254,12 @@ export function parseAgentReply(text: string): AgentStep {
       }
       if (typeof j.final === "string") return { thought, final: j.final };
     } catch {
-      /* fall through: treat as plain answer */
+      /* fall through: a broken envelope may still hold the answer (below) */
     }
   }
+  // Live 18 Nov (Prospector's last step): a {"thought","final"} envelope JSON.parse rejects (cut off, stray quote) was shown raw.
+  const loose = looseFinal(t);
+  if (loose) return { thought: "", final: loose };
   // The model sometimes writes its native XML tool-call syntax instead of our JSON: run the first call, don't show it.
   const call = /<invoke name="([\w.-]+)">([\s\S]*?)(?:<\/invoke>|$)/.exec(t);
   if (call) {

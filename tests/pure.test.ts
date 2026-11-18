@@ -227,3 +227,16 @@ test("Bing News links give up the publisher URL; Google headlines match the same
   for (const [h, src] of [["www.cnn.com", "CNN"], ["aldailynews.com", "Alabama Daily News"], ["www.kold.com", "KOLD"], ["finance.yahoo.com", "Yahoo Finance"], ["www.deseret.com", "Deseret News"], ["www.bloomberg.com", "Bloomberg.com"]]) assert.ok(hostMatchesSource(h, src), `${h} ${src}`);
   for (const [h, src] of [["www.ign.com", "Eurogamer.net"], ["www.msn.com", "CBS News"], ["www.cnn.com", "Fox News"]]) assert.ok(!hostMatchesSource(h, src), `${h} ${src}`);
 });
+
+test("parseAgentReply: a final envelope with raw line breaks (live Prospector 18 Nov) gives the answer, not raw JSON", async () => {
+  const { parseAgentReply } = await import("../src/lib/pure.ts");
+  const raw = '{"thought":"Out of steps; report honestly.","final":"## Result: no verified leads (0 of 5)\\n\\n| Score | Business |\\n|---|---|\nDoes Must Puudel have its own website?\nIs a \\"Facebook-only\\" café enough?"}';
+  assert.throws(() => JSON.parse(raw));
+  const r = parseAgentReply(raw);
+  assert.equal(r.tool, undefined);
+  assert.equal(r.final, '## Result: no verified leads (0 of 5)\n\n| Score | Business |\n|---|---|\nDoes Must Puudel have its own website?\nIs a "Facebook-only" café enough?');
+  const cut = parseAgentReply('{"thought":"x","final":"## Answer\nfirst line\\nsecond'); // cut off before the closing quote
+  assert.equal(cut.final, "## Answer\nfirst line\nsecond");
+  assert.equal(parseAgentReply('{"thought":"x","tool":"fetch_url","input":{"url":"a\nb"}').tool, undefined); // a broken tool call is never turned into an answer text
+  assert.equal(parseAgentReply("Plain answer, no JSON.").final, "Plain answer, no JSON.");
+});
