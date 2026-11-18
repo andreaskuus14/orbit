@@ -49,3 +49,21 @@ test("star: ties go to fewer failures, nobody without work this week", () => {
   assert.deepEqual(aggregateStats([], now, "UTC"), { agents: {}, star: null });
   assert.equal(aggregateStats([row("nova", "done", null)], now, "UTC").agents.nova.avgMs, null);
 });
+
+test("orbit_stats per-agent table counts each status in the date range only", async () => {
+  const { agentTable, dayBound } = await import("../src/lib/agent-stats-pure.ts");
+  assert.equal(dayBound("2026-11-01"), Date.parse("2026-11-01T00:00:00Z"));
+  assert.equal(dayBound("2026-11-30", true), Date.parse("2026-12-01T00:00:00Z"));
+  assert.equal(dayBound("1 Nov"), null);
+  const rows = [
+    { agent: "atlas", status: "done", created_at: "2026-11-02T10:00:00Z" },
+    { agent: "atlas", status: "failed", created_at: "2026-11-03T10:00:00Z" },
+    { agent: "nova", status: "done", created_at: "2026-11-30T23:59:00Z" },
+    { agent: "nova", status: "done", created_at: "2026-10-31T23:59:00Z" }, // before the range
+  ];
+  const t = agentTable(rows, dayBound("2026-11-01")!, dayBound("2026-11-30", true)!);
+  assert.match(t, /\| atlas \| 1 \| 1 \| 0 \| 0 \| 0 \| 0 \|/);
+  assert.match(t, /\| nova \| 1 \| 0 \|/);
+  assert.match(t, /\| \*\*total\*\* \| 2 \| 1 \|/);
+  assert.equal(agentTable(rows, 0, 1), "No agent tasks in this period.");
+});

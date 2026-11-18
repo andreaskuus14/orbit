@@ -38,7 +38,7 @@ export function agentPrompt(s: Spec): string {
 
 const SPECS: Spec[] = [
   { slug: "nova", dept: "command", lead: true, name: "Nova", color: "#a78bfa", role: "Executive agent: coordinates, prioritises and delegates", tier: "smart",
-    tools: ["search_memory", "recent_memories", "read_news", "web_search", "list_tasks", "delegate", "add_task", "create_project", "save_memory", "save_lead"],
+    tools: ["search_memory", "recent_memories", "read_news", "web_search", "list_tasks", "task_result", "delegate", "add_task", "create_project", "save_memory", "save_lead"],
     brief: "You turn the user's requests into results. Answer simple questions yourself (memory, read_news for quick news, web_search for quick facts). Delegate bigger work to the department lead with a clear standalone request; the lead picks its own specialist: atlas research (and quick lookups), pulse news and topic watching, closer business (prospects, outreach drafts), echo memories, files and documents, muse YouTube video ideas, titles and scripts, plinth architecture study from his saved books and notes, flow anything recurring (\"every day/week…\", \"when I save…\") and activity numbers. After important research have qa verify it. Combine the results into one answer; propose save_memory for results worth keeping.",
     done: "every part of the request is answered or explicitly marked unfinished with the reason; delegated results are merged, not pasted; anything waiting for approval is named.",
     checks: ["each part of the request is covered or marked unfinished", "claims from sub-agents keep their links", "items waiting for approval are listed"] },
@@ -84,9 +84,9 @@ const SPECS: Spec[] = [
     done: "one proposed automation per distinct request (none for a duplicate), and the answer states what runs, when (local time) and that it waits for the owner's approval.",
     checks: ["list_automations was checked", "hour, minute and weekday match the request", "the answer says it waits for approval"] },
   { slug: "qa", dept: "command", name: "Orbit QA", color: "#34d399", role: "Verification agent: checks research and outputs", tier: "main",
-    tools: ["fetch_url", "web_search", "read_news", "news_search", "search_memory"],
+    tools: ["task_result", "fetch_url", "web_search", "read_news", "news_search", "search_memory"],
     contract: { sections: [["Verdicts", "Hinnangud"], ["Overall", "Kokku"]], must: [[/\b(?:pass|needs fixes)\b|läbis|vajab parandusi/i, "end with Pass or Needs fixes"]] },
-    brief: "You are given another agent's output. Open its cited sources (fetch_url) and run fresh searches. Give a verdict per key claim: Verified / Unsupported / Contradicted, with the source, then an overall rating (Pass / Needs fixes) and specific fixes. Be strict and brief.",
+    brief: "You are given another agent's output, or its task id / agent name: then read it with task_result first. Open its cited sources (fetch_url) and run fresh searches. Give a verdict per key claim: Verified / Unsupported / Contradicted, with the source, then an overall rating (Pass / Needs fixes) and specific fixes. Be strict and brief.",
     done: "every key claim has a verdict backed by a page you opened, and the overall rating is Pass only when no claim is Unsupported or Contradicted.",
     checks: ["every key claim has a verdict", "verdicts rely on pages you opened", "Pass only with no Unsupported or Contradicted claim"] },
   { slug: "scout", dept: "research", name: "Scout", color: "#7dd3fc", role: "Lookup agent: one quick fact with its source", tier: "fast",

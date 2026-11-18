@@ -54,3 +54,28 @@ export function aggregateStats(rows: TaskRow[], now: Date, tz: string): StatsRes
   }
   return { agents, star };
 }
+
+/** "YYYY-MM-DD" → that UTC day's start (end: the next day's start), or null when unreadable. */
+export function dayBound(v: unknown, end = false): number | null {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const t = Date.parse(`${v}T00:00:00Z`);
+  return Number.isNaN(t) ? null : t + (end ? 86400_000 : 0);
+}
+
+/** orbit_stats' per-agent table for tasks created in [from, to): done / failed / running / awaiting / cancelled. */
+export function agentTable(rows: { agent: string; status: string; created_at: string }[], from: number, to: number): string {
+  const cols = ["done", "failed", "running", "awaiting_approval", "cancelled", "queued"] as const;
+  const by: Record<string, Record<string, number>> = {};
+  for (const r of rows) {
+    const t = Date.parse(r.created_at);
+    if (!(t >= from && t < to)) continue;
+    const a = (by[r.agent] ??= {});
+    a[r.status] = (a[r.status] ?? 0) + 1;
+  }
+  const names = Object.keys(by).sort();
+  if (!names.length) return "No agent tasks in this period.";
+  const sum = (k: string) => names.reduce((n, a) => n + (by[a][k] ?? 0), 0);
+  return [`| agent | ${cols.join(" | ")} |`, `|${" --- |".repeat(cols.length + 1)}`,
+    ...names.map((a) => `| ${a} | ${cols.map((c) => by[a][c] ?? 0).join(" | ")} |`),
+    `| **total** | ${cols.map(sum).join(" | ")} |`].join("\n");
+}
