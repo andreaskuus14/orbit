@@ -11,7 +11,7 @@ export function coreConfig(): CoreConfig {
     deepEffort: DEEP_EFFORT || "off",
     maxSteps: MAX_STEPS,
     sessionMode: SESSION_MODE,
-    toolResultChars: 8000,
+    toolResultChars: 30000,
     historyFull: 8,
     turnBudgetS: 270,
     callTimeoutS: TIMEOUT_MS / 1000,

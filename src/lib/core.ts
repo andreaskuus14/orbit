@@ -72,6 +72,7 @@ import type { StepDone } from "./core-live-pure";
 /** ORBIT_CORE_SESSION=resume: one persistent Claude CLI session per CORE conversation, so follow-ups and tool results stay in it.
  *  The chat → session map survives restarts (durable.ts); a failed resume still drops it and falls back to stateless. */
 export const SESSION_MODE = process.env.ORBIT_CORE_SESSION === "resume" ? "resume" : "off";
+const SESSION_MODE_ENV = process.env.ORBIT_CORE_SESSION; // "off" opts the SDK engine out of its default chat session
 
 // CORE tools that change things: logged to the activity log when they succeed (navigation and reads aren't).
 const LOGGED = ["save_memory", "ask_agent", ...MODULE_WRITES];
@@ -294,7 +295,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   prep.catch(() => {}); // a Stop before step 0 leaves it unawaited; step 0 itself still sees the error
   let prompt = ""; // set once prep resolves
   // Session mode: the CLI session already holds earlier turns and this turn's earlier steps, so only what's new is sent.
-  let sess: CliSession | null = (SESSION_MODE === "resume" || coreEngine() === "mcp") && sessionKey ? // the MCP engine always keeps its chat session
+  // The native engines (mcp, sdk) keep one session per chat: follow-ups send only what's new and reuse the cached context.
+  let sess: CliSession | null = (SESSION_MODE === "resume" || coreEngine() === "mcp" || (coreEngine() === "sdk" && SESSION_MODE_ENV !== "off")) && sessionKey ?
     (coreSessions.get(sessionKey) ?? { id: randomUUID(), resume: false }) : null;
   let sessSent = false, sessSeen = 0; // this turn's context already in the session; tool results it has seen
 
@@ -410,7 +412,13 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
           const want = floor(tier === "fast" ? FAST_MODEL : tier === "deep" ? DEEP_MODEL : MODEL);
           const r = await engineTurn({ question, tools: evalTools, sb, userId, system, prompt: (sess ? sessionInput(prompt, transcriptHolder.text, sess.resume, false) : prompt) + tail, model: want, risky: held, effort, maxTurns: maxN, policy: policyCtx, attachBlock: attach?.block ?? "", images: attach?.images, steps, trace, signal, session: sess ?? undefined, escalate: tier === "fast" && !held, turnId, exec, record, onDelta: sendDelta, onReset, onStep, onRoute, verify });
           ran = r.model ?? want; if (r.down) down ??= r.down;
-          if (r.escalated) { if (r.opus) toOpus(tier, r.tool); else { onReset?.(); tier = "smart"; } continue; } // as the loop: redone on the main model, or on Opus for T2/T3
+          if (r.escalated) {
+            // A brand-new session the stopped attempt already created can't be created again ("Session ID … is already in use",
+            // live 19 Nov): the redo starts its own, still with the full context (resume: false sends it).
+            if (sess && !sess.resume) sess = { id: randomUUID(), resume: false };
+            if (r.opus) toOpus(tier, r.tool); else { onReset?.(); tier = "smart"; }
+            continue; // as the loop: redone on the main model, or on Opus for T2/T3
+          }
           if (sess && sessionKey) coreSessions.set(sessionKey, { id: r.sessionId || sess.id, resume: true });
           answer = r.text;
           break;
