@@ -337,3 +337,12 @@ test("build check: ORBIT reads Studio's own inspect_instance replies (real forma
   assert.deepEqual(verifyTargets({ kind: "asset", assetId: "1" } as never, { ...r, inserted: [...r.inserted, { name: "x", path: "ServerScriptService.X" }] }), ["Workspace.ORBIT Builds.Tree", "Workspace.Rock"]);
   assert.deepEqual(verifyTargets({ kind: "material" } as never, r), []);
 });
+
+test("build: studio_id lookup is spelled out, and 'done' with nothing made is not done (live 19 Nov)", async () => {
+  const { buildPrompt, planPrompt, nothingMade } = await import("../src/lib/roblox-pure.ts");
+  const gen = { kind: "generate", prompt: "a small low-poly tree" } as never;
+  assert.match(buildPrompt(gen, "1. generate a tree"), /First call list_roblox_studios/);
+  assert.match(planPrompt(gen), /never a Creator Store asset/);
+  assert.equal(nothingMade({ done: true, inserted: [], notes: "Nothing was done." }).done, false);
+  assert.equal(nothingMade({ done: true, inserted: [{ name: "Tree", path: "Workspace.Tree" }], notes: "" }).done, true);
+});
