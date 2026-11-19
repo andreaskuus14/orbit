@@ -105,7 +105,7 @@ async function tick(sb: SupabaseClient) {
     // System health (doctor's SYSTEM card): every 10 min, incidents open/resolve; one phone push per new one (quiet hours wait). Not awaited; never throws.
     if (users?.[0]) void import("./system-health").then((m) => m.tickSystemHealth(sb, users[0].id));
     // Daily self-check (selfcheck.ts): once a Tallinn day from 09:00, the full doctor; one phone push only for newly failing checks. Not awaited; never throws.
-    void import("./selfcheck").then((m) => m.maybeSelfCheck(sb));
+    void import("./selfcheck").then((m) => m.maybeSelfCheck(sb)).catch((e) => console.error("[orbit] self-check failed:", e instanceof Error ? e.message : e));
     // Invoices: a phone push when an overdue reminder draft is waiting, once per invoice per week (quiet hours and Stop-all skip it).
     await import("./invoices").then((x) => x.pushInvoiceReminders(), () => {});
     // Monthly agent scorecard (ANALYTICS): not awaited, a run takes up to ~50 min; it re-checks Stop-all and usage itself.
