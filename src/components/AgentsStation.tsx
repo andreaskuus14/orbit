@@ -34,6 +34,7 @@ import { MaskText } from "./MaskText";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { NightPlan, OPS_HREF, Scorecards, WorkerCards, type Deps, type ToolInfo } from "./Workforce";
 import { useT } from "./i18n";
+import { PlanetHome, useManual } from "./PlanetHome";
 
 // AGENTS → a floating obsidian ring station (alien megastructure theme): each agent is a ship circling its docking lane,
 // glowing by status, plotted live on a holographic tactical map behind the station.
@@ -469,6 +470,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [manage, setManage] = useState(false);
+  const [manual, setManual] = useManual("agents");
   const { t } = useT();
   // AGT: four primary views (configure the workforce); the rest stay reachable as secondary views. Execution lives in OPERATIONS.
   const views = useMemo(() => VIEW_IDS.map((id, i) => ({ id, label: t(VIEW_KEY[id]), secondary: i > 3 })), [t]);
@@ -565,8 +567,14 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
           <AgentMission key={agent.slug} agent={agent} status={status[agent.slug]} visible={visible} onClose={() => setSelected(null)} onChanged={loadTasks} onOpenTask={onOpenTask} />
         ) : manage ? (
           <><button className="chip mb-3" onClick={() => { setManage(false); loadAgents(); }}>← Station</button><AgentsPanel onOpenTask={(id) => onOpenTask?.(id)} /></>
+        ) : !manual && !focusGoal && !radarUrl ? ( // AI-first home; the station tools sit behind "Manual tools"
+          <PlanetHome planet="agents" onManual={() => setManual(true)} onOpenTask={(id) => onOpenTask?.(id)}
+            results={tasks.filter((x) => x.status === "done" && !x.parent_id).slice(0, 6).map((x) => ({
+              id: x.id, title: x.title, sub: `${x.agent} · ${x.finished_at ? new Date(x.finished_at).toLocaleString() : ""}`, open: () => onOpenTask?.(x.id),
+            }))} />
         ) : (
           <>
+            <button className="link mb-2 text-xs" onClick={() => setManual(false)}>← {t("ph.simple")}</button>
             <div className="hud-title"><MaskText text="AGENTS STATION" /></div>
             <WorkspaceFrame planet="agents" title="AGENTS" views={views} view={tab} onView={setTab}
               context={<>{t("agt.context", { n: list.length, w: list.filter((a) => status[a.slug] === "working").length, a: list.filter((a) => status[a.slug] === "waiting").length })}{handoffs.length ? ` · ${handoffs.length} team hand-off${handoffs.length > 1 ? "s" : ""}` : ""}</>}
