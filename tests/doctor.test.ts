@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  buildCheck, check, diskCheck, doctorShareText, envCheck, factsCheck, launcherCheck, lifeCheck, modelCheck, nightCheck, quotaCheck, summarize, validModel, vaultCheck, ytdlpCheck,
+  buildCheck, check, claudeLoginCheck, clipAuthFails, clipWarnCheck, diskCheck, doctorShareText, LOGIN_FIX, transcriberCheck, envCheck, factsCheck, launcherCheck, lifeCheck, modelCheck, nightCheck, quotaCheck, summarize, validModel, vaultCheck, ytdlpCheck,
 } from "../src/lib/doctor-pure.ts";
 
 const GB = 1024 ** 3, DAY = 86_400_000;
@@ -162,4 +162,54 @@ test("belief memory migration", () => {
   assert.equal(miss.status, "warn");
   assert.match(miss.fix!, /0008_memory_facts\.sql in the Supabase SQL editor/);
   assert.match(factsCheck(false, "timeout").detail, /timeout/);
+});
+
+// ---- Reliability M2: silent failures ----
+
+const AUTH = "Claude couldn't pick moments, used loudness ranking: Failed to authenticate: OAuth session expired and could not be refreshed";
+const NOW = Date.parse("2026-11-20T12:00:00Z");
+const job = (h: number, warnings: string[], extra: Record<string, string> = {}) => ({ status: "done", createdAt: new Date(NOW - h * 3600_000).toISOString(), updatedAt: new Date(NOW - h * 3600_000).toISOString(), warnings, ...extra });
+
+test("claude login: CLI missing, open outage, recent auth failures, recovered, healthy", () => {
+  const base = { version: "2.1.0", bin: "claude", login: null, lastOkAt: null, authFails: [] as number[], now: NOW };
+  assert.equal(claudeLoginCheck({ ...base, version: null }).status, "fail");
+  const out = claudeLoginCheck({ ...base, login: { at: NOW - 3600_000 } });
+  assert.equal(out.status, "fail");
+  assert.equal(out.fix, LOGIN_FIX);
+  assert.equal(LOGIN_FIX, "Open PowerShell, run `claude`, then type /login");
+  const fails = clipAuthFails([job(2, [AUTH]), job(30, [AUTH]), job(1, ["Hype timeline failed"])], NOW);
+  assert.equal(fails.length, 1, "only the last 24 h");
+  const ev = claudeLoginCheck({ ...base, authFails: fails, lastOkAt: NOW - 5 * 3600_000 });
+  assert.equal(ev.status, "fail", "the CLI exists but the last evidence is an auth failure");
+  assert.match(ev.detail, /1 call in the last 24 h failed to sign in/);
+  const back = claudeLoginCheck({ ...base, authFails: fails, lastOkAt: NOW - 60_000 });
+  assert.equal(back.status, "ok");
+  assert.match(back.detail, /worked since/);
+  assert.deepEqual(claudeLoginCheck(base), check("claude", "Claude (the AI behind CORE)", "ok", "Claude Code 2.1.0"));
+});
+
+test("clip fallbacks: auth, repeated moment fallbacks and transcription failures from the last day", () => {
+  assert.equal(clipWarnCheck([], NOW).status, "ok");
+  assert.equal(clipWarnCheck([job(2, ["Claude couldn't pick moments, used loudness ranking: timed out"])], NOW).status, "ok", "one non-auth fallback is not repeated");
+  const r = clipWarnCheck([
+    job(1, [AUTH]), job(2, ["Claude couldn't pick moments, used loudness ranking: timed out"]), job(3, ["Claude couldn't pick moments, used loudness ranking: overloaded"]),
+    job(4, ["Transcription failed, continuing without captions: The operating system cannot run %1"]), job(40, ["Transcription failed, continuing without captions: old"]),
+  ], NOW);
+  assert.equal(r.status, "warn");
+  assert.match(r.detail, /1 job couldn't sign in to Claude/);
+  assert.match(r.detail, /2 jobs fell back to loudness ranking \(timed out\)/);
+  assert.match(r.detail, /1 job got no captions \(The operating system cannot run %1\)/);
+  assert.match(r.fix!, /\/login/);
+  assert.equal(clipWarnCheck([job(1, [], { status: "failed", error: "Failed to authenticate: OAuth session expired" })], NOW).status, "warn", "a failed job's error counts too");
+});
+
+test("speech-to-text: a broken Whisper backup warns even while Parakeet works", () => {
+  const b = { parakeet: true, whisperErr: null as string | null, model: "onnx-community/whisper-base_timestamped", haveModel: false, missing: [] as string[] };
+  assert.equal(transcriberCheck(b).status, "ok");
+  const w = transcriberCheck({ ...b, whisperErr: "The operating system cannot run %1." });
+  assert.equal(w.status, "warn");
+  assert.match(w.detail, /cannot run %1/);
+  assert.equal(transcriberCheck({ ...b, parakeet: false, whisperErr: "x", missing: ["a transcriber: npm install"] }).status, "fail");
+  assert.equal(transcriberCheck({ ...b, parakeet: false }).status, "warn", "Whisper only, model not downloaded yet");
+  assert.equal(transcriberCheck({ ...b, parakeet: false, haveModel: true }).status, "ok");
 });

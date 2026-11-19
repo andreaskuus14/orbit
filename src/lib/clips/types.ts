@@ -48,7 +48,7 @@ export type ClipOptions = { count: number; maxSec: number; captions: boolean; la
   coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean; // retention edits: teaser of the peak first, bottom progress bar, trimmed tail + audio fade
   preset?: "viral" | "devlog" }; // moment-picking style: streamer highlights, or game-dev progress (devlog.ts); missing = viral
 export type InboxFile = { name: string; size: number; mtime: string; jobId?: string; permission?: string }; // permission: from <name>.source.json
-export type ToolsStatus = { ffmpeg: boolean; transcriber: boolean; ytdlp: boolean; missing: string[] };
+export type ToolsStatus = { ffmpeg: boolean; transcriber: boolean; ytdlp: boolean; missing: string[]; parakeet?: boolean; whisperErr?: string | null }; // parakeet/whisperErr: the doctor's speech-to-text line
 export type DownloadStatus = "queued" | "downloading" | "done" | "failed";
 export type Download = { v?: number; id: string; url: string; status: DownloadStatus; progress: number; step: string; file?: string; error?: string; createdAt: string;
   permission: string; autoClip?: ClipJob["options"]; parts?: string[]; // parts: inbox files yt-dlp is still writing (deleted if it fails)

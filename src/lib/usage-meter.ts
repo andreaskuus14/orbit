@@ -66,6 +66,8 @@ export const pastBudget = () => !!usageHold() && !usageHardHold();
 export const usageLimited = () => { const m = meter(), l = m.limit; return (!!l && l.until > Date.now()) || !!m.login; };
 /** The Claude CLI sign-in expired and no call has worked since. */
 export const loginDown = () => !!meter().login;
+/** When the open login outage started (ms), or null: the doctor's Claude check. */
+export const loginSince = () => meter().login?.at ?? null;
 /** True at most once per PROBE_MS while the login is down (marks the probe as started). */
 export function loginProbeDue(): boolean { const m = meter(), now = Date.now(); if (!probeDue(m, now)) return false; m.login!.probed = now; save(); return true; }
 

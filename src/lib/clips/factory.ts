@@ -115,7 +115,7 @@ export async function checkTools(): Promise<ToolsStatus> {
   if (whisperErr) console.error("[orbit] Whisper (transformers.js) doesn't load:", whisperErr);
   const missing = [...(ffmpeg ? [] : ["ffmpeg (npm install ffmpeg-static, or set ORBIT_FFMPEG)"]), ...(transcriber ? [] : [`a transcriber: npm install (Whisper: ${whisperErr})`]),
     ...(ytdlp ? [] : ["yt-dlp (winget install yt-dlp.yt-dlp)"])]; // optional: only "Add from link" needs it
-  return { ffmpeg, transcriber, ytdlp, missing };
+  return { ffmpeg, transcriber, ytdlp, missing, parakeet, whisperErr };
 }
 
 /** h264_nvenc when this ffmpeg has it and the GPU accepts a tiny test encode; else libx264. Checked once. ORBIT_NVENC=0 turns it off. */

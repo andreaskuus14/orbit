@@ -4,6 +4,8 @@
 import { CAPS, type Missing } from "./capability-pure.ts";
 import type { FailedGroup, ModelRow, Svc } from "./system-health-pure.ts";
 import { plural, translate, type Lang } from "./i18n-pure.ts";
+import { loginFailed } from "./usage-meter-pure.ts";
+import { redact } from "./health-pure.ts";
 
 export type Status = "ok" | "warn" | "fail";
 export type Check = { id: string; label: string; status: Status; detail: string; fix?: string; retry?: { key: string; label: string }[] }; // retry: dead-letter events (durable-pure durableCheck)
@@ -11,7 +13,7 @@ export type Report = { status: Status; headline: string; speech: string; checks:
 
 // Clipboard output crosses the support boundary. Select known IDs and states instead of redacting free text.
 const SHARE_CHECKS = ["doctor", "claude", "models", "supabase", "ytkey", "quota", "oauth", "tools", "ffmpeg", "ytdlp", "whisper",
-  "hyperframes", "disk", "build", "version", "migrations", "launcher", "night", "life", "vault", "facts", "durable", "drill", "latency", "wake", "env", "allow"];
+  "hyperframes", "clipwarn", "disk", "build", "version", "migrations", "launcher", "night", "life", "vault", "facts", "durable", "drill", "latency", "wake", "env", "allow"];
 const SHARE_SERVICES = ["supabase", "claude", "resend", "higgsfield", "ollama", "push", "calendar"];
 const SHARE_ROLES = ["main", "fast", "smart", "deep"];
 const SHARE_JOB_KINDS = ["task", "mission", "night", "clip"];
@@ -163,6 +165,68 @@ export function factsCheck(missing: boolean, message: string | null): Check {
   if (missing) return check("facts", L, "warn", "Off: the memory_facts table doesn't exist yet", "Run supabase/migrations/0008_memory_facts.sql in the Supabase SQL editor to turn on belief memory.");
   if (message != null) return check("facts", L, "warn", `Couldn't read beliefs: ${message.slice(0, 150)}`, "Check your internet; if it lasts, ask Claude Code to look at the memory_facts table.");
   return check("facts", L, "ok", "On");
+}
+
+// ---- Silent failures (reliability M2): evidence from the last day, not just "the tool exists" ----
+
+export const LOGIN_FIX = "Open PowerShell, run `claude`, then type /login";
+const hm = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** Claude CLI: it starts (`version`), and its login works. Evidence instead of a model call: the usage meter's open login outage
+ *  (`login`, set by any CLI call that failed to authenticate), and auth failures seen in the last 24 h (clip-job warnings and
+ *  errors, CORE/background calls logged to Activity; `authFails` = their times). A failure older than the last call that worked
+ *  (`lastOkAt`) is history, not a broken login. */
+export function claudeLoginCheck(x: { version: string | null; bin: string; login: { at: number } | null; lastOkAt: number | null; authFails: number[]; now: number }): Check {
+  const L = "Claude (the AI behind CORE)";
+  if (!x.version) return check("claude", L, "fail", `Couldn't start "${x.bin}", so CORE, agents and clips can't think`,
+    "Install Claude Code, open a terminal and run: claude (sign in once). Then restart ORBIT.");
+  if (x.login) return check("claude", L, "fail", `Claude Code ${x.version} starts, but its login expired (failing since ${hm(x.login.at)}): background work is paused and clips fall back to loudness ranking`, LOGIN_FIX);
+  const day = x.authFails.filter((t) => x.now - t < DAY && t <= x.now);
+  const after = day.filter((t) => t > (x.lastOkAt ?? -Infinity));
+  if (after.length) return check("claude", L, "fail", `Claude Code ${x.version} starts, but ${count(after.length, "call")} in the last 24 h failed to sign in (last ${hm(Math.max(...after))}) and none has worked since`, LOGIN_FIX);
+  if (day.length) return check("claude", L, "ok", `Claude Code ${x.version}. Sign-in failed earlier (${count(day.length, "time")} in the last 24 h) but has worked since ${hm(x.lastOkAt!)}`);
+  return check("claude", L, "ok", `Claude Code ${x.version}`);
+}
+
+export type ClipJobWarn = { status: string; createdAt: string; updatedAt: string; warnings: string[]; error?: string };
+
+/** Times of clip jobs (last touched in the window) whose warnings or error say Claude couldn't sign in. */
+export const clipAuthFails = (jobs: ClipJobWarn[], now: number) =>
+  jobs.filter((j) => now - Date.parse(j.updatedAt) < DAY && [...j.warnings, j.error ?? ""].some((w) => w && loginFailed(w))).map((j) => Date.parse(j.updatedAt));
+
+/** Clip jobs from the last 24 h that quietly fell back: Claude didn't pick the moments (sign-in or other errors), transcription
+ *  failed or no transcriber loaded (no captions). One job may count in several groups. Warn-only: the clips still came out. */
+export function clipWarnCheck(jobs: ClipJobWarn[], now: number): Check {
+  const L = "Clip job fallbacks (last 24 h)";
+  const recent = jobs.filter((j) => now - Date.parse(j.updatedAt) < DAY);
+  const pick = (re: RegExp, also: (w: string) => boolean = () => true) => recent.map((j) => j.warnings.find((w) => re.test(w) && also(w))).filter((w): w is string => !!w);
+  const auth = recent.filter((j) => [...j.warnings, j.error ?? ""].some((w) => w && loginFailed(w))).length;
+  const moments = pick(/^Claude couldn't pick moments/, (w) => !loginFailed(w));
+  const asr = pick(/^Transcription failed|^Transcriber not installed/);
+  const parts = [
+    auth && `${count(auth, "job")} couldn't sign in to Claude, so moments were picked by loudness only`,
+    moments.length >= 2 && `${count(moments.length, "job")} fell back to loudness ranking (${clip(moments[0])})`,
+    asr.length && `${count(asr.length, "job")} got no captions (${clip(asr[0])})`,
+  ].filter(Boolean) as string[];
+  if (!parts.length) return check("clipwarn", L, "ok", recent.length ? `${count(recent.length, "job")}, no repeated fallbacks` : "No clip jobs in the last 24 hours");
+  const fix = auth ? `${LOGIN_FIX}, then click "Another version" on those jobs.`
+    : asr.length ? "Open the doctor's Speech-to-text line; if a transcriber doesn't load, in the ORBIT folder run: npm install. Then restart ORBIT."
+    : "Check the Claude line above and the job's warnings in STUDIO; if it keeps happening, ask Claude Code to look at the clip job files.";
+  return check("clipwarn", L, "warn", parts.join("; "), fix);
+}
+const clip = (w: string) => redact(w).replace(/^[^:]*:\s*/, "").slice(0, 120);
+
+/** Speech-to-text: Parakeet first, Whisper (transformers.js / onnxruntime-node) as the backup. A broken backup is a warning
+ *  even while Parakeet works (seen live: "The operating system cannot run %1" after an update, unnoticed). */
+export function transcriberCheck(x: { parakeet: boolean; whisperErr: string | null; model: string; haveModel: boolean; missing: string[] }): Check {
+  const L = "Speech-to-text (Parakeet or Whisper)";
+  if (!x.parakeet && x.whisperErr) return check("whisper", L, "fail", `No transcriber loads, so clips get no captions. ${x.missing.join("; ")}`.slice(0, 300), "In the ORBIT folder run: npm install");
+  if (x.whisperErr) return check("whisper", L, "warn", `Parakeet works, but the Whisper backup doesn't load (${redact(x.whisperErr).slice(0, 120)}), so a Parakeet failure means no captions`,
+    "Close ORBIT, then in the ORBIT folder run: npm install (it reinstalls onnxruntime-node). Then start ORBIT again.");
+  if (x.parakeet) return check("whisper", L, "ok", "Parakeet loads; Whisper backup loads");
+  return x.haveModel ? check("whisper", L, "ok", `Whisper loads; model ${x.model.split("/").pop()} downloaded`)
+    : check("whisper", L, "warn", "Whisper loads; model not downloaded yet", "Nothing to do: it downloads by itself (about 200 MB) on the first clip job. Keep the internet on.");
 }
 
 const rank: Record<Status, number> = { ok: 0, warn: 1, fail: 2 };
