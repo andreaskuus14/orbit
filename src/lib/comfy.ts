@@ -3,6 +3,8 @@
 import { saveUpload } from "./vault";
 import { assetName } from "./local-ai-pure";
 import { stopAllOn } from "./stop-all";
+import { acquireGpu, freeComfyVram } from "./gpu-lock";
+import { trellisUrl } from "./trellis-pure";
 import { checkImage, comfyModel, comfyModelName, comfyNotRunning, comfyUrl, imageWorkflow, parseHistory, parseQueued, parseStats, seedOf, sizeFor, viewPath, type ComfyHealth, type ComfyModel } from "./comfy-pure";
 
 const base = () => comfyUrl(process.env.ORBIT_COMFY_URL);
@@ -60,7 +62,7 @@ export async function comfyReady(): Promise<boolean> {
 export const comfyPost = (u: string, path: string, body: unknown) => fetch(`${u}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
 
 /** One picture as PNG bytes. The model leaves the GPU 2 min after the last picture (other local AI tools share the 8 GB). */
-export async function generate(prompt: string, aspect: unknown, seedText = prompt, timeoutMs = 4 * 60_000): Promise<Uint8Array> {
+export async function generate(prompt: string, aspect: unknown, seedText = prompt, timeoutMs = 4 * 60_000, o: { onWait?: (text: string) => void; signal?: AbortSignal } = {}): Promise<Uint8Array> {
   const u = comfyBase();
   if (!u) throw new Error("ORBIT_COMFY_URL must point at this PC (http://127.0.0.1:<port>).");
   if (stopAllOn()) throw new Error("ORBIT is paused (Stop-all is on)");
@@ -68,26 +70,32 @@ export async function generate(prompt: string, aspect: unknown, seedText = promp
   if (!(await comfyReady())) throw new Error(comfyNotRunning(model));
   const [width, height] = sizeFor(aspect);
   const graph = imageWorkflow(model, { prompt, width, height, seed: seedOf(seedText) });
-  const q = parseQueued(await (await comfyPost(u, "/prompt", { prompt: graph, client_id: "orbit" })).json().catch(() => null), model);
-  if ("error" in q) throw new Error(q.error);
-  const until = Date.now() + timeoutMs; // the first picture loads the 6.9 GB model from disk
+  // One heavy GPU job at a time on the shared 8 GB card (gpu-lock.ts); TRELLIS's ComfyUI gives its VRAM back first.
+  const lease = await acquireGpu("image", { maxWaitMs: 30 * 60_000, ttlMs: 3 * 60_000 /* heartbeat: every poll */, onWait: o.onWait, signal: o.signal });
   try {
-    for (;;) {
-      if (stopAllOn()) { await comfyPost(u, "/interrupt", {}).catch(() => {}); throw new Error("Stopped: Stop-all is on"); }
-      if (Date.now() > until) { await comfyPost(u, "/interrupt", {}).catch(() => {}); throw new Error(`ComfyUI took longer than ${Math.round(timeoutMs / 60_000)} min and was stopped.`); }
-      await new Promise((r) => setTimeout(r, 1000));
-      const h = parseHistory(await fetch(`${u}/history/${encodeURIComponent(q.id)}`, { cache: "no-store", signal: AbortSignal.timeout(10_000) }).then((r) => r.json(), () => null), q.id);
-      if (h.state === "error") throw new Error(h.error);
-      if (h.state === "done") {
-        const r = await fetch(`${u}${viewPath(h.image)}`, { signal: AbortSignal.timeout(30_000) });
-        if (!r.ok) throw new Error(`ComfyUI made the picture but sending it failed (${r.status}).`);
-        return new Uint8Array(await r.arrayBuffer());
+    await freeComfyVram(trellisUrl(process.env.ORBIT_TRELLIS_URL));
+    const q = parseQueued(await (await comfyPost(u, "/prompt", { prompt: graph, client_id: "orbit" })).json().catch(() => null), model);
+    if ("error" in q) throw new Error(q.error);
+    const until = Date.now() + timeoutMs; // the first picture loads the 6.9 GB model from disk
+    try {
+      for (;;) {
+        if (stopAllOn()) { await comfyPost(u, "/interrupt", {}).catch(() => {}); throw new Error("Stopped: Stop-all is on"); }
+        if (Date.now() > until) { await comfyPost(u, "/interrupt", {}).catch(() => {}); throw new Error(`ComfyUI took longer than ${Math.round(timeoutMs / 60_000)} min and was stopped.`); }
+        await new Promise((r) => setTimeout(r, 1000));
+        lease.beat();
+        const h = parseHistory(await fetch(`${u}/history/${encodeURIComponent(q.id)}`, { cache: "no-store", signal: AbortSignal.timeout(10_000) }).then((r) => r.json(), () => null), q.id);
+        if (h.state === "error") throw new Error(h.error);
+        if (h.state === "done") {
+          const r = await fetch(`${u}${viewPath(h.image)}`, { signal: AbortSignal.timeout(30_000) });
+          if (!r.ok) throw new Error(`ComfyUI made the picture but sending it failed (${r.status}).`);
+          return new Uint8Array(await r.arrayBuffer());
+        }
       }
+    } finally {
+      if (G.__orbitComfyFree) clearTimeout(G.__orbitComfyFree);
+      G.__orbitComfyFree = setTimeout(() => { void comfyPost(u, "/free", { unload_models: true, free_memory: true }).catch(() => {}); }, 2 * 60_000);
     }
-  } finally {
-    if (G.__orbitComfyFree) clearTimeout(G.__orbitComfyFree);
-    G.__orbitComfyFree = setTimeout(() => { void comfyPost(u, "/free", { unload_models: true, free_memory: true }).catch(() => {}); }, 2 * 60_000);
-  }
+  } finally { lease.release(); }
 }
 
 /** A picture saved in VAULT (CORE's local_image and OPERATIONS/STUDIO). Returns the file name. */

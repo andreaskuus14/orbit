@@ -3,6 +3,8 @@
 import { readStream, saveUpload } from "./vault";
 import { assetName } from "./local-ai-pure";
 import { stopAllOn } from "./stop-all";
+import { acquireGpu, freeComfyVram } from "./gpu-lock";
+import { comfyUrl } from "./comfy-pure";
 import { MODEL, isGlb, outputRef, robloxMaterials, parseQueued, parseRun, trellisNotRunning, trellisUrl, workflow } from "./trellis-pure";
 
 const base = () => trellisUrl(process.env.ORBIT_TRELLIS_URL);
@@ -41,39 +43,45 @@ const ready = async (u: string) => !!(await stats(u, 2000)) || autostart(u);
 const post = (u: string, path: string, body: unknown) => fetch(`${u}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
 
 /** One picture → .glb bytes, capped for Roblox (20k triangles, 1024 px texture). First run downloads ~10 GB of model files. */
-export async function trellisModel(picture: Blob, job: string, timeoutMs = 25 * 60_000): Promise<Uint8Array> {
+export async function trellisModel(picture: Blob, job: string, timeoutMs = 25 * 60_000, o: { onWait?: (text: string) => void; signal?: AbortSignal } = {}): Promise<Uint8Array> {
   const u = base();
   if (!u) throw new Error("ORBIT_TRELLIS_URL must point at this PC (http://127.0.0.1:<port>).");
   if (stopAllOn()) throw new Error("ORBIT is paused (Stop-all is on)");
   if (!(await ready(u))) throw new Error(trellisNotRunning());
-  const up = new FormData();
-  up.append("image", new File([picture], `${job}.png`, { type: picture.type || "image/png" }));
-  up.append("overwrite", "true");
-  const ur = await fetch(`${u}/upload/image`, { method: "POST", body: up, signal: AbortSignal.timeout(60_000) });
-  const uploaded = (await ur.json().catch(() => null)) as { name?: unknown } | null;
-  if (!ur.ok || typeof uploaded?.name !== "string") throw new Error(`TRELLIS.2 didn't accept the picture (${ur.status}).`);
-  const q = parseQueued(await (await post(u, "/prompt", { prompt: workflow({ image: uploaded.name, seed: 42, job }), client_id: "orbit" })).json().catch(() => null));
-  if ("error" in q) throw new Error(q.error);
-  const until = Date.now() + timeoutMs;
+  // One heavy GPU job at a time on the shared 8 GB card (gpu-lock.ts); the pictures ComfyUI gives its VRAM back first.
+  const lease = await acquireGpu("3d", { maxWaitMs: 60 * 60_000, ttlMs: 5 * 60_000 /* heartbeat: every poll */, onWait: o.onWait, signal: o.signal });
   try {
-    for (;;) {
-      if (stopAllOn()) { await post(u, "/interrupt", {}).catch(() => {}); throw new Error("Stopped: Stop-all is on"); }
-      if (Date.now() > until) { await post(u, "/interrupt", {}).catch(() => {}); throw new Error(`TRELLIS.2 took longer than ${Math.round(timeoutMs / 60_000)} min and was stopped.`); }
-      await new Promise((r) => setTimeout(r, 2000));
-      const h = parseRun(await fetch(`${u}/history/${encodeURIComponent(q.id)}`, { cache: "no-store", signal: AbortSignal.timeout(10_000) }).then((r) => r.json(), () => null), q.id);
-      if (h.state === "error") throw new Error(h.error);
-      if (h.state === "done") {
-        const r = await fetch(`${u}/view?${new URLSearchParams(outputRef(job))}`, { signal: AbortSignal.timeout(60_000) });
-        const bytes = new Uint8Array(await r.arrayBuffer());
-        if (!r.ok || !isGlb(bytes)) throw new Error(`TRELLIS.2 finished but the .glb couldn't be read (${r.status}); see tools/trellis/service.log.`);
-        return robloxMaterials(bytes);
+    await freeComfyVram(comfyUrl(process.env.ORBIT_COMFY_URL));
+    const up = new FormData();
+    up.append("image", new File([picture], `${job}.png`, { type: picture.type || "image/png" }));
+    up.append("overwrite", "true");
+    const ur = await fetch(`${u}/upload/image`, { method: "POST", body: up, signal: AbortSignal.timeout(60_000) });
+    const uploaded = (await ur.json().catch(() => null)) as { name?: unknown } | null;
+    if (!ur.ok || typeof uploaded?.name !== "string") throw new Error(`TRELLIS.2 didn't accept the picture (${ur.status}).`);
+    const q = parseQueued(await (await post(u, "/prompt", { prompt: workflow({ image: uploaded.name, seed: 42, job }), client_id: "orbit" })).json().catch(() => null));
+    if ("error" in q) throw new Error(q.error);
+    const until = Date.now() + timeoutMs;
+    try {
+      for (;;) {
+        if (stopAllOn()) { await post(u, "/interrupt", {}).catch(() => {}); throw new Error("Stopped: Stop-all is on"); }
+        if (Date.now() > until) { await post(u, "/interrupt", {}).catch(() => {}); throw new Error(`TRELLIS.2 took longer than ${Math.round(timeoutMs / 60_000)} min and was stopped.`); }
+        await new Promise((r) => setTimeout(r, 2000));
+        lease.beat();
+        const h = parseRun(await fetch(`${u}/history/${encodeURIComponent(q.id)}`, { cache: "no-store", signal: AbortSignal.timeout(10_000) }).then((r) => r.json(), () => null), q.id);
+        if (h.state === "error") throw new Error(h.error);
+        if (h.state === "done") {
+          const r = await fetch(`${u}/view?${new URLSearchParams(outputRef(job))}`, { signal: AbortSignal.timeout(60_000) });
+          const bytes = new Uint8Array(await r.arrayBuffer());
+          if (!r.ok || !isGlb(bytes)) throw new Error(`TRELLIS.2 finished but the .glb couldn't be read (${r.status}); see tools/trellis/service.log.`);
+          return robloxMaterials(bytes);
+        }
       }
+    } finally {
+      // give the GPU back quickly: pictures, voice and TripoSR share the same 8 GB
+      if (G.__orbitTrellisFree) clearTimeout(G.__orbitTrellisFree);
+      G.__orbitTrellisFree = setTimeout(() => { void post(u, "/free", { unload_models: true, free_memory: true }).catch(() => {}); }, 30_000);
     }
-  } finally {
-    // give the GPU back quickly: pictures, voice and TripoSR share the same 8 GB
-    if (G.__orbitTrellisFree) clearTimeout(G.__orbitTrellisFree);
-    G.__orbitTrellisFree = setTimeout(() => { void post(u, "/free", { unload_models: true, free_memory: true }).catch(() => {}); }, 30_000);
-  }
+  } finally { lease.release(); }
 }
 
 /** CORE's local_3d with quality "best". Errors come back as "Error: ..." text (core.ts's convention). */

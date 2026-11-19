@@ -15,6 +15,7 @@ import { SMART_MODEL, askClaudeStream, emitAsOwner } from "../claude";
 import { pushNotify } from "../remote-push";
 import { isSkip } from "./failure-alert-pure";
 import { stopAllOn } from "../stop-all";
+import { GpuWaitError, acquireGpu, type GpuLease } from "../gpu-lock";
 import { retryConsent, retryFingerprint } from "./flop-retry-pure";
 import { createLimiter } from "../pure";
 import { asrPipeline, asrWorkers, type AsrPhase } from "../asr-pool";
@@ -518,7 +519,8 @@ async function runJob(job: ClipJob, signal: AbortSignal) {
     for (const [i, clip] of job.clips.entries()) {
       await set(job, "rendering", 0.6 + (0.4 * i) / job.clips.length, `Rendering clip ${i + 1} of ${job.clips.length}`);
       try {
-        await renderClip(ff, src, dir, job, o, clip, words, rms, hasAudio, signal);
+        const rendering = `Rendering clip ${i + 1} of ${job.clips.length}`, at = 0.6 + (0.4 * i) / job.clips.length;
+        await renderClip(ff, src, dir, job, o, clip, words, rms, hasAudio, signal, (w) => { void set(job, "rendering", at, w ? `${rendering} · ${w}` : rendering).catch(() => {}); });
         if (clip.status === "rendering") clip.status = "ready"; // the owner may already have approved/rejected it
       } catch (e) {
         if (signal.aborted) throw e;
@@ -763,7 +765,7 @@ ${all.map((m, i) => `#${i + 1} ${m.start.toFixed(1)}-${m.end.toFixed(1)} s, scou
   return ok;
 }
 
-async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o: Required<ClipOptions> & { style?: "karaoke" | "classic" }, clip: Clip, words: Word[], rms: number[], audio: boolean, signal: AbortSignal) {
+async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o: Required<ClipOptions> & { style?: "karaoke" | "classic" }, clip: Clip, words: Word[], rms: number[], audio: boolean, signal: AbortSignal, onWait?: (text: string) => void) {
   const duration = clip.end - clip.start;
   const ass = `${clip.id}.ass`, video = `${clip.id}.mp4`, frame = `${clip.id}.frame.jpg`;
   const pts = clipLoudness(rms, clip.start, clip.end);
@@ -777,23 +779,32 @@ async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o:
   const hf = await import("./hyperframes"), fx = await hf.renderEffects(dir, clip.id, { hook: clip.hook, words: capWords, duration: total, style: o.style ?? tune.style }, signal);
   const warn = (w: string | null | undefined) => { if (w && !job.warnings.includes(w)) job.warnings.push(w); };
   warn(fx.warning);
+  let lease: GpuLease | null = null;
   try {
     const args = (encoder: VideoEncoder) => renderArgs({ input: src, start: clip.start, duration, segs, audio, layout: o.layout, camSide: o.camSide, camSize: o.camSize, follow, zooms, ass: fx.layer ? undefined : ass, out: video,
       teaser, progressBar: o.progressBar, fadeOut: o.loopEnd, encoder });
-    const enc = await videoEncoder(ff);
-    try { await runFfmpeg(ff, args(enc), { cwd: dir, signal, timeoutMs: 15 * 60_000 }); }
+    let enc = await videoEncoder(ff);
+    // NVENC shares the one 8 GB GPU with ComfyUI/TRELLIS (gpu-lock.ts): wait for it; if it stays busy, this clip renders on the CPU.
+    let waited = false;
+    if (enc === "nvenc") lease = await acquireGpu("render", { signal, maxWaitMs: 20 * 60_000, ttlMs: 16 * 60_000, onWait: onWait && ((t) => { waited = true; onWait(t); }) })
+      .catch((e) => { if (e instanceof GpuWaitError && e.reason === "timeout") { enc = "x264"; return null; } throw e; });
+    if (waited) onWait?.(""); // done waiting: back to the plain step text
+    const beat = () => lease?.beat();
+    try { await runFfmpeg(ff, args(enc), { cwd: dir, signal, timeoutMs: 15 * 60_000, onTime: beat }); }
     catch (e) { // the GPU encoder can fail mid-run (driver, another app holding all NVENC sessions): redo this clip on the CPU
       if (enc === "x264" || signal.aborted) throw e;
       console.error("[orbit] NVENC render failed, using the CPU encoder:", e instanceof Error ? e.message.slice(-300) : e);
       S.encoder = Promise.resolve("x264");
       await runFfmpeg(ff, args("x264"), { cwd: dir, signal, timeoutMs: 15 * 60_000 });
     }
-    if (fx.layer) warn(await hf.applyEffects(ff, dir, video, fx.layer, ass, signal, await videoEncoder(ff)));
+    beat(); // the effects pass is a second encode
+    if (fx.layer) warn(await hf.applyEffects(ff, dir, video, fx.layer, ass, signal, enc === "x264" ? "x264" : await videoEncoder(ff)));
     clip.video = `clips/${job.id}/${video}`;
   } catch (e) {
     await rm(path.join(dir, video), { force: true }); // don't leave a truncated mp4 behind
     throw e;
   } finally {
+    lease?.release();
     await Promise.all([rm(path.join(dir, ass), { force: true }), fx.layer && rm(fx.layer, { force: true })]);
   }
   // Thumbnail candidates: the loudest moment (the default thumb) + 2 more loud frames; the owner picks one (clip.thumbOptions).
