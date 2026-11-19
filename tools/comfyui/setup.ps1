@@ -5,7 +5,7 @@
 # Downloads are pinned and SHA-256 checked. Finished parts are skipped, a cut-off model download resumes.
 # ORBIT then starts ComfyUI by itself on 127.0.0.1:8188 when it needs a picture (start.ps1 runs it by hand).
 # UNTESTED on Windows/GPU: written in a cloud box. Needs an NVIDIA driver 580 or newer (CUDA 13.0); the RTX 5060 Laptop is fine.
-param([ValidateSet("sdxl-lightning", "nitrofusion2")][string]$Model = "sdxl-lightning")
+param([ValidateSet("sdxl-lightning", "nitrofusion2", "acestep-music")][string]$Model = "sdxl-lightning")
 
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
@@ -72,7 +72,17 @@ $Py = Join-Path $Root "python_embeded\python.exe"
 & $Py -s -c "import torch; print('torch', torch.__version__, '| CUDA', torch.cuda.is_available(), '|', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no GPU')"
 if ($LASTEXITCODE -ne 0) { Warn "PyTorch check failed: ComfyUI may still start on the CPU. Update the NVIDIA driver if it says CUDA False." }
 
-if ($Model -eq "nitrofusion2") {
+if ($Model -eq "acestep-music") {
+  # ===== BEGIN acestep-music (self-contained block; keep separate from the other -Model branches) =====
+  Step "Model: ACE-Step 1.5 turbo music (about 10 GB: DiT, two text encoders, VAE)"
+  # ACE-Step 1.5 (MIT; the model card allows commercial use of the output), ComfyUI's repackaged split files, pinned revision.
+  $AceRepo = "https://huggingface.co/Comfy-Org/ACE-Step-1.5/resolve/371bb1680f8c88d8c1083f6ffb6330d3d55bff76/split_files"
+  InstallModel "diffusion_models\acestep_v1.5_turbo.safetensors" "$AceRepo/diffusion_models/acestep_v1.5_turbo.safetensors" "3f6e0797fad420a39bd33979eb6e840e30989e34a3794e843d23b60ec6e422d7" 4787825604
+  InstallModel "text_encoders\qwen_0.6b_ace15.safetensors" "$AceRepo/text_encoders/qwen_0.6b_ace15.safetensors" "fd4590c82153b8ddb67e15a2e7aaa8afa8b83a858c8a9b82a4831063156aa7a7" 1191588248
+  InstallModel "text_encoders\qwen_1.7b_ace15.safetensors" "$AceRepo/text_encoders/qwen_1.7b_ace15.safetensors" "ed63e9247d1f55f3ace04fa11e95b085fc82d459c82c5626f0b2e37b91ebd710" 3708523360
+  InstallModel "vae\ace_1.5_vae.safetensors" "$AceRepo/vae/ace_1.5_vae.safetensors" "6de92e3a862acd287e08b024ac90f0783a8635451b728721a33ff03565bcb2bb" 337431732
+  # ===== END acestep-music =====
+} elseif ($Model -eq "nitrofusion2") {
   Step "Model: NitroFusion2 W4A8 GPTQ, encoder and VAE (about 12 GB total)"
   # NitroFusion2's upstream README links this Apache-2.0 conversion for stock ComfyUI.
   $NitroRepo = "https://huggingface.co/PedroMarinhoDev/NitroFusion2-ComfyUI/resolve/fa0668b0122e78dc81a230f901b6feaca62560f4"
@@ -92,6 +102,7 @@ if (-not ((Test-Path "$env:ProgramFiles\Google\Chrome\Application\chrome.exe") -
   Warn "No Chrome or Edge found: run  npx playwright install chromium  in the ORBIT folder."
 }
 
-Write-Host "`nDone. ORBIT starts ComfyUI by itself when it needs a picture." -ForegroundColor Green
+Write-Host "`nDone. ORBIT starts ComfyUI by itself when it needs a picture or a music bed." -ForegroundColor Green
+if ($Model -eq "acestep-music") { Write-Host "Music is on by itself once these files exist (ORBIT_MUSIC_GEN=off turns it off). Needs a ComfyUI recent enough to have the ACE-Step 1.5 nodes: the portable build you just installed is." }
 if ($Model -eq "nitrofusion2") { Write-Host "Set ORBIT_COMFY_MODEL=nitrofusion2 in .env.local and restart ORBIT to select NitroFusion2." }
 Write-Host "Check it in OPERATIONS -> Local AI ('Pictures (unlimited)'). To run it by hand: powershell -ExecutionPolicy Bypass -File tools\comfyui\start.ps1"

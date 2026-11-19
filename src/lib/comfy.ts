@@ -6,6 +6,7 @@ import { stopAllOn } from "./stop-all";
 import { checkImage, comfyModel, comfyModelName, comfyNotRunning, comfyUrl, imageWorkflow, parseHistory, parseQueued, parseStats, seedOf, sizeFor, viewPath, type ComfyHealth, type ComfyModel } from "./comfy-pure";
 
 const base = () => comfyUrl(process.env.ORBIT_COMFY_URL);
+export const comfyBase = base; // shared with music-gen.ts: the same picture ComfyUI on 127.0.0.1
 export const configuredComfyModel = () => comfyModel(process.env.ORBIT_COMFY_MODEL);
 const G = globalThis as unknown as { __orbitComfy?: Promise<boolean> | null; __orbitComfyFree?: NodeJS.Timeout };
 const stats = (u: string, ms = 4000) => fetch(`${u}/system_stats`, { cache: "no-store", signal: AbortSignal.timeout(ms) }).then((r) => (r.ok ? r.json() : null), () => null);
@@ -15,14 +16,15 @@ async function paths() {
   const dir = path.join(process.cwd(), "tools", "comfyui", "ComfyUI_windows_portable");
   return { dir, py: path.join(dir, "python_embeded", "python.exe"), main: path.join(dir, "ComfyUI", "main.py"), log: path.join(process.cwd(), "tools", "comfyui", "service.log") };
 }
-const installed = async () => (await import("node:fs")).existsSync((await paths()).py);
+export const comfyModelsDir = async () => (await import("node:path")).join((await paths()).dir, "ComfyUI", "models");
+export const comfyInstalled = async () => (await import("node:fs")).existsSync((await paths()).py);
 
 /** ComfyUI starts by itself (hidden) when ORBIT needs it, if setup.ps1 installed it; ORBIT_COMFY_AUTOSTART=0 turns that off. */
 function autostart(u: string): Promise<boolean> {
   if (process.env.ORBIT_COMFY_AUTOSTART?.trim() === "0") return Promise.resolve(false);
   return (G.__orbitComfy ??= (async () => {
     const [{ spawn }, { closeSync, openSync }, p] = await Promise.all([import("node:child_process"), import("node:fs"), paths()]);
-    if (!(await installed())) return false;
+    if (!(await comfyInstalled())) return false;
     const log = openSync(p.log, "a");
     // --listen 127.0.0.1: never reachable from the network; no browser tab opens.
     const child = spawn(p.py, ["-s", p.main, "--listen", "127.0.0.1", "--port", new URL(u).port || "8188", "--disable-auto-launch"],
@@ -45,8 +47,8 @@ export async function comfyHealth(): Promise<ComfyHealth & { model: ComfyModel }
   const model = configuredComfyModel();
   if (!u) return { ...parseStats(null, false), model };
   const j = await stats(u);
-  if (!j && (await installed())) void autostart(u); // not running: start it in the background; the next check shows it
-  return { ...parseStats(j, await installed()), model };
+  if (!j && (await comfyInstalled())) void autostart(u); // not running: start it in the background; the next check shows it
+  return { ...parseStats(j, await comfyInstalled()), model };
 }
 
 /** Is local generation usable right now (running, or installed and started within the wait)? */
@@ -55,7 +57,7 @@ export async function comfyReady(): Promise<boolean> {
   return !!u && (!!(await stats(u, 2000)) || await autostart(u));
 }
 
-const post = (u: string, path: string, body: unknown) => fetch(`${u}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
+export const comfyPost = (u: string, path: string, body: unknown) => fetch(`${u}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
 
 /** One picture as PNG bytes. The model leaves the GPU 2 min after the last picture (other local AI tools share the 8 GB). */
 export async function generate(prompt: string, aspect: unknown, seedText = prompt, timeoutMs = 4 * 60_000): Promise<Uint8Array> {
@@ -66,13 +68,13 @@ export async function generate(prompt: string, aspect: unknown, seedText = promp
   if (!(await comfyReady())) throw new Error(comfyNotRunning(model));
   const [width, height] = sizeFor(aspect);
   const graph = imageWorkflow(model, { prompt, width, height, seed: seedOf(seedText) });
-  const q = parseQueued(await (await post(u, "/prompt", { prompt: graph, client_id: "orbit" })).json().catch(() => null), model);
+  const q = parseQueued(await (await comfyPost(u, "/prompt", { prompt: graph, client_id: "orbit" })).json().catch(() => null), model);
   if ("error" in q) throw new Error(q.error);
   const until = Date.now() + timeoutMs; // the first picture loads the 6.9 GB model from disk
   try {
     for (;;) {
-      if (stopAllOn()) { await post(u, "/interrupt", {}).catch(() => {}); throw new Error("Stopped: Stop-all is on"); }
-      if (Date.now() > until) { await post(u, "/interrupt", {}).catch(() => {}); throw new Error(`ComfyUI took longer than ${Math.round(timeoutMs / 60_000)} min and was stopped.`); }
+      if (stopAllOn()) { await comfyPost(u, "/interrupt", {}).catch(() => {}); throw new Error("Stopped: Stop-all is on"); }
+      if (Date.now() > until) { await comfyPost(u, "/interrupt", {}).catch(() => {}); throw new Error(`ComfyUI took longer than ${Math.round(timeoutMs / 60_000)} min and was stopped.`); }
       await new Promise((r) => setTimeout(r, 1000));
       const h = parseHistory(await fetch(`${u}/history/${encodeURIComponent(q.id)}`, { cache: "no-store", signal: AbortSignal.timeout(10_000) }).then((r) => r.json(), () => null), q.id);
       if (h.state === "error") throw new Error(h.error);
@@ -84,7 +86,7 @@ export async function generate(prompt: string, aspect: unknown, seedText = promp
     }
   } finally {
     if (G.__orbitComfyFree) clearTimeout(G.__orbitComfyFree);
-    G.__orbitComfyFree = setTimeout(() => { void post(u, "/free", { unload_models: true, free_memory: true }).catch(() => {}); }, 2 * 60_000);
+    G.__orbitComfyFree = setTimeout(() => { void comfyPost(u, "/free", { unload_models: true, free_memory: true }).catch(() => {}); }, 2 * 60_000);
   }
 }
 

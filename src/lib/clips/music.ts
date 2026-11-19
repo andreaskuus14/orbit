@@ -1,5 +1,6 @@
-// Music bed for a STUDIO video: ACE-Step when the owner set ORBIT_ACESTEP_CMD (cached per prompt), else a track from the music
-// folder, else none. Rules and the command template: music-pure.ts.
+// Music bed for a STUDIO video: ACE-Step 1.5 in ComfyUI when installed (music-gen.ts, saved into the music folder), else ACE-Step
+// when the owner set ORBIT_ACESTEP_CMD (cached per prompt), else a track from the music folder, else none. A failed generator never
+// fails the clip: it warns and falls through. Rules and the command template: music-pure.ts.
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, readdir, stat } from "node:fs/promises";
@@ -7,6 +8,10 @@ import path from "node:path";
 import { acestepArgv, musicPrompt } from "./music-pure";
 
 export async function pickMusic(o: { idea: string; style: string; format?: string; seconds: number; dir: string; cache: string }): Promise<string | null> {
+  if (await import("../music-gen").then((m) => m.musicGenAvailable(), () => false)) {
+    try { return await (await import("../music-gen")).makeBed({ prompt: musicPrompt(o), seconds: o.seconds + 4, dir: o.dir }); }
+    catch (e) { console.warn(`[studio] local AI music failed (${e instanceof Error ? e.message : String(e)}); trying the next source`); }
+  }
   const tpl = process.env.ORBIT_ACESTEP_CMD?.trim();
   if (tpl) {
     const prompt = musicPrompt(o), out = path.join(o.cache, `ace-${createHash("sha1").update(prompt + o.seconds).digest("hex").slice(0, 12)}.wav`);
@@ -19,6 +24,6 @@ export async function pickMusic(o: { idea: string; style: string; format?: strin
       console.warn("[studio] ACE-Step didn't produce music; using the music folder");
     } else console.warn("[studio] ORBIT_ACESTEP_CMD needs a command and {out}; using the music folder");
   }
-  const files = await readdir(o.dir).then((n) => n.filter((f) => /\.(mp3|wav|m4a|ogg)$/i.test(f)), () => [] as string[]);
+  const files = await readdir(o.dir).then((n) => n.filter((f) => /\.(mp3|wav|m4a|ogg|flac)$/i.test(f)), () => [] as string[]);
   return files.length ? path.join(o.dir, files[Math.floor(Math.random() * files.length)]) : null;
 }

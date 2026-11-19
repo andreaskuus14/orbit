@@ -80,6 +80,7 @@ export const TIERS: Record<string, Tier> = {
   local_3d: "T2", local_tts: "T2", local_transcribe: "T2", // free models on his own PC (tools/local-ai); the result is a new VAULT file, nothing leaves the PC
   roblox_export: "T2", // rojo syncback into his own projects folder + a local git commit (tools/roblox); nothing leaves the PC
   roblox_lint: "T0", // selene on his exported project, read-only
+  local_music: "T2", // ACE-Step in ComfyUI on his PC: a new VAULT .flac + .json record, nothing leaves the PC
   local_image: "T2", // ComfyUI on his PC (tools/comfyui): a new VAULT picture, the prompt never leaves the PC
   browse: "T1", // ORBIT's hidden browser on a public page: read-only (non-GET requests blocked), submits/logins refused for his click
   save_decision: "T2", watch_add: "T2", watch_list: "T0", watch_changes: "T0", // page watch (pagewatch.ts): a local record; the checks only read public pages
@@ -106,7 +107,7 @@ export const TOOL_AREA: Record<string, Area> = {
   ask_agent: "research", start_mission: "research", plan_task: "research", run_niche: "research", run_scout: "studio-prepare", save_memory: "memory",
   create_goal: "goals", queue_tonight: "night-shift", add_wish: "deals", schedule_approved: "studio-publish", higgsfield_draft: "higgsfield-spend", ws_picture_draft: "higgsfield-spend",
   ws_run: "operator-build", // a local demo server of his own workspace (AGENTS.md rule 6 category A); never public
-  local_3d: "operator-build", local_tts: "operator-build", local_transcribe: "operator-build", local_image: "operator-build", // local models writing new VAULT files (category A)
+  local_3d: "operator-build", local_tts: "operator-build", local_transcribe: "operator-build", local_image: "operator-build", local_music: "operator-build", // local models writing new VAULT files (category A)
   roblox_export: "operator-build", // local project files + git commit (category A)
   watch_add: "research", // later reads of a public page (category A)
 };
@@ -120,7 +121,7 @@ export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "business_status", "week
 // model-bound call is a hard refusal: Allow once never unlocks it. "web" = a public page/fetch (Allow once card). "none" = no
 // chat text leaves ORBIT (reads, his own local records, enum/file-name inputs). Every TIERS tool must be here (allow-once.test.ts).
 export const EGRESS_CLASS: Record<string, "model" | "web" | "none"> = {
-  ask_agent: "model", read_news: "model", web_search: "model", find_outliers: "model", local_tts: "model", local_image: "model",
+  ask_agent: "model", read_news: "model", web_search: "model", find_outliers: "model", local_tts: "model", local_image: "model", local_music: "model",
   ws_inspire_image: "model", ws_picture_draft: "model",
   start_mission: "model", // objective + steps → capabilityStart + agent chain tasks (missions.ts createMission)
   queue_tonight: "model", // text → night-shift agent task (night.ts addTonightItem)
@@ -149,7 +150,7 @@ const isLead = (t: string) => t === "lead_create" || t === "lead_update";
 const leadText = (input: Record<string, unknown>) => (Array.isArray(input.leads) ? input.leads : [input]).map((l) => Object.fromEntries(Object.entries((l ?? {}) as Record<string, unknown>).filter(([k]) => LEAD_TEXT.includes(k))));
 export const MODEL_TOOLS = Object.keys(EGRESS_CLASS).filter((t) => EGRESS_CLASS[t] === "model");
 export const LINK_TOOLS = ["browse", "watch_add", "fetch_url", "scrape_page", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft"];
-export const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "find_outliers", "local_tts", "local_image"]; // local_tts/local_image: journal/LIFE text never goes to a model, local ones included
+export const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "find_outliers", "local_tts", "local_image", "local_music"]; // local_tts/local_image: journal/LIFE text never goes to a model, local ones included
 
 // Text from outside ORBIT (pages, news, search hits, agent results, prospect mail, attached files) can't start an agent task by itself.
 // Includes every read tool whose own description calls its output third-party data: calendar invites, Idea Radar's video text,

@@ -40,11 +40,25 @@ NitroFusion2 is a local text-to-image model. ORBIT runs its upstream one-step re
 
 The model choice also applies to local website pictures. To switch back, clear `ORBIT_COMFY_MODEL`, run the regular setup if SDXL-Lightning is missing, and restart. Each setup command installs only the selected model files.
 
+## Local music for Shorts (ACE-Step 1.5, optional)
+
+Original instrumental music beds for STUDIO Shorts and CORE's `local_music` tool, made by [ACE-Step 1.5 turbo](https://huggingface.co/ACE-Step/Ace-Step1.5) (2B, MIT; the model card allows commercial use of the output) in this same ComfyUI, with its built-in nodes only. Free, nothing uploaded.
+
+**Status: untested on a real GPU.** The graph and parsing are unit-tested (`tests/music-gen.test.ts`); generation speed is an estimate (about 15 to 40 s for a 30 to 60 s bed once loaded, plus a first load of about 10 GB from disk). Time it once before relying on it.
+
+1. `powershell -ExecutionPolicy Bypass -File tools\comfyui\setup.ps1 -Model acestep-music` (about 10 GB, pinned revision + SHA-256; the picture model is not needed for this).
+2. That is all: when the four files exist, STUDIO tries it first for every Short's music (`pickMusic`), then `ORBIT_ACESTEP_CMD`, then the music folder. A failed generation only logs a warning and falls through; the clip is never blocked.
+3. Beds are saved into the studio music folder as `ai-<words>-<seed>.flac` with a `.json` beside each one (prompt, seed, model revision, time): keep it as evidence if YouTube's Content ID ever claims a bed. The folder fallback may reuse these beds later.
+4. CORE: `local_music {"prompt", "seconds"?: 15-120, "name"?}` saves a `.flac` + `.json` in VAULT.
+
+Rules: prompts never name artists, bands, songs or "in the style of" (refused: they invite claims). The GPU is freed (`/free`) after every bed because the 8 GB is shared with pictures, voice and captions; ORBIT never runs two ComfyUI jobs at once. Purely AI-generated audio may not be copyrightable: don't register beds in Content ID. If a node is unknown, update ComfyUI (`GET /object_info/TextEncodeAceStepAudio1.5` must answer).
+
 ## Settings (`.env.local`, all optional)
 
 - `ORBIT_COMFY_URL` — default `http://127.0.0.1:8188`; must be this PC.
 - `ORBIT_COMFY_AUTOSTART=0` — don't start ComfyUI automatically.
 - `ORBIT_COMFY_MODEL=nitrofusion2` — select NitroFusion2 for local image generation. Empty uses SDXL-Lightning.
+- `ORBIT_MUSIC_GEN=off` — don't use ACE-Step for Shorts music (music folder / `ORBIT_ACESTEP_CMD` only).
 - `ORBIT_LOCAL_PICTURES=0` — website photos skip ComfyUI and use the online free service.
 
 ## Browser for CORE
