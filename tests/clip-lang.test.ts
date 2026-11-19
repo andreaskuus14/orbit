@@ -10,3 +10,13 @@ test("clip language verdict: English majority passes, non-English majority is sk
   assert.equal(languageVerdict([null, null]), "unknown");
   assert.equal(languageVerdict([]), "unknown");
 });
+
+import { transcriptLanguage } from "../src/lib/clips/lang-pure.ts";
+test("transcriptLanguage: English text passes, Spanish is other, too few words is unknown", () => {
+  const en = "yo chat what is going on, I can't believe this is the craziest thing I have ever seen in my life bro".split(" ");
+  const es = "hola chicos bienvenidos otra vez hoy vamos jugar partida increíble con amigos nuevos mañana".split(" ");
+  const many = (ws: string[]) => Array.from({ length: 5 }, () => ws).flat().map((text) => ({ text }));
+  assert.equal(transcriptLanguage(many(en)), "english");
+  assert.equal(transcriptLanguage(many(es)), "other");
+  assert.equal(transcriptLanguage(en.slice(0, 10).map((text) => ({ text }))), "unknown");
+});

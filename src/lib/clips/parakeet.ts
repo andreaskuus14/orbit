@@ -38,13 +38,18 @@ async function download(modelsDir: string, onPhase?: (p: AsrPhase) => void) {
   await Promise.all([rm(tmp, { recursive: true, force: true }), rm(part, { force: true })]);
 }
 
+/** sherpa-onnx's native addon; rejects when it isn't installed or can't load on this machine. */
+export async function parakeetRuntime() {
+  // @ts-expect-error sherpa-onnx-node ships no types; the shape we use is typed right here
+  const mod = (await import("sherpa-onnx-node")) as { default?: unknown };
+  return (mod.default ?? mod) as { OfflineRecognizer: { createAsync(c: unknown): Promise<Recognizer> } }; // CommonJS package: its exports sit on default under ESM
+}
+
 /** The cached recognizer; downloads the model on first use. Rejects when sherpa-onnx-node isn't installed (caller falls back to Whisper). */
 export function loadParakeet(modelsDir: string, onPhase?: (p: AsrPhase) => void): Promise<Recognizer> {
   if (S.__orbitParakeet) return S.__orbitParakeet;
   const p = (async () => {
-    // @ts-expect-error sherpa-onnx-node ships no types; the shape we use is typed right here
-    const mod = (await import("sherpa-onnx-node")) as { default?: unknown };
-    const sherpa = (mod.default ?? mod) as { OfflineRecognizer: { createAsync(c: unknown): Promise<Recognizer> } }; // CommonJS package: its exports sit on default under ESM
+    const sherpa = await parakeetRuntime();
     const dir = path.join(modelsDir, PARAKEET.dir);
     if (!(await installed(dir))) await download(modelsDir, onPhase);
     onPhase?.({ phase: "loading" });

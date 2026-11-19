@@ -115,7 +115,7 @@ async function toolChecks(): Promise<Check[]> {
     t.ffmpeg ? check("ffmpeg", "Video tool (ffmpeg)", "ok", "Found")
       : check("ffmpeg", "Video tool (ffmpeg)", "fail", "Not found, so clips can't be cut or rendered", "In the ORBIT folder run: npm install. Or set ORBIT_FFMPEG in .env.local to the full path of ffmpeg.exe."),
     ytdlpCheck(t.ytdlp, ver, youtubePauseUntil(downloads, "https://www.youtube.com/"), Date.now()),
-    !t.transcriber ? check("whisper", "Speech-to-text (Whisper)", "fail", "The transcriber library is missing, so clips get no captions", "In the ORBIT folder run: npm install")
+    !t.transcriber ? check("whisper", "Speech-to-text (Parakeet or Whisper)", "fail", `No transcriber loads, so clips get no captions. ${t.missing.join("; ")}`, "In the ORBIT folder run: npm install")
       : haveModel ? check("whisper", "Speech-to-text (Whisper)", "ok", `Model ${model.split("/").pop()} downloaded`)
       : check("whisper", "Speech-to-text (Whisper)", "warn", "Model not downloaded yet", "Nothing to do: it downloads by itself (about 200 MB) on the first clip job. Keep the internet on."),
     // Optional, so never a warning: Shorts render fine (plain captions) without it.
