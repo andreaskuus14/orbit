@@ -9,7 +9,7 @@ export const BUSINESS_LOOP = {
   name: "Daily business loop", when: "day" as const, time: "09:15", agent: "nova",
   prompt: [
     "Daily business loop. CONDITION (edit me): small businesses in Tallinn with no website, or a website that is broken or unusable on a phone.",
-    "1. Find: web_search for up to 8 businesses that match the CONDITION.",
+    "1. Find: if the CONDITION is about businesses with no website, call find_lead_candidates {area: the city, limit: 8} first (OpenStreetMap candidates with no website tag, not yet in the pipeline), then add web_search results to reach up to 8 businesses. OSM candidates are not proof: they still go through step 2. If it returns an error, continue with web_search alone. Otherwise web_search for up to 8 businesses that match the CONDITION.",
     "2. Verify: delegate to atlas to open each one's own public page or listing (fetch_url) and keep only those where the CONDITION is visibly true; note the evidence URL. Never guess a contact: only an email or phone shown on their own page.",
     "3. Pick the single best lead (clear need, a public contact, a business that can pay) and say why in one line.",
     "4. Demo site: delegate to forge a one-page demo site plan for it (sections, headline, 3 selling points, colours) in Markdown.",

@@ -1,0 +1,18 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API fixture",
+  "elements": [
+    { "type": "node", "id": 1001, "lat": 59.437, "lon": 24.7536, "tags": { "name": "Juuksur Kati", "shop": "hairdresser", "addr:street": "Narva mnt", "addr:housenumber": "12", "addr:postcode": "10120", "addr:city": "Tallinn", "phone": "+372 5555 0001; +372 5555 0002" } },
+    { "type": "way", "id": 2002, "center": { "lat": 59.4301, "lon": 24.7201 }, "tags": { "name": "Pagarikoda OÜ", "shop": "bakery", "contact:phone": "+372 600 0000" } },
+    { "type": "node", "id": 3003, "lat": 59.44, "lon": 24.76, "tags": { "name": "Has Site", "shop": "florist", "website": "https://hassite.ee" } },
+    { "type": "node", "id": 3004, "lat": 59.44, "lon": 24.76, "tags": { "name": "Has Contact Site", "craft": "carpenter", "contact:website": "https://x.example" } },
+    { "type": "node", "id": 3005, "lat": 59.44, "lon": 24.76, "tags": { "shop": "florist" } },
+    { "type": "node", "id": 3006, "lat": 59.44, "lon": 24.76, "tags": { "name": "Closed Cafe", "amenity": "cafe", "disused:amenity": "cafe" } },
+    { "type": "node", "id": 4004, "lat": 59.4, "lon": 24.7, "tags": { "name": "Torupilli Puusepp", "craft": "carpenter", "addr:street": "Tulika", "addr:housenumber": "3" } },
+    { "type": "node", "id": 1001, "lat": 59.437, "lon": 24.7536, "tags": { "name": "Juuksur Kati", "shop": "hairdresser" } },
+    { "type": "node", "id": 5005, "lat": 59.41, "lon": 24.71, "tags": { "name": "Juuksur  Kati", "shop": "hairdresser", "addr:street": "Narva mnt", "addr:housenumber": "12", "addr:postcode": "10120", "addr:city": "Tallinn" } },
+    { "type": "node", "id": 6006, "tags": { "name": "No Position", "shop": "bakery" } },
+    { "type": "node", "id": 7007, "lat": 59.5, "lon": 24.8, "tags": { "name": "Salong Mari FIE", "shop": "beauty", "addr:city": "Tallinn" } },
+    { "type": "node", "id": 8008, "lat": 59.5, "lon": 24.8, "tags": { "name": "Cafe\u0000 Line\nBreak", "amenity": "cafe" } }
+  ]
+}

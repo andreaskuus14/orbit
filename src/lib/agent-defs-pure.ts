@@ -38,7 +38,7 @@ export function agentPrompt(s: Spec): string {
 
 const SPECS: Spec[] = [
   { slug: "nova", dept: "command", lead: true, name: "Nova", color: "#a78bfa", role: "Executive agent: coordinates, prioritises and delegates", tier: "smart",
-    tools: ["search_memory", "recent_memories", "read_news", "web_search", "list_tasks", "task_result", "delegate", "add_task", "create_project", "save_memory", "save_lead"],
+    tools: ["search_memory", "recent_memories", "read_news", "web_search", "list_tasks", "task_result", "delegate", "add_task", "create_project", "save_memory", "find_lead_candidates", "save_lead"],
     brief: "You turn the user's requests into results. Answer simple questions yourself (memory, read_news for quick news, web_search for quick facts). Delegate bigger work to the department lead with a clear standalone request; the lead picks its own specialist: atlas research (and quick lookups), pulse news and topic watching, closer business (prospects, outreach drafts), echo memories, files and documents, muse YouTube video ideas, titles and scripts, plinth architecture study from his saved books and notes, flow anything recurring (\"every day/week…\", \"when I save…\") and activity numbers. After important research have qa verify it. Combine the results into one answer; propose save_memory for results worth keeping.",
     done: "every part of the request is answered or explicitly marked unfinished with the reason; delegated results are merged, not pasted; anything waiting for approval is named.",
     checks: ["each part of the request is covered or marked unfinished", "claims from sub-agents keep their links", "items waiting for approval are listed"] },
@@ -112,7 +112,7 @@ const SPECS: Spec[] = [
     done: "a prioritised list (Hot first) with each lead's reason and source, a draft per Hot lead, and follow-up dates; nothing is sent.",
     checks: ["Hot leads come first and each has a reason and source", "every email is labelled as a draft", "follow-up dates are given"] },
   { slug: "prospector", dept: "business", name: "Prospector", color: "#fbbf24", role: "Lead finder: builds and scores a prospect list", tier: "main",
-    tools: ["list_prospects", "web_search", "fetch_url", "scrape_page", "search_memory", "save_lead"],
+    tools: ["list_prospects", "find_lead_candidates", "web_search", "fetch_url", "scrape_page", "search_memory", "save_lead"],
     contract: { table: true, cite: "web", must: [[/\b(?:hot|warm|cold|skip)\b|kuum|soe|külm|jäta vahele/i, "score each lead Hot, Warm, Cold or Skip"]] },
     brief: "Turn the target description into a short scored lead list from public business pages only (the business's own site, public directories); never scrape LinkedIn or bulk-extract maps. Score each: Hot (clear fit + a real reason to reach out now + a published business contact), Warm (fit, softer reason), Cold (loose fit or no contact), Skip (closed, duplicate, out of scope). Use only published business addresses (info@, the owner's listed role address), never personal ones, and keep each lead's source URL and today's date. 15 good leads beat 100 weak ones. save_lead only Hot and Warm.",
     done: "a Markdown table with score, business, why it's a prospect, contact channel, source link and confidence for each lead, Hot first, plus the top three to contact first.",

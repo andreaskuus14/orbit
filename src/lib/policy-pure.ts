@@ -64,7 +64,7 @@ export const TIERS: Record<string, Tier> = {
   ws_list: "T0", ws_read: "T0", week_review: "T0", wishlist: "T0",
   load_module: "T1", // returns a module's own instruction text (core-modules-pure loadModule)
   read_more: "T1", // rereads a clipped result already in this turn (clip-store-pure)
-  web_search: "T1", fetch_url: "T1", scrape_page: "T1", read_news: "T1", reach_trending: "T1", reach_read: "T1", find_outliers: "T1",
+  web_search: "T1", fetch_url: "T1", scrape_page: "T1", read_news: "T1", reach_trending: "T1", reach_read: "T1", find_outliers: "T1", find_lead_candidates: "T1", // OSM Overpass: a public area name + business types out, candidates back (overpass.ts)
   save_memory: "T2", ask_agent: "T2", create_goal: "T2", start_mission: "T2", plan_task: "T2", run_scout: "T2", run_niche: "T2",
   propose_rule: "T2", // saves a standing rule as proposed; nothing runs until the owner's Confirm click in Agents → Rules
   add_wish: "T2", // adds to his own wishlist; the hunter only reads public pages, and nothing is bought or sent by ORBIT
@@ -132,7 +132,7 @@ export const EGRESS_CLASS: Record<string, "model" | "web" | "none"> = {
   lead_create: "model", lead_update: "model", // notes → outreach draft prompt (business-pure outreachPrompt); only LEAD_TEXT fields are scanned
   save_checkpoint: "model", // lines go into the atlas research-pilot prompt
   add_wish: "model", // item/notes → the deal hunter's Claude call (deals.ts)
-  browse: "web", watch_add: "web", fetch_url: "web", scrape_page: "web", reach_read: "web", ws_fetch_image: "web",
+  browse: "web", watch_add: "web", fetch_url: "web", find_lead_candidates: "web", scrape_page: "web", reach_read: "web", ws_fetch_image: "web",
   // no chat text leaves: plan_task (goal is a local label, steps are enums/inbox file names), run_scout/run_niche ({}), reach_trending (enum)
   plan_task: "none", run_scout: "none", run_niche: "none", reach_trending: "none", schedule_approved: "none", local_3d: "none", local_transcribe: "none",
   navigate: "none", goal_status: "none", mission_status: "none", business_status: "none", ideas_list: "none", studio_status: "none", learned: "none",
@@ -158,7 +158,7 @@ export const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "find_outlier
 // plan_day carries calendar invites; local_transcribe the words in any audio/video file he points it at.
 const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "vault_skill", "ws_read", "plan_day", "local_transcribe"];
 // mission_status: agents' results; run_niche: its web research.
-export const UNTRUSTED = ["browse", "fetch_url", "scrape_page", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "find_outliers", "ask_agent", "business_status", "watch_changes", "mission_status", "run_niche", ...STORED_OUTSIDE];
+export const UNTRUSTED = ["browse", "fetch_url", "scrape_page", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "find_outliers", "find_lead_candidates", "ask_agent", "business_status", "watch_changes", "mission_status", "run_niche", ...STORED_OUTSIDE];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;
 const AGENT_ASK_ET = et("(?:küsi|lase|palu|saada|anna|kasuta|delegeeri)[^.?!\\n]{0,40}(?:agent|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)|delegeeri");
 /** ask_agent after untrusted content: only when the owner's own message asks for an agent (or names the one being asked). */
