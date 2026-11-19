@@ -181,3 +181,19 @@ test("an expired approval shows as an expired review card; other cancelled tasks
   assert.deepEqual(out.map((n) => [n.ref, n.cause, n.status]), [["task:x", "expired", "cancelled"]]);
   assert.deepEqual(out[0].act, { open: { task: "x" } });
 });
+
+test("planetNeeds: clips go to STUDIO; OPERATIONS keeps real work and shows one 'N waiting in STUDIO' line", async () => {
+  const { planetNeeds } = await import("../src/lib/needs-you-pure.ts");
+  const clip = (i: number) => ({ ref: `clip:j/c${i}`, kind: "decide", cause: "approval", title: `Highlight ${i}`, detail: "Short from X", act: { open: { panel: "studio", view: "review" } } });
+  const task = { ref: "task:t1", kind: "unblock", cause: "failed", title: "Build site", act: { open: { task: "t1" } } };
+  const game = { ref: "bug:b1", kind: "decide", cause: "approval", title: "Bug", act: { open: { link: "#o=creation&k=game&id=g" } } };
+  const all = [...Array.from({ length: 62 }, (_, i) => clip(i)), task, game] as never[];
+  const ops = planetNeeds("operations", all);
+  assert.deepEqual(ops.own.map((n) => n.ref), ["task:t1"]);
+  assert.deepEqual(ops.elsewhere, [{ planet: "studio", n: 62 }, { planet: "creation", n: 1 }]);
+  assert.deepEqual(planetNeeds("creation", all).own.map((n) => n.ref), ["bug:b1"]);
+  const studio = planetNeeds("studio", all);
+  assert.equal(studio.own.length, 1); // grouped: one card for the 62 Shorts of one video
+  assert.equal(studio.own[0].group?.length, 62);
+  assert.deepEqual(studio.elsewhere, []);
+});
