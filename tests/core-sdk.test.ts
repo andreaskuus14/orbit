@@ -167,3 +167,10 @@ test("serial: parallel tool calls run one at a time, so each decide() sees the e
   assert.deepEqual(order, ["start a", "end a", "start b", "end b"]);
   assert.equal(await one(async () => "after a failure"), "after a failure");
 });
+test("unstringLists: list inputs sent as JSON text become lists; other values stay as sent (live 19 Nov)", async () => {
+  const { unstringLists } = await import("../src/lib/core-sdk-pure.ts");
+  const slots = [{ path: "img/hero.jpg", prompt: "warm bakery counter", aspect: "16:9" }];
+  assert.deepEqual(unstringLists({ workspace: "bakery", slots: JSON.stringify(slots) }), { workspace: "bakery", slots });
+  assert.deepEqual(unstringLists({ leads: ' [{"name":"Autokoobas OÜ"}]' }).leads, [{ name: "Autokoobas OÜ" }]);
+  assert.deepEqual(unstringLists({ query: "[draft] notes", content: '{"a":1}', n: 3 }), { query: "[draft] notes", content: '{"a":1}', n: 3 }); // not JSON / an object: untouched
+});

@@ -38,6 +38,18 @@ export async function gated(tool: string, input: Record<string, unknown>, ctx: (
 }
 
 /** The SDK runs a model's parallel tool calls at once; queued here so each decide() sees the steps before it (taint stays ordered). */
+/** The SDK passes ORBIT's tools an empty schema, so the model can't see which inputs are lists and sends them as JSON text
+ *  (live 19 Nov: lead_create {"leads":"[…]"}, ws_picture_draft {"slots":"[…]"} failed on every first try). A top-level string that
+ *  parses to an array becomes that array; every other value is left exactly as sent. */
+export function unstringLists(input: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...input };
+  for (const [k, v] of Object.entries(input)) {
+    if (typeof v !== "string" || !/^\s*\[/.test(v)) continue;
+    try { const p = JSON.parse(v); if (Array.isArray(p)) out[k] = p; } catch { /* not JSON: keep the text */ }
+  }
+  return out;
+}
+
 export function serial() {
   let chain: Promise<unknown> = Promise.resolve();
   return <T>(fn: () => Promise<T>): Promise<T> => {
