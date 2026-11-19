@@ -5,7 +5,7 @@ import { access, readdir, readFile, stat, statfs, unlink, writeFile } from "node
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { CLAUDE_BIN, MODEL, SMART_MODEL, FAST_MODEL, DEEP_MODEL } from "./claude";
-import { checkTools, listDownloads, studioRoot } from "./clips/factory";
+import { checkTools, listDownloads, listJobs, studioRoot } from "./clips/factory";
 import { youtubePauseUntil } from "./clips/pure";
 import { hyperframesCli } from "./clips/hyperframes";
 import { HF_INSTALL } from "./clips/hyperframes-pure";
@@ -18,7 +18,7 @@ import { api } from "./youtube";
 import { oauthEnv, readStored, wasExpired } from "./yt-oauth";
 import { YT_UPLOAD_SCOPE, hasScopes } from "./yt-analytics-pure";
 import {
-  buildCheck, check, diskCheck, envCheck, factsCheck, launcherCheck, lifeCheck, modelCheck, nightCheck, quotaCheck, summarize, vaultCheck, ytdlpCheck, type Check, type Report,
+  buildCheck, check, claudeLoginCheck, clipAuthFails, clipWarnCheck, diskCheck, transcriberCheck, envCheck, factsCheck, launcherCheck, lifeCheck, modelCheck, nightCheck, quotaCheck, summarize, vaultCheck, ytdlpCheck, type Check, type Report,
   latencyCheck,
 } from "./doctor-pure";
 import { coreTurns } from "./perf-log";
@@ -58,11 +58,19 @@ function guard(id: string, label: string, run: () => Promise<Check | Check[]>, m
 
 const H = 3_600_000;
 
+/** The CLI starts, and its login works: judged from evidence already on disk (usage meter, clip jobs, Activity), no model call. */
 async function claudeCheck(): Promise<Check> {
-  const v = await cached("claude", () => version(CLAUDE_BIN), (x) => (x ? 10 * 60_000 : 60_000));
-  return v ? check("claude", "Claude (the AI behind CORE)", "ok", `Claude Code ${v}`)
-    : check("claude", "Claude (the AI behind CORE)", "fail", `Couldn't start "${path.basename(CLAUDE_BIN)}", so CORE, agents and clips can't think`,
-      "Install Claude Code, open a terminal and run: claude (sign in once). Then restart ORBIT.");
+  const now = Date.now();
+  const [v, meter, jobs, act] = await Promise.all([
+    cached("claude", () => version(CLAUDE_BIN), (x) => (x ? 10 * 60_000 : 60_000)),
+    import("./usage-meter"),
+    listJobs().catch(() => []),
+    import("./activity").then((m) => m.readActivity()).catch(() => []),
+  ]);
+  const since = meter.loginSince(), lastOkAt = meter.modelCalls().filter((c) => c.ok).at(-1)?.at ?? null;
+  // CORE and background calls that failed to sign in: usage-meter.ts logs the outage to Activity (area system) when it opens.
+  const logged = act.filter((a) => a.area === "system" && /^Claude login expired/.test(a.title)).map((a) => Date.parse(a.at)).filter(Number.isFinite);
+  return claudeLoginCheck({ version: v, bin: path.basename(CLAUDE_BIN), login: since ? { at: since } : null, lastOkAt, authFails: [...clipAuthFails(jobs, now), ...logged], now });
 }
 
 async function supabaseCheck(sb: SupabaseClient): Promise<Check> {
@@ -115,9 +123,7 @@ async function toolChecks(): Promise<Check[]> {
     t.ffmpeg ? check("ffmpeg", "Video tool (ffmpeg)", "ok", "Found")
       : check("ffmpeg", "Video tool (ffmpeg)", "fail", "Not found, so clips can't be cut or rendered", "In the ORBIT folder run: npm install. Or set ORBIT_FFMPEG in .env.local to the full path of ffmpeg.exe."),
     ytdlpCheck(t.ytdlp, ver, youtubePauseUntil(downloads, "https://www.youtube.com/"), Date.now()),
-    !t.transcriber ? check("whisper", "Speech-to-text (Parakeet or Whisper)", "fail", `No transcriber loads, so clips get no captions. ${t.missing.join("; ")}`, "In the ORBIT folder run: npm install")
-      : haveModel ? check("whisper", "Speech-to-text (Whisper)", "ok", `Model ${model.split("/").pop()} downloaded`)
-      : check("whisper", "Speech-to-text (Whisper)", "warn", "Model not downloaded yet", "Nothing to do: it downloads by itself (about 200 MB) on the first clip job. Keep the internet on."),
+    transcriberCheck({ parakeet: !!t.parakeet, whisperErr: t.whisperErr ?? null, model, haveModel, missing: t.missing }),
     // Optional, so never a warning: Shorts render fine (plain captions) without it.
     hf ? check("hyperframes", "Hyperframes (optional)", "ok", "Installed: Shorts get animated captions, hook card and pop-ups")
       : check("hyperframes", "Hyperframes (optional)", "ok", "Not installed: Shorts use the plain burned captions", `In the ORBIT folder run: ${HF_INSTALL}`),
@@ -205,6 +211,7 @@ export async function runDoctor(sb: SupabaseClient): Promise<Report> {
     guard("quota", "YouTube scout budget", scoutQuotaCheck),
     guard("oauth", "YouTube channel connection", oauthCheck),
     guard("tools", "Clip tools (ffmpeg, yt-dlp, Whisper)", toolChecks),
+    guard("clipwarn", "Clip job fallbacks (last 24 h)", async () => clipWarnCheck(await listJobs(), Date.now())),
     guard("disk", "Free disk space", disk),
     guard("build", "Last update build", build),
     guard("version", "Running version", runningVersion),
