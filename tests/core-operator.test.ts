@@ -297,3 +297,13 @@ test("Fable #551: stop words and command words of his message are not a target; 
   assert.match(pilot, /confirm the record by its full name/); assert.doesNotMatch(pilot, /not a name he typed/);
   assert.equal(opsBlocked("lead_update", "mark the Bakery as lost", true, { lead: "Bakery" }), null);
 });
+
+test("lead_create: a {leads} list sent as a JSON string is read as the list (live 19 Nov)", async () => {
+  const { leadInputs } = await import("../src/lib/core-operator-pure.ts");
+  const one = { name: "Autokoobas OÜ", source_url: "https://www.autokoobas.ee", phone: "+372 5670 2203" };
+  const r = leadInputs({ leads: JSON.stringify([one, { ...one, name: "Alvari Auto OÜ", source_url: "https://www.alvariauto.ee" }]) });
+  assert.ok(Array.isArray(r), String(r));
+  assert.deepEqual((r as { name: string }[]).map((l) => l.name), ["Autokoobas OÜ", "Alvari Auto OÜ"]);
+  assert.equal(leadInputs({ leads: "not json" }), "leads must be a list of {name, source_url, …}");
+  assert.equal(leadInputs({ leads: '{"name":"x"}' }), "leads must be a list of {name, source_url, …}");
+});
