@@ -158,7 +158,7 @@ export default function ScenePlanner() {
         <div className="rounded-lg border p-2 text-xs" style={{ borderColor: built.done ? "rgba(110,231,183,0.4)" : "rgba(251,113,133,0.4)" }}>
           <p style={{ color: built.done ? "var(--mint)" : "var(--rose)" }}><b>{built.done ? "Built in Studio." : "Not finished."}</b></p>
           {built.inserted.length > 0 && (
-            <ul className="mt-1 text-[11px]">{built.inserted.map((x, i) => <li key={i}><b>{x.name}</b> <span className="muted font-mono">{x.path}</span></li>)}</ul>
+            <ul className="mt-1 text-[11px]">{built.inserted.map((x, i) => <li key={i}>{x.found !== undefined && <span aria-hidden>{x.found ? "✓ " : "✗ "}</span>}<b>{x.name}</b> <span className="muted font-mono">{x.path}</span></li>)}</ul>
           )}
           {built.notes && <p className="muted mt-1 text-[11px]">{built.notes}</p>}
           {built.historyId ? <p className="muted mt-1 text-[11px]">Before/after screenshots are in Build history below.</p>

@@ -24,7 +24,7 @@ const describe = (item: Item) =>
   : `Generate: “${item.prompt}”`;
 
 /** Paths to scan after a build: what it reported inserting (the server keeps only Workspace paths). */
-export const scanTargets = (b: Built) => b.inserted.map((x) => x.path).filter(Boolean);
+export const scanTargets = (b: Built) => b.inserted.filter((x) => x.found !== false).map((x) => x.path).filter(Boolean); // never scan what Studio says is missing
 
 /** Read-only free-model check. Runs whenever `autoPaths` changes to a new array (memoise it!) (after a build) and on the button. ORBIT never deletes anything. */
 export function ScanPanel({ autoPaths }: { autoPaths: string[] | null }) {
@@ -176,7 +176,7 @@ export default function RobloxBuild({ item, onDone }: { item: Item | null; onDon
             <p className="text-xs" style={{ color: built.done ? "var(--mint)" : "var(--rose)" }}><b>{built.done ? "Built in Studio." : "Not finished."}</b></p>
             {built.inserted.length > 0 && (
               <ul className="mt-1 text-[11px]">
-                {built.inserted.map((x, i) => <li key={i}><b>{x.name}</b> <span className="muted font-mono">{x.path}</span></li>)}
+                {built.inserted.map((x, i) => <li key={i}>{x.found !== undefined && <span aria-hidden>{x.found ? "✓ " : "✗ "}</span>}<b>{x.name}</b> <span className="muted font-mono">{x.path}</span></li>)}
               </ul>
             )}
             {built.notes && <p className="muted mt-1 text-[11px]">{built.notes}</p>}

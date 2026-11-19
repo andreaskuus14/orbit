@@ -410,7 +410,8 @@ export function lastJsonLine(text: string): Record<string, unknown> | null {
 
 const str = (v: unknown, n: number) => (typeof v === "string" ? clean(v).slice(0, n) : "");
 
-export type BuildResult = { done: boolean; inserted: { name: string; path: string }[]; notes: string };
+/** found: ORBIT itself looked the path up in Studio after the build (true/false); absent = not checked. */
+export type BuildResult = { done: boolean; inserted: { name: string; path: string; found?: boolean }[]; notes: string };
 export function parseBuildResult(text: string): BuildResult | null {
   const j = lastJsonLine(text);
   if (!j || typeof j.done !== "boolean") return null;
@@ -711,3 +712,41 @@ export const hookSettingsJson = (command: string) =>
   JSON.stringify({ hooks: { PreToolUse: [{ matcher: "*", hooks: [{ type: "command", command, timeout: 15 }] }] } }, null, 2);
 /** Paths put inside the hook command's double quotes (cmd.exe or bash) must not break out or expand. */
 export const safeHookPath = (p: string) => safePath(p) && !/[$`\n\r]/.test(p);
+
+/* ---------- Build check: ORBIT, not the model, confirms each reported object exists in Studio ---------- */
+
+export const MAX_VERIFY = 20;
+/** Workspace paths worth looking up (materials aren't instances; other paths can't be checked read-only from Workspace). */
+export const verifyTargets = (item: Item, r: BuildResult) => (item.kind === "material" ? [] : [...new Set(r.inserted.map((x) => x.path.trim()).filter(wsPath))].slice(0, MAX_VERIFY));
+
+/** One inspect_instance result → found / missing / unknown (a reply ORBIT can't read is never counted as found). */
+export function inspectFound(res: { isError?: boolean; text: string }): boolean | null {
+  if (res.isError) return false;
+  try {
+    const j = JSON.parse(res.text) as { path?: unknown; matches?: unknown[]; error?: unknown };
+    if (j.error) return false;
+    return typeof j.path === "string" || (Array.isArray(j.matches) && j.matches.length > 0) ? true : Array.isArray(j.matches) ? false : null;
+  } catch { return /could not find|couldn'?t find|not found|no instances?|does not exist/i.test(res.text) ? false : null; }
+}
+
+/** Fold the check into the result: per-object found flags, an honest note, and done=false when nothing reported is there. */
+export function applyVerify(r: BuildResult, found: Map<string, boolean | null> | null): BuildResult {
+  if (!found) return r.inserted.length ? { ...r, notes: `${r.notes} ORBIT couldn't check Studio itself, so look in Workspace to confirm.`.trim() } : r;
+  const inserted = r.inserted.map((x) => { const f = found.get(x.path.trim()); return typeof f === "boolean" ? { ...x, found: f } : x; });
+  const checked = inserted.filter((x) => x.found !== undefined), missing = checked.filter((x) => !x.found);
+  if (!checked.length) return { ...r, inserted };
+  const note = missing.length
+    ? `ORBIT checked Studio: ${checked.length - missing.length} of ${checked.length} found. Not there: ${missing.map((x) => x.path).join(", ")}.`
+    : `ORBIT checked Studio: all ${checked.length} found.`;
+  return { done: r.done && missing.length < checked.length, inserted, notes: `${r.notes} ${note}`.trim() };
+}
+
+/** studio_id for direct calls: the only open Studio, else the only one in Edit mode; null when it's ambiguous or none is open. */
+export function pickStudio(text: string): string | null {
+  try {
+    const list = (JSON.parse(text) as { studios?: { id?: unknown; mode?: unknown }[] }).studios ?? [];
+    const ids = (l: typeof list) => l.map((x) => x.id).filter((x): x is string => typeof x === "string" && x.length < 200);
+    const all = ids(list), edit = ids(list.filter((x) => x.mode === "Edit"));
+    return all.length === 1 ? all[0] : edit.length === 1 ? edit[0] : null;
+  } catch { return null; }
+}
