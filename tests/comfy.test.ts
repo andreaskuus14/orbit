@@ -78,3 +78,20 @@ test("local_image input and policy: T2 local write, Stop-all refuses it, reversi
   assert.match(coreToolRefusal(true, "local_image"), /paused/);
   assert.equal(EFFECTS.local_image, "reversible");
 });
+
+test("Z-Image-Turbo: official template settings, nvfp4 by default, int8 on request, shares NitroFusion2's encoder/VAE", async () => {
+  const { ZIMAGE, zImageFile, comfyModelName } = await import("../src/lib/comfy-pure.ts");
+  for (const raw of ["z-image-turbo", " Z-Image-Turbo ", "zimage"]) assert.equal(comfyModel(raw), "z-image-turbo");
+  assert.equal(comfyModelName("z-image-turbo"), "Z-Image-Turbo");
+  const input = { prompt: "a red fox in snow", width: 1344, height: 768, seed: 7 };
+  const g = imageWorkflow("z-image-turbo", input, zImageFile(undefined));
+  assert.equal(g["1"].inputs.unet_name, ZIMAGE.nvfp4);
+  assert.deepEqual([g["10"].inputs.steps, g["10"].inputs.cfg, g["10"].inputs.sampler_name, g["10"].inputs.scheduler], [8, 1, "res_multistep", "simple"]);
+  assert.equal(g["3"].inputs.shift, 3);
+  assert.equal(g["6"].inputs.text, "a red fox in snow"); // no SDXL photo suffix
+  assert.deepEqual([g["5"].inputs.clip_name, g["8"].inputs.vae_name], ["qwen_3_4b.safetensors", "ae.safetensors"]);
+  assert.equal(imageWorkflow("z-image-turbo", input, zImageFile("int8"))["1"].inputs.unet_name, ZIMAGE.int8);
+  for (const n of Object.values(g)) for (const v of Object.values(n.inputs)) if (Array.isArray(v)) assert.ok(g[String(v[0])], `missing node ${v[0]}`);
+  const e = parseQueued({ error: { message: "Value not in list: unet_name: 'z_image_turbo_nvfp4.safetensors' not in []" } }, "z-image-turbo");
+  assert.ok("error" in e && e.error.includes("-Model z-image-turbo"));
+});

@@ -4,10 +4,13 @@ import { serviceUrl } from "./local-ai-pure.ts";
 
 export const COMFY_URL = "http://127.0.0.1:8188";
 export const COMFY_SETUP = "powershell -ExecutionPolicy Bypass -File tools\\comfyui\\setup.ps1";
-export type ComfyModel = "sdxl-lightning" | "nitrofusion2";
-export const comfyModel = (raw: string | undefined): ComfyModel => raw?.trim().toLowerCase() === "nitrofusion2" ? "nitrofusion2" : "sdxl-lightning";
-export const comfyModelName = (model: ComfyModel) => model === "nitrofusion2" ? "NitroFusion2" : "SDXL-Lightning";
-export const comfySetup = (model: ComfyModel) => model === "nitrofusion2" ? `${COMFY_SETUP} -Model nitrofusion2` : COMFY_SETUP;
+export type ComfyModel = "sdxl-lightning" | "nitrofusion2" | "z-image-turbo";
+export const comfyModel = (raw: string | undefined): ComfyModel => {
+  const m = raw?.trim().toLowerCase();
+  return m === "nitrofusion2" ? "nitrofusion2" : m === "z-image-turbo" || m === "zimage" || m === "z-image" ? "z-image-turbo" : "sdxl-lightning";
+};
+export const comfyModelName = (model: ComfyModel) => model === "nitrofusion2" ? "NitroFusion2" : model === "z-image-turbo" ? "Z-Image-Turbo" : "SDXL-Lightning";
+export const comfySetup = (model: ComfyModel) => model === "sdxl-lightning" ? COMFY_SETUP : `${COMFY_SETUP} -Model ${model}`;
 export const comfyNotRunning = (model: ComfyModel) => `Local image generation isn't installed or couldn't start: run ${comfySetup(model)} once (ORBIT then starts ComfyUI by itself; log: tools/comfyui/service.log).`;
 /** ORBIT_COMFY_URL → origin, or null unless it is plain http on this PC (prompts never leave the PC). */
 export const comfyUrl = (raw: string | undefined) => serviceUrl(raw, COMFY_URL);
@@ -59,7 +62,29 @@ export function nitroWorkflow({ prompt, width, height, seed }: WorkflowIn): Retu
   };
 }
 
-export function imageWorkflow(model: ComfyModel, input: WorkflowIn): ReturnType<typeof workflow> {
+// Z-Image-Turbo (Tongyi-MAI, Apache-2.0), ComfyUI's official template: 8 steps, cfg 1, res_multistep/simple, AuraFlow shift 3.
+// Same Qwen3-4B encoder and VAE as NitroFusion2 (one install serves both). nvfp4 (4.5 GB) is native on RTX 50 / Blackwell;
+// the int8 build (6.2 GB) is for older cards. https://github.com/Comfy-Org/workflow_templates templates/image_z_image_turbo.json
+export const ZIMAGE = { nvfp4: "z_image_turbo_nvfp4.safetensors", int8: "z_image_turbo_int8_convrot.safetensors", steps: 8, license: "Apache-2.0" } as const;
+export const zImageFile = (raw: string | undefined) => (raw?.trim().toLowerCase() === "int8" ? ZIMAGE.int8 : ZIMAGE.nvfp4);
+export function zImageWorkflow({ prompt, width, height, seed }: WorkflowIn, file: string = ZIMAGE.nvfp4): ReturnType<typeof workflow> {
+  return {
+    "1": { class_type: "UNETLoader", inputs: { unet_name: file, weight_dtype: "default" } },
+    "3": { class_type: "ModelSamplingAuraFlow", inputs: { model: ["1", 0], shift: 3 } },
+    "5": { class_type: "CLIPLoader", inputs: { clip_name: "qwen_3_4b.safetensors", type: "lumina2", device: "default" } },
+    "6": { class_type: "CLIPTextEncode", inputs: { text: prompt, clip: ["5", 0] } },
+    "7": { class_type: "ConditioningZeroOut", inputs: { conditioning: ["6", 0] } },
+    "8": { class_type: "VAELoader", inputs: { vae_name: "ae.safetensors" } },
+    "9": { class_type: "EmptySD3LatentImage", inputs: { width, height, batch_size: 1 } },
+    "10": { class_type: "KSampler", inputs: { seed, steps: ZIMAGE.steps, cfg: 1, sampler_name: "res_multistep", scheduler: "simple", denoise: 1,
+      model: ["3", 0], positive: ["6", 0], negative: ["7", 0], latent_image: ["9", 0] } },
+    "12": { class_type: "VAEDecode", inputs: { samples: ["10", 0], vae: ["8", 0] } },
+    "60": { class_type: "SaveImage", inputs: { filename_prefix: "orbit", images: ["12", 0] } },
+  };
+}
+
+export function imageWorkflow(model: ComfyModel, input: WorkflowIn, zImage?: string): ReturnType<typeof workflow> {
+  if (model === "z-image-turbo") return zImageWorkflow(input, zImage ?? ZIMAGE.nvfp4);
   return model === "nitrofusion2" ? nitroWorkflow(input) : workflow({ ...input, prompt: `${input.prompt}. ${PHOTO}` });
 }
 
@@ -73,8 +98,8 @@ export function parseQueued(j: unknown, model: ComfyModel = "sdxl-lightning"): {
   const node = Object.values(o.node_errors ?? {}).flatMap((n) => n.errors ?? []).map((e) => [e.message, e.details].filter(Boolean).join(": "))[0];
   const top = typeof o.error === "string" ? o.error : [o.error?.message, o.error?.details].filter((x) => typeof x === "string" && x).join(": ");
   const msg = (node || top || "ComfyUI refused the job").slice(0, 300);
-  if (model === "nitrofusion2") {
-    return { error: /unet_name|clip_name|vae_name|does not exist/i.test(msg) ? `ComfyUI could not load the NitroFusion2 workflow: ${msg}. Check the model files and your ComfyUI version, then run ${comfySetup(model)}.` : msg };
+  if (model === "nitrofusion2" || model === "z-image-turbo") {
+    return { error: /unet_name|clip_name|vae_name|does not exist/i.test(msg) ? `ComfyUI could not load the ${comfyModelName(model)} workflow: ${msg}. Check the model files and your ComfyUI version, then run ${comfySetup(model)}.` : msg };
   }
   return { error: /ckpt_name|not in \[|value_not_in_list/i.test(msg) ? `The model file ${MODEL.file} is missing in ComfyUI: run ${COMFY_SETUP} again.` : msg };
 }

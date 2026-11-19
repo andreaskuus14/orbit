@@ -3,7 +3,7 @@
 import { saveUpload } from "./vault";
 import { assetName } from "./local-ai-pure";
 import { stopAllOn } from "./stop-all";
-import { checkImage, comfyModel, comfyModelName, comfyNotRunning, comfyUrl, imageWorkflow, parseHistory, parseQueued, parseStats, seedOf, sizeFor, viewPath, type ComfyHealth, type ComfyModel } from "./comfy-pure";
+import { checkImage, comfyModel, comfyModelName, comfyNotRunning, comfyUrl, imageWorkflow, parseHistory, parseQueued, parseStats, seedOf, sizeFor, viewPath, zImageFile, type ComfyHealth, type ComfyModel } from "./comfy-pure";
 
 const base = () => comfyUrl(process.env.ORBIT_COMFY_URL);
 export const configuredComfyModel = () => comfyModel(process.env.ORBIT_COMFY_MODEL);
@@ -31,7 +31,7 @@ function autostart(u: string): Promise<boolean> {
     child.on("error", () => { G.__orbitComfy = null; });
     child.on("exit", () => { G.__orbitComfy = null; });
     // First launch on Windows can exceed the usual 90 seconds while Python initializes.
-    const deadline = Date.now() + (configuredComfyModel() === "nitrofusion2" ? 180_000 : 90_000);
+    const deadline = Date.now() + (configuredComfyModel() !== "sdxl-lightning" ? 180_000 : 90_000);
     while (Date.now() < deadline && child.exitCode === null && child.pid) {
       await new Promise((r) => setTimeout(r, 1500));
       if (await stats(u, 2000)) return true;
@@ -65,7 +65,7 @@ export async function generate(prompt: string, aspect: unknown, seedText = promp
   const model = configuredComfyModel();
   if (!(await comfyReady())) throw new Error(comfyNotRunning(model));
   const [width, height] = sizeFor(aspect);
-  const graph = imageWorkflow(model, { prompt, width, height, seed: seedOf(seedText) });
+  const graph = imageWorkflow(model, { prompt, width, height, seed: seedOf(seedText) }, zImageFile(process.env.ORBIT_COMFY_ZIMAGE));
   const q = parseQueued(await (await post(u, "/prompt", { prompt: graph, client_id: "orbit" })).json().catch(() => null), model);
   if ("error" in q) throw new Error(q.error);
   const until = Date.now() + timeoutMs; // the first picture loads the 6.9 GB model from disk

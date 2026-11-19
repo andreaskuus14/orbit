@@ -51,3 +51,14 @@ The model choice also applies to local website pictures. To switch back, clear `
 
 The `browse` tool and page watch's "JS page" option use the Chrome or Edge already on this PC (through `playwright-core`,
 already in ORBIT's packages): nothing to install. Without either, run `npx playwright install chromium` once.
+
+## Z-Image-Turbo (optional, recommended on RTX 50)
+
+[Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) (Tongyi-MAI, Apache-2.0) runs ComfyUI's official template: 8 steps,
+cfg 1, `res_multistep`/`simple`, AuraFlow shift 3. NitroFusion2 is a one-step distillation of the same base, so Z-Image-Turbo trades a
+few seconds for clearly better detail. It shares NitroFusion2's Qwen3-4B encoder and VAE: with NitroFusion2 installed, only the
+diffusion model downloads: **nvfp4, 4.5 GB** on RTX 50 / Blackwell (native 4-bit), or **int8, 6.2 GB** on older cards.
+
+1. `powershell -ExecutionPolicy Bypass -File tools\comfyui\setup.ps1 -Model z-image-turbo`
+2. Add `ORBIT_COMFY_MODEL=z-image-turbo` to `.env.local` (and `ORBIT_COMFY_ZIMAGE=int8` on a non-RTX-50 card), restart ORBIT.
+3. Ask CORE for a local picture; compare with the same prompt on NitroFusion2.

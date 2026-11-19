@@ -5,7 +5,7 @@
 # Downloads are pinned and SHA-256 checked. Finished parts are skipped, a cut-off model download resumes.
 # ORBIT then starts ComfyUI by itself on 127.0.0.1:8188 when it needs a picture (start.ps1 runs it by hand).
 # UNTESTED on Windows/GPU: written in a cloud box. Needs an NVIDIA driver 580 or newer (CUDA 13.0); the RTX 5060 Laptop is fine.
-param([ValidateSet("sdxl-lightning", "nitrofusion2")][string]$Model = "sdxl-lightning")
+param([ValidateSet("sdxl-lightning", "nitrofusion2", "z-image-turbo")][string]$Model = "sdxl-lightning")
 
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
@@ -80,6 +80,20 @@ if ($Model -eq "nitrofusion2") {
   InstallModel "diffusion_models\nitrofusion2_w4a8_gptq.safetensors" "$NitroRepo/diffusion_models/nitrofusion2_w4a8_gptq.safetensors" "373741d551d0dc768a02f0ef49eeeca7bf29b992b889c413e99bdac60716443b" 3488205928
   InstallModel "text_encoders\qwen_3_4b.safetensors" "$ZImageRepo/text_encoders/qwen_3_4b.safetensors" "6c671498573ac2f7a5501502ccce8d2b08ea6ca2f661c458e708f36b36edfc5a" 8044982048
   InstallModel "vae\ae.safetensors" "$ZImageRepo/vae/ae.safetensors" "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38" 335304388
+} elseif ($Model -eq "z-image-turbo") {
+  # Z-Image-Turbo (Tongyi-MAI, Apache-2.0) from ComfyUI's own repo, pinned. Shares encoder + VAE with NitroFusion2.
+  # nvfp4 is native on RTX 50 (Blackwell); older cards get the int8 build and need ORBIT_COMFY_ZIMAGE=int8.
+  $ZImageRepo = "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files"
+  $Blackwell = "$drv" -match "RTX 50|RTX PRO .*Blackwell|B[0-9]{2,3}"
+  if ($Blackwell) {
+    Step "Model: Z-Image-Turbo nvfp4 (4.5 GB) + encoder and VAE (8.4 GB, skipped if NitroFusion2 is installed)"
+    InstallModel "diffusion_models\z_image_turbo_nvfp4.safetensors" "$ZImageRepo/diffusion_models/z_image_turbo_nvfp4.safetensors" "a553c889dbcb910de4c98293237573219a37007c1074a3f04576646a088bd5c8" 4509509600
+  } else {
+    Step "Model: Z-Image-Turbo int8 (6.2 GB) + encoder and VAE (8.4 GB, skipped if NitroFusion2 is installed)"
+    InstallModel "diffusion_models\z_image_turbo_int8_convrot.safetensors" "$ZImageRepo/diffusion_models/z_image_turbo_int8_convrot.safetensors" "be517ebd47c912a5626a588e1aeea43e6be4a43c0cdcd2b48a2a780d9f358635" 6201001296
+  }
+  InstallModel "text_encoders\qwen_3_4b.safetensors" "$ZImageRepo/text_encoders/qwen_3_4b.safetensors" "6c671498573ac2f7a5501502ccce8d2b08ea6ca2f661c458e708f36b36edfc5a" 8044982048
+  InstallModel "vae\ae.safetensors" "$ZImageRepo/vae/ae.safetensors" "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38" 335304388
 } else {
   Step "Model: SDXL-Lightning 4-step (6.9 GB)"
   InstallModel "checkpoints\$ModelFile" $ModelUrl $ModelSha $ModelBytes
@@ -94,4 +108,5 @@ if (-not ((Test-Path "$env:ProgramFiles\Google\Chrome\Application\chrome.exe") -
 
 Write-Host "`nDone. ORBIT starts ComfyUI by itself when it needs a picture." -ForegroundColor Green
 if ($Model -eq "nitrofusion2") { Write-Host "Set ORBIT_COMFY_MODEL=nitrofusion2 in .env.local and restart ORBIT to select NitroFusion2." }
+if ($Model -eq "z-image-turbo") { Write-Host "Set ORBIT_COMFY_MODEL=z-image-turbo in .env.local (plus ORBIT_COMFY_ZIMAGE=int8 on a non-RTX-50 card) and restart ORBIT." }
 Write-Host "Check it in OPERATIONS -> Local AI ('Pictures (unlimited)'). To run it by hand: powershell -ExecutionPolicy Bypass -File tools\comfyui\start.ps1"
