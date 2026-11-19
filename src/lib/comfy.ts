@@ -43,7 +43,7 @@ function autostart(u: string): Promise<boolean> {
 }
 
 export async function comfyHealth(): Promise<ComfyHealth & { model: ComfyModel }> {
-  const u = base();
+  const u = comfyBase();
   const model = configuredComfyModel();
   if (!u) return { ...parseStats(null, false), model };
   const j = await stats(u);
@@ -53,7 +53,7 @@ export async function comfyHealth(): Promise<ComfyHealth & { model: ComfyModel }
 
 /** Is local generation usable right now (running, or installed and started within the wait)? */
 export async function comfyReady(): Promise<boolean> {
-  const u = base();
+  const u = comfyBase();
   return !!u && (!!(await stats(u, 2000)) || await autostart(u));
 }
 
@@ -61,7 +61,7 @@ export const comfyPost = (u: string, path: string, body: unknown) => fetch(`${u}
 
 /** One picture as PNG bytes. The model leaves the GPU 2 min after the last picture (other local AI tools share the 8 GB). */
 export async function generate(prompt: string, aspect: unknown, seedText = prompt, timeoutMs = 4 * 60_000): Promise<Uint8Array> {
-  const u = base();
+  const u = comfyBase();
   if (!u) throw new Error("ORBIT_COMFY_URL must point at this PC (http://127.0.0.1:<port>).");
   if (stopAllOn()) throw new Error("ORBIT is paused (Stop-all is on)");
   const model = configuredComfyModel();
