@@ -21,6 +21,10 @@ $Nodes = Join-Path $Comfy "custom_nodes\ComfyUI-Trellis2-GGUF"
 $UvVersion = "0.13.9"
 $ComfyRepo = "https://github.com/comfyanonymous/ComfyUI.git"; $ComfyRev = "a277b5bf213e8a44fa34817b7770b54f86ef4cea" # v0.46.0
 $NodesRepo = "https://github.com/Aero-Ex/ComfyUI-Trellis2-GGUF.git"; $NodesRev = "b3b9e951874c5fb5c936566c93b908299be08b2c" # MIT
+# The Trellis2 pack only unpacks its GGUF weights when city96's ComfyUI-GGUF sits next to it; without it the model loads
+# raw quantized bytes ("size of tensor a (1536) must match ... b (1056)"), seen on the 4th run.
+$GgufRepo = "https://github.com/city96/ComfyUI-GGUF.git"; $GgufRev = "6ea2651e7df66d7585f6ffee804b20e92fb38b8a" # Apache-2.0
+$Gguf = Join-Path $Comfy "custom_nodes\ComfyUI-GGUF"
 $TorchIndex = "https://download.pytorch.org/whl/cu130"; $Torch = @("torch==2.10.0", "torchvision==0.25.0")
 # Prebuilt CUDA helpers for exactly Python 3.12 + torch 2.10 + CUDA 13.0 on Windows (PozzettiAndrea/cuda-wheels, the node pack's source).
 $WheelBase = "https://github.com/PozzettiAndrea/cuda-wheels/releases/download"
@@ -67,6 +71,16 @@ Run $Uv (@("pip", "install", "--python", $Py, "--reinstall") + $Torch + @("--ind
 
 Step "TRELLIS.2 nodes + CUDA helper wheels (cumesh, nvdiffrast, flex_gemm, o_voxel)"
 Pin $Nodes $NodesRepo $NodesRev
+Pin $Gguf $GgufRepo $GgufRev
+# Background removal: rembg's default model is bria-rmbg (RMBG-2.0, CC BY-NC = non-commercial). Point the pinned node at
+# BiRefNet (MIT) instead. Pin re-checks-out the file each run, so this patch is re-applied cleanly every time.
+$NodesPy = Join-Path $Nodes "nodes.py"
+$src = [IO.File]::ReadAllText($NodesPy)
+$nl = if ($src.Contains("`r`n")) { "`r`n" } else { "`n" } # git on Windows may check out CRLF
+$old = "            from rembg import remove$($nl)            image = remove(image)"
+$new = "            from rembg import remove, new_session$($nl)            image = remove(image, session=new_session('birefnet-general'))  # ORBIT: MIT model, not bria-rmbg (non-commercial)"
+if (-not $src.Contains($old)) { throw "Couldn't find the background-removal line in the Trellis2 nodes to switch it to BiRefNet." }
+[IO.File]::WriteAllText($NodesPy, $src.Replace($old, $new))
 Run $Uv (@("pip", "install", "--python", $Py) + ($Wheels | ForEach-Object { "$WheelBase/$_" }))
 Push-Location $Nodes
 # requirements.txt, triton-windows and its patches for cumesh/o_voxel (needs the wheels above installed first)
