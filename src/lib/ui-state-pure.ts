@@ -20,3 +20,10 @@ export function nextTab(key: string, i: number, n: number): number | null {
   if (key === "End") return n - 1;
   return null;
 }
+
+/** Tabs with a "More" menu: primary views stay in the row, secondary ones go in the menu. The open view always shows in the
+ *  row (so the tab panel keeps its label and he sees where he is), even when it is a secondary one. */
+export function splitTabs<V extends { id: string; secondary?: boolean }>(views: readonly V[], current: string): { row: V[]; more: V[] } {
+  const row = views.filter((v) => !v.secondary || v.id === current);
+  return { row, more: views.filter((v) => v.secondary && v.id !== current) };
+}

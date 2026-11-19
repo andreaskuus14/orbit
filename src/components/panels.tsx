@@ -1,6 +1,7 @@
 "use client";
 import { COMMUNICATION_STORED_MAX, isBrief, withBrief } from "@/lib/brief-mode-pure";
 import { hereLink } from "./voice/object-command";
+import type { DeepLink } from "@/lib/deeplink-pure";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isSleepCommand } from "./voice/wake";
 import { goToSleep } from "./voice/sleep";
@@ -97,7 +98,7 @@ async function waitTask(id: string, live: () => boolean): Promise<{ status: stri
   return null;
 }
 
-export function CorePanel({ initial, initialSkill, onConsumed, onOpenMemory, greeting, onGreeted }: { initial: string | null; initialSkill?: SkillLaunch; onConsumed: () => void; onOpenMemory: (id: string) => void; greeting?: string | null; onGreeted?: () => void }) {
+export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOpenMemory, greeting, onGreeted }: { initial: string | null; initialSkill?: SkillLaunch; initialHere?: DeepLink | null /* the planet the Ask came from */; onConsumed: () => void; onOpenMemory: (id: string) => void; greeting?: string | null; onGreeted?: () => void }) {
   const { t: tr } = useT();
   const [msgs, setMsgs] = useState<Msg[]>([]);
   // "Orbital wake up" greeting: shown as a CORE bubble only (local state, never sent to /api/core or saved).
@@ -223,7 +224,7 @@ export function CorePanel({ initial, initialSkill, onConsumed, onOpenMemory, gre
     return () => { alive.current = false; setTimeout(() => { if (!alive.current && !flying.current) stopSpeech(); }, 0); };
   }, []);
 
-  const send = useCallback(async (text: string, fromVoice?: boolean, look?: Preset, skill?: SkillLaunch) => {
+  const send = useCallback(async (text: string, fromVoice?: boolean, look?: Preset, skill?: SkillLaunch, at?: DeepLink | null) => {
     const message = text.trim();
     const mine = view.current, here = () => mine === view.current;
     const nav = parseNavCommand(message, { current: "core" });
@@ -273,7 +274,7 @@ export function CorePanel({ initial, initialSkill, onConsumed, onOpenMemory, gre
     try {
       const res = await fetch("/api/core?stream=1", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
-        body: JSON.stringify({ message, conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, lang: getLang(), here: hereLink(), screen: look ? true : undefined, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
+        body: JSON.stringify({ message, conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, lang: getLang(), here: at ?? hereLink(), screen: look ? true : undefined, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
       });
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}));
@@ -376,7 +377,7 @@ export function CorePanel({ initial, initialSkill, onConsumed, onOpenMemory, gre
 
   // React dev mode runs effects twice; remember what we already sent so the command bar message goes out once.
   const sentInitial = useRef<string | null>(null);
-  const queued = useRef<{ text: string; skill?: SkillLaunch } | null>(null);
+  const queued = useRef<{ text: string; skill?: SkillLaunch; here?: DeepLink | null } | null>(null);
   useEffect(() => {
     if (!initial) { sentInitial.current = null; return; }
     const key = initialSkill?.runId ?? initial;
@@ -387,15 +388,15 @@ export function CorePanel({ initial, initialSkill, onConsumed, onOpenMemory, gre
     // A cancel stops the job; any other follow-up (talking over CORE included) waits for it to finish.
     if (busy) { if (cancelsJob(initial)) { abort.current?.abort(); stopSpeech(); } else {
       if (queued.current?.skill) updateSkillRun(queued.current.skill, { state: "cancelled" }); // replaced by a newer question before it ran
-      queued.current = { text: initial, skill: initialSkill };
+      queued.current = { text: initial, skill: initialSkill, here: initialHere };
     } }
-    else void send(initial, undefined, undefined, initialSkill);
+    else void send(initial, undefined, undefined, initialSkill, initialHere);
   }, [initial, initialSkill]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (busy || !queued.current) return;
     const q = queued.current;
     queued.current = null;
-    void send(q.text, undefined, undefined, q.skill);
+    void send(q.text, undefined, undefined, q.skill, q.here);
   }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   // Follow the answer only while the reader is at the bottom: scrolling up to read keeps its place (audit 8 Nov).
   const atBottom = useRef(true);

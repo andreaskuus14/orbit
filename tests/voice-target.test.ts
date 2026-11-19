@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { contextLine, currentTarget, parseIntent, parseWhen, resolve, safeLink, spokenNumber, spokenOrdinal, yesNo, type Rec } from "../src/lib/voice-target-pure.ts";
+import { askHere, contextLine, currentTarget, parseIntent, parseWhen, resolve, safeLink, spokenNumber, spokenOrdinal, yesNo, type Rec } from "../src/lib/voice-target-pure.ts";
 
 const recs: Rec[] = [
   { kind: "client", id: "c1", name: "Kask OÜ", planet: "business" },
@@ -47,6 +47,16 @@ test("CORE context from a re-validated deep link only", () => {
   assert.equal(safeLink({ planet: "nope" }), null);
   assert.deepEqual(safeLink({ planet: "business", kind: "client", id: "<x>" }), { planet: "business" });
   assert.equal(contextLine(safeLink("junk")), "");
+});
+
+test("askHere: the planet an Ask came from, with the URL's view/record only when it is about that planet", () => {
+  assert.deepEqual(askHere({ planet: "studio", view: "clips" }, "studio"), { planet: "studio", view: "clips" });
+  assert.deepEqual(askHere({ planet: "core" }, "life"), { planet: "life" }); // the hash lagging behind: still the planet on screen
+  assert.deepEqual(askHere(null, "vault"), { planet: "vault" });
+  assert.equal(askHere(null, null), null); // galaxy
+  assert.equal(askHere({ planet: "core" }, "core"), null);
+  assert.equal(askHere(null, "nope"), null); // not a planet
+  assert.match(contextLine(askHere(null, "arch")), /planet arch/);
 });
 
 test("Estonian and English dates", () => {

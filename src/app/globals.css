@@ -901,7 +901,7 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .rm-shell .muted { color: #a9bbd6; } /* a notch brighter than the desktop muted for outdoor contrast */
 @media (prefers-reduced-motion: reduce) { .rm-core, .rm-star { animation: none; } }
 /* G05: workspace tabs and primary actions reach 44px on phones; G04 shared state line. */
-@media (max-width: 640px), (pointer: coarse) { .ws-tabs [role="tab"], .state-note .chip { min-height: 44px; min-width: 44px; } }
+@media (max-width: 640px), (pointer: coarse) { .ws-tabs [role="tab"], .ws-more, .state-note .chip { min-height: 44px; min-width: 44px; } }
 /* Drawer chrome: the shell title names the planet once; tabs scroll in one row with fade edges; Herald toasts start below the drawer header. */
 .drawer .ws-title { display: none; }
 .drawer .ws-head:not(:has(.ws-ctx, button, a, select)) { display: none; }

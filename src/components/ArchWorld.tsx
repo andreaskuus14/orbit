@@ -12,6 +12,7 @@ import { Canvas, useFrame, useThree, type RootState } from "@react-three/fiber";
 import { ContactShadows, Edges, Line, OrbitControls, PerformanceMonitor } from "@react-three/drei";
 import { useGlRecovery } from "./useGlRecovery";
 import { useT } from "./i18n";
+import { PlanetHome, useManual } from "./PlanetHome";
 import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
 import { domeArcs, hourSegments, type Vec } from "@/lib/arch-sunpath-pure";
 import { concepts as makeConcepts, type Brief } from "@/lib/arch-concepts-pure";
@@ -409,12 +410,15 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const noRects = useMemo<Rect[]>(() => [], []);
   const scanPlot = useMemo(() => scan && { w: scan.bounds.hi[0] - scan.bounds.lo[0] + 4, d: scan.bounds.hi[2] - scan.bounds.lo[2] + 4 }, [scan]);
 
-  async function send() {
-    if (!cmd.trim() || busy) return;
+  // Simple home until he opens Manual tools; a lesson, scan, walk or a save that needs him shows the tools.
+  const [manual, setManual] = useManual("arch");
+  const simple = !manual && !lesson && !scan && !walk && save.status !== "conflict" && save.status !== "failed";
+  async function send(text = cmd) {
+    if (!text.trim() || busy) return;
     setBusy(true); setMsg("");
     const base = sceneRef.current, baseRev = revRef.current;
     try {
-      const r = await fetch("/api/arch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scene: base, rev: baseRev, command: cmd }) });
+      const r = await fetch("/api/arch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scene: base, rev: baseRev, command: text }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `Failed (${r.status})`);
       if (staleCheck(base, baseRev, sceneRef.current, revRef.current, j.ops as Op[]) === "conflict") { setConflict({ ops: j.ops, say: j.say || "" }); setCmd(""); return; }
@@ -518,10 +522,14 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
 
       <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[45dvh] space-y-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label={tr("arch.controls")}>
         <h2 className="brand world-header flex items-center gap-2 text-base"><WorldEmblem id="arch" size={28} />{"ARCH"}<WorldHeaderArt id="arch" /></h2>
-        <ProjectDesk key={project || "unassigned"} project={project} onSelect={onProject} active={!paused} disabled={!ready || busy || lessonBusy || !!lesson || ["saving", "failed", "conflict"].includes(save.status)} />
+        {simple ? <PlanetHome planet="arch" onManual={() => setManual(true)} onExample={(q) => void send(q)} />
+          : <button className="link text-xs" onClick={() => setManual(false)}>← {tr("ph.simple")}</button>}
+        {/* Manual tools stay mounted while hidden (autosave, history and exports keep working exactly as before) */}
+        <div hidden={simple}><ProjectDesk key={project || "unassigned"} project={project} onSelect={onProject} active={!paused} disabled={!ready || busy || lessonBusy || !!lesson || ["saving", "failed", "conflict"].includes(save.status)} /></div>
         <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void send(); }}>
           <input className="field flex-1" placeholder={tr("arch.cmdPh")} value={cmd} maxLength={500} onChange={(e) => setCmd(e.target.value)} aria-label={tr("arch.cmd")} />
           <button className="btn" disabled={busy || !cmd.trim()}>{tr(busy ? "arch.working" : "arch.doIt")}</button>
+          {simple && past.length > 0 && <button type="button" className="chip" onClick={undo}>↶ {tr("arch.undo")}</button>}{/* the toolbar's Undo is in Manual tools */}
         </form>
         {msg && <p aria-live="polite">{msg}</p>}
         {conflict && (
@@ -531,6 +539,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
             <button className="chip" onClick={() => setConflict(null)}>{tr("arch.conflictDrop")}</button>
           </div>
         )}
+        <div hidden={simple} className="space-y-3">
         <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void teach(); }}>
           <input className="field flex-1" placeholder={tr("arch.topicPh")} value={topic} maxLength={200} onChange={(e) => setTopic(e.target.value)} aria-label={tr("arch.topic")} />
           <button className="btn" disabled={lessonBusy || !topic.trim()}>{lessonBusy ? tr("cf.writing") : `📚 ${tr("arch.teach")}`}</button>
@@ -750,6 +759,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
 
         {tips.length > 0 && <div className="card space-y-1"><div className="muted text-[10px] uppercase tracking-widest">{tr("arch.bulk")}</div>{tips.map((t) => <p key={t} className="text-xs">• {t}</p>)}</div>}
         <p className="muted text-[11px]">{tr("arch.studyTool")}</p>
+        </div>
       </section>
 
       {walk && !flat && <WalkPad />}
