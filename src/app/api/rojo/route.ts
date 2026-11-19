@@ -1,11 +1,12 @@
 import { requireUser } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/activity";
 import { stopAllOn } from "@/lib/stop-all";
+import { checkAfterExport } from "@/lib/selene";
 import { exportPlace, lintProject, listProjects, projectsRoot, serveStatus, startServe, stopServe } from "@/lib/rojo";
 
 // GAME DEV → Build → Files (Rojo + Selene on this PC). Every action is the owner's own click; everything stays on his PC.
 //   GET                                  → { root, projects, serve }
-//   POST {action:"export", place}        → ExportResult (rojo syncback + git commit)
+//   POST {action:"export", place}        → ExportResult + selene (rojo syncback + git commit, then the automatic Selene check)
 //   POST {action:"lint", project?}       → { name, dir, lint }  (read-only)
 //   POST {action:"serve", project?}      → serve status        POST {action:"stop"} → serve status
 export async function GET() {
@@ -15,7 +16,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const { res } = await requireUser();
+  const { sb, user, res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => ({}))) as { action?: string; place?: unknown; project?: unknown };
   try {
@@ -30,7 +31,8 @@ export async function POST(req: Request) {
     }
     const r = await exportPlace(b.place);
     logActivity({ area: "system", title: `Exported Roblox scripts: ${r.name}`, detail: `${r.scripts} script file(s) in ${r.dir}${r.committed ? ", committed to git" : ", no changes"}` });
-    return Response.json(r);
+    const selene = await checkAfterExport(sb, user.id, r); // Selene on the fresh files; never fails the export
+    return Response.json({ ...r, selene });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 502 });
   }

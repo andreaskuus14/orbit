@@ -8,7 +8,7 @@ import { PINK } from "./RobloxBuild";
 type Project = { name: string; dir: string; at: string };
 type Serve = { port: number; running: boolean; ours: string | null; log: string };
 type Info = { root: string; projects: Project[]; serve: Serve };
-type Exported = { name: string; dir: string; scripts: number; committed: boolean; first: boolean };
+type Exported = { name: string; dir: string; scripts: number; committed: boolean; first: boolean; selene?: { status: string; text: string } };
 
 async function api<T>(body?: object): Promise<T> {
   const res = await fetch("/api/rojo", body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : { cache: "no-store" });
@@ -48,6 +48,7 @@ export default function RojoPanel() {
           <button className="btn" disabled={!!busy || !place.trim()} onClick={() => go("export", async () => { const r = await api<Exported>({ action: "export", place }); setDone(r); setProject(r.name); })}>{busy === "export" ? "Exporting…" : "Export scripts to files"}</button>
         </div>
         {done && <p className="text-xs" style={{ color: "#4ade80" }}>Exported {done.scripts} script file(s) to {done.dir}. {done.committed ? (done.first ? "First git commit made." : "Changes committed: run git log -p there to review them.") : "Nothing changed since the last export."}</p>}
+        {done?.selene && <p className="muted whitespace-pre-wrap text-xs" style={done.selene.status === "ok" ? undefined : { color: "#facc15" }}>{done.selene.text}</p>}
       </div>
 
       <div className="card space-y-1.5">
