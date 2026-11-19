@@ -4,6 +4,7 @@ import { operatorAllows, decide, type Decision, type PolicyCtx } from "./policy-
 import { skillDenied } from "./skills-pure.ts";
 import type { StreamResult } from "./streamjson.ts";
 import { streamJsonInput } from "./attach-pure.ts";
+import { STEP_CHARS } from "./clip-store-pure.ts";
 
 export const CORE_ENGINE = process.env.ORBIT_CORE_ENGINE === "sdk" ? "sdk" : "cli";
 export const SERVER = "orbit";
@@ -19,10 +20,10 @@ export const orbitName = (name: string) => (name.startsWith(PREFIX) ? name.slice
 
 /** core.ts's step record: decide() reads these for taint (navigate-first, private tools, links), so the format must match. */
 export const stepLine = (tool: string, input: Record<string, unknown>, out: string) =>
-  `You called ${tool} ${JSON.stringify(input).slice(0, 300)}\nRESULT:\n${out.slice(0, 8000)}`;
+  `You called ${tool} ${JSON.stringify(input).slice(0, 300)}\nRESULT:\n${out.slice(0, STEP_CHARS)}`;
 
 /** An ORBIT tool's text as an MCP tool result; "Error: ..." (core.ts's convention) becomes isError. */
-export const toolResult = (out: string) => ({ content: [{ type: "text" as const, text: out.slice(0, 8000) }], isError: out.startsWith("Error:") });
+export const toolResult = (out: string) => ({ content: [{ type: "text" as const, text: out.slice(0, STEP_CHARS) }], isError: out.startsWith("Error:") });
 
 /** Every SDK tool call passes skillDenied() and decide() first, exactly as core.ts's loop does; a refusal never runs the tool.
  *  ctx is read per call so a Stop-all flipped mid-turn applies to the next tool. attachBlock: the turn's attachment text (skill limits). */

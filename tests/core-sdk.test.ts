@@ -80,7 +80,7 @@ test("images: one SDK user message with the image blocks before the text, as the
 
 test("tool results: Error: text becomes isError, long output is capped like core.ts", () => {
   assert.deepEqual(toolResult("Error: nope"), { content: [{ type: "text", text: "Error: nope" }], isError: true });
-  assert.equal(toolResult("x".repeat(9000)).content[0].text.length, 8000);
+  assert.equal(toolResult("x".repeat(40000)).content[0].text.length, 32000);
   assert.equal(toolResult("ok").isError, false);
 });
 
