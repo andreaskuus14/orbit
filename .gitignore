@@ -28,6 +28,11 @@ orbit-launcher.log.1
 /tools/comfyui/ComfyUI_windows_portable/
 /tools/comfyui/downloads/
 /tools/comfyui/service.log
+# tools/trellis: own Python 3.12 env, ComfyUI + TRELLIS.2 nodes and models (setup.ps1)
+/tools/trellis/env/
+/tools/trellis/ComfyUI/
+/tools/trellis/uv/
+/tools/trellis/service.log
 
 # npm run eval results (scripts/eval-core.ts)
 /evals/runs/
@@ -42,3 +47,4 @@ orbit-launcher.log.1
 !/tools/trials/clips/**/.gitkeep
 /tools/trials/results/*
 !/tools/trials/results/.gitkeep
+/tools/trellis/smoke-output.glb
