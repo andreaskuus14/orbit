@@ -3,7 +3,7 @@
 // Needs tools\trellis\start.ps1 running (or ORBIT's autostart); waits up to 5 min for it to come up. Writes tools/trellis/smoke-output.glb and prints
 // time, size and triangle count (must be <= 20,000 for Roblox).
 import { readFileSync, writeFileSync } from "node:fs";
-import { ROBLOX, isGlb, outputRef, parseQueued, parseRun, workflow } from "../../src/lib/trellis-pure.ts";
+import { ROBLOX, glbMaterials, isGlb, outputRef, parseQueued, parseRun, robloxMaterials, workflow } from "../../src/lib/trellis-pure.ts";
 
 const u = "http://127.0.0.1:8189";
 const pic = process.argv[2] ?? new URL("./smoke-test.png", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
@@ -48,8 +48,11 @@ for (;;) {
   if ((Date.now() - t0) % 60_000 < 5000) console.log(`still working (${sec()})`);
 }
 const r = await fetch(`${u}/view?${new URLSearchParams(outputRef(job))}`);
-const glb = new Uint8Array(await r.arrayBuffer());
-if (!r.ok || !isGlb(glb)) { console.error(`FAIL: finished but no .glb came back (${r.status}).`); process.exit(1); }
+const raw = new Uint8Array(await r.arrayBuffer());
+if (!r.ok || !isGlb(raw)) { console.error(`FAIL: finished but no .glb came back (${r.status}).`); process.exit(1); }
+const glb = robloxMaterials(raw); // same step ORBIT applies
+const mat = glbMaterials(glb)[0]?.pbrMetallicRoughness ?? {};
+console.log(`material: metallic ${mat.metallicFactor}, roughness ${mat.roughnessFactor}`);
 const out = new URL("./smoke-output.glb", import.meta.url);
 writeFileSync(out, glb);
 const tris = triangles(glb);

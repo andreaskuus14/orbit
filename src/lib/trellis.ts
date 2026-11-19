@@ -3,7 +3,7 @@
 import { readStream, saveUpload } from "./vault";
 import { assetName } from "./local-ai-pure";
 import { stopAllOn } from "./stop-all";
-import { MODEL, isGlb, outputRef, parseQueued, parseRun, trellisNotRunning, trellisUrl, workflow } from "./trellis-pure";
+import { MODEL, isGlb, outputRef, robloxMaterials, parseQueued, parseRun, trellisNotRunning, trellisUrl, workflow } from "./trellis-pure";
 
 const base = () => trellisUrl(process.env.ORBIT_TRELLIS_URL);
 const G = globalThis as unknown as { __orbitTrellis?: Promise<boolean> | null; __orbitTrellisFree?: NodeJS.Timeout };
@@ -66,7 +66,7 @@ export async function trellisModel(picture: Blob, job: string, timeoutMs = 25 * 
         const r = await fetch(`${u}/view?${new URLSearchParams(outputRef(job))}`, { signal: AbortSignal.timeout(60_000) });
         const bytes = new Uint8Array(await r.arrayBuffer());
         if (!r.ok || !isGlb(bytes)) throw new Error(`TRELLIS.2 finished but the .glb couldn't be read (${r.status}); see tools/trellis/service.log.`);
-        return bytes;
+        return robloxMaterials(bytes);
       }
     }
   } finally {

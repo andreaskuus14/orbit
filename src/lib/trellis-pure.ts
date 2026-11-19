@@ -66,3 +66,39 @@ export function parseRun(j: unknown, id: string): { state: "pending" } | { state
 
 /** A .glb is a binary glTF: 12-byte header starting with "glTF". Guards against saving an error page into VAULT. */
 export const isGlb = (b: Uint8Array) => b.length > 12 && b[0] === 0x67 && b[1] === 0x6c && b[2] === 0x54 && b[3] === 0x46;
+
+/** Roblox look: TRELLIS.2 bakes PBR with metallic ~0.8 / roughness ~0.07 (seen on the RTX 5060 run), which renders like chrome
+ * reflecting the sky. Rewrite every material to non-metal, fully rough, keep the colour texture. Only the JSON chunk changes. */
+export function robloxMaterials(glb: Uint8Array): Uint8Array {
+  if (!isGlb(glb)) return glb;
+  const dv = new DataView(glb.buffer, glb.byteOffset, glb.byteLength);
+  const jsonLen = dv.getUint32(12, true);
+  if (dv.getUint32(16, true) !== 0x4e4f534a) return glb; // first chunk must be JSON
+  const j = JSON.parse(new TextDecoder().decode(glb.subarray(20, 20 + jsonLen))) as { materials?: { pbrMetallicRoughness?: Record<string, unknown> }[] };
+  if (!j.materials?.length) return glb;
+  for (const m of j.materials) {
+    const p = (m.pbrMetallicRoughness ??= {});
+    p.metallicFactor = 0;
+    p.roughnessFactor = 1;
+    delete p.metallicRoughnessTexture;
+  }
+  let json = new TextEncoder().encode(JSON.stringify(j));
+  const pad = (4 - (json.length % 4)) % 4; // chunks are 4-byte aligned; JSON pads with spaces
+  if (pad) { const p = new Uint8Array(json.length + pad).fill(0x20); p.set(json); json = p; }
+  const rest = glb.subarray(20 + jsonLen); // BIN chunk (header + data), unchanged
+  const out = new Uint8Array(12 + 8 + json.length + rest.length);
+  const o = new DataView(out.buffer);
+  out.set(glb.subarray(0, 12));
+  o.setUint32(8, out.length, true);
+  o.setUint32(12, json.length, true);
+  o.setUint32(16, 0x4e4f534a, true);
+  out.set(json, 20);
+  out.set(rest, 20 + json.length);
+  return out;
+}
+
+/** Materials of a .glb (for tests and the smoke check). */
+export function glbMaterials(glb: Uint8Array): { pbrMetallicRoughness?: Record<string, unknown> }[] {
+  const len = new DataView(glb.buffer, glb.byteOffset).getUint32(12, true);
+  return (JSON.parse(new TextDecoder().decode(glb.subarray(20, 20 + len))) as { materials?: [] }).materials ?? [];
+}
