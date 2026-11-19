@@ -122,7 +122,7 @@ export async function checkTools(): Promise<ToolsStatus> {
 export function videoEncoder(ff: string): Promise<VideoEncoder> {
   if (process.env.ORBIT_NVENC === "0") return Promise.resolve("x264");
   return (S.encoder ??= runFfmpeg(ff, ["-hide_banner", "-nostdin", "-f", "lavfi", "-i", "color=black:s=256x256:d=0.2", ...videoCodec("nvenc"), "-f", "null", "-"], { timeoutMs: 20_000 })
-    .then(() => "nvenc" as const, (e: unknown) => { console.error("[orbit] NVENC unavailable, rendering on the CPU:", (e instanceof Error ? e.message : String(e)).slice(-600)); return "x264" as const; }));
+    .then(() => { console.log("[orbit] Clip encoder: NVENC (GPU)"); return "nvenc" as const; }, (e: unknown) => { console.error("[orbit] NVENC unavailable, rendering on the CPU:", (e instanceof Error ? e.message : String(e)).slice(-600)); return "x264" as const; }));
 }
 
 export function runFfmpeg(ff: string, args: string[], o: { cwd?: string; signal?: AbortSignal; timeoutMs: number; okCodes?: number[]; onTime?: (sec: number) => void }): Promise<string> {
@@ -788,7 +788,7 @@ async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o:
       S.encoder = Promise.resolve("x264");
       await runFfmpeg(ff, args("x264"), { cwd: dir, signal, timeoutMs: 15 * 60_000 });
     }
-    if (fx.layer) warn(await hf.applyEffects(ff, dir, video, fx.layer, ass, signal));
+    if (fx.layer) warn(await hf.applyEffects(ff, dir, video, fx.layer, ass, signal, await videoEncoder(ff)));
     clip.video = `clips/${job.id}/${video}`;
   } catch (e) {
     await rm(path.join(dir, video), { force: true }); // don't leave a truncated mp4 behind

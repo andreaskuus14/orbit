@@ -38,3 +38,12 @@ test("renderArgs uses libx264 by default and h264_nvenc when asked", () => {
   assert.ok(gpu.includes("yuv420p") && !gpu.includes("-crf"));
   assert.deepEqual(videoCodec("x264"), ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21"]); // unchanged CPU output
 });
+
+import { burnAssArgs, overlayArgs } from "../src/lib/clips/hyperframes-pure.ts";
+test("the effects passes follow the clip's encoder (CPU by default)", () => {
+  const cpu = overlayArgs("v.mp4", "l.mov", "o.mp4"), gpu = overlayArgs("v.mp4", "l.mov", "o.mp4", "nvenc");
+  assert.equal(cpu[cpu.indexOf("-c:v") + 1], "libx264");
+  assert.equal(gpu[gpu.indexOf("-c:v") + 1], "h264_nvenc");
+  const b = burnAssArgs("v.mp4", "c.ass", "o.mp4", "nvenc");
+  assert.equal(b[b.indexOf("-c:v") + 1], "h264_nvenc");
+});
