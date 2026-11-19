@@ -13,7 +13,7 @@ still uses TripoSR from `tools/local-ai`.
 | License | TRELLIS.2: MIT. Image encoder DINOv3: Meta's DINOv3 License (commercial use allowed; no military use) |
 | Output | `.glb`, background removed first (rembg), max 20,000 triangles and a 1024 px texture (Roblox's import limits) |
 | VRAM / speed | fits 8 GB in low-VRAM mode; about 2 min per model on an RTX 4060-class laptop GPU (community numbers) |
-| Where | separate ComfyUI on `127.0.0.1:8189`, own Python 3.12 + PyTorch 2.8 CUDA 12.8 in `tools/trellis/env` |
+| Where | separate ComfyUI on `127.0.0.1:8189`, own Python 3.12 + PyTorch 2.10 CUDA 13.0 in `tools/trellis/env` |
 
 Why a separate ComfyUI: TRELLIS.2's CUDA helpers (cumesh, nvdiffrast, flex_gemm, o_voxel) ship Windows wheels only for Python
 3.11/3.12; `tools/comfyui` runs Python 3.13, and forcing them in would break local pictures.
@@ -22,7 +22,7 @@ Not used on purpose: Hunyuan3D (its license excludes the EU) and the Pixal3D mod
 
 ## Setup (once)
 
-1. NVIDIA driver 570 or newer, and git (`winget install Git.Git`).
+1. NVIDIA driver 580 or newer, and git (`winget install Git.Git`).
 2. In the ORBIT folder: `powershell -ExecutionPolicy Bypass -File tools\trellis\setup.ps1`
 3. Ask CORE: "make a best-quality 3D model of <VAULT picture>". The first job downloads ~10 GB of model files.
 4. Check the result: Roblox Studio → Import 3D → the `.glb` from VAULT.

@@ -1,6 +1,6 @@
 // Smoke test for the TRELLIS.2 service, without ORBIT running: picture → .glb through the exact graph ORBIT sends.
 //   node --experimental-strip-types tools/trellis/smoke.ts [picture.png]
-// Needs tools\trellis\start.ps1 running (or ORBIT's autostart). Writes tools/trellis/smoke-output.glb and prints
+// Needs tools\trellis\start.ps1 running (or ORBIT's autostart); waits up to 5 min for it to come up. Writes tools/trellis/smoke-output.glb and prints
 // time, size and triangle count (must be <= 20,000 for Roblox).
 import { readFileSync, writeFileSync } from "node:fs";
 import { ROBLOX, isGlb, outputRef, parseQueued, parseRun, workflow } from "../../src/lib/trellis-pure.ts";
@@ -19,6 +19,13 @@ function triangles(b: Uint8Array): number {
   return Math.round(n);
 }
 
+// wait for the server (first start imports torch and checks the node pack: can take a few minutes)
+for (let i = 0; ; i++) {
+  if (await fetch(`${u}/system_stats`).then((r) => r.ok, () => false)) break;
+  if (i >= 60) { console.error(`FAIL: TRELLIS.2 isn't running on ${u} after 5 min. Start tools\\trellis\\start.ps1 and check its window.`); process.exit(1); }
+  if (i === 0) console.log("waiting for the TRELLIS.2 server...");
+  await new Promise((r) => setTimeout(r, 5000));
+}
 const up = new FormData();
 up.append("image", new Blob([readFileSync(pic)], { type: "image/png" }), "orbit-smoke.png");
 up.append("overwrite", "true");
