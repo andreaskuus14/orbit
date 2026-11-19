@@ -36,9 +36,13 @@ const job = `smoke${Date.now().toString(36)}`;
 const q = parseQueued(await (await fetch(`${u}/prompt`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: workflow({ image: name, seed: 42, job }), client_id: "orbit-smoke" }) })).json());
 if ("error" in q) { console.error(`FAIL (queue): ${q.error}`); process.exit(1); }
 console.log(`queued ${q.id}; the first run downloads ~10 GB of model files...`);
+const limit = 45 * 60_000; // first run downloads ~9 GB; a normal job is a few minutes
 for (;;) {
   await new Promise((r) => setTimeout(r, 5000));
-  const h = parseRun(await (await fetch(`${u}/history/${q.id}`)).json(), q.id);
+  if (Date.now() - t0 > limit) { await fetch(`${u}/interrupt`, { method: "POST" }).catch(() => {}); console.error(`FAIL: no result after ${sec()}. Check the TRELLIS.2 window for the error.`); process.exit(1); }
+  const res = await fetch(`${u}/history/${q.id}`).catch(() => null);
+  if (!res) { console.error(`FAIL after ${sec()}: the TRELLIS.2 server stopped. Check its window for the error.`); process.exit(1); }
+  const h = parseRun(await res.json(), q.id);
   if (h.state === "error") { console.error(`FAIL after ${sec()}: ${h.error}`); process.exit(1); }
   if (h.state === "done") break;
   if ((Date.now() - t0) % 60_000 < 5000) console.log(`still working (${sec()})`);

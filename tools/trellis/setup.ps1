@@ -5,7 +5,9 @@
 # Everything is pinned. Model weights (~10 GB: TRELLIS.2 GGUF + DINOv3 encoder) download on the first 3D job.
 # ORBIT then starts it by itself on 127.0.0.1:8189 (start.ps1 runs it by hand). Re-running skips finished parts.
 # Needs git and an NVIDIA driver 580 or newer (CUDA 13.0). First run on the RTX 5060 Laptop (2026-11-19): the node pack's own
-# installer picked no CUDA wheels, so the five CUDA helpers are now installed from exact URLs below.
+# installer picked no CUDA wheels, so the five CUDA helpers are now installed from exact URLs below. Its own wheel step then
+# prints 'not a supported wheel' errors (it grabs Linux builds): harmless, the Windows ones are already in. Second run: rembg
+# had no onnxruntime and the job hung, so it's installed explicitly.
 
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
@@ -70,8 +72,10 @@ Push-Location $Nodes
 # requirements.txt, triton-windows and its patches for cumesh/o_voxel (needs the wheels above installed first)
 try { Run $Py @("install.py") } finally { Pop-Location }
 Run $Uv (@("pip", "install", "--python", $Py) + $Torch + @("--index-url", $TorchIndex)) # keep the CUDA 13 torch if anything swapped it
+# rembg (background removal before 3D) exits the whole job without an ONNX runtime. CPU build: the GPU one targets CUDA 12.
+Run $Uv @("pip", "install", "--python", $Py, "onnxruntime==1.32.0")
 
 Step "Check"
-Run $Py @("-c", "import torch, cumesh, o_voxel, nvdiffrast; print('torch', torch.__version__, 'cuda', torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '-')")
+Run $Py @("-c", "import torch, cumesh, o_voxel, nvdiffrast, onnxruntime; print('torch', torch.__version__, 'cuda', torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '-')")
 Write-Host "`nDone. ORBIT starts TRELLIS.2 by itself; ask CORE for a 'best' 3D model from a VAULT picture." -ForegroundColor Green
 Write-Host "The first job downloads the model files (~10 GB) and takes longer. Log: tools\trellis\service.log"
