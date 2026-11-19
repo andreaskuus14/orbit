@@ -57,4 +57,4 @@ const out = new URL("./smoke-output.glb", import.meta.url);
 writeFileSync(out, glb);
 const tris = triangles(glb);
 console.log(`${tris <= ROBLOX.maxFaces ? "PASS" : "FAIL"}: ${sec()}, ${(glb.length / 1e6).toFixed(1)} MB, ${tris} triangles (Roblox max ${ROBLOX.maxFaces}). Saved ${out.pathname}`);
-console.log("Last check is yours: Roblox Studio → Import 3D → tools\\trellis\\smoke-output.glb");
+console.log("Last check is yours: Roblox Studio > Import 3D > tools\\trellis\\smoke-output.glb");
