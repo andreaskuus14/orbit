@@ -1,4 +1,5 @@
 "use client";
+import { PlanetHome, useManual } from "./PlanetHome";
 import { WarmCompile } from "./WarmCompile";
 import StateNote from "./StateNote";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -196,6 +197,9 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
   const [adding, setAdding] = useState(false);
   const { t } = useT();
   const [tab, setTab] = useState<Tool>("games");
+  const [manual, setManual] = useManual("creation");
+  const [sites, setSites] = useState<{ slug: string; mtime: number; preview: string }[] | null>(null); // CORE's built sites, shown as results
+  useEffect(() => { if (!paused) fetch("/api/workspace", { cache: "no-store" }).then((r) => r.json()).then((j) => setSites(j.workspaces ?? []), () => setSites([])); }, [paused]);
   const [fix, setFix] = useState<{ key: number; error: string } | undefined>(); // backlog → Code helper (Fix mode)
   const [rising, setRising] = useState(0); // bumped by a Herald trend card: Trend Radar opens on Rising
   useEffect(() => { if (tab !== "trends") setRising(0); }, [tab]); // leaving the radar ends the jump, so coming back opens it normally (runs before the mount check below, which may bump it)
@@ -280,7 +284,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
         <ambientLight intensity={0.35} />
         <ForgeStar reduced={reduced} />
         {games.map((g, i) => <OrbitPath key={`p-${g.id}`} r={orbitR(i)} />)}
-        {games.map((g, i) => <Island key={g.id} game={g} i={i} selected={g.id === selected} reduced={reduced} onPick={(id) => { setSelected(id); setTab("detail"); }} onHover={onHover} />)}
+        {games.map((g, i) => <Island key={g.id} game={g} i={i} selected={g.id === selected} reduced={reduced} onPick={(id) => { setSelected(id); setTab("detail"); setManual(true); }} onHover={onHover} />)}
         <BugSwarm games={games} bugs={bugs} reduced={reduced} />
         <OrbitControls makeDefault enablePan={false} minDistance={3} maxDistance={far * 2} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
         <Rig />
@@ -303,6 +307,14 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
 
       <section className="glass hud-panel world-panel panel-in absolute z-[14] inset-x-3 bottom-32 max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:w-[30rem] min-[900px]:max-h-[calc(100dvh-11rem)]"
         aria-label="Game studio">
+        {!manual && !game ? ( // AI-first home; the studio tools below are one click away ("Manual tools")
+          <PlanetHome planet="creation" onManual={() => setManual(true)} onOpenTask={onOpenTask ?? (() => {})}
+            results={!world || !sites ? null : [
+              ...games.map((g) => ({ id: `g-${g.id}`, title: `🎮 ${g.name}`, sub: `${g.stage} · ${t("ph.bugs", { n: bugStats(world, g.id).active })}`, open: () => { setSelected(g.id); setTab("detail"); setManual(true); } })),
+              ...sites.map((w) => ({ id: `w-${w.slug}`, title: `🌐 ${w.slug}`, sub: new Date(w.mtime).toLocaleDateString(), open: () => window.open(w.preview, "_blank", "noopener,noreferrer") })),
+            ]} />
+        ) : <>
+        <button className="link mb-2 text-xs" onClick={() => { setManual(false); setSelected(null); setTab("games"); }}>← {t("ph.simple")}</button>
         <WorkspaceFrame planet="creation" title={`${t("gd.title")} · ${game?.name ?? t("gd.noGame")}`} view={view} onView={(v) => setTab(VIEWS[v][0][0])}
           views={VIEW_IDS.map((v) => ({ id: v, label: t(`gd.v.${v}`), secondary: v !== "projects" && !game }))}
           context={game ? contractBrief(game) : t("gd.ctxNone", { n: games.length, b: bugs.filter(isActive).length })}>
@@ -371,6 +383,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
           </>
         ) : null}
         </WorkspaceFrame>
+        </>}
         {err && <p className="error mt-2" role="alert">{err}</p>}
       </section>
 

@@ -1,4 +1,5 @@
 "use client";
+import { PlanetHome, useManual } from "./PlanetHome";
 import { pendingSeen } from "@/lib/approval-bind-pure";
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { notifyProjectsChanged } from "@/lib/project-list";
@@ -270,6 +271,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   const [newProject, setNewProject] = useState("");
   const [filter, setFilter] = useState<string>("");
   const [tab, setTab] = useState<"tasks" | "team" | "automations" | "plans" | "rules" | "activity" | "localai">("tasks");
+  const [manual, setManual] = useManual("operations");
   const [inbox, setInbox] = useState(INITIAL_INBOX);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -322,8 +324,15 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
 
   if (open) return <TaskView id={open} onBack={() => { setOpen(null); void load(); }} openMemory={openMemory} />;
 
+  if (!manual) return ( // AI-first home: ask, what needs him, recent results; the tools below sit behind "Manual tools"
+    <PlanetHome planet="operations" onManual={() => setManual(true)} onOpenTask={setOpen}
+      results={loading && !tasks.length ? null : tasks.filter((x) => x.status === "done" && !x.parent_id).slice(0, 6).map((x) => ({
+        id: x.id, title: x.title, sub: `${x.agent} · ${x.finished_at ? new Date(x.finished_at).toLocaleString() : ""}`, open: () => setOpen(x.id),
+      }))} />
+  );
   const tabs = (
-    <div className="flex gap-1.5" role="tablist">
+    <div className="flex flex-wrap gap-1.5" role="tablist">
+      <button className="chip" onClick={() => setManual(false)}>← {tr("ph.simple")}</button>
       {(["tasks", "team", "automations", "plans", "rules", "activity", "localai"] as const).map((t) => (
         <button key={t} role="tab" aria-selected={tab === t} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
           {tr(`ops.tab.${t}`)}
