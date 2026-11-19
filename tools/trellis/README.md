@@ -3,8 +3,9 @@
 CORE's `local_3d` with `"quality": "best"` turns one VAULT picture into a textured `.glb` sized for Roblox. `"fast"` (the default)
 still uses TripoSR from `tools/local-ai`.
 
-**Status: being tested on the RTX 5060 Laptop (2026-11-19).** Install works (torch 2.10 cu130, CUDA helpers, ~9 GB models);
-first generation found the missing ComfyUI-GGUF pack, now added. Graph and reply parsing are unit-tested (`tests/trellis.test.ts`).
+**Status: works on the RTX 5060 Laptop (2026-11-19).** Smoke test PASS: picture → textured `.glb`, 19,356 triangles, 2.8 MB,
+445 s end to end (sampling ~2 min; most of the rest is cleaning/simplifying a ~3M-face mesh down to Roblox's limit).
+Still to check by hand: Roblox Studio → Import 3D. Graph and reply parsing are unit-tested (`tests/trellis.test.ts`).
 
 | | |
 |---|---|
@@ -12,7 +13,7 @@ first generation found the missing ComfyUI-GGUF pack, now added. Graph and reply
 | Nodes | [Aero-Ex/ComfyUI-Trellis2-GGUF](https://github.com/Aero-Ex/ComfyUI-Trellis2-GGUF) (MIT) + [city96/ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) (Apache-2.0, needed to unpack GGUF weights), both pinned |
 | License | TRELLIS.2: MIT. Image encoder DINOv3: Meta's DINOv3 License (commercial use allowed; no military use) |
 | Output | `.glb`, background removed first (rembg with BiRefNet, MIT; setup patches out rembg's non-commercial default bria-rmbg), max 20,000 triangles and a 1024 px texture (Roblox's import limits) |
-| VRAM / speed | fits 8 GB in low-VRAM mode; about 2 min per model on an RTX 4060-class laptop GPU (community numbers) |
+| VRAM / speed | fits 8 GB in low-VRAM mode; ~7.5 min per model on the RTX 5060 Laptop (measured), first job also downloads ~10 GB |
 | Where | separate ComfyUI on `127.0.0.1:8189`, own Python 3.12 + PyTorch 2.10 CUDA 13.0 in `tools/trellis/env` |
 
 Why a separate ComfyUI: TRELLIS.2's CUDA helpers (cumesh, nvdiffrast, flex_gemm, o_voxel) ship Windows wheels only for Python

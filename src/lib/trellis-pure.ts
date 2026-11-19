@@ -11,7 +11,7 @@ export const trellisUrl = (raw: string | undefined) => serviceUrl(raw, TRELLIS_U
 
 /** Roblox import limits: 20,000 triangles per MeshPart and 1024 px textures (bigger ones are refused or downscaled). */
 export const ROBLOX = { maxFaces: 20_000, texture: 1024 } as const;
-/** GGUF Q5_K_M + low-VRAM mode: the community-tested setting for 8 GB cards (~2 min at 1024 on an RTX 4060-class GPU). */
+/** GGUF Q5_K_M + low-VRAM mode for 8 GB cards: measured ~7.5 min per model on the RTX 5060 Laptop (2026-11-19). */
 export const MODEL = { name: "TRELLIS.2-4B", format: "GGUF Q5_K_M", license: "MIT (TRELLIS.2) + DINOv3 License (image encoder; commercial use allowed)" } as const;
 
 export type Quality = "fast" | "best";
