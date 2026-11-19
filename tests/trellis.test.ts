@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MODEL, ROBLOX, glbMaterials, isGlb, robloxMaterials, jobPrefix, outputRef, parseQueued, parseRun, qualityOf, trellisUrl, workflow } from "../src/lib/trellis-pure.ts";
+import { MODEL, ROBLOX, TARGET_FACES, glbMaterials, isGlb, robloxMaterials, jobPrefix, outputRef, parseQueued, parseRun, qualityOf, trellisUrl, workflow } from "../src/lib/trellis-pure.ts";
 
 test("workflow: background cut, TRELLIS.2 GGUF in low-VRAM mode, mesh capped to Roblox limits, glb export under orbit3d/", () => {
   const w = workflow({ image: "pet.png", seed: 42, job: "j123" });
@@ -10,7 +10,8 @@ test("workflow: background cut, TRELLIS.2 GGUF in low-VRAM mode, mesh capped to 
   assert.deepEqual(w["4"].inputs.image, ["2", 0]);
   assert.equal(w["4"].inputs.seed, 42);
   assert.deepEqual([w["5"].inputs.mesh, w["5"].inputs.bvh], [["4", 0], ["4", 1]]);
-  assert.equal(w["5"].inputs.target_face_num, ROBLOX.maxFaces);
+  assert.equal(w["5"].inputs.target_face_num, TARGET_FACES);
+  assert.ok(TARGET_FACES <= ROBLOX.maxFaces * 0.95);
   assert.equal(w["5"].inputs.texture_size, ROBLOX.texture);
   assert.deepEqual([w["6"].inputs.trimesh, w["6"].inputs.filename_prefix, w["6"].inputs.file_format], [["5", 0], "orbit3d/j123", "glb"]);
   // every link points at a node in the graph

@@ -11,6 +11,8 @@ export const trellisUrl = (raw: string | undefined) => serviceUrl(raw, TRELLIS_U
 
 /** Roblox import limits: 20,000 triangles per MeshPart and 1024 px textures (bigger ones are refused or downscaled). */
 export const ROBLOX = { maxFaces: 20_000, texture: 1024 } as const;
+/** What we ask the simplifier for: it overshoots a little (20,017 for a 20,000 target on the flower-pot run), so keep a 5% margin. */
+export const TARGET_FACES = 19_000;
 /** GGUF Q5_K_M + low-VRAM mode for 8 GB cards: measured ~7.5 min per model on the RTX 5060 Laptop (2026-11-19). */
 export const MODEL = { name: "TRELLIS.2-4B", format: "GGUF Q5_K_M", license: "MIT (TRELLIS.2) + DINOv3 License (image encoder; commercial use allowed)" } as const;
 
@@ -35,7 +37,7 @@ export function workflow({ image, seed, job }: WorkflowIn): Graph {
       generate_texture_slat: true, use_tiled_decoder: true } },
     "5": { class_type: "Trellis2PostProcessAndUnWrapAndRasterizer_GGUF", inputs: { mesh: ["4", 0], bvh: ["4", 1],
       mesh_cluster_threshold_cone_half_angle_rad: 60, mesh_cluster_refine_iterations: 0, mesh_cluster_global_iterations: 1, mesh_cluster_smooth_strength: 1,
-      texture_size: ROBLOX.texture, remesh: true, remesh_band: 1, remesh_project: 0, target_face_num: ROBLOX.maxFaces, simplify_method: "Cumesh",
+      texture_size: ROBLOX.texture, remesh: true, remesh_band: 1, remesh_project: 0, target_face_num: TARGET_FACES, simplify_method: "Cumesh",
       fill_holes: true, texture_alpha_mode: "OPAQUE", dual_contouring_resolution: "1024", double_side_material: false, remove_floaters: true,
       bake_on_vertices: false, use_custom_normals: false, uv_unwrap_method: "Xatlas", remove_inner_faces: true } },
     "6": { class_type: "Trellis2ExportMesh_GGUF", inputs: { trimesh: ["5", 0], filename_prefix: jobPrefix(job), file_format: "glb" } },
