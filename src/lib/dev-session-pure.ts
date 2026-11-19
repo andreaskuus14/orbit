@@ -124,6 +124,11 @@ export function eventFromBuild(label: string, r: BuildResult & { historyId?: str
   }, at);
 }
 
+/** Selene after a Rojo export (counts on the session: errors and warnings, the first few as lines). */
+export function eventFromSelene(project: string, errors: string[], warnings: string[], note = "", at?: string): DevEvent {
+  return ev("build", `Selene: ${project}${note ? ` (${note})` : ""}`, { ok: errors.length === 0, errors: list(errors), warnings: list(warnings) }, at);
+}
+
 export function eventFromPlaytest(goal: string, r: PlaytestResult, shot?: string, at?: string): DevEvent {
   return ev("playtest", `Playtest${goal ? `: ${goal}` : ""}`, {
     ok: r.done, errors: list(r.consoleErrors),
