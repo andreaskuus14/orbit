@@ -2,7 +2,7 @@ import { authorizeApproval } from "../authority";
 import { RECAP_SOURCE } from "./publish-checks-pure";
 import { destinationProblem, mediaProblem } from "./handoff-pure";
 import { mediaCheckArgs, mediaVerdict, rightsProblem, type MediaCheck } from "./production-pure";
-import { languageVerdict } from "./lang-pure";
+import { languageVerdict, transcriptLanguage } from "./lang-pure";
 import { clipContent, contentHash } from "../approval-pure";
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -102,10 +102,18 @@ export async function ytdlpPath(): Promise<string | null> {
   return null;
 }
 
+/** Whisper (transformers.js) loads? The error text when not, so a broken install says why instead of "missing". */
+const whisperLib = () => import("@huggingface/transformers").then(() => null, (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 200));
+/** Parakeet's runtime loads (its model downloads on first use)? Off when ORBIT_ASR=whisper. */
+const parakeetLib = () => wantParakeet(process.env.ORBIT_ASR) ? import("./parakeet").then((m) => m.parakeetRuntime()).then(() => true, () => false) : Promise.resolve(false);
+/** Any transcriber: Parakeet or Whisper. */
+export const hasTranscriber = async () => (await parakeetLib()) || (await whisperLib()) === null;
+
 export async function checkTools(): Promise<ToolsStatus> {
-  const [ffmpeg, ytdlp] = await Promise.all([ffmpegPath().then(Boolean), ytdlpPath().then(Boolean)]);
-  const transcriber = await import("@huggingface/transformers").then(() => true, () => false);
-  const missing = [...(ffmpeg ? [] : ["ffmpeg (npm install ffmpeg-static, or set ORBIT_FFMPEG)"]), ...(transcriber ? [] : ["@huggingface/transformers (npm install)"]),
+  const [ffmpeg, ytdlp, parakeet, whisperErr] = await Promise.all([ffmpegPath().then(Boolean), ytdlpPath().then(Boolean), parakeetLib(), whisperLib()]);
+  const transcriber = parakeet || whisperErr === null;
+  if (whisperErr) console.error("[orbit] Whisper (transformers.js) doesn't load:", whisperErr);
+  const missing = [...(ffmpeg ? [] : ["ffmpeg (npm install ffmpeg-static, or set ORBIT_FFMPEG)"]), ...(transcriber ? [] : [`a transcriber: npm install (Whisper: ${whisperErr})`]),
     ...(ytdlp ? [] : ["yt-dlp (winget install yt-dlp.yt-dlp)"])]; // optional: only "Add from link" needs it
   return { ffmpeg, transcriber, ytdlp, missing };
 }
@@ -432,7 +440,7 @@ async function runJob(job: ClipJob, signal: AbortSignal) {
     lap("audio");
 
     if (hasAudio && o.captions) {
-      if (!(await import("@huggingface/transformers").then(() => true, () => false))) job.warnings.push("Transcriber not installed: no captions, moments picked by loudness only");
+      if (!(await hasTranscriber())) job.warnings.push("Transcriber not installed: no captions, moments picked by loudness only");
       else {
         try {
           // Long videos: only the loudest stretches are transcribed (loudness is cheap, Whisper is the slow step).
@@ -444,8 +452,11 @@ async function runJob(job: ClipJob, signal: AbortSignal) {
           const phase = (p: AsrPhase) => signal.aborted ? undefined : void set(job, "transcribing", 0.08, p.phase === "loading" ? "Loading the transcriber"
             : `Downloading the transcriber (first run only)${p.f !== undefined ? ` ${Math.round(p.f * 100)}%` : ""}`).catch(() => {});
           // Other creators' videos must be English (auto too: transformers.js assumes English anyway). Own devlog footage is never skipped.
-          if (o.preset !== "devlog") { await set(job, "transcribing", 0.08, "Checking the audio is English"); await checkEnglish(pcmFile, spans, signal, phase); }
+          let checked = o.preset === "devlog";
+          if (!checked && (await whisperLib()) === null) { await set(job, "transcribing", 0.08, "Checking the audio is English"); await checkEnglish(pcmFile, spans, signal, phase); checked = true; }
           words = cleanWords(await transcribe(pcmFile, spans, o.language, signal, phase, (f) => set(job, "transcribing", 0.08 + 0.45 * f, `Transcribing${what} ${Math.round(f * 100)}%`))); // also feeds Claude a transcript without loops
+          // No Whisper to guess the language: judge Parakeet's words instead, so the English-only rule still holds.
+          if (!checked && transcriptLanguage(words) === "other") throw new NotEnglishError("Skipped: the speech isn't English (judged from the transcript). ORBIT only clips English videos from other creators.");
         } catch (e) {
           if (signal.aborted || e instanceof NotEnglishError) throw e; // wrong language: no clips at all, not clips without captions
           job.warnings.push(`Transcription failed, continuing without captions: ${e instanceof Error ? e.message : e}`);

@@ -7,7 +7,7 @@ import { PAUSED_MSG } from "../stop-all-pure";
 import { usageHardHold } from "../usage-meter";
 import { shortsUrl } from "../yt-viral-pure";
 import { audioArgs, parseDuration, probeArgs, YTDLP_FILE_MARK, ytdlpError, type Word } from "./pure";
-import { ffmpegPath, readState, runFfmpeg, runYtdlp, saveState, studioRoot, transcribe, ytdlpPath } from "./factory";
+import { ffmpegPath, hasTranscriber, readState, runFfmpeg, runYtdlp, saveState, studioRoot, transcribe, ytdlpPath } from "./factory";
 import {
   PLAYBOOK_MIN, STUDY_MAX_SEC, STUDY_SYSTEM, STUDY_V, addStudy, buildPlaybook, framePlan, parseLesson, playbookEdit, playbookText, sceneArgs, sceneTimes, studyFacts, studyFrameArgs,
   studyProblem, studyPrompt, studyTranscript, studyYtdlpArgs, type EditTune, type Lesson, type Playbook, type StudyState,
@@ -71,7 +71,7 @@ export async function studyShort(meta: { id: string; title: string; channel: str
     if (duration > STUDY_MAX_SEC + 1) throw new Error(`Longer than ${STUDY_MAX_SEC / 60} min: not a Short`);
 
     let words: Word[] = [];
-    if (/Stream #\d+:\d+.*: Audio:/.test(probe) && await import("@huggingface/transformers").then(() => true, () => false)) {
+    if (/Stream #\d+:\d+.*: Audio:/.test(probe) && await hasTranscriber()) {
       try {
         await runFfmpeg(ff, audioArgs(video, "audio.f32"), { cwd: dir, signal, timeoutMs: 5 * 60_000 });
         words = await transcribe(path.join(dir, "audio.f32"), [{ start: 0, end: duration }], "auto", signal, () => {}, async () => {});
