@@ -17,6 +17,7 @@ export const SCHEMAS: Record<string, Schema> = {
   scrape_page: S(["url"], { url: str, mode: str, select: str }),
   read_news: S(["query"], { query: str, hours: num, country: str }),
   find_outliers: S([], { channel: str, query: str, limit: num }),
+  find_lead_candidates: S(["area"], { area: str, types: { type: "array", items: str }, limit: num }),
   read_more: S(["ref", "offset"], { ref: str, offset: num }),
   ask_agent: S(["agent", "request"], { agent: str, request: str }),
   save_memory: S(["title", "content"], { title: str, content: str, kind: en("note", "idea", "project", "preference", "decision", "goal"), tags: { type: "array", items: str } }),
