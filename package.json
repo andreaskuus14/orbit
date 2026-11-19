@@ -61,6 +61,7 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "sharp": "^0.34.3",
+    "sherpa-onnx-node": "2.0.2",
     "three": "^0.180.0",
     "unpdf": "^1.0.0",
     "web-ifc": "0.0.78",

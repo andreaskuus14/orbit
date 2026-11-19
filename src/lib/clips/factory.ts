@@ -18,6 +18,8 @@ import { stopAllOn } from "../stop-all";
 import { retryConsent, retryFingerprint } from "./flop-retry-pure";
 import { createLimiter } from "../pure";
 import { asrPipeline, asrWorkers, type AsrPhase } from "../asr-pool";
+import { wantParakeet } from "./parakeet-pure";
+import { videoCodec, type VideoEncoder } from "./encode-pure";
 import { CHANNEL_LINK_MSG, channelLink, mmss, rootClipId } from "./format";
 import { isVideoId, uploadError, type VideoResource } from "../yt-analytics-pure";
 import { OAuthError, getAccessToken, invalidateAccess, readStored } from "../yt-oauth";
@@ -73,6 +75,7 @@ type State = {
   pub?: { job: string; clip: string; ctrl: AbortController; done: Promise<void> };
   ver?: { job: string; ctrl: AbortController; done: Promise<void> }; verChain?: Promise<void>; verPending?: Set<string>; // "<job>/<clip>" versions queued or rendering
   write: Promise<unknown>; edit?: Promise<unknown>; deleted: Set<string>;
+  encoder?: Promise<VideoEncoder>; // nvenc or x264, detected once (videoEncoder)
 };
 // On globalThis so dev hot reloads keep one queue and one loaded Whisper model.
 const g = globalThis as unknown as { __orbitClips?: State };
@@ -105,6 +108,13 @@ export async function checkTools(): Promise<ToolsStatus> {
   const missing = [...(ffmpeg ? [] : ["ffmpeg (npm install ffmpeg-static, or set ORBIT_FFMPEG)"]), ...(transcriber ? [] : ["@huggingface/transformers (npm install)"]),
     ...(ytdlp ? [] : ["yt-dlp (winget install yt-dlp.yt-dlp)"])]; // optional: only "Add from link" needs it
   return { ffmpeg, transcriber, ytdlp, missing };
+}
+
+/** h264_nvenc when this ffmpeg has it and the GPU accepts a tiny test encode; else libx264. Checked once. ORBIT_NVENC=0 turns it off. */
+export function videoEncoder(ff: string): Promise<VideoEncoder> {
+  if (process.env.ORBIT_NVENC === "0") return Promise.resolve("x264");
+  return (S.encoder ??= runFfmpeg(ff, ["-hide_banner", "-nostdin", "-f", "lavfi", "-i", "color=black:s=256x256:d=0.2", ...videoCodec("nvenc"), "-f", "null", "-"], { timeoutMs: 20_000 })
+    .then(() => "nvenc" as const, () => "x264" as const));
 }
 
 export function runFfmpeg(ff: string, args: string[], o: { cwd?: string; signal?: AbortSignal; timeoutMs: number; okCodes?: number[]; onTime?: (sec: number) => void }): Promise<string> {
@@ -430,9 +440,9 @@ async function runJob(job: ClipJob, signal: AbortSignal) {
           // Chat knows where the moments are: transcribe around its hype peaks first, then the loudest stretches.
           if (hype?.chatMsgs && hype.peaks.length && totalSec(spans) < duration - 1) spans = hypeRegions(hype.peaks, spans, asrBudgetSec(duration, o.count), duration);
           const what = spans.length === 1 && spans[0].end - spans[0].start >= duration - 1 ? "" : ` the ${Math.round(totalSec(spans) / 60)} loudest minutes`;
-          await set(job, "transcribing", 0.08, "Loading Whisper");
-          const phase = (p: AsrPhase) => signal.aborted ? undefined : void set(job, "transcribing", 0.08, p.phase === "loading" ? "Loading Whisper"
-            : `Downloading Whisper (first run, ~300 MB)${p.f !== undefined ? ` ${Math.round(p.f * 100)}%` : ""}`).catch(() => {});
+          await set(job, "transcribing", 0.08, "Loading the transcriber");
+          const phase = (p: AsrPhase) => signal.aborted ? undefined : void set(job, "transcribing", 0.08, p.phase === "loading" ? "Loading the transcriber"
+            : `Downloading the transcriber (first run only)${p.f !== undefined ? ` ${Math.round(p.f * 100)}%` : ""}`).catch(() => {});
           // Other creators' videos must be English (auto too: transformers.js assumes English anyway). Own devlog footage is never skipped.
           if (o.preset !== "devlog") { await set(job, "transcribing", 0.08, "Checking the audio is English"); await checkEnglish(pcmFile, spans, signal, phase); }
           words = cleanWords(await transcribe(pcmFile, spans, o.language, signal, phase, (f) => set(job, "transcribing", 0.08 + 0.45 * f, `Transcribing${what} ${Math.round(f * 100)}%`))); // also feeds Claude a transcript without loops
@@ -582,7 +592,37 @@ async function checkEnglish(pcmFile: string, spans: Span[], signal: AbortSignal,
   } finally { await fh.close(); }
 }
 
+const PARAKEET_SEGMENT_SEC = 60; // attention grows with length: 60 s pieces use ~1.7 GB RAM (120 s: 2.4 GB) and decode faster per second
+
+/** Parakeet first (faster, punctuated, word timings); null when it can't load, so the caller uses Whisper. ORBIT_ASR=whisper skips it. */
+async function transcribeParakeet(pcmFile: string, spans: Span[], signal: AbortSignal, onPhase: (p: AsrPhase) => void, progress: (f: number) => Promise<void>): Promise<Word[] | null> {
+  if (!wantParakeet(process.env.ORBIT_ASR)) return null;
+  const { loadParakeet, parakeetWords } = await import("./parakeet");
+  const rec = await Promise.race([loadParakeet(path.join(studioRoot(), "models"), onPhase), new Promise<never>((_, reject) => {
+    signal.throwIfAborted();
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  })]).catch((e) => { if (signal.aborted) throw e; console.error("[orbit] Parakeet unavailable, using Whisper:", e instanceof Error ? e.message : e); return null; });
+  if (!rec) return null;
+  const pieces = asrPieces(spans, PARAKEET_SEGMENT_SEC, ASR_OVERLAP_SEC);
+  const total = pieces.reduce((s, p) => s + p.sec, 0) || 1;
+  const words: Word[] = [];
+  let done = 0;
+  const fh = await open(pcmFile, "r");
+  try {
+    for (const p of pieces) { // one at a time: sherpa-onnx already uses several cores per piece
+      signal.throwIfAborted();
+      const audio = await readPcm(fh, p.from, p.to - p.from);
+      if (audio.length >= SAMPLE_RATE) words.push(...(await parakeetWords(rec, audio, p.from)).filter((w) => w.start >= p.start));
+      done += p.sec;
+      await progress(Math.min(1, done / total));
+    }
+  } finally { await fh.close(); }
+  return words;
+}
+
 export async function transcribe(pcmFile: string, spans: Span[], language: ClipOptions["language"], signal: AbortSignal, onPhase: (p: AsrPhase) => void, progress: (f: number) => Promise<void>): Promise<Word[]> {
+  const fast = await transcribeParakeet(pcmFile, spans, signal, onPhase, progress);
+  if (fast) return fast;
   // The model load is shared (cached per model) and can't be cancelled: stop waiting for it on cancel instead.
   const { asr, model } = await Promise.race([asrFor(language, onPhase), new Promise<never>((_, reject) => {
     signal.throwIfAborted();
@@ -727,8 +767,16 @@ async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o:
   const warn = (w: string | null | undefined) => { if (w && !job.warnings.includes(w)) job.warnings.push(w); };
   warn(fx.warning);
   try {
-    await runFfmpeg(ff, renderArgs({ input: src, start: clip.start, duration, segs, audio, layout: o.layout, camSide: o.camSide, camSize: o.camSize, follow, zooms, ass: fx.layer ? undefined : ass, out: video,
-      teaser, progressBar: o.progressBar, fadeOut: o.loopEnd }), { cwd: dir, signal, timeoutMs: 15 * 60_000 });
+    const args = (encoder: VideoEncoder) => renderArgs({ input: src, start: clip.start, duration, segs, audio, layout: o.layout, camSide: o.camSide, camSize: o.camSize, follow, zooms, ass: fx.layer ? undefined : ass, out: video,
+      teaser, progressBar: o.progressBar, fadeOut: o.loopEnd, encoder });
+    const enc = await videoEncoder(ff);
+    try { await runFfmpeg(ff, args(enc), { cwd: dir, signal, timeoutMs: 15 * 60_000 }); }
+    catch (e) { // the GPU encoder can fail mid-run (driver, another app holding all NVENC sessions): redo this clip on the CPU
+      if (enc === "x264" || signal.aborted) throw e;
+      console.error("[orbit] NVENC render failed, using the CPU encoder:", e instanceof Error ? e.message.slice(-300) : e);
+      S.encoder = Promise.resolve("x264");
+      await runFfmpeg(ff, args("x264"), { cwd: dir, signal, timeoutMs: 15 * 60_000 });
+    }
     if (fx.layer) warn(await hf.applyEffects(ff, dir, video, fx.layer, ass, signal));
     clip.video = `clips/${job.id}/${video}`;
   } catch (e) {
