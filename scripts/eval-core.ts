@@ -9,7 +9,7 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
-import { correctionTask, gradeRun, newRunId, parseRunId, passTable, summarize, validateTask, type EvalTask } from "../src/lib/eval-core-pure.ts";
+import { correctionTask, gradeRun, handoffTaskId, newRunId, parseRunId, passTable, summarize, validateTask, type EvalTask } from "../src/lib/eval-core-pure.ts";
 
 const args = process.argv.slice(2);
 const opt = (k: string) => { const i = args.indexOf(`--${k}`); return i >= 0 ? args[i + 1] : undefined; };
@@ -18,6 +18,25 @@ const COOKIE = process.env.ORBIT_EVAL_COOKIE ?? "";
 const trials = Math.max(1, Math.min(5, Number(opt("trials")) || 1));
 const headers = { "content-type": "application/json", cookie: COOKIE, origin: BASE };
 const api = (path: string, body?: unknown, ms = 15_000) => fetch(BASE + path, { method: body === undefined ? "GET" : "POST", headers, ...(body !== undefined && { body: JSON.stringify(body) }), signal: AbortSignal.timeout(ms) });
+
+/** Long turns hand off to a background task (up to 20 min). Wait for it, then take its answer and trace from the chat. */
+async function followHandoff(j: { answer?: unknown; trace?: unknown; conversationId?: unknown; error?: unknown }) {
+  const taskId = handoffTaskId(String(j.answer ?? ""));
+  if (!taskId || typeof j.conversationId !== "string") return;
+  const until = Date.now() + 22 * 60_000;
+  for (;;) {
+    const t = await api(`/api/tasks/${taskId}`).then((r) => r.json(), () => null).catch(() => null);
+    const status = (t?.task ?? t)?.status;
+    if (status && !["queued", "running"].includes(status)) break;
+    if (Date.now() > until) { j.error = "background turn still running after 22 min"; return; }
+    await new Promise((r) => setTimeout(r, 15_000));
+  }
+  const c = await api(`/api/core/chats?id=${j.conversationId}`).then((r) => r.json(), () => null).catch(() => null);
+  const last = (c?.messages ?? []).findLast((m: { role: string }) => m.role === "assistant");
+  if (!last) { j.error = "background turn left no answer"; return; }
+  j.answer = last.content;
+  j.trace = [...(Array.isArray(j.trace) ? j.trace : []), ...(Array.isArray(last.trace) ? last.trace : [])];
+}
 
 const evals = join(import.meta.dirname, "..", "evals");
 const files = (d: string) => { try { return readdirSync(join(evals, d)).filter((f) => f.endsWith(".json")).sort().map((f) => join(evals, d, f)); } catch { return []; } };
@@ -51,8 +70,9 @@ async function main() {
   try {
     for (const t of tasks) for (let k = 1; k <= trials; k++) {
       const t0 = Date.now();
-      const r = await api("/api/core", { message: t.input, requestId: `eval-${t.id}-${k}-${t0}`, evalRun: runId }, 330_000).catch((e) => e as Error);
+      const r = await api("/api/core", { message: t.input, requestId: `eval-${t.id}-${k}-${t0}`, evalRun: runId }, 330_000).catch((e) => e as Error); // the route's own limit; longer work hands off and is followed below
       const j = r instanceof Error ? { error: r.message } : await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+      await followHandoff(j); // a turn handed to the background: grade its finished answer and full trace
       const g = j.error ? { ok: false, fails: [`turn failed: ${String(j.error).slice(0, 160)}`] } : gradeRun(t, { answer: String(j.answer ?? ""), trace: Array.isArray(j.trace) ? j.trace : [] });
       rows.push({ id: t.id, set: t.set, trial: k, ...g, ms: Date.now() - t0, answer: String(j.answer ?? "").slice(0, 2000) });
       if (!args.includes("--json")) console.log(`${g.ok ? "PASS" : "FAIL"} ${t.id} #${k} ${((Date.now() - t0) / 1000).toFixed(0)}s${g.fails.length ? `: ${g.fails.join("; ")}` : ""}`);

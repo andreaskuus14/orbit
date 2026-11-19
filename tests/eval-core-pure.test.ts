@@ -91,3 +91,11 @@ test("correction cases become capability tasks that fail a repeated reply; journ
 test("eval-core reads evals/corrections next to evals/tasks", () => {
   assert.match(readFileSync(new URL("../scripts/eval-core.ts", import.meta.url), "utf8"), /files\("corrections"\)/);
 });
+test("handoffTaskId: the eval follows a turn handed to the background (engine bake-off 19 Nov graded the 'working on it' reply)", async () => {
+  const { handoffTaskId } = await import("../src/lib/eval-core-pure.ts");
+  const { handoffReply } = await import("../src/lib/long-work-pure.ts");
+  const id = "18718c4c-dd3f-4971-aff6-553bf5ed6411";
+  assert.equal(handoffTaskId(handoffReply(id, "en")), id);
+  assert.equal(handoffTaskId(handoffReply(id, "et")), id);
+  assert.equal(handoffTaskId("Saved 3 leads."), null);
+});

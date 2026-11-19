@@ -69,6 +69,12 @@ export function correctionTask(x: unknown): EvalTask | string {
   return validateTask({ id: c.id.toLowerCase().replace(/[^a-z0-9-]+/g, "-").slice(0, 60), set: "capability", input: c.input, note: String(c.expected_behaviour ?? ""), expect: { notRepeat: c.wrong_output_summary } });
 }
 
+/** The background task a handed-off turn points to ("…[Open in OPERATIONS](#o=operations&k=task&id=<uuid>)"), or null.
+ *  Long turns continue in the background; the eval follows them instead of grading the "working on it" reply. */
+export function handoffTaskId(answer: string): string | null {
+  return /#o=operations&k=task&id=([0-9a-f-]{36})\)/.exec(answer)?.[1] ?? null;
+}
+
 /** pass@1 (share of trials passed) and pass^k (every trial passed) per task. */
 export function summarize(rows: { id: string; set: string; ok: boolean }[]) {
   const by = new Map<string, { set: string; oks: boolean[] }>();
