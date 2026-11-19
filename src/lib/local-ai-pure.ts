@@ -94,7 +94,7 @@ export function cloneBlocked(o: { consent: boolean; sampleBytes: number; sampleT
 }
 
 /** A VAULT file name for a made asset: the owner's words, safe characters only, with the right extension. */
-export function assetName(raw: unknown, ext: "glb" | "wav" | "png" | "srt" | "vtt" | "txt" | "md", fallback: string): string {
+export function assetName(raw: unknown, ext: "glb" | "wav" | "png" | "mp4" | "srt" | "vtt" | "txt" | "md", fallback: string): string {
   const base = String(raw ?? "").replace(/\.[a-z0-9]{1,5}$/i, "").normalize("NFKD").replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-").slice(0, 60) || fallback;
   return `${base}.${ext}`;
 }

@@ -53,12 +53,38 @@ Original instrumental music beds for STUDIO Shorts and CORE's `local_music` tool
 
 Rules: prompts never name artists, bands, songs or "in the style of" (refused: they invite claims). The GPU is freed (`/free`) after every bed because the 8 GB is shared with pictures, voice and captions; ORBIT never runs two ComfyUI jobs at once. Purely AI-generated audio may not be copyrightable: don't register beds in Content ID. If a node is unknown, update ComfyUI (`GET /object_info/TextEncodeAceStepAudio1.5` must answer).
 
+## Local video (Wan 2.2, optional)
+
+CORE's `local_video` makes a short silent `.mp4` clip in VAULT from text, or from a VAULT picture (the picture is the first frame).
+Same ComfyUI service and port as the pictures, so nothing is uploaded and nothing is paid. **Status: untested on Windows and on a GPU.**
+The graphs and parsing are unit-tested (`tests/video.test.ts`); the install and a real clip were never run.
+
+| | |
+|---|---|
+| Model | [Wan 2.2 TI2V-5B](https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B), `Wan2.2-TI2V-5B-Q6_K.gguf` (QuantStack, 4.2 GB), text encoder `umt5-xxl-encoder-Q5_K_M.gguf` (city96, 4.1 GB), `wan2.2_vae.safetensors` (Comfy-Org, 1.4 GB), FastWan speed LoRA (Kijai, 0.66 GB). All Apache-2.0, pinned revisions + SHA-256 |
+| Node pack | [city96/ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) pinned at `6ea2651e` (Apache-2.0), installed into the portable `custom_nodes` |
+| Clip | 24 fps, 2-5 s (121 frames at 5 s), 832x480 or 480x832 (`aspect`), tiled VAE decode |
+| Fast (default) | FastWan LoRA, 4 steps, cfg 1 |
+| Best | no LoRA, 20 steps, cfg 5, uni_pc; `ORBIT_VIDEO_HD=1` renders 1280x704 |
+| Speed | **UNTESTED.** Estimates only: about 2-4 min per 5 s clip in fast mode at 480p, 6-12 min for best at 720p on the RTX 5060 Laptop. The first clip also loads about 10 GB of weights. Benchmark before relying on it |
+
+Install (once, about 10.5 GB): `powershell -ExecutionPolicy Bypass -File tools\comfyui\setup.ps1 -Model wan22-video`. It needs `git` and
+adds to the existing install; run the plain `setup.ps1` as well if the SDXL picture model is missing. ORBIT checks that the GGUF node
+loaded (`/object_info/UnetLoaderGGUF`) before queueing and says so if not. When a clip finishes, ORBIT calls ComfyUI's `/free` so pictures and 3D get the GPU back.
+Timeout 30 min; Stop-all interrupts the job.
+
+Limits: 16 GB RAM is the tight spot (about 10 GB of weights stay in RAM while sampling), so stop other local AI first and run one clip at a time.
+FastWan was distilled on text-to-video only, so check image-to-video quality against `quality: "best"`. Clips have no sound.
+If SaveVideo rejects `format.codec` on your ComfyUI build, check `GET /object_info/SaveVideo` (older builds use flat keys).
+
 ## Settings (`.env.local`, all optional)
 
 - `ORBIT_COMFY_URL` — default `http://127.0.0.1:8188`; must be this PC.
 - `ORBIT_COMFY_AUTOSTART=0` — don't start ComfyUI automatically.
 - `ORBIT_COMFY_MODEL=nitrofusion2` — select NitroFusion2 for local image generation. Empty uses SDXL-Lightning.
 - `ORBIT_MUSIC_GEN=off` — don't use ACE-Step for Shorts music (music folder / `ORBIT_ACESTEP_CMD` only).
+
+- `ORBIT_VIDEO_HD=1` — local video quality "best" renders 1280x704 instead of 832x480.
 - `ORBIT_LOCAL_PICTURES=0` — website photos skip ComfyUI and use the online free service.
 
 ## Browser for CORE

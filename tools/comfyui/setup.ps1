@@ -5,7 +5,7 @@
 # Downloads are pinned and SHA-256 checked. Finished parts are skipped, a cut-off model download resumes.
 # ORBIT then starts ComfyUI by itself on 127.0.0.1:8188 when it needs a picture (start.ps1 runs it by hand).
 # UNTESTED on Windows/GPU: written in a cloud box. Needs an NVIDIA driver 580 or newer (CUDA 13.0); the RTX 5060 Laptop is fine.
-param([ValidateSet("sdxl-lightning", "nitrofusion2", "acestep-music")][string]$Model = "sdxl-lightning")
+param([ValidateSet("sdxl-lightning", "nitrofusion2", "acestep-music", "wan22-video")][string]$Model = "sdxl-lightning")
 
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
@@ -17,6 +17,8 @@ $ModelFile = "sdxl_lightning_4step.safetensors"
 $ModelUrl = "https://huggingface.co/ByteDance/SDXL-Lightning/resolve/c9a24f48e1c025556787b0c58dd67a091ece2e44/$ModelFile"
 $ModelSha = "e0d996ee0013e79d9d3561f50fcafb9a17e3ff07b780358e3b66d67932c4d490"
 $ModelBytes = 6938040682
+# Local video (-Model wan22-video): city96's ComfyUI-GGUF node pack (Apache-2.0, same pin as tools\trellis) + Wan 2.2 TI2V-5B Q6_K GGUF.
+$GgufRepo = "https://github.com/city96/ComfyUI-GGUF.git"; $GgufRev = "6ea2651e7df66d7585f6ffee804b20e92fb38b8a"
 
 function Step($t) { Write-Host "`n== $t" -ForegroundColor Cyan }
 function Warn($t) { Write-Host "!! $t" -ForegroundColor Yellow }
@@ -44,6 +46,13 @@ function InstallModel($RelativePath, $Url, $Sha, [long]$Bytes) {
   $actual = (Get-FileHash -Algorithm SHA256 "$Path.part").Hash.ToLowerInvariant()
   if ($actual -ne $Sha) { Remove-Item -Force "$Path.part"; throw "The download for $RelativePath failed its SHA-256 check. Run setup.ps1 to download it again." }
   Move-Item -Force "$Path.part" $Path
+}
+
+function Run($exe, [string[]]$a) { & $exe @a; if ($LASTEXITCODE -ne 0) { throw "Failed ($LASTEXITCODE): $exe $($a -join ' ')" } }
+function Pin($dir, $repo, $rev) {
+  if (-not (Test-Path (Join-Path $dir ".git"))) { Run git @("clone", "--filter=blob:none", $repo, $dir) }
+  Run git @("-C", $dir, "fetch", "--depth", "1", "origin", $rev)
+  Run git @("-C", $dir, "checkout", "--force", $rev)
 }
 
 Step "NVIDIA driver"
@@ -90,6 +99,21 @@ if ($Model -eq "acestep-music") {
   InstallModel "diffusion_models\nitrofusion2_w4a8_gptq.safetensors" "$NitroRepo/diffusion_models/nitrofusion2_w4a8_gptq.safetensors" "373741d551d0dc768a02f0ef49eeeca7bf29b992b889c413e99bdac60716443b" 3488205928
   InstallModel "text_encoders\qwen_3_4b.safetensors" "$ZImageRepo/text_encoders/qwen_3_4b.safetensors" "6c671498573ac2f7a5501502ccce8d2b08ea6ca2f661c458e708f36b36edfc5a" 8044982048
   InstallModel "vae\ae.safetensors" "$ZImageRepo/vae/ae.safetensors" "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38" 335304388
+} elseif ($Model -eq "wan22-video") {
+  Step "Local video: ComfyUI-GGUF node pack (pinned)"
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw "git is missing: winget install Git.Git, then run setup.ps1 again." }
+  $GgufDir = Join-Path $Root "ComfyUI\custom_nodes\ComfyUI-GGUF"
+  Pin $GgufDir $GgufRepo $GgufRev
+  Run $Py @("-s", "-m", "pip", "install", "-r", (Join-Path $GgufDir "requirements.txt")) # the gguf package (pure Python)
+  Step "Model: Wan 2.2 TI2V-5B Q6_K, umt5 encoder, VAE and FastWan speed LoRA (about 10.5 GB total, all Apache-2.0)"
+  $WanRepo = "https://huggingface.co/QuantStack/Wan2.2-TI2V-5B-GGUF/resolve/57437632ddd08bdcbd1508c866aa22e126ed51d2"
+  $UmtRepo = "https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/b535255bee98c2b0a59ea7c0ae2dcd0c6657b3b7"
+  $VaeRepo = "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/5df3a4a3ed0628002308022198249dbbbd045d09"
+  $LoraRepo = "https://huggingface.co/Kijai/WanVideo_comfy/resolve/8260d429d19fd7a72304cad059160b95d843913f"
+  InstallModel "unet\Wan2.2-TI2V-5B-Q6_K.gguf" "$WanRepo/Wan2.2-TI2V-5B-Q6_K.gguf" "355f6bee35c4c6cbd0f275112619fe8ac6f7b9b067b885723667b3bde29497c3" 4211683680
+  InstallModel "text_encoders\umt5-xxl-encoder-Q5_K_M.gguf" "$UmtRepo/umt5-xxl-encoder-Q5_K_M.gguf" "eaea358bb438c5d211721a4feecc162000e3636e9cb96f51e216f1f44ebd12ce" 4145878880
+  InstallModel "vae\wan2.2_vae.safetensors" "$VaeRepo/split_files/vae/wan2.2_vae.safetensors" "e40321bd36b9709991dae2530eb4ac303dd168276980d3e9bc4b6e2b75fed156" 1409400960
+  InstallModel "loras\Wan2_2_5B_FastWanFullAttn_lora_rank_128_bf16.safetensors" "$LoraRepo/FastWan/Wan2_2_5B_FastWanFullAttn_lora_rank_128_bf16.safetensors" "79290493711b022e1c6e655d803715cd8a91a75cdb139856cad46f354e2f681c" 660874456
 } else {
   Step "Model: SDXL-Lightning 4-step (6.9 GB)"
   InstallModel "checkpoints\$ModelFile" $ModelUrl $ModelSha $ModelBytes
@@ -102,7 +126,8 @@ if (-not ((Test-Path "$env:ProgramFiles\Google\Chrome\Application\chrome.exe") -
   Warn "No Chrome or Edge found: run  npx playwright install chromium  in the ORBIT folder."
 }
 
-Write-Host "`nDone. ORBIT starts ComfyUI by itself when it needs a picture or a music bed." -ForegroundColor Green
+Write-Host "`nDone. ORBIT starts ComfyUI by itself when it needs a picture, a music bed or a video." -ForegroundColor Green
 if ($Model -eq "acestep-music") { Write-Host "Music is on by itself once these files exist (ORBIT_MUSIC_GEN=off turns it off). Needs a ComfyUI recent enough to have the ACE-Step 1.5 nodes: the portable build you just installed is." }
+if ($Model -eq "wan22-video") { Write-Host "Local video is ready: ask CORE for a local_video clip. Not benchmarked yet: the first clip loads about 10 GB and may take several minutes." }
 if ($Model -eq "nitrofusion2") { Write-Host "Set ORBIT_COMFY_MODEL=nitrofusion2 in .env.local and restart ORBIT to select NitroFusion2." }
 Write-Host "Check it in OPERATIONS -> Local AI ('Pictures (unlimited)'). To run it by hand: powershell -ExecutionPolicy Bypass -File tools\comfyui\start.ps1"
