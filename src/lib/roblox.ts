@@ -13,6 +13,7 @@ import {
   LAYOUT_CAPS, MAX_IMAGE_B64, createCaptureTap, historyId, historyLabel, isLayout, parseHistory, pushHistory, type HistoryEntry, PLAN_TTL_MS, POSITION_NOTE, STATUS_PROMPT, buildPrompt, hookSettingsJson, pinTarget, rawRiskLines, safeHookPath, consoleErrors, createToolTap, parsePlaytest, playtestPrompt, createToolGuard, denyFor, newRobloxTool, guardEvent, imageFromStreamLine, lastJsonLine, safeModel, safePath, mcpConfigJson, parseBuildResult, parseConfig, parsePlan,
   parseScanResult, parseScenePlan, parseStatus, planExpired, planPrompt, scanPrompt, toolFlags,
   type BuildResult, type Item, type Mode, type PlanResult, type PlaytestResult, type ScanResult, type ScenePlan,
+  applyVerify, inspectFound, pickStudio, verifyTargets,
 } from "./roblox-pure";
 
 // Roblox Studio bridge: a separate `claude -p` whose ONLY tools are an allowlist of the owner's Roblox Studio MCP server
@@ -246,12 +247,40 @@ export async function runBuild(userId: string, planId: string, keep?: number[]):
     const tap = createCaptureTap();
     const r = await studio("build", buildPrompt(item, p.plan.text), item, tap.line);
     const out = parseBuildResult(r.text) ?? { done: false, inserted: [], notes: `Studio finished but ORBIT couldn't read the result. Check Workspace. ${r.text.slice(-300)}` };
+    const checked = applyVerify(out, await verifyPaths(verifyTargets(item, out)));
+    Object.assign(out, checked);
     if (isLayout(item) && item.objects?.length) out.notes = `${out.notes} ${POSITION_NOTE}`.trim();
     const shots = tap.shots();
     const id = await saveHistory(userId, item, shots.before, shots.after).catch(() => undefined); // best effort: a full disk mustn't fail a finished build
     const label = historyLabel(item);
     return id ? { ...out, image: null, historyId: id, label } : { ...out, image: r.image, label }; // with history, the UI loads the PNGs from there
   });
+}
+
+/** After a build, ORBIT itself (no model) asks Studio whether each reported object exists: one read-only inspect_instance
+ *  per path over a direct MCP connection. null = couldn't check (no bridge, no single open Studio, connection failed). */
+async function verifyPaths(paths: string[]): Promise<Map<string, boolean | null> | null> {
+  const cfg = robloxConfig();
+  if (!paths.length || !cfg.configured) return null;
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+  const c = new Client({ name: "orbit-verify", version: "1.0.0" });
+  const text = (r: unknown) => ((r as { content?: { type?: string; text?: string }[] }).content ?? []).filter((x) => x.type === "text").map((x) => x.text ?? "").join("\n");
+  try {
+    await c.connect(new StdioClientTransport({ command: cfg.command, args: cfg.args, stderr: "ignore" }), { timeout: 20_000 });
+    const tools = (await c.listTools(undefined, { timeout: 20_000 })).tools;
+    const inspect = tools.find((t) => t.name === "inspect_instance");
+    if (!inspect) return null;
+    const needsId = ((inspect.inputSchema as { required?: string[] }).required ?? []).includes("studio_id");
+    const studio = needsId ? pickStudio(text(await c.callTool({ name: "list_roblox_studios", arguments: {} }, undefined, { timeout: 20_000 }))) : null;
+    if (needsId && !studio) return null;
+    const out = new Map<string, boolean | null>();
+    for (const p of paths) {
+      const r = await c.callTool({ name: "inspect_instance", arguments: { path: p, ...(studio && { studio_id: studio }) } }, undefined, { timeout: 20_000 }).catch(() => null);
+      out.set(p, r ? inspectFound({ isError: Boolean((r as { isError?: boolean }).isError), text: text(r) }) : null);
+    }
+    return out;
+  } catch { return null; } finally { await c.close().catch(() => {}); }
 }
 
 /** Read-only free-model scan of Workspace paths (already validated with scanPaths). */

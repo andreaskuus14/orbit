@@ -311,3 +311,29 @@ test("a tool Roblox adds later is learned as denied; known, built-in and other-s
   assert.ok(denyFor(allowed, ["brand_new_tool"]).includes(R("brand_new_tool")));
   assert.ok(!denyFor(allowed, ["brand_new_tool"]).some((t) => allowed.includes(t)));
 });
+
+test("build check: ORBIT reads Studio's own inspect_instance replies (real formats, 19 Nov)", async () => {
+  const { inspectFound, applyVerify, pickStudio, verifyTargets } = await import("../src/lib/roblox-pure.ts");
+  assert.equal(inspectFound({ text: '{"path":"Workspace.Baseplate","name":"Baseplate","className":"Part"}' }), true);
+  assert.equal(inspectFound({ text: "Error: Could not find any instances at path 'Workspace.ORBIT Builds.Tree'" }), false);
+  assert.equal(inspectFound({ isError: true, text: "anything" }), false);
+  assert.equal(inspectFound({ text: '{"matches":[{"path":"Workspace.Part"}],"count":1}' }), true);
+  assert.equal(inspectFound({ text: "Studio is busy" }), null); // unreadable is never "found"
+
+  const r = { done: true, inserted: [{ name: "Tree", path: "Workspace.ORBIT Builds.Tree" }, { name: "Rock", path: "Workspace.Rock" }], notes: "Built." };
+  const half = applyVerify(r, new Map([["Workspace.ORBIT Builds.Tree", false], ["Workspace.Rock", true]]));
+  assert.deepEqual(half.inserted.map((x) => x.found), [false, true]);
+  assert.equal(half.done, true);
+  assert.match(half.notes, /1 of 2 found\. Not there: Workspace\.ORBIT Builds\.Tree/);
+  const none = applyVerify(r, new Map([["Workspace.ORBIT Builds.Tree", false], ["Workspace.Rock", false]]));
+  assert.equal(none.done, false); // the model said done, Studio says nothing is there
+  assert.match(applyVerify(r, null).notes, /couldn't check Studio/);
+
+  assert.equal(pickStudio('{"studios":[{"id":"a","mode":"Edit"}]}'), "a");
+  assert.equal(pickStudio('{"studios":[{"id":"a","mode":"Edit"},{"id":"b","mode":"Play"}]}'), "a");
+  assert.equal(pickStudio('{"studios":[{"id":"a","mode":"Edit"},{"id":"b","mode":"Edit"}]}'), null); // ambiguous: don't guess
+  assert.equal(pickStudio('{"studios":[]}'), null);
+
+  assert.deepEqual(verifyTargets({ kind: "asset", assetId: "1" } as never, { ...r, inserted: [...r.inserted, { name: "x", path: "ServerScriptService.X" }] }), ["Workspace.ORBIT Builds.Tree", "Workspace.Rock"]);
+  assert.deepEqual(verifyTargets({ kind: "material" } as never, r), []);
+});
