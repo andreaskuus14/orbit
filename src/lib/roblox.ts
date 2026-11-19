@@ -13,7 +13,7 @@ import {
   LAYOUT_CAPS, MAX_IMAGE_B64, createCaptureTap, historyId, historyLabel, isLayout, parseHistory, pushHistory, type HistoryEntry, PLAN_TTL_MS, POSITION_NOTE, STATUS_PROMPT, buildPrompt, hookSettingsJson, pinTarget, rawRiskLines, safeHookPath, consoleErrors, createToolTap, parsePlaytest, playtestPrompt, createToolGuard, denyFor, newRobloxTool, guardEvent, imageFromStreamLine, lastJsonLine, safeModel, safePath, mcpConfigJson, parseBuildResult, parseConfig, parsePlan,
   parseScanResult, parseScenePlan, parseStatus, planExpired, planPrompt, scanPrompt, toolFlags,
   type BuildResult, type Item, type Mode, type PlanResult, type PlaytestResult, type ScanResult, type ScenePlan,
-  applyVerify, inspectFound, pickStudio, verifyTargets,
+  applyVerify, inspectFound, nothingMade, pickStudio, verifyTargets,
 } from "./roblox-pure";
 
 // Roblox Studio bridge: a separate `claude -p` whose ONLY tools are an allowlist of the owner's Roblox Studio MCP server
@@ -247,7 +247,7 @@ export async function runBuild(userId: string, planId: string, keep?: number[]):
     const tap = createCaptureTap();
     const r = await studio("build", buildPrompt(item, p.plan.text), item, tap.line);
     const out = parseBuildResult(r.text) ?? { done: false, inserted: [], notes: `Studio finished but ORBIT couldn't read the result. Check Workspace. ${r.text.slice(-300)}` };
-    const checked = applyVerify(out, await verifyPaths(verifyTargets(item, out)));
+    const checked = nothingMade(applyVerify(out, await verifyPaths(verifyTargets(item, out))));
     Object.assign(out, checked);
     if (isLayout(item) && item.objects?.length) out.notes = `${out.notes} ${POSITION_NOTE}`.trim();
     const shots = tap.shots();
