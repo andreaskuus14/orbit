@@ -199,3 +199,24 @@ export function doneDigest(needs: Need[], receipts: DigestReceipt[], now: number
     decide.length ? s.decide(decide.length, short(decide[0].title)) : s.noDecide,
   ] };
 }
+
+/** The planet a need opens on, if it opens on one (clips → studio); task/goal/work items have none. */
+export const needPlanet = (n: Need): string | null => {
+  const o = n.act.open as { panel?: string; link?: string };
+  if (typeof o.panel === "string") return o.panel;
+  const m = typeof o.link === "string" ? /o=([a-z]+)/.exec(o.link) : null;
+  return m ? m[1] : null;
+};
+
+/** Split needs for one planet: its own items, plus (OPERATIONS only, the work hub) a count per other planet so 62 clip
+ *  approvals become one "62 waiting in STUDIO" line instead of drowning the real decisions. */
+export function planetNeeds(planet: string, all: Need[]): { own: Need[]; elsewhere: { planet: string; n: number }[] } {
+  const own: Need[] = [];
+  const by = new Map<string, number>();
+  for (const n of all) {
+    const p = needPlanet(n);
+    if (p === planet || (p === null && planet === "operations")) own.push(n);
+    else if (p !== null && planet === "operations") by.set(p, (by.get(p) ?? 0) + 1);
+  }
+  return { own: groupNeeds(own), elsewhere: [...by].map(([p, n]) => ({ planet: p, n })).sort((a, b) => b.n - a.n) };
+}

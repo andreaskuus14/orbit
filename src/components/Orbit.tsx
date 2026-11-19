@@ -70,6 +70,7 @@ import type { ShipTask } from "@/lib/ships-pure";
 import { CursorRing } from "./CursorRing";
 import { MaskText } from "./MaskText";
 import { useDragPanel } from "./useDragPanel";
+import { SimpleOr } from "./PlanetHome";
 import { useDialogFocus } from "./useDialogFocus";
 import { TimeDilation } from "./TimeDilation";
 import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
@@ -672,10 +673,10 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       : id === "analytics" ? <AnalyticsPanel />
       : id === "intelligence" ? <IntelligencePanel />
       : id === "operations" ? <OperationsPanel focusTask={focusTask} onOpen={setFocusTask} openMemory={openMemory} />
-      : id === "agents" ? <AgentsPanel onOpenTask={openTask} />
+      : id === "agents" ? <SimpleOr planet="agents" onOpenTask={openTask} onOpenGoal={openGoal}><AgentsPanel onOpenTask={openTask} /></SimpleOr>
       : id === "life" ? <LifePanel open={lifeOpen} />
       : id === "vault" ? <VaultPanel />
-      : id === "business" ? <BusinessPanel focusId={focusClient} onFocus={setFocusClient} />
+      : id === "business" ? (focusClient ? <BusinessPanel focusId={focusClient} onFocus={setFocusClient} /> : <SimpleOr planet="business" onOpenTask={openTask} onOpenGoal={openGoal}><BusinessPanel focusId={focusClient} onFocus={setFocusClient} /></SimpleOr>)
               : null);
   const title = drawer === "core" ? "CORE" : drawer === "profile" ? t("hud.profile") : drawer && planetById(drawer) ? t(`planet.${planetById(drawer)!.id}`) : "";
 
