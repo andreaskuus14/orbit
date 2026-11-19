@@ -673,7 +673,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       : id === "analytics" ? <AnalyticsPanel />
       : id === "intelligence" ? <IntelligencePanel />
       : id === "operations" ? <OperationsPanel focusTask={focusTask} onOpen={setFocusTask} openMemory={openMemory} />
-      : id === "agents" ? <SimpleOr planet="agents" onOpenTask={openTask} onOpenGoal={openGoal}><AgentsPanel onOpenTask={openTask} /></SimpleOr>
+      : id === "agents" ? <AgentsPanel onOpenTask={openTask} />
       : id === "life" ? <LifePanel open={lifeOpen} />
       : id === "vault" ? <VaultPanel />
       : id === "business" ? (focusClient ? <BusinessPanel focusId={focusClient} onFocus={setFocusClient} /> : <SimpleOr planet="business" onOpenTask={openTask} onOpenGoal={openGoal}><BusinessPanel focusId={focusClient} onFocus={setFocusClient} /></SimpleOr>)
