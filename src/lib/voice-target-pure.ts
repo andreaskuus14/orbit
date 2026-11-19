@@ -28,6 +28,13 @@ export function contextLine(l: DeepLink | null): string {
   return `\n\nOn screen now (what "this" refers to): ${bits.join(", ")}.`;
 }
 
+/** Where an Ask was made, sent with it so CORE knows the planet even once CORE covers the screen: the URL's link when it is
+ *  about the planet on screen (keeps its view and selected record), else just that planet; null on the galaxy or in CORE. */
+export function askHere(link: DeepLink | null, shown: string | null): DeepLink | null {
+  if (!shown || shown === "core") return null;
+  return link && link.planet === shown ? link : safeLink({ planet: shown });
+}
+
 const KIND_WORDS: [RegExp, LinkKind][] = [
   [/^(?:client|customer|prospect|klient|kliendi|klienti)$/, "client"],
   [/^(?:task|project|ülesanne|ülesande|projekt|projekti)$/, "task"],

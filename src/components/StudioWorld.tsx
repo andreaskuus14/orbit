@@ -23,6 +23,8 @@ import ClipFactory from "./ClipFactory";
 import StudioProduction from "./StudioProduction";
 import StudioDrafts from "./StudioDrafts";
 import LastShorts from "./LastShorts";
+import { PlanetHome, useManual } from "./PlanetHome";
+import { useT } from "./i18n";
 import { isShort, medianViewsPerDay, moonRadius, takeoff, viewsPerDay, type Channel, type Video } from "@/lib/youtube-pure";
 
 // STUDIO: the owner's YouTube channel as a world. A liquid-chrome sphere over an obsidian stage, one holo frame per video (newest closest in,
@@ -395,6 +397,8 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
   const [sort, setSort] = useState<Sort>("newest");
   const [mode, setMode] = useState<Mode>(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("studio") ? "stats" : "channel"));
   const modesRef = useRef<HTMLElement>(null);
+  const { t } = useT();
+  const [manual, setManual] = useManual("studio");
   useEffect(() => {
     if (!paused) modesRef.current?.querySelector<HTMLElement>('[aria-pressed="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [mode, paused]); // CORE/deep links can select a section outside the visible part of the strip
@@ -460,6 +464,9 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
   useEffect(() => () => { document.body.style.cursor = ""; }, [paused]); // leaving mid-hover must not keep the hand cursor
   useEffect(() => { setIdea({ busy: false }); }, [selected]);
   const pick = useCallback((id: string) => setSelected((cur) => (cur === id ? null : id)), []);
+  // Simple home (PlanetHome) until he opens Manual tools, a section (CORE/deep links pick one) or a video (a moon click).
+  const simple = !manual && mode === "channel" && !selected;
+  const results = useMemo(() => (loading && !data ? null : videos.slice(0, 4).map((v) => ({ id: v.id, title: v.title, sub: `${n(v.views)} views`, open: () => setSelected(v.id) }))), [loading, data, videos]);
 
   async function ideas(v: Video) {
     if (!live) return;
@@ -563,14 +570,18 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
         )}
       </header>
 
-      <nav ref={modesRef} className="studio-modes absolute left-1/2 top-[4.5rem] z-[15] -translate-x-1/2" aria-label="Studio sections">
+      {!simple && <nav ref={modesRef} className="studio-modes absolute left-1/2 top-[4.5rem] z-[15] -translate-x-1/2" aria-label="Studio sections">
         {MODES.map(([k, label], i) => <button key={k} aria-pressed={mode === k} onClick={() => setMode(k)} className={i === YOUTUBE_MODES ? "studio-sep" : undefined} title={i < YOUTUBE_MODES ? `YouTube: ${label}` : label}>{label}</button>)}
         {data?.configured !== false && <button className="studio-refresh" onClick={() => { if (!loading) void load(true); }} aria-disabled={loading} aria-label={loading ? "Refreshing channel data" : "Refresh channel data"} title="Refresh">{loading ? "…" : "↻"}</button>}
-      </nav>
+      </nav>}
 
       {mode === "channel" && (
         <section key="rail" className="glass hud-panel world-panel studio-rail absolute inset-x-3 bottom-32 z-[14] max-h-[40dvh] overflow-y-auto p-4 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-4 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[24rem]"
-          aria-label="Videos">
+          aria-label={simple ? t("ph.label") : "Videos"}>
+          {simple ? <PlanetHome planet="studio" results={results} onManual={() => setManual(true)} onOpenTask={(id) => onOpenTask?.(id)}>
+            {data && !data.configured && <p className="muted text-sm">{t("ph.studio.setup")}</p>}
+          </PlanetHome> : <>
+          <button className="link mb-2 text-xs" onClick={() => { setManual(false); setSelected(null); }}>← {t("ph.simple")}</button>
           {loading && !data && <p className="muted text-sm">Loading your channel…</p>}
           {err && <p className="error" role="alert">{err}</p>}
 
@@ -642,6 +653,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
               <p className="muted mt-3 text-[11px]">Updated {new Date(live.fetchedAt).toLocaleTimeString()} · each moon is a video, newest closest in</p>
             </>
           )}
+          </>}
         </section>
       )}
 

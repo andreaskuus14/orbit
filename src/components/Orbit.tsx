@@ -16,11 +16,12 @@ import { WorldHeaderArt } from "./WorldHeaderArt";
 import { isPlanetWorld, PLANET_WORLDS } from "@/lib/planet-worlds-pure";
 import { WorldPaused } from "./world-paused";
 import { CALL_ACTIVE, VOICE_ASK, voiceContext } from "./voice/bus";
-import { runObjectCommand } from "./voice/object-command";
+import { hereLink, runObjectCommand } from "./voice/object-command";
 import { useVoiceInput, VOICE_ASKED } from "./voice/useVoiceInput";
 import { VoiceControls } from "./voice/VoiceControls";
 import { finish, isSpeaking, speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 import { linkFromHash, linkToHash, shouldPush, type DeepLink } from "@/lib/deeplink-pure";
+import { askHere } from "@/lib/voice-target-pure";
 import { viewKey } from "@/lib/planet-view-pure";
 import { NAV_EVENT, parseNavCommand, type LifeView, type NavTarget } from "@/lib/nav-pure";
 import { StudioNotifier } from "./StudioNotifier";
@@ -70,7 +71,7 @@ import type { ShipTask } from "@/lib/ships-pure";
 import { CursorRing } from "./CursorRing";
 import { MaskText } from "./MaskText";
 import { useDragPanel } from "./useDragPanel";
-import { SimpleOr } from "./PlanetHome";
+import { ASK_FOCUS, SimpleOr } from "./PlanetHome";
 import { useDialogFocus } from "./useDialogFocus";
 import { TimeDilation } from "./TimeDilation";
 import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
@@ -165,11 +166,16 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     return () => removeEventListener(COMMAND_REPLY_EVENT, reply);
   }, []);
   const [focusMemory, setFocusMemory] = useState<string | null>(null);
-  const [pending, setPending] = useState<{ text: string; skill?: SkillLaunch } | null>(null);
+  const [pending, setPending] = useState<{ text: string; skill?: SkillLaunch; here?: DeepLink | null } | null>(null); // here: the planet he asked from
   const [cmd, setCmd] = useState("");
   const [live, setLive] = useState<"connecting" | "live" | "offline">("connecting");
   const pulses = useRef<Record<string, number>>({});
   const cmdRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { // a planet home's "Ask ORBIT about …": the one place to type, in Ask mode
+    const focus = () => { setCmdMode("ask"); cmdRef.current?.focus(); };
+    addEventListener(ASK_FOCUS, focus);
+    return () => removeEventListener(ASK_FOCUS, focus);
+  }, []);
   const voice = useVoiceInput();
   const [wakeGreeting, setWakeGreeting] = useState<string | null>(null);
   const [doctor, setDoctor] = useState<null | "click" | "nav">(null); // Orbital doctor; "nav" (voice/command) reads the result aloud
@@ -307,7 +313,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       if (ar) { stopSpeech(); if (speechSettings().speak) speakChunk(ar); return; }
       dispatchEvent(new CustomEvent(VOICE_ASKED));
       if (detail.skill) updateSkillRun(detail.skill, { state: "queued" });
-      setPending({ text, skill: detail.skill }); openCore();
+      setPending({ text, skill: detail.skill, here: askHere(hereLink(), shown) }); openCore();
     };
     addEventListener(VOICE_ASK, onAsk);
     return () => removeEventListener(VOICE_ASK, onAsk);
@@ -631,6 +637,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   useEffect(() => { if (shown !== "intelligence" && approach !== "intelligence") setNewsFocus(null); }, [shown, approach]);
   useEffect(() => { if (shown !== "studio" && approach !== "studio") setStudioOpen(null); }, [shown, approach]);
   useEffect(() => { if (panel !== "life") setLifeOpen(null); }, [panel]); // so reopening LIFE later doesn't replay a start
+  useEffect(() => { if (shown === "life") void import("./LifePanel"); }, [shown]); // LIFE's simple home: loading the module still resumes a running focus timer, as opening LIFE always did
   const clearGreeting = useCallback(() => setWakeGreeting(null), []);
 
   async function runCommand(e: React.FormEvent) {
@@ -651,7 +658,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     }
     if (runRecipeCommand(text, (msg, ok) => { if (ok) setCmdReply(msg); else setCmdErr(msg); })) { setCmd(""); return; } // "run recipe daily ideas": no CORE call
     if (runFollowCommand(text, (msg, ok) => { if (!ok) setCmdErr(msg); })) { setCmd(""); return; } // "follow Estonia" / "unfollow AI"
-    if (cmdMode === "ask") { setCmd(""); setPending({ text }); openCore(); return; }
+    if (cmdMode === "ask") { setCmd(""); setPending({ text, here: askHere(hereLink(), shown) }); openCore(); return; } // CORE is told which planet he is on
     // Task mode: Nova interprets the request, delegates to the right agents and reports back.
     try {
       const res = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ request: text }) });
@@ -668,14 +675,14 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const drawerDrag = useDragPanel<HTMLElement>(drawer && !docked ? `drawer:${drawer}` : null);
   useDialogFocus(drawerDrag.ref, !!panel && !WORLDS.includes(panel)); // Esc is the window handler above
   const statusDrag = useDragPanel<HTMLElement>(!shown && view === "3d" ? "status" : null);
-  const panelBody = (id: PanelId) => (id === "core" ? <CorePanel initial={pending?.text ?? null} initialSkill={pending?.skill} onConsumed={consumed} onOpenMemory={openMemory} greeting={wakeGreeting} onGreeted={clearGreeting} />
+  const panelBody = (id: PanelId) => (id === "core" ? <CorePanel initial={pending?.text ?? null} initialSkill={pending?.skill} initialHere={pending?.here} onConsumed={consumed} onOpenMemory={openMemory} greeting={wakeGreeting} onGreeted={clearGreeting} />
       : id === "profile" ? <ProfilePanel />
-      : id === "analytics" ? <AnalyticsPanel />
+      : id === "analytics" ? <SimpleOr planet="analytics" onOpenTask={openTask} onOpenGoal={openGoal}><AnalyticsPanel /></SimpleOr>
       : id === "intelligence" ? <IntelligencePanel />
       : id === "operations" ? <OperationsPanel focusTask={focusTask} onOpen={setFocusTask} openMemory={openMemory} />
       : id === "agents" ? <AgentsPanel onOpenTask={openTask} />
-      : id === "life" ? <LifePanel open={lifeOpen} />
-      : id === "vault" ? <VaultPanel />
+      : id === "life" ? (lifeOpen ? <LifePanel open={lifeOpen} /> : <SimpleOr planet="life" onOpenTask={openTask} onOpenGoal={openGoal}><LifePanel open={lifeOpen} /></SimpleOr>) // a CORE/voice jump to a LIFE tab opens the tools
+      : id === "vault" ? <SimpleOr planet="vault" onOpenTask={openTask} onOpenGoal={openGoal}><VaultPanel /></SimpleOr>
       : id === "business" ? (focusClient ? <BusinessPanel focusId={focusClient} onFocus={setFocusClient} /> : <SimpleOr planet="business" onOpenTask={openTask} onOpenGoal={openGoal}><BusinessPanel focusId={focusClient} onFocus={setFocusClient} /></SimpleOr>)
               : null);
   const title = drawer === "core" ? "CORE" : drawer === "profile" ? t("hud.profile") : drawer && planetById(drawer) ? t(`planet.${planetById(drawer)!.id}`) : "";

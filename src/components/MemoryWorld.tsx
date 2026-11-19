@@ -12,6 +12,7 @@ import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import type { MemoryPanel } from "./panels"; // passed in by Orbit: the public demo must not bundle panels (Supabase client)
 import { MemoryReview } from "./MemoryWorkspace";
+import { PlanetHome, useManual } from "./PlanetHome";
 import { beliefsPending } from "./BeliefsPanel";
 import { studyPending } from "./StudyCards";
 import type { QualityMode } from "@/lib/quality-pure";
@@ -433,6 +434,12 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
     setList(true);
     dispatchEvent(new CustomEvent(OPEN_MEMORY_EVENT, { detail: { id: m.id } }));
   };
+  // Simple home until he opens Manual tools, a view, a star or a search (a memory opened from elsewhere opens List view).
+  const [manual, setManual] = useManual("memory");
+  const simple = !manual && !list && !chron && !people && sel === null && !query.trim();
+  const toSimple = () => { setManual(false); setList(false); setChron(false); setPeople(false); setSel(null); setQuery(""); };
+  const recent = useMemo(() => (!data ? null : data.items.map((m, i) => ({ m, i })).sort((a, b) => b.m.created_at.localeCompare(a.m.created_at)).slice(0, 4)
+    .map(({ m, i }) => ({ id: m.id, title: m.title, sub: m.kind, open: () => open(i) }))), [data]); // eslint-disable-line react-hooks/exhaustive-deps
   const labelAt = hover ?? sel;
   const label = labelAt !== null ? data?.items[labelAt] : undefined;
   const kinds = useMemo(() => [...new Set(data?.items.map((m) => m.kind))].sort(), [data]);
@@ -473,7 +480,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
       <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] flex max-h-[45dvh] flex-col gap-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label="MEMORY controls">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="brand world-header flex items-center gap-2 text-base"><WorldEmblem id="memory" size={28} />MEMORY <span className="muted num text-xs font-normal">{data ? `${data.items.length}${data.total > data.items.length ? ` of ${data.total}` : ""} stars` : ""}</span><WorldHeaderArt id="memory" /></h2>
-          {!flat && List && <div className="flex basis-full flex-wrap gap-1.5">{/* own line: five chips beside the flex:1 header crushed it */}
+          {!flat && List && !simple && <div className="flex basis-full flex-wrap gap-1.5">{/* own line: five chips beside the flex:1 header crushed it */}
             <button className="chip" aria-pressed={!list && !chron && !peep} onClick={() => { setList(false); setChron(false); setPeople(false); }}>Constellation</button>
             <button className="chip" aria-pressed={river} onClick={() => { setList(false); setChron(true); setPeople(false); }}>Chronicle</button>
             <button className="chip" aria-pressed={peep} onClick={() => { setList(false); setChron(false); setPeople(true); }}>People</button>
@@ -481,6 +488,10 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
           </div>}
         </div>
 
+        {simple ? <PlanetHome planet="memory" results={err ? [] : recent} onManual={() => setManual(true)}>
+          {List && <MemoryReview onChanged={onChanged} />}
+        </PlanetHome> : <>
+        <button className="link self-start text-xs" onClick={toSimple}>← {t("ph.simple")}</button>
         {List && !peep && !list && !flat && <MemoryReview onChanged={onChanged} />}{/* in List view these live under Review */}
         {peep ? <PeoplePanel st={ppl} /> : List && (list || flat) ? <List focusId={focusId} onChanged={onChanged} /> : List && river ? <div ref={setSlot} /> : <>
           <input className="field" type="search" placeholder="Find a memory · title, kind or tag" value={query} maxLength={200}
@@ -524,6 +535,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
             <li className="muted flex items-center gap-1.5"><i aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 9, border: "1px solid currentColor" }} />learned by CORE</li>
           </ul>}
           <p className="muted text-[11px]">Nearby stars are similar memories; threads are links, and the faint web joins similar memories (newer links glow brighter). Drag to orbit, scroll to zoom, click a star to open it.</p>
+        </>}
         </>}
       </section>
 
