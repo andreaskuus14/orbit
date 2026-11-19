@@ -126,6 +126,8 @@ export function createPool(script: string, size: number, startMs = 30_000) {
 }
 
 const inProcess: Pipe = async (model, opts, cacheDir) => {
+  // sherpa-onnx (Parakeet) ships its own onnxruntime.dll in this process; loading onnxruntime-node beside it fails on Windows. Children are separate processes, so they are fine.
+  if ((globalThis as { __orbitParakeet?: unknown }).__orbitParakeet) throw new Error("Whisper can't run in-process next to Parakeet (onnxruntime clash); its worker process is unavailable");
   const tf = await import("@huggingface/transformers");
   tf.env.cacheDir = cacheDir;
   return (await tf.pipeline("automatic-speech-recognition", model, opts)) as unknown as Asr;
