@@ -122,7 +122,7 @@ export async function checkTools(): Promise<ToolsStatus> {
 export function videoEncoder(ff: string): Promise<VideoEncoder> {
   if (process.env.ORBIT_NVENC === "0") return Promise.resolve("x264");
   return (S.encoder ??= runFfmpeg(ff, ["-hide_banner", "-nostdin", "-f", "lavfi", "-i", "color=black:s=256x256:d=0.2", ...videoCodec("nvenc"), "-f", "null", "-"], { timeoutMs: 20_000 })
-    .then(() => "nvenc" as const, () => "x264" as const));
+    .then(() => "nvenc" as const, (e: unknown) => { console.error("[orbit] NVENC unavailable, rendering on the CPU:", (e instanceof Error ? e.message : String(e)).slice(-600)); return "x264" as const; }));
 }
 
 export function runFfmpeg(ff: string, args: string[], o: { cwd?: string; signal?: AbortSignal; timeoutMs: number; okCodes?: number[]; onTime?: (sec: number) => void }): Promise<string> {
