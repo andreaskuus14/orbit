@@ -1,6 +1,8 @@
 // Roadmap 20: a clipped tool result is a recoverable boundary, not silent loss. The full text stays in a per-turn store
 // (one per CORE turn, dropped with it) and the model gets the head plus a read_more pointer to fetch the rest.
-export const CLIP = 7800; // under the 8000-char step slice in core.ts / core-sdk-pure, so the pointer survives it
+// Round 3 step 4: ~30 KB per result (was 7,800), so a page or a stylesheet is read whole far more often; the rest pages on.
+export const CLIP = 30_000; // under STEP_CHARS (the step slice in core.ts / core-sdk-pure), so the pointer survives it
+export const STEP_CHARS = 32_000;
 
 export function createClipStore(limit = CLIP) {
   const full = new Map<string, string>();

@@ -23,7 +23,7 @@ Roadmap §1.1–1.6, batch items 1–3. Line numbers are as of branch `core-capa
 3. **The weaker model was used without the user being told.** Deep → main on a failure or time limit was only a `fallback` trace row. The answer itself didn't say so. (`core.ts:199,228`)
 4. **Failures were not named plainly.** An expired login, a usage limit or a timeout reached the user as raw CLI text. A turn that ended on a tool call showed `(no answer)`. (`core-turn.ts:85-88`, `core.ts:288` before)
 5. **No session continuity.** Each step and each message starts a fresh CLI with no Claude-side session, so nothing carries over except the text CORE re-sends. Cached prompt context is lost and the history window (item above) is what's left. *Not fixed here, see below.*
-6. **Tool results truncated** to 8000 characters per step (and 140 chars in the visible trace). That's reasonable for prompt size, so it was left as is and is now shown in the readout. (`core.ts:271,274`)
+6. **Tool results** are kept up to 30,000 characters per step (`CLIP` in `clip-store-pure.ts`, raised from 7,800 in Round 3); anything longer ends with a `read_more` pointer and pages on. `ws_read` returns the whole file. The visible trace still shows 140 chars.
 7. **Review context cut** at 40k characters (tool results first). Left as is. (`claude.ts:279`)
 
 ## What this branch fixes

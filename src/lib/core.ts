@@ -47,7 +47,7 @@ import { coreAnswerEval, type CoreEvalTool } from "./core-answer-eval-pure";
 import { coreReceipt, type Receipt } from "./receipt-pure";
 import type { AnswerEval } from "./answer-eval-pure";
 import { recordCoreTurn } from "./perf-log";
-import { createClipStore } from "./clip-store-pure";
+import { createClipStore, STEP_CHARS } from "./clip-store-pure";
 import { foreground } from "./foreground-pure";
 import { autonomyLevels } from "./autonomy";
 import { skillDenied } from "./skills-pure";
@@ -343,7 +343,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     : isModuleTool(tool) ? await runModuleTool(tool, input, { sb, userId, chat: sessionKey, question, tainted: dataIn(), pinned: !!attach || pinsIn, operator, steps, onEvidence: (e) => evidence.push(e) })
     : await runCoreTool(sb, userId, tool, input, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e), { chat: sessionKey, project: memoryProject?.scope });
   const record = (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number, operator = false) => {
-    evalTools.push({ tool, input, output: out.slice(0, 8000), evidence });
+    evalTools.push({ tool, input, output: out.slice(0, STEP_CHARS), evidence });
     trace.push({ step: tool, detail: `${JSON.stringify(input).slice(0, 140)} → ${out.slice(0, 140)}`, ms, ok: !out.startsWith("Error:"), ...(evidence.length ? { evidence } : {}) });
     onStep?.(tool, input, { out, ms, ok: !out.startsWith("Error:") }); // the live view's step end (core-live-pure.ts redacts it)
     if (LOGGED.includes(tool) && !out.startsWith("Error:")) logActivity({ area: operator ? "operator" : "core", title: `CORE ${tool}: ${activityLine(tool, out)}`, ...undoOf(tool, out) }); // no inputs: memory / reminder / file text stays out of the log
@@ -517,7 +517,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
       record(reply.tool, reply.input ?? {}, out, evidence, Date.now() - t, operated);
       if (!verdict.allow) trace.at(-1)!.policy = { verdict: "refuse", turn: turnId, ...(verdict.allowOnce ? { allowOnce: verdict.allowOnce } : {}) };
-      steps.push(`You called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 300)}\nRESULT:\n${out.slice(0, 8000)}`);
+      steps.push(`You called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 300)}\nRESULT:\n${out.slice(0, STEP_CHARS)}`);
     }
   } catch (e) {
     if (signal?.aborted && stopped.length) throw new CoreStopped(stopped.join("\n\n"));

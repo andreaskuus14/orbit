@@ -58,3 +58,21 @@ test("his 'Let CORE continue these files' marks files made before ownership was 
   assert.equal(wsTainted([`You called ws_read ${JSON.stringify(readIn)}\nRESULT:\n${after}`], q), false);
   assert.deepEqual(await ws.trustWorkspace(uid, "nope"), { error: 'no workspace "nope"' });
 });
+
+test("ws_read returns a whole 12 KB stylesheet (live 19 Nov: a 7,500-char cut left CORE unable to patch it); the clip store pages long results", async () => {
+  const { runWsTool } = await import("../src/lib/core-workspace.ts");
+  const { createClipStore, CLIP, STEP_CHARS } = await import("../src/lib/clip-store-pure.ts");
+  const ws = await import("../src/lib/workspace.ts");
+  const uid = "user-read", W = "big-css";
+  await ws.createWorkspace(uid, W);
+  const css = Array.from({ length: 400 }, (_, i) => `.r${i}{color:#e8762e}`).join("\n") + "\n.btn-rust{background:linear-gradient(#e8762e,#c45a1c)} /*END*/";
+  assert.ok(css.length > 7500);
+  await ws.writeWsFile(uid, W, "css/style.css", css);
+  const out = await runWsTool(uid, "ws_read", { workspace: W, path: "css/style.css" }, "fix the button colour", false);
+  assert.match(out, /\/\*END\*\/$/);
+  assert.doesNotMatch(out, /truncated/);
+  assert.ok(CLIP < STEP_CHARS && CLIP >= 30_000);
+  const store = createClipStore(), long = "x".repeat(CLIP + 5000) + "TAIL", head = store.clip(long);
+  const ref = /"ref":"(r\d+)","offset":(\d+)/.exec(head)!;
+  assert.match(store.read({ ref: ref[1], offset: Number(ref[2]) }), /TAIL\n\[end of result\]$/);
+});
