@@ -11,6 +11,7 @@ orbit-server.log
 orbit-server.log.1
 .next-*
 orbit-server.pid
+orbit-update.request
 orbit-build.log
 orbit-launcher.log
 orbit-launcher.log.1

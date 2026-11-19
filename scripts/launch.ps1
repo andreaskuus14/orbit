@@ -24,6 +24,7 @@ $distNew = Join-Path $root ".next-build"  # where builds go (ORBIT_DIST_DIR) unt
 $distPrev = Join-Path $root ".next-prev"  # the previous release, for rollback
 $buildId = Join-Path $distLive "BUILD_ID"
 $failMark = Join-Path $distNew "BUILD_FAILED" # written when a build fails; stops retrying until an input changes
+$updateFlag = Join-Path $root "orbit-update.request" # written by ORBIT (POST /api/system/update, owner only): pull main + rebuild while running
 $buildFailedMsg = "Build failed $([char]0x2014) still running the previous version. Fix the errors, then npm run app:rebuild"
 $noReleaseMsg = "Build failed and there is NO previous working version, so ORBIT runs in DEVELOPMENT mode (pages compile when first opened and requests can fail while compiling). Fix the errors, then npm run app:rebuild"
 
@@ -81,7 +82,7 @@ function Switch-Release {
 # Builds into .next-build while whatever runs keeps running; only when the build succeeds is the server stopped
 # ($stopFirst: the launcher; the supervisor has nothing running) and the build swapped in.
 # Returns "built", "current" (another launcher just built it) or "failed".
-function Update-Release([bool]$force, [bool]$stopFirst) {
+function Update-Release([bool]$force, [bool]$stopFirst, [scriptblock]$stopServer = $null) {
   $buildMutex = New-Object System.Threading.Mutex($false, "Local\orbit-build")
   try { $null = $buildMutex.WaitOne() } catch [System.Threading.AbandonedMutexException] { } # abandoned = ours now
   try {
@@ -115,6 +116,7 @@ function Update-Release([bool]$force, [bool]$stopFirst) {
     Write-Log "Build finished; installing it."
     # Delete the oldest release before stopping the server, so it's down only for the two renames.
     if (Test-Path $distPrev) { Invoke-Retry { Remove-Item -LiteralPath $distPrev -Recurse -Force } "Deleting .next-prev" }
+    if ($stopServer) { & $stopServer } # the supervisor's own running server (stop.ps1 would kill the supervisor too)
     if ($stopFirst) {
       & (Join-Path $PSScriptRoot "stop.ps1")
       for ($i = 0; (Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue) -and $i -lt 10; $i++) { Start-Sleep -Milliseconds 500 }
@@ -161,7 +163,25 @@ if ($Supervise) {
     $p = Start-Process cmd.exe -ArgumentList "/c", "npm.cmd run $npmScript >> `"$log`" 2>&1" -WorkingDirectory $root -WindowStyle Hidden -PassThru
     $null = $p.Handle # Windows PowerShell 5.1: keeps ExitCode readable after the process exits
     try { Set-Content -LiteralPath $pidFile -Value @($PID, $p.Id) } catch { }
-    $p.WaitForExit()
+    $updated = $false
+    # Wait for the server, checking every 5 s for an update request from ORBIT itself (the owner's click or a Claude
+    # session acting for him through ORBIT). Main is pulled fast-forward only; the build runs while the server keeps
+    # serving, and only a successful build stops it for the swap. A failed pull or build changes nothing.
+    while (-not $p.WaitForExit(5000)) {
+      if (-not (Test-Path $updateFlag)) { continue }
+      Remove-Item -LiteralPath $updateFlag -Force -ErrorAction SilentlyContinue
+      Write-Log "Update requested from ORBIT: pulling main and rebuilding."
+      try {
+        $branch = (& git -C $root rev-parse --abbrev-ref HEAD 2>$null | Out-String).Trim()
+        if ($branch -eq "main") { Write-Log ("git pull: " + ((& git -C $root pull --ff-only 2>&1 | Out-String).Trim() -replace "\s+", " ")) }
+        else { Write-Log "Not on main ($branch): rebuilding the checked-out code without pulling." }
+      } catch { Write-Log "git pull failed: $($_.Exception.Message)" }
+      $stop = { & taskkill.exe /PID $p.Id /T /F 2>&1 | Out-Null; $null = $p.WaitForExit(15000) }
+      $r = Update-Release $true $false $stop
+      if ($r -eq "built") { $updated = $true; break }
+      if ($r -eq "failed") { Write-Log "!!!!! $buildFailedMsg" }
+    }
+    if ($updated) { Write-Log "Update installed; starting the new version."; $crashes = @(); continue }
     # stop.ps1 kills this supervisor first, so reaching here always means an unexpected exit.
     $ran = ((Get-Date) - $started).TotalSeconds
     Write-Log ("ORBIT server exited unexpectedly (code {0}) after {1:N0} s." -f $p.ExitCode, $ran)
