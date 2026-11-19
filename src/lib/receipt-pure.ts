@@ -46,7 +46,7 @@ export function coreReceipt(question: string, tools: readonly Tool[]): Receipt |
   for (const t of writes) {
     if (t.output.startsWith("Error:")) { failed.push(`${t.tool}: ${t.output.slice(7, 120).trim()}`); continue; }
     if (t.tool === "lead_create") { const a = leadsAdded(t.output); leads += a.length; if (a.length) verified.push(`${plural(a.length, "lead")} stored (${a.slice(0, 5).join(", ")})`); continue; }
-    if (t.tool === "ws_write") {
+    if (t.tool === "ws_write" || t.tool === "ws_edit") {
       t.evidence.filter((e) => e.kind === "file" && e.path).forEach((e) => files.set(`${e.id}/${e.path}`, e));
       if (/\nCheck: /.test(t.output)) siteOk = checkPassed(t.output); // the last check counts (after fix rounds)
       continue;

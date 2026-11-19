@@ -76,3 +76,24 @@ test("ws_read returns a whole 12 KB stylesheet (live 19 Nov: a 7,500-char cut le
   const ref = /"ref":"(r\d+)","offset":(\d+)/.exec(head)!;
   assert.match(store.read({ ref: ref[1], offset: Number(ref[2]) }), /TAIL\n\[end of result\]$/);
 });
+
+test("ws_edit: exact-text edit of one file through ws_write's path; unique match required (Round 3)", async () => {
+  const { applyEdits } = await import("../src/lib/ws-edit-pure.ts");
+  assert.deepEqual(applyEdits("a{color:#e8762e}\nb{color:red}", [{ old: "#e8762e", new: "var(--rust)" }]), { text: "a{color:var(--rust)}\nb{color:red}" });
+  assert.deepEqual(applyEdits("x x", '[{"old":"x","new":"y"}]'), { error: 'edit 1: "old" text occurs more than once; include more surrounding text so it is unique' });
+  assert.match((applyEdits("abc", [{ old: "zzz", new: "y" }]) as { error: string }).error, /not found/);
+  assert.equal((applyEdits("abc", []) as { error: string }).error, "edits must be a list of 1-20 {old, new}");
+  const { runWsTool, wsTainted } = await import("../src/lib/core-workspace.ts");
+  const ws = await import("../src/lib/workspace.ts");
+  const uid = "user-edit", W = "edit-site", q = "fix the rust button colour in edit-site";
+  await runWsTool(uid, "ws_write", { workspace: W, files: [{ path: "css/style.css", content: ".btn-rust{background:linear-gradient(#e8762e,#c45a1c)}\n.btn{color:#fff}" }] }, q, false);
+  const out = await runWsTool(uid, "ws_edit", { workspace: W, path: "css/style.css", edits: [{ old: "#e8762e,", new: "var(--rust)," }] }, q, false);
+  assert.match(out, /css\/style\.css updated/);
+  assert.equal((await ws.readWsFile(uid, W, "css/style.css"))!.text, ".btn-rust{background:linear-gradient(var(--rust),#c45a1c)}\n.btn{color:#fff}");
+  assert.ok(await ws.isOwnFile(uid, W, "css/style.css", (await ws.readWsFile(uid, W, "css/style.css"))!.text), "marked as CORE's own like ws_write");
+  // reading a file this task's own ws_edit saved doesn't taint
+  const readIn = { workspace: W, path: "css/style.css" }, read = await runWsTool(uid, "ws_read", readIn, q, false);
+  assert.equal(wsTainted([`You called ws_edit ${JSON.stringify({ workspace: W })}\nRESULT:\n${out}`, `You called ws_read ${JSON.stringify(readIn)}\nRESULT:\n${read}`], "what's in the stylesheet"), false);
+  assert.match(await runWsTool(uid, "ws_edit", { workspace: W, path: "nope.css", edits: [{ old: "a", new: "b" }] }, q, false), /^Error: no readable file/);
+  assert.match(await runWsTool(uid, "ws_edit", { workspace: W, path: "css/style.css", edits: [{ old: ".btn{", new: ".x{" }] }, q, true), /^Error:/); // tainted: blocked like ws_write
+});

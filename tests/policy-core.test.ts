@@ -39,7 +39,7 @@ function legacy(tool: string, input: Record<string, unknown>, c: PolicyCtx): str
   let b: string | null = "";
   if ((STUDIO_TOOLS as readonly string[]).includes(tool) || tool === "plan_task") b = actionBlocked(tool as StudioTool, question, dataIn());
   else if ((LIFE_TOOLS as readonly string[]).includes(tool)) b = lifeWriteBlocked(tool as LifeTool, question, dataIn());
-  else if (tool === "ws_write" || tool === "ws_create" || tool === "ws_fetch_image" || tool === "ws_inspire_image" || tool === "ws_picture_draft") b = wsWriteBlocked(question, !!attach || pinsIn || wsTainted(steps, question.replace(/\n\n\[attached:[^\]]*\]/g, "")));
+  else if (tool === "ws_write" || tool === "ws_edit" || tool === "ws_create" || tool === "ws_fetch_image" || tool === "ws_inspire_image" || tool === "ws_picture_draft") b = wsWriteBlocked(question, !!attach || pinsIn || wsTainted(steps, question.replace(/\n\n\[attached:[^\]]*\]/g, "")));
   else if (tool === "create_goal") b = createGoalBlocked(question, dataIn());
   else if (tool === "higgsfield_draft") b = draftBlocked(question, dataIn()); // roadmap 3.1: its runner's guard (story.ts runDraftTool)
   else if (tool === "queue_tonight") b = tonightBlocked(question, dataIn()); // night shift: its runner's guard (night.ts runTonightTool)

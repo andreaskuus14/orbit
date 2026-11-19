@@ -24,6 +24,7 @@ export const SCHEMAS: Record<string, Schema> = {
   ws_list: S([], { workspace: str }),
   ws_read: S(["workspace", "path"], { workspace: str, path: str }),
   ws_create: S(["name"], { name: str, template: str }),
+  ws_edit: S(["workspace", "path", "edits"], { workspace: str, path: str, edits: { type: "array", items: obj({ old: str, new: str }, ["old", "new"]) } }),
   ws_write: S(["workspace", "files"], { workspace: str, files: { type: "array", items: obj({ path: str, content: str }, ["path", "content"]) } }),
   ws_run: S(["workspace"], { workspace: str }),
   // one lead, or {"leads": [up to 10]}: neither shape is required on its own
