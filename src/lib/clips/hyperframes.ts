@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { access, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildComposition, burnAssArgs, hfRenderArgs, overlayArgs, type FxIn } from "./hyperframes-pure";
+import type { VideoEncoder } from "./encode-pure";
 import { runFfmpeg } from "./factory";
 
 // Optional Hyperframes effects layer for Shorts (pure part + composition: hyperframes-pure.ts). Not installed / failed / timed out →
@@ -93,11 +94,13 @@ export async function renderEffects(dir: string, id: string, o: Omit<FxIn, "play
 
 /** Overlays the layer onto <dir>/<video> in place. If that fails, burns the ASS captions instead (same look as without hyperframes)
  *  and returns a warning. The layer file is always removed. */
-export async function applyEffects(ff: string, dir: string, video: string, layer: string, ass: string, signal: AbortSignal): Promise<string | null> {
+export async function applyEffects(ff: string, dir: string, video: string, layer: string, ass: string, signal: AbortSignal, encoder: VideoEncoder = "x264"): Promise<string | null> {
   const tmp = `${video}.fx.mp4`;
   try {
     try {
-      await runFfmpeg(ff, overlayArgs(video, path.basename(layer), tmp), { cwd: dir, signal, timeoutMs: 15 * 60_000 });
+      const overlay = (enc: VideoEncoder) => runFfmpeg(ff, overlayArgs(video, path.basename(layer), tmp, enc), { cwd: dir, signal, timeoutMs: 15 * 60_000 });
+      // Same encoder as the clip render (GPU when it works); a failed GPU pass is redone on the CPU before giving up the effects.
+      await overlay(encoder).catch((e) => { if (encoder === "x264" || signal.aborted) throw e; return overlay("x264"); });
       await move(path.join(dir, tmp), path.join(dir, video));
       return null;
     } catch (e) {

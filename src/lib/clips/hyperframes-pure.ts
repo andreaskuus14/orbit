@@ -1,6 +1,7 @@
 // Hyperframes effects layer (pure, tested in tests/hyperframes.test.ts): one clip's captions, hook card and payoff pop-ups as a
 // transparent 1080x1920 HTML composition that the optional hyperframes CLI renders to an alpha MOV (I/O: hyperframes.ts).
 // CSS keyframes only (hyperframes' css adapter seeks them per clip): no GSAP, no script, no fonts or files from the network at render.
+import { videoCodec, type VideoEncoder } from "./encode-pure.ts";
 import { IN, captionGroups, cleanWords, type Word } from "./pure.ts";
 import { PLAYBOOK_MIN, type Playbook } from "./study-pure.ts";
 
@@ -115,15 +116,15 @@ export const hfRenderArgs = (projectDir: string, out: string) =>
   ["render", projectDir, "--format", "mov", "--fps", "30", "--output", out, "--quiet"];
 
 /** ffmpeg argv: the alpha layer over the rendered clip (audio copied). The layer ending early just stops drawing. */
-export const overlayArgs = (video: string, layer: string, out: string) => [
+export const overlayArgs = (video: string, layer: string, out: string, encoder: VideoEncoder = "x264") => [
   "-hide_banner", "-nostdin", "-y", ...IN, video, ...IN, layer,
   "-filter_complex", "[0:v][1:v]overlay=0:0:format=auto:eof_action=pass,format=yuv420p[v]", "-map", "[v]", "-map", "0:a?",
-  "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-r", "30", "-c:a", "copy", "-movflags", "+faststart", out,
+  ...videoCodec(encoder), "-r", "30", "-c:a", "copy", "-movflags", "+faststart", out,
 ];
 
 /** ffmpeg argv: the fallback when the overlay pass fails: burn the usual ASS captions onto the (caption-less) clip instead. */
-export const burnAssArgs = (video: string, ass: string, out: string) => {
+export const burnAssArgs = (video: string, ass: string, out: string, encoder: VideoEncoder = "x264") => {
   if (!/^[\w.-]+\.ass$/.test(ass)) throw new Error("unsafe ass file name");
   return ["-hide_banner", "-nostdin", "-y", ...IN, video, "-vf", `ass=${ass}`, "-map", "0:v", "-map", "0:a?",
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-r", "30", "-c:a", "copy", "-movflags", "+faststart", out];
+    ...videoCodec(encoder), "-r", "30", "-c:a", "copy", "-movflags", "+faststart", out];
 };
