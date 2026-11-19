@@ -70,7 +70,7 @@ export const TIERS: Record<string, Tier> = {
   add_wish: "T2", // adds to his own wishlist; the hunter only reads public pages, and nothing is bought or sent by ORBIT
   save_checkpoint: "T2", // his own chat checkpoint (local file); every line can be edited or deleted on the Checkpoint card
   queue_tonight: "T2", // adds to the night shift's own queue; the night run's outside effects still wait for owner approvals
-  life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_create: "T2", ws_fetch_image: "T2", ws_run: "T2", ws_stop: "T2",
+  life_check: "T2", life_add_habit: "T2", life_remind: "T2", ws_write: "T2", ws_edit: "T2", ws_create: "T2", ws_fetch_image: "T2", ws_run: "T2", ws_stop: "T2",
   vault_move: "T2", vault_rename: "T2", lead_create: "T2", lead_update: "T2", life_plan: "T2", automation_create: "T2", automation_pause: "T2", // ORGANIZE: his own records, each with Undo
   schedule_approved: "T3", // uploads owner-approved clips to YouTube
   higgsfield_draft: "T3", // proposes a Higgsfield spend (price check only); the spend itself is the owner's story.approve click
@@ -138,7 +138,7 @@ export const EGRESS_CLASS: Record<string, "model" | "web" | "none"> = {
   navigate: "none", goal_status: "none", mission_status: "none", business_status: "none", ideas_list: "none", studio_status: "none", learned: "none",
   suggestions: "none", life_status: "none", life_journal: "none", vault_search: "none", vault_read: "none", calendar_events: "none", plan_day: "none",
   git_summary: "none", ws_list: "none", ws_read: "none", week_review: "none", wishlist: "none", load_module: "none", read_more: "none",
-  life_check: "none", life_add_habit: "none", life_remind: "none", ws_write: "none", ws_create: "none", ws_run: "none",
+  life_check: "none", life_add_habit: "none", life_remind: "none", ws_write: "none", ws_edit: "none", ws_create: "none", ws_run: "none",
   ws_stop: "none", vault_move: "none", vault_rename: "none", life_plan: "none", automation_pause: "none", studio_drafts: "none", roblox_export: "none",
   roblox_lint: "none", save_decision: "none", watch_list: "none", watch_changes: "none", daily_runs: "none",
 };
@@ -311,7 +311,7 @@ function decideRaw(tool: string, input: Record<string, unknown> | undefined, ctx
   let blocked = "";
   if ((STUDIO_TOOLS as readonly string[]).includes(tool) || tool === "plan_task") blocked = actionBlocked(tool as StudioTool, question, dataIn);
   else if ((LIFE_TOOLS as readonly string[]).includes(tool)) blocked = err(lifeWriteBlocked(tool as LifeTool, question, dataIn));
-  else if (tool === "ws_write" || tool === "ws_create" || tool === "ws_fetch_image" || tool === "ws_inspire_image" || tool === "ws_picture_draft") blocked = err(wsWriteBlocked(question, ctx.attach || ctx.pins || wsTainted(ctx.steps, question), { ...ctx.ws, target: tool !== "ws_create" ? input?.workspace : input?.name })); // core-modules.ts:50
+  else if (tool === "ws_write" || tool === "ws_edit" || tool === "ws_create" || tool === "ws_fetch_image" || tool === "ws_inspire_image" || tool === "ws_picture_draft") blocked = err(wsWriteBlocked(question, ctx.attach || ctx.pins || wsTainted(ctx.steps, question), { ...ctx.ws, target: tool !== "ws_create" ? input?.workspace : input?.name })); // core-modules.ts:50
   else if (tool === "create_goal") blocked = createGoalBlocked(question, dataIn);
   else if (tool === "higgsfield_draft") blocked = draftBlocked(question, dataIn);
   else if (tool === "queue_tonight") blocked = tonightBlocked(question, dataIn);

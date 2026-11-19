@@ -28,9 +28,9 @@ export function coreToolEvidence({ tool, input, output, evidence }: CoreEvalTool
   const workspace = ok && tool === "ws_create" && /^Done: workspace "([^"]+)" created\./.exec(output);
   if (workspace) receipts.push({ tool, ok: true, action: "create", target: workspace[1] });
   for (const e of evidence) {
-    if (!e.id || (tool !== "save_memory" && tool !== "ws_write")) continue;
+    if (!e.id || (tool !== "save_memory" && tool !== "ws_write" && tool !== "ws_edit")) continue;
     if (tool === "save_memory" && e.kind === "memory") for (const target of [e.id, text(input.title)].filter(Boolean)) receipts.push({ tool, ok: true, action: "save", target });
-    if (tool === "ws_write" && e.kind === "file" && e.path) {
+    if ((tool === "ws_write" || tool === "ws_edit") && e.kind === "file" && e.path) {
       const line = output.split("\n").find((line) => line.startsWith(`- ${e.path} `));
       const verb = line?.slice(e.path.length + 3).split(" ")[0];
       const actions: AnswerAction[] = ["save", ...(verb === "created" ? ["create" as const] : verb === "updated" ? ["update" as const] : [])];
