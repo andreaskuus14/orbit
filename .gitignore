@@ -47,3 +47,4 @@ orbit-launcher.log.1
 !/tools/trials/clips/**/.gitkeep
 /tools/trials/results/*
 !/tools/trials/results/.gitkeep
+/tools/trellis/smoke-output.glb
