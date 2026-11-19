@@ -19,7 +19,17 @@ export async function musicInstalled(): Promise<boolean> {
 export const musicGenAvailable = async () => musicGenOn(process.env.ORBIT_MUSIC_GEN) && (await musicInstalled());
 
 /** One bed as FLAC bytes plus the record to keep. The GPU is freed right after (the 8 GB is shared with pictures, voice and captions). */
+/** One bed; waits its turn for the shared GPU (gpu-lock.ts). The lease covers the whole timeout, so no heartbeat is needed. */
 export async function generateMusic(prompt: string, seconds: number, timeoutMs = 8 * 60_000): Promise<{ bytes: Uint8Array; meta: MusicMeta }> {
+  const { acquireGpu, freeComfyVram } = await import("./gpu-lock");
+  const lease = await acquireGpu("music", { maxWaitMs: 20 * 60_000, ttlMs: timeoutMs + 2 * 60_000 });
+  try {
+    await freeComfyVram((await import("./trellis-pure")).trellisUrl(process.env.ORBIT_TRELLIS_URL));
+    return await generateMusicNow(prompt, seconds, timeoutMs);
+  } finally { lease.release(); }
+}
+
+async function generateMusicNow(prompt: string, seconds: number, timeoutMs: number): Promise<{ bytes: Uint8Array; meta: MusicMeta }> {
   const u = comfyBase();
   if (!u) throw new Error("ORBIT_COMFY_URL must point at this PC (http://127.0.0.1:<port>).");
   if (stopAllOn()) throw new Error("ORBIT is paused (Stop-all is on)");

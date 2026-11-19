@@ -224,6 +224,8 @@ export async function runDoctor(sb: SupabaseClient): Promise<Report> {
     guard("durable", "Saved state & events", async () => { const d = await import("./durable.ts"); return { id: "durable", label: "Saved state & events", ...(await import("./durable-pure.ts")).durableCheck(d.writeFailures(), d.deadEvents()) }; }),
     guard("drill", "Last recovery drill", async () => import("./drill-pure.ts").then(async (m) => m.drillCheck(await import("./drill.ts").then((d) => d.lastDrill()), Date.now()))),
     Promise.resolve(latencyCheck(coreTurns)),
+    // Shared 8 GB GPU lease (gpu-lock.ts): informational, busy is normal while a picture, 3D model or render runs.
+    guard("gpu", "Shared GPU (local AI, renders)", async () => { const g = (await import("./gpu-lock")).gpuNow(); return check("gpu", "Shared GPU (local AI, renders)", "ok", g.text); }),
     ...(WIN ? [guard("wake", "Voice wake-up", wake)] : []),
     Promise.resolve(envCheck(process.env, ENV_REQUIRED, ENV_OPTIONAL)),
     // Matters most once ORBIT is reachable from a phone (docs/PHONE.md): without it any account in the Supabase project gets in.
