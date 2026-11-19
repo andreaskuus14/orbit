@@ -12,7 +12,7 @@ import { authorizeTool } from "./authority";
 import { policyEvent, TIERS, type PolicyCtx } from "./policy-pure";
 import type { WriteEvidence } from "./completion-pure";
 import { needsOpus } from "./core-mcp-boost-pure";
-import { authMode, gated, readMessage, sdkFailure, sdkOptions, sdkTools, serial, toolResult, userMessage, SERVER } from "./core-sdk-pure";
+import { authMode, gated, readMessage, sdkFailure, sdkOptions, sdkTools, serial, toolResult, unstringLists, userMessage, SERVER } from "./core-sdk-pure";
 import type { TraceStep } from "./core";
 import type { StepDone } from "./core-live-pure";
 
@@ -38,7 +38,8 @@ export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: strin
   let escalated = false, opus = false, escTool = "";
   t.onRoute?.(t.model);
   const one = serial();
-  const handler = (name: string) => (input: Record<string, unknown>) => one(async () => {
+  const handler = (name: string) => (raw: Record<string, unknown>) => one(async () => {
+    const input = unstringLists(raw);
     opus = !t.risky && needsOpus(name, t.model ?? "");
     if (t.escalate || opus) { escalated = true; escTool = name; abortController.abort(); return toolResult("Error: stopped"); }
     t.onReset?.(); t.onStep?.(name, input); // text before a tool call is not the answer (as in core.ts)
