@@ -10,7 +10,17 @@ import { checkVideo, framesFor, isMp4, parseVideoHistory, parseVideoQueued, vide
 export const VIDEO_TIMEOUT_MS = 30 * 60_000;
 
 /** One clip as MP4 bytes. Frees the models from the GPU right after (video is heavy; pictures and 3D share the 8 GB). */
+/** One clip; waits its turn for the shared GPU (gpu-lock.ts). The lease covers the whole timeout, so no heartbeat is needed. */
 export async function generateVideo(r: VideoRequest, picture: Blob | null, timeoutMs = VIDEO_TIMEOUT_MS): Promise<Uint8Array> {
+  const { acquireGpu, freeComfyVram } = await import("./gpu-lock");
+  const lease = await acquireGpu("video", { maxWaitMs: 60 * 60_000, ttlMs: timeoutMs + 2 * 60_000 });
+  try {
+    await freeComfyVram((await import("./trellis-pure")).trellisUrl(process.env.ORBIT_TRELLIS_URL));
+    return await generateVideoNow(r, picture, timeoutMs);
+  } finally { lease.release(); }
+}
+
+async function generateVideoNow(r: VideoRequest, picture: Blob | null, timeoutMs: number): Promise<Uint8Array> {
   const u = comfyBase();
   if (!u) throw new Error("ORBIT_COMFY_URL must point at this PC (http://127.0.0.1:<port>).");
   if (stopAllOn()) throw new Error("ORBIT is paused (Stop-all is on)");
