@@ -97,5 +97,5 @@ test("setup.ps1 wan22-video branch pins the repos, revisions and files used by t
   for (const f of [VIDEO_FILES.unet, VIDEO_FILES.clip, VIDEO_FILES.vae, VIDEO_FILES.lora]) assert.ok(ps.includes(f), f);
   for (const pin of ["6ea2651e7df66d7585f6ffee804b20e92fb38b8a", "57437632ddd08bdcbd1508c866aa22e126ed51d2", "b535255bee98c2b0a59ea7c0ae2dcd0c6657b3b7",
     "5df3a4a3ed0628002308022198249dbbbd045d09", "8260d429d19fd7a72304cad059160b95d843913f", "355f6bee35c4c6cbd0f275112619fe8ac6f7b9b067b885723667b3bde29497c3"]) assert.ok(ps.includes(pin), pin);
-  assert.match(ps, /ValidateSet\("sdxl-lightning", "nitrofusion2", "wan22-video"\)/);
+  assert.match(ps, /ValidateSet\("sdxl-lightning", "nitrofusion2", "acestep-music", "wan22-video"\)/);
 });
