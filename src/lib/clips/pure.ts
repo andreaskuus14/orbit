@@ -1,3 +1,4 @@
+import { videoCodec, type VideoEncoder } from "./encode-pure.ts";
 import path from "node:path";
 import { CAPTION_STYLES, REJECT_REASONS, rootClipId } from "./format.ts";
 import { cleanOriginal } from "./publish-checks-pure.ts";
@@ -595,12 +596,12 @@ export function renderFilter(o: RenderOpts): string {
   return f.join(";");
 }
 
-export const renderArgs = (o: RenderOpts & { input: string; start: number; out: string }) => [
+export const renderArgs = (o: RenderOpts & { input: string; start: number; out: string; encoder?: VideoEncoder }) => [
   "-hide_banner", "-nostdin", "-y", "-ss", sec(o.start), "-t", sec(o.duration), ...IN, o.input,
   ...(o.teaser ? ["-an", "-ss", sec(o.start + o.teaser.start), "-t", sec(o.teaser.end - o.teaser.start), ...IN, o.input] : []),
   ...(o.teaser && o.audio ? ["-vn", "-ss", sec(o.start), "-t", sec(o.duration), ...IN, o.input] : []),
   "-filter_complex", renderFilter(o), "-map", "[v]", ...(o.audio ? ["-map", "[a]"] : []),
-  "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-r", "30",
+  ...videoCodec(o.encoder ?? "x264"), "-r", "30",
   "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", o.out,
 ];
 
