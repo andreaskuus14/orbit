@@ -10,7 +10,7 @@ Kokoro voiceover were run there on CPU (Linux); Picture to 3D and own-voice clon
 | Tool | What it does | Model | VRAM | License |
 |---|---|---|---|---|
 | Picture to 3D | Turns one picture of an object into a 3D model (`.glb`) you can import into Roblox Studio or Unreal | TripoSR (Stability AI + Tripo) | about 6 GB at default settings; ORBIT uses half the chunk size to leave headroom; falls back to CPU (slow) | MIT |
-| Background cut-out | Cuts the subject out of a picture (PNG with transparency), for thumbnails or before 3D | rembg u2net | CPU | MIT |
+| Background cut-out | Cuts the subject out of a picture (PNG with transparency), for thumbnails or before 3D | BiRefNet lite (MIT) via rembg; u2net is the fallback | CPU, several GB of RAM at 1024 px | MIT |
 | Voiceover | Reads a script aloud in a preset voice (English) | Kokoro 82M (ONNX) | CPU, no GPU needed | Apache-2.0 |
 | Own-voice cloning | Reads a script in **your own** voice from a short recording of you | Audio8 TTS Realistic 0.6B | about 3 GB in bf16 (fits 6 GB); CPU works but is slow | Apache-2.0 |
 | Captions *(optional, `-Captions`)* | Writes down speech in a video/recording (English, Estonian) → `.srt`, `.vtt` and a clean transcript | Whisper large-v3-turbo via faster-whisper 1.2.1 / CTranslate2 4.8.3 | about 2-3 GB in float16; CPU int8 fallback | MIT |
@@ -45,6 +45,8 @@ Only the chosen modules are installed; what's already there is skipped, torch is
 `powershell -ExecutionPolicy Bypass -File tools\local-ai\start.ps1` and leave the window open. ORBIT finds it at
 `ORBIT_LOCAL_AI_URL` (default `http://127.0.0.1:7861`; ORBIT refuses any address that isn't this PC).
 OPERATIONS → Local AI shows what is installed and running.
+
+Background cut-out uses BiRefNet lite and falls back to u2net if it fails to load or run. For the cleaner, heavier model run `setup.ps1 -CutoutModel birefnet-general` and set `ORBIT_CUTOUT_MODEL=birefnet-general` before `start.ps1` (`u2net` restores the old one). Never RMBG-2.0: its weights are non-commercial.
 
 If 3D runs out of GPU memory: close games/browser tabs using the GPU, or set `ORBIT_TRIPOSR_CHUNK=2048` before `start.ps1`.
 

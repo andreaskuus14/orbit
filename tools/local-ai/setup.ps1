@@ -10,7 +10,8 @@
 #   setup.ps1 -Ifc        IFC models for ARCH: IfcOpenShell (~60 MB, CPU)
 #   setup.ps1 -Docs       document reading: Docling + its layout/table/OCR models (~1 GB)
 #   setup.ps1 -Extras     all three
-param([switch]$SkipClone, [switch]$Skip3D, [switch]$Captions, [switch]$Ifc, [switch]$Docs, [switch]$Extras)
+# Background cut-out: BiRefNet lite by default; -CutoutModel birefnet-general (~970 MB, cleaner, slower) or u2net. Also set ORBIT_CUTOUT_MODEL to match.
+param([ValidateSet("birefnet-general-lite", "birefnet-general", "u2net")][string]$CutoutModel = "birefnet-general-lite", [switch]$SkipClone, [switch]$Skip3D, [switch]$Captions, [switch]$Ifc, [switch]$Docs, [switch]$Extras)
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
 $Venv = Join-Path $Here ".venv"
@@ -118,8 +119,14 @@ foreach ($f in $Kokoro) {
   }
 }
 
-Step "Background cut-out model (rembg u2net, ~170 MB)"
-Run $Py @("-c", "import rembg; rembg.new_session(); print('rembg ready')")
+Step "Background cut-out models (rembg 2.0.66: $CutoutModel + u2net fallback)"
+# rembg downloads each model from its own pinned release URL and refuses it on an MD5 mismatch. u2net (~170 MB) is the
+# fallback server.py uses if BiRefNet (MIT) fails; it is required. BiRefNet lite is ~224 MB, general ~970 MB.
+Run $Py @("-c", "import rembg; rembg.new_session('u2net'); print('u2net ready')")
+if ($CutoutModel -ne "u2net") {
+  try { RunTries $Py @("-c", "import rembg; rembg.new_session('$CutoutModel'); print('$CutoutModel ready')") }
+  catch { Warn "BiRefNet ($CutoutModel) did not download: background cut-out uses u2net until setup.ps1 is run again. $_" }
+}
 
 if (-not $Skip3D) {
   Step "Picture to 3D: TripoSR (MIT) at $TripoSRCommit"

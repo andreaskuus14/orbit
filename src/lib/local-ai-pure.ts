@@ -22,7 +22,7 @@ export const CATALOG: CatalogEntry[] = [
   { id: "image3d", name: "Picture to 3D", what: "Turns one picture of an object into a 3D model (.glb) you can import into Roblox Studio or Unreal.",
     model: "TripoSR", vram: "about 6 GB (ORBIT halves the chunk size for headroom); falls back to the CPU, slowly", vramGb: 6, license: "MIT (free, commercial use OK)", where: "GAME DEV → Assets → Picture to 3D", setup: SETUP_CMD },
   { id: "removebg", name: "Background cut-out", what: "Cuts the subject out of a picture (transparent PNG) for thumbnails, or before making a 3D model.",
-    model: "rembg u2net", vram: "none (CPU)", vramGb: 0, license: "MIT", where: "GAME DEV → Assets → Picture to 3D", setup: SETUP_CMD },
+    model: "BiRefNet lite via rembg (u2net fallback)", vram: "none (CPU, several GB of RAM)", vramGb: 0, license: "MIT", where: "GAME DEV → Assets → Picture to 3D", setup: SETUP_CMD },
   { id: "tts", name: "Voiceover", what: "Reads your script aloud in a preset English voice and saves a .wav for your video.",
     model: "Kokoro 82M", vram: "none (CPU)", vramGb: 0, license: "Apache-2.0", where: "STUDIO → Produce → Voiceover", setup: SETUP_CMD },
   { id: "clone", name: "Your own voice", what: "Reads your script in your own voice, learned from a short recording of you. Only for your own voice.",
