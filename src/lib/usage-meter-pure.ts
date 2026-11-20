@@ -1,6 +1,8 @@
 // Max-plan usage meter: pure parts (rolling windows, heavy-use backoff, rate-limit error parsing), tested in tests/usage-meter.test.ts.
 // Every `claude -p` call is recorded by claude.ts → usage-meter.ts. Max limits are rolling windows (5 h and 7 days) whose exact
 // sizes aren't public, so the owner sets his own 5-hour budget (calls and/or tokens); background lanes back off near it.
+// usage-pace-pure.ts adds presence-aware reservation and the pre-morning fresh window on top (holdReason's ctx).
+import { DEFAULT_FRESH_LEAD_MIN, DEFAULT_MORNING, MAX_FRESH_LEAD_MIN, hmToMin, paceHold, type Pace, type PaceCtx } from "./usage-pace-pure.ts";
 
 /** The Claude CLI's sign-in is gone or expired (seen live: "Failed to authenticate: OAuth session expired and could not be refreshed").
  *  One rule for CORE's message, failure reports and the background pause. */
@@ -8,7 +10,9 @@ export const loginFailed = (text: string) =>
   /failed to authenticate|oauth (?:token|session)|session expired|could not be refreshed|\/login|not logged in|not signed in|invalid api key|token (?:has )?expired|authentication_failed/i.test(text);
 
 export type Call = { at: number; purpose: string; model: string; inTok: number; outTok: number; ms: number; turns?: number; cost?: number; ok: boolean };
-export type MeterSettings = { calls5h: number; tokens5h: number; warnPct: number }; // tokens5h 0 = no token budget
+// tokens5h 0 = no token budget. morningAt: his usual morning start (Tallinn HH:MM); freshLeadMin: heavy background work waits this long
+// before it (0 = off). Both optional: older saved meters and tests without them get the defaults.
+export type MeterSettings = { calls5h: number; tokens5h: number; warnPct: number; morningAt?: string; freshLeadMin?: number };
 export type Limit = { until: number; at: number; text: string };
 export type Login = { at: number; probed: number; text: string };
 export type Meter = { calls: Call[]; settings: MeterSettings; limit: Limit | null; login?: Login | null };
@@ -18,7 +22,7 @@ export const D7 = 7 * 86_400_000;
 export const MAX_CALLS = 20_000;
 export const LIMIT_PAUSE_MS = 30 * 60_000; // a limit error without a reset time pauses background work this long
 export const MAX_RESET_MS = 8 * 86_400_000; // no parsed reset time is trusted further out than this (weekly limits fit)
-export const DEFAULT_SETTINGS: MeterSettings = { calls5h: 150, tokens5h: 0, warnPct: 80 };
+export const DEFAULT_SETTINGS: MeterSettings = { calls5h: 150, tokens5h: 0, warnPct: 80, morningAt: DEFAULT_MORNING, freshLeadMin: DEFAULT_FRESH_LEAD_MIN };
 export const emptyMeter = (): Meter => ({ calls: [], settings: { ...DEFAULT_SETTINGS }, limit: null });
 
 /** Adds a call and drops ones older than 7 days (and past MAX_CALLS). */
@@ -68,13 +72,21 @@ const when = (t: number, now: number) => new Date(t).toLocaleString([], { ...(t 
 /** Only the real provider limit: what owner clicks (foreground) check. The soft budget never blocks the owner. */
 export const hardHoldReason = (m: Meter, now: number): string => (m.limit && m.limit.until > now ? `Claude usage limit reached until ${when(m.limit.until, now)}` : "");
 
-/** Why background lanes should wait right now (provider limit or the owner's soft budget), or "" when they may run. */
-export function holdReason(m: Meter, now: number): string {
+/** The pacer's verdict (presence reservation / pre-morning fresh window), or null. Only with a ctx: callers without one (tests, pure
+ *  views) get the plain budget rules and no clock dependence. */
+export function paceFor(m: Meter, now: number, ctx?: PaceCtx): Pace | null {
+  if (!ctx) return null;
+  return paceHold({ now, pct: usageLevel(m, now).pct, sig: ctx.sig, morningAt: m.settings.morningAt, freshLeadMin: m.settings.freshLeadMin });
+}
+
+/** Why background lanes should wait right now (provider limit, the owner's soft budget, or the pacer), or "" when they may run. */
+export function holdReason(m: Meter, now: number, ctx?: PaceCtx): string {
   const hard = hardHoldReason(m, now);
   if (hard) return hard;
   if (m.login) return "Claude login expired on the ORBIT PC: run `claude`, then /login";
   const l = usageLevel(m, now);
-  return l.heavy ? `Heavy use: ${l.pct}% of your 5-hour budget (${m.settings.calls5h} calls${m.settings.tokens5h ? ` / ${m.settings.tokens5h.toLocaleString()} tokens` : ""})` : "";
+  if (l.heavy) return `Heavy use: ${l.pct}% of your 5-hour budget (${m.settings.calls5h} calls${m.settings.tokens5h ? ` / ${m.settings.tokens5h.toLocaleString()} tokens` : ""})`;
+  return paceFor(m, now, ctx)?.reason ?? "";
 }
 
 const DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
@@ -115,6 +127,8 @@ export function patchSettings(b: Record<string, unknown>, cur: MeterSettings): M
   if (b.calls5h !== undefined) { const v = num(b.calls5h, 5, 10_000); if (v === null) return "calls5h must be 5-10000"; next.calls5h = v; }
   if (b.tokens5h !== undefined) { const v = num(b.tokens5h, 0, 1e9); if (v === null) return "tokens5h must be 0 (off) to 1,000,000,000"; next.tokens5h = v; }
   if (b.warnPct !== undefined) { const v = num(b.warnPct, 10, 100); if (v === null) return "warnPct must be 10-100"; next.warnPct = v; }
+  if (b.freshLeadMin !== undefined) { const v = num(b.freshLeadMin, 0, MAX_FRESH_LEAD_MIN); if (v === null) return `freshLeadMin must be 0 (off) to ${MAX_FRESH_LEAD_MIN} minutes`; next.freshLeadMin = v; }
+  if (b.morningAt !== undefined) { if (typeof b.morningAt !== "string" || Number.isNaN(hmToMin(b.morningAt))) return "morningAt must be HH:MM (24-hour)"; next.morningAt = b.morningAt; }
   return next;
 }
 

@@ -27,6 +27,7 @@ import { NAV_EVENT, parseNavCommand, type LifeView, type NavTarget } from "@/lib
 import { StudioNotifier } from "./StudioNotifier";
 import { NotificationCenter } from "./NotificationCenter";
 import { StopAll } from "./StopAll";
+import { PresenceBeat } from "./PresenceBeat";
 import { Terminal } from "./Terminal";
 import { HalEye } from "./HalEye";
 import { notify } from "@/lib/notify-pure";
@@ -744,6 +745,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <span className={"pill hidden sm:inline-flex " + (live === "live" ? "ok" : live === "offline" ? "bad" : "")} title={t("hud.liveTitle")}>{t(live === "live" ? "hud.live" : live === "offline" ? "hud.offline" : "hud.connecting")}</span>
           {process.env.NODE_ENV === "development" && <span className="pill hidden lg:inline-flex" title="Running the development server (slower). Start Orbital from the desktop shortcut for the production server.">DEV</span>}
           <StopAll />
+          <PresenceBeat />
           <TimeDilation onSpan={setDilation} />
           <NotificationCenter home={!shown && !approach} />
           <StudioNotifier />
