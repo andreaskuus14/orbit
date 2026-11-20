@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PARAKEET, tokensToWords, wantParakeet } from "../src/lib/clips/parakeet-pure.ts";
-import { videoCodec } from "../src/lib/clips/encode-pure.ts";
+import { encoderAfterWait, retryOnCpu, videoCodec } from "../src/lib/clips/encode-pure.ts";
 import { renderArgs } from "../src/lib/clips/pure.ts";
 
 // Real sherpa-onnx output for the model's en.wav test file (shortened).
@@ -46,4 +46,13 @@ test("the effects passes follow the clip's encoder (CPU by default)", () => {
   assert.equal(gpu[gpu.indexOf("-c:v") + 1], "h264_nvenc");
   const b = burnAssArgs("v.mp4", "c.ass", "o.mp4", "nvenc");
   assert.equal(b[b.indexOf("-c:v") + 1], "h264_nvenc");
+});
+
+test("NVENC and the GPU lease: busy too long → CPU render; Stop-all or cancel → no render; a mid-run NVENC failure retries on the CPU", () => {
+  assert.equal(encoderAfterWait("timeout"), "x264");
+  assert.equal(encoderAfterWait("stop"), null);
+  assert.equal(encoderAfterWait("cancel"), null);
+  assert.equal(retryOnCpu("nvenc", false), true);
+  assert.equal(retryOnCpu("nvenc", true), false, "cancelled: no second encode");
+  assert.equal(retryOnCpu("x264", false), false, "the CPU encode itself failed: nothing to fall back to");
 });

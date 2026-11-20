@@ -106,3 +106,34 @@ test("acquireGpu: maxWaitMs rejects with a timeout reason; withGpu releases on t
   await assert.rejects(withGpu("image", {}, async () => { throw new Error("boom"); }), /boom/);
   assert.equal(gpuNow().text, "GPU free");
 });
+
+test("Stop-all: everyone waiting is rejected (reason stop), new requests fail at once, the holder keeps its lease until it releases", async () => {
+  const { setStopAll } = await import("../src/lib/stop-all.ts");
+  const { GpuWaitError } = await import("../src/lib/gpu-lock.ts");
+  const a = await acquireGpu("3d");
+  const b = acquireGpu("image"), c = acquireGpu("render");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(gpuNow().waiting, 2);
+  await setStopAll(true);
+  try {
+    const isStop = (e: Error) => e instanceof GpuWaitError && e.reason === "stop";
+    await assert.rejects(b, isStop); // the 1 s tick sees Stop-all
+    await assert.rejects(c, isStop);
+    await assert.rejects(acquireGpu("image"), isStop);
+    assert.equal(gpuNow().waiting, 0);
+    assert.match(gpuNow().text, /^GPU busy: 3D model/);
+    a.release();
+    assert.equal(gpuNow().text, "GPU free");
+  } finally { await setStopAll(false); }
+  (await acquireGpu("image")).release(); // Resume: the GPU is usable again
+});
+
+test("pause wakes early on abort", async () => {
+  const { pause, abortError } = await import("../src/lib/gpu-lock.ts");
+  const ctrl = new AbortController(), t = Date.now();
+  setTimeout(() => ctrl.abort(new Error("job cancelled")), 20);
+  await pause(5000, ctrl.signal);
+  assert.ok(Date.now() - t < 1000);
+  assert.equal(abortError(ctrl.signal).message, "job cancelled");
+  assert.equal(abortError(AbortSignal.abort("not an error")).message, "Cancelled");
+});

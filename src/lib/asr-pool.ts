@@ -30,21 +30,22 @@ type Slot = { w: ChildProcess; ready: boolean; gone?: boolean; job?: Job & { id:
 
 const ref = (w: ChildProcess, on: boolean) => { if (on) { w.ref(); w.channel?.ref(); } else { w.unref(); w.channel?.unref(); } };
 
-/** FIFO queue over up to `size` child processes running `script`, one request each at a time. Children start on demand; a crashed one fails its request and is replaced. */
-export function createPool(script: string, size: number, startMs = 30_000) {
+/** FIFO queue over up to `size` child processes running `script`, one request each at a time. Children start on demand; a crashed one fails its request and is replaced.
+ *  `name` only labels log lines and errors (Whisper here, Parakeet in clips/parakeet.ts). */
+export function createPool(script: string, size: number, startMs = 30_000, name = "Whisper") {
   const queue: Job[] = [];
   const slots: Slot[] = [];
   let seq = 0, dead = false, startFails = 0, crashes = 0, coolUntil = 0, nextStart = 0;
   const cooling = () => Date.now() < coolUntil;
-  const coolErr = () => new Error(`Whisper crashed ${CRASHES} times in a row; paused for a minute (see the server log)`);
+  const coolErr = () => new Error(`${name} crashed ${CRASHES} times in a row; paused for a minute (see the server log)`);
 
   const finish = (s: Slot) => { clearTimeout(s.timer); const j = s.job; s.job = undefined; ref(s.w, false); return j; };
 
   function fail(e: unknown) { // the worker can't start or can't load the model: give up on workers for good
     if (dead) return;
     dead = true;
-    console.error("[orbit] ASR worker unusable (voice goes in-process, clips skip captions):", e instanceof Error ? e.message : e);
-    const err = new NoWorkerError(`no ASR worker: ${e instanceof Error ? e.message : e}`);
+    console.error(`[orbit] ${name} worker unusable:`, e instanceof Error ? e.message : e);
+    const err = new NoWorkerError(`no ${name} worker: ${e instanceof Error ? e.message : e}`);
     for (const s of slots.splice(0)) { s.gone = true; finish(s)?.reject(err); s.w.kill(); }
     for (const j of queue.splice(0)) j.reject(err);
   }
@@ -56,7 +57,7 @@ export function createPool(script: string, size: number, startMs = 30_000) {
     clearTimeout(s.timer);
     if (!s.ready) { // couldn't start: retry with backoff, give up for good after START_TRIES
       if (++startFails >= START_TRIES) return fail(e);
-      console.error(`[orbit] ASR worker didn't start (${e.message}), retrying`);
+      console.error(`[orbit] ${name} worker didn't start (${e.message}), retrying`);
       const wait = 1000 * 2 ** (startFails - 1);
       nextStart = Date.now() + wait;
       setTimeout(pump, wait);
@@ -66,7 +67,7 @@ export function createPool(script: string, size: number, startMs = 30_000) {
     if (++crashes >= CRASHES) { // crashing on every request (e.g. a broken model): stop feeding it for a while
       crashes = 0;
       coolUntil = Date.now() + COOL_MS;
-      console.error("[orbit] ASR worker keeps crashing, pausing transcription for a minute");
+      console.error(`[orbit] ${name} worker keeps crashing, pausing it for a minute`);
       for (const j of queue.splice(0)) j.reject(coolErr());
     }
     pump(); // a replacement starts if work is waiting
@@ -126,8 +127,7 @@ export function createPool(script: string, size: number, startMs = 30_000) {
 }
 
 const inProcess: Pipe = async (model, opts, cacheDir) => {
-  // sherpa-onnx (Parakeet) ships its own onnxruntime.dll in this process; loading onnxruntime-node beside it fails on Windows. Children are separate processes, so they are fine.
-  if ((globalThis as { __orbitParakeet?: unknown }).__orbitParakeet) throw new Error("Whisper can't run in-process next to Parakeet (onnxruntime clash); its worker process is unavailable");
+  // Parakeet (sherpa-onnx, its own onnxruntime library) never loads in this process (clips/parakeet-worker.mjs), so onnxruntime-node can.
   const tf = await import("@huggingface/transformers");
   tf.env.cacheDir = cacheDir;
   return (await tf.pipeline("automatic-speech-recognition", model, opts)) as unknown as Asr;

@@ -118,14 +118,23 @@ test("dev session event: counts land in the session stats", () => {
   assert.equal(eventFromSelene("P", [], []).ok, true);
 });
 
-test("seleneCandidates: ORBIT_SELENE first, then rokit/aftman/foreman, the project's own, PATH; no duplicates", () => {
-  const c = seleneCandidates({ env: " /opt/selene ", home: "/home/a", win: false, projectDir: "/p/Pet", path: "/usr/bin:/home/a/.rokit/bin", sep: ":" });
+test("seleneCandidates: ORBIT_SELENE first, then rokit/aftman/foreman, then PATH; no duplicates", () => {
+  const c = seleneCandidates({ env: " /opt/selene ", home: "/home/a", win: false, path: "/usr/bin:/home/a/.rokit/bin", sep: ":" });
   assert.equal(c[0], "/opt/selene");
   assert.deepEqual(c.slice(1, 4), ["/home/a/.rokit/bin/selene", "/home/a/.aftman/bin/selene", "/home/a/.foreman/bin/selene"]);
-  assert.ok(c.includes("/p/Pet/.rokit/bin/selene") && c.includes("/usr/bin/selene"));
+  assert.ok(c.includes("/usr/bin/selene"));
   assert.equal(new Set(c).size, c.length);
-  const w = seleneCandidates({ home: "C:\\Users\\a", win: true, projectDir: "C:\\p", path: "C:\\bin", sep: ";" });
+  const w = seleneCandidates({ home: "C:\\Users\\a", win: true, path: "C:\\bin;\"D:\\Tools\";\\\\srv\\share", sep: ";" });
   assert.equal(w[0], "C:\\Users\\a\\.rokit\\bin\\selene.exe");
+  assert.ok(w.includes("C:\\bin\\selene.exe") && w.includes("D:\\Tools\\selene.exe") && w.includes("\\\\srv\\share\\selene.exe"));
   assert.match(INSTALL_HINT, /rokit add Kampfkarren\/selene/);
   assert.match(INSTALL_HINT, /aftman add Kampfkarren\/selene/);
+});
+
+test("seleneCandidates: never the exported project's own tool folders, never relative paths (planted executables)", () => {
+  const c = seleneCandidates({ env: "tools/selene", home: "/home/a", win: false, path: ".:bin:./node_modules/.bin:/usr/bin:", sep: ":" });
+  assert.deepEqual(c, ["/home/a/.rokit/bin/selene", "/home/a/.aftman/bin/selene", "/home/a/.foreman/bin/selene", "/usr/bin/selene"]);
+  assert.ok(!c.some((p) => /\/p\/|Pet/.test(p)));
+  const w = seleneCandidates({ home: "C:\\Users\\a", win: true, path: ".;bin;C:bin;\\rooted;C:\\ok", sep: ";" });
+  assert.deepEqual(w.slice(3), ["C:\\ok\\selene.exe"], "only drive- or UNC-absolute PATH entries");
 });

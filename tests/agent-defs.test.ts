@@ -96,3 +96,9 @@ test("team: Nova hands work to leads, leads to their own team, specialists don't
   for (const a of BUILTIN_AGENTS) assert.equal(a.tools.includes("delegate"), a.slug === "nova" || !!a.lead, `${a.slug}: only Nova and leads get delegate`);
   for (const t of ["send_email", "spend"]) assert.ok(!BUILTIN_AGENTS.some((a) => a.tools.includes(t)), `no agent has ${t}`);
 });
+
+test("Nova (and the prospector) can find lead candidates", () => {
+  assert.ok(def("nova").tools.includes("find_lead_candidates"));
+  assert.ok(def("nova").tools.includes("save_lead"));
+  assert.ok(def("prospector").tools.includes("find_lead_candidates"));
+});
