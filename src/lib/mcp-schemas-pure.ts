@@ -31,6 +31,7 @@ export const SCHEMAS: Record<string, Schema> = {
   // one lead, or {"leads": [up to 10]}: neither shape is required on its own
   lead_create: S([], { ...lead, leads: { type: "array", items: obj(lead, ["name", "source_url"]) } }),
   create_goal: S(["title"], { title: str, why: str, deadline: { ...str, description: "YYYY-MM-DD" }, metric: obj({ kind: en("none", "manual", "steps", "youtube_subscribers"), target: num, how: str }) }),
+  local_image_edit: S(["image", "instruction"], { image: str, instruction: str, name: str }),
   local_image: S(["prompt"], { prompt: str, aspect: en("16:9", "9:16", "1:1", "4:3", "3:4", "4:5"), name: str }),
   local_music: S(["prompt"], { prompt: str, seconds: num, name: str }),
   local_video: S(["prompt"], { prompt: str, image: str, seconds: num, quality: en("fast", "best"), aspect: en("16:9", "9:16"), name: str }),
