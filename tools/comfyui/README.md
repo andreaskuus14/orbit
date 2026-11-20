@@ -77,6 +77,26 @@ Limits: 16 GB RAM is the tight spot (about 10 GB of weights stay in RAM while sa
 FastWan was distilled on text-to-video only, so check image-to-video quality against `quality: "best"`. Clips have no sound.
 If SaveVideo rejects `format.codec` on your ComfyUI build, check `GET /object_info/SaveVideo` (older builds use flat keys).
 
+## Picture editing (FLUX.2 klein 4B, CORE's `local_image_edit`)
+
+Edits a picture already in VAULT from a plain instruction ("make the sky a sunset", "same character in a red jacket") and saves a
+**new** .png; the original is untouched. It is editing only: NitroFusion2 / SDXL-Lightning still make pictures from text.
+
+**Status: untested on Windows and on a GPU.** The graph is ComfyUI's own "FLUX.2 Klein 4B Distilled image edit" template
+(`Comfy-Org/workflow_templates`) with native nodes (`ReferenceLatent`, `Flux2Scheduler`, `EmptyFlux2LatentImage`, `SamplerCustomAdvanced`); it is unit-tested (`tests/image-edit.test.ts`) but never ran here.
+
+| | |
+|---|---|
+| Model | [FLUX.2 klein 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B), **Apache-2.0** (the 9B is non-commercial and not used). Black Forest Labs' own NVFP4 quant `flux-2-klein-4b-nvfp4.safetensors` (2.46 GB, repo `black-forest-labs/FLUX.2-klein-4b-nvfp4` @ `1db2b2f7`) |
+| Text encoder | `qwen_3_4b_fp4_flux2.safetensors` (Qwen3-4B FP4, 3.85 GB) and `flux2-vae.safetensors` (0.34 GB), both `Comfy-Org/Flux-2-Klein-4B` @ `5b3abca5` (Apache-2.0). SHA-256 + byte sizes are pinned in `setup.ps1` |
+| VRAM plan | The full bf16 model needs about 13 GB, so it is not used. Quantized: 2.5 GB transformer + 3.9 GB encoder + VAE. ComfyUI runs the encoder first, offloads it, then the transformer, so the peak should stay under 8 GB; the picture is scaled to about 1 MP before editing. NVFP4 needs a Blackwell GPU (the RTX 5060 Laptop is one) and this portable build (CUDA 13.0). On an older GPU it will not run: use BFL's `flux-2-klein-4b-fp8` (4.07 GB) instead |
+| Steps | 4 (step-distilled), cfg 1, euler |
+| Speed | **UNTESTED.** Expect roughly 20-60 s per edit once loaded and a few minutes for the first (about 6 GB of weights from disk); benchmark before relying on it |
+
+Install (once, about 6.7 GB): `powershell -ExecutionPolicy Bypass -File tools\comfyui\setup.ps1 -Model flux2-klein-edit`. It adds to the
+existing install and needs no setting. ORBIT checks that ComfyUI lists the three files before queueing and says so if not. It takes the
+shared GPU lease (`image`), frees the models when done, and Stop-all interrupts the job.
+
 ## Settings (`.env.local`, all optional)
 
 - `ORBIT_COMFY_URL` — default `http://127.0.0.1:8188`; must be this PC.

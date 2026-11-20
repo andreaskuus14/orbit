@@ -5,7 +5,7 @@
 # Downloads are pinned and SHA-256 checked. Finished parts are skipped, a cut-off model download resumes.
 # ORBIT then starts ComfyUI by itself on 127.0.0.1:8188 when it needs a picture (start.ps1 runs it by hand).
 # UNTESTED on Windows/GPU: written in a cloud box. Needs an NVIDIA driver 580 or newer (CUDA 13.0); the RTX 5060 Laptop is fine.
-param([ValidateSet("sdxl-lightning", "nitrofusion2", "acestep-music", "wan22-video")][string]$Model = "sdxl-lightning")
+param([ValidateSet("sdxl-lightning", "nitrofusion2", "acestep-music", "wan22-video", "flux2-klein-edit")][string]$Model = "sdxl-lightning")
 
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
@@ -99,6 +99,17 @@ if ($Model -eq "acestep-music") {
   InstallModel "diffusion_models\nitrofusion2_w4a8_gptq.safetensors" "$NitroRepo/diffusion_models/nitrofusion2_w4a8_gptq.safetensors" "373741d551d0dc768a02f0ef49eeeca7bf29b992b889c413e99bdac60716443b" 3488205928
   InstallModel "text_encoders\qwen_3_4b.safetensors" "$ZImageRepo/text_encoders/qwen_3_4b.safetensors" "6c671498573ac2f7a5501502ccce8d2b08ea6ca2f661c458e708f36b36edfc5a" 8044982048
   InstallModel "vae\ae.safetensors" "$ZImageRepo/vae/ae.safetensors" "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38" 335304388
+} elseif ($Model -eq "flux2-klein-edit") {
+  # ===== BEGIN flux2-klein-edit (self-contained block; keep separate from the other -Model branches) =====
+  Step "Local picture editing: FLUX.2 klein 4B NVFP4 + FP4 Qwen3-4B encoder + VAE (about 6.7 GB total, all Apache-2.0)"
+  # Editing only: pictures from text stay with the default model (NitroFusion2 / SDXL-Lightning). The NVFP4 weights use Blackwell
+  # tensor cores (the RTX 5060 Laptop is Blackwell); this ComfyUI portable build (CUDA 13.0) supports them. Pinned revisions.
+  $KleinRepo = "https://huggingface.co/black-forest-labs/FLUX.2-klein-4b-nvfp4/resolve/1db2b2f776c24b76f1122e5f69ab1949fc620068"
+  $KleinComfy = "https://huggingface.co/Comfy-Org/Flux-2-Klein-4B/resolve/5b3abca5c0dc1ecd4eaf3340868d09063fc1c965/split_files"
+  InstallModel "diffusion_models\flux-2-klein-4b-nvfp4.safetensors" "$KleinRepo/flux-2-klein-4b-nvfp4.safetensors" "d8c5007b6a3bbbdfd38538bbcef5101a55dfde81894f58d2e3c8701cdef3542b" 2460413488
+  InstallModel "text_encoders\qwen_3_4b_fp4_flux2.safetensors" "$KleinComfy/text_encoders/qwen_3_4b_fp4_flux2.safetensors" "3eab03a77adb0ee5304a4e677d5c10ac22f9049c1d7c894adca4f8bb39206ca8" 3848213998
+  InstallModel "vae\flux2-vae.safetensors" "$KleinComfy/vae/flux2-vae.safetensors" "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3" 336211292
+  # ===== END flux2-klein-edit =====
 } elseif ($Model -eq "wan22-video") {
   Step "Local video: ComfyUI-GGUF node pack (pinned)"
   if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw "git is missing: winget install Git.Git, then run setup.ps1 again." }
@@ -129,5 +140,6 @@ if (-not ((Test-Path "$env:ProgramFiles\Google\Chrome\Application\chrome.exe") -
 Write-Host "`nDone. ORBIT starts ComfyUI by itself when it needs a picture, a music bed or a video." -ForegroundColor Green
 if ($Model -eq "acestep-music") { Write-Host "Music is on by itself once these files exist (ORBIT_MUSIC_GEN=off turns it off). Needs a ComfyUI recent enough to have the ACE-Step 1.5 nodes: the portable build you just installed is." }
 if ($Model -eq "wan22-video") { Write-Host "Local video is ready: ask CORE for a local_video clip. Not benchmarked yet: the first clip loads about 10 GB and may take several minutes." }
+if ($Model -eq "flux2-klein-edit") { Write-Host "Picture editing is ready: ask CORE for local_image_edit on a VAULT picture. Not benchmarked yet: the first edit loads about 6 GB and may take a few minutes. It does not change which model makes new pictures." }
 if ($Model -eq "nitrofusion2") { Write-Host "Set ORBIT_COMFY_MODEL=nitrofusion2 in .env.local and restart ORBIT to select NitroFusion2." }
 Write-Host "Check it in OPERATIONS -> Local AI ('Pictures (unlimited)'). To run it by hand: powershell -ExecutionPolicy Bypass -File tools\comfyui\start.ps1"
