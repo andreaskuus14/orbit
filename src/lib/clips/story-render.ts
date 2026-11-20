@@ -2,6 +2,7 @@
 // Everything outside (ffmpeg, TTS, Whisper, the effects layer, saving) is injected, so a dry run can drive it from a script.
 import { writeFile, stat } from "node:fs/promises";
 import path from "node:path";
+import type { BrandKit } from "../brand-kit-pure.ts";
 import { buildAss, type Word } from "./pure.ts";
 import { assembleArgs, dialogueAss, dramaArgs, hfErrorKind, lineTimes, payable, rankTitles, submittable, thumbAss, thumbShots, sceneSecs, scriptWords, unpaid, DRAMA, type DramaShot, type HfErrorKind, type StoryJob } from "./story-pure.ts";
 import type { HiggsfieldAdapter } from "./higgsfield.ts";
@@ -19,8 +20,9 @@ export type RenderDeps = {
   tts?(text: string, voice: string, file: string): Promise<void>; // local Kokoro narration
   words?(file: string, signal: AbortSignal): Promise<Word[]>; // Whisper word timings of one narration file (or a drama clip's audio)
   hasAudio?(file: string, signal: AbortSignal): Promise<boolean>; // does a downloaded clip carry an audio stream
-  effects?(input: { hook: string; words: Word[]; duration: number }, signal: AbortSignal): Promise<{ layer?: string; warning?: string; apply?: (video: string) => Promise<string | null> }>;
+  effects?(input: { hook: string; words: Word[]; duration: number; kit?: BrandKit }, signal: AbortSignal): Promise<{ layer?: string; warning?: string; apply?: (video: string) => Promise<string | null> }>;
   music?: string | null;
+  kit?: BrandKit; // STUDIO brand kit (brand-kit-pure.ts); none = the defaults
   save(step: string): Promise<void>;
   pollMs?: number;
 };
@@ -137,8 +139,8 @@ export async function makeStory(job: StoryJob, dir: string, d: RenderDeps, signa
     words.push(...(w.length ? w.map((x) => ({ ...x, start: x.start + starts[i], end: x.end + starts[i] })) : scriptWords([scenes[i].narration], [starts[i]], [Math.max(0.5, (spoken[i] ?? secs[i] - 0.4))])));
   }
   words = words.filter((w) => w.start < total);
-  await writeFile(path.join(dir, "captions.ass"), buildAss({ hook: job.story.hook, words, duration: total }), "utf8");
-  const fx = d.effects ? await d.effects({ hook: job.story.hook, words, duration: total }, signal) : {};
+  await writeFile(path.join(dir, "captions.ass"), buildAss({ hook: job.story.hook, words, duration: total, kit: d.kit }), "utf8");
+  const fx = d.effects ? await d.effects({ hook: job.story.hook, words, duration: total, kit: d.kit }, signal) : {};
   if (fx.warning) job.warnings.push(fx.warning);
   // 6. Render. Paths are relative to dir (ffmpeg runs there); music may be anywhere.
   const rel = (f: string) => path.relative(dir, f).replace(/\\/g, "/");
@@ -173,11 +175,11 @@ async function makeDrama(job: StoryJob, dir: string, d: RenderDeps, signal: Abor
     shots.push({ file: rel(file), sec, audio });
     at += sec;
   }
-  await writeFile(path.join(dir, "captions.ass"), dialogueAss(lines, job.story.hook), "utf8");
+  await writeFile(path.join(dir, "captions.ass"), dialogueAss(lines, job.story.hook, d.kit), "utf8");
   const video = "clip-1.mp4";
   await d.ffmpeg(dramaArgs({ shots, music: d.music ?? undefined, ass: "captions.ass", out: video }), dir, signal);
   // Packaging: thumbnails from the most emotional shots (with the hook text), titles ranked by the packaging model.
-  await writeFile(path.join(dir, "thumb.ass"), thumbAss(job.story.hook), "utf8");
+  await writeFile(path.join(dir, "thumb.ass"), thumbAss(job.story.hook, d.kit), "utf8");
   const thumbs: string[] = [];
   for (const [k, i] of thumbShots(job.story.scenes).entries()) {
     const t = `thumb-${k + 1}.jpg`, seek = /\.(mp4|mov|webm)$/i.test(shots[i].file) ? ["-ss", String(Math.round(shots[i].sec * 6) / 10)] : [];

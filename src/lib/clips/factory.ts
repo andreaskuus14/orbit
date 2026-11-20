@@ -786,10 +786,12 @@ async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o:
   // Viral-study playbook ({} until 5 studies): tunes zoom/cut rhythm, default caption style and the thumbnail; the edit options still decide on/off.
   const tune: EditTune = await import("./study").then((m) => m.editTune(), () => ({}));
   const { segs, zooms, teaser, words: capWords, total } = editPlan(local, pts, duration, audio, o, tune);
-  await writeFile(path.join(dir, ass), buildAss({ hook: clip.hook, words: capWords, duration: total, style: o.style ?? tune.style }), "utf8");
+  const { readBrandKit } = await import("./brand-kit"), { kitId } = await import("../brand-kit-pure"), kit = await readBrandKit();
+  clip.brand = kitId(kit); // the look this render has; publish checks compare it with the kit as it is then
+  await writeFile(path.join(dir, ass), buildAss({ hook: clip.hook, words: capWords, duration: total, style: o.style ?? tune.style, kit }), "utf8");
   const follow = o.layout === "follow" ? await trackAction(ff, trackArgs(src, clip.start, duration), signal).catch((e) => { if (signal.aborted) throw e; if (!job.warnings.includes(TRACK_FAIL)) job.warnings.push(TRACK_FAIL); return []; }) : [];
   // Optional hyperframes effects layer (hyperframes.ts): when it renders, it replaces the burned ASS captions; otherwise today's path.
-  const hf = await import("./hyperframes"), fx = await hf.renderEffects(dir, clip.id, { hook: clip.hook, words: capWords, duration: total, style: o.style ?? tune.style }, signal);
+  const hf = await import("./hyperframes"), fx = await hf.renderEffects(dir, clip.id, { hook: clip.hook, words: capWords, duration: total, style: o.style ?? tune.style, kit }, signal);
   const warn = (w: string | null | undefined) => { if (w && !job.warnings.includes(w)) job.warnings.push(w); };
   warn(fx.warning);
   let lease: GpuLease | null = null;
@@ -836,7 +838,7 @@ async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o:
       const scale = retry ? 0.85 : 1;
       const img = retry ? sharp(path.join(dir, frame)).resize(1080, 1920, { fit: "cover" }) : sharp(path.join(dir, frame));
       // Written whole to a tmp file first, so a failed retry never leaves a half-written thumbnail over the first one.
-      await img.composite([{ input: Buffer.from(thumbSvg(text, 1080, 1920, scale)), top: 0, left: 0 }]).jpeg({ quality: 88 }).toFile(tmp);
+      await img.composite([{ input: Buffer.from(thumbSvg(text, 1080, 1920, scale, kit)), top: 0, left: 0 }]).jpeg({ quality: 88 }).toFile(tmp);
       const [m, s, st] = await Promise.all([sharp(tmp).metadata(), sharp(tmp).stats(), stat(tmp)]);
       await rename(tmp, out);
       return thumbProblems({ width: m.width ?? 0, height: m.height ?? 0, bytes: st.size, luma: lumaOf(s.channels) }, text, scale);

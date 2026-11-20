@@ -3,7 +3,8 @@
 // render revisions (the clip and its "another version" renders), review (approval stamp), publication (clip.publish) and results (videoId).
 // Nothing here publishes: it only says what is missing. The one publish point stays factory.startPublish after the owner's click.
 import type { Clip, ClipJob } from "./types.ts";
-import { RECAP_SOURCE, originalityIssue, ownSource } from "./publish-checks-pure.ts";
+import { RECAP_SOURCE, originalityIssue, ownSource, publishWarnings } from "./publish-checks-pure.ts";
+import type { BrandKit } from "../brand-kit-pure.ts";
 
 // ---- STU02: source rights ----
 export const RIGHTS_BASES = ["own", "licensed", "written-permission", "creative-commons", "public-domain"] as const;
@@ -93,7 +94,7 @@ export type StoryRef = { id: string; clipJob?: string; opts: { idea: string }; s
 export type Revision = { clip: string; title: string; status: Clip["status"]; edit?: Clip["edit"]; video?: string };
 export type ProdRecord = { id: string; job: string; clip: string; title: string; idea?: string; script?: { story: string; title: string };
   source: { name: string; rights?: SourceRights; note?: string; own: boolean }; settings: Clip["edit"] | ClipJob["options"];
-  revisions: Revision[]; review: { status: Clip["status"]; approved: boolean; check?: MediaCheck };
+  warnings: string[]; revisions: Revision[]; review: { status: Clip["status"]; approved: boolean; check?: MediaCheck };
   publication?: Clip["publish"]; result?: { videoId: string; url: string }; blockers: string[] };
 
 const SEP = ":"; // deeplink-pure SAFE allows it; job and clip ids never contain it
@@ -119,7 +120,7 @@ export function blockersOf(job: ClipJob, c: Clip): string[] {
   return out;
 }
 
-export function productionRecords(jobs: ClipJob[], stories: StoryRef[] = []): ProdRecord[] {
+export function productionRecords(jobs: ClipJob[], stories: StoryRef[] = [], kit?: BrandKit): ProdRecord[] {
   const byJob = new Map(stories.filter((s) => s.clipJob).map((s) => [s.clipJob!, s]));
   return jobs.flatMap((j) => {
     const s = byJob.get(j.id);
@@ -130,7 +131,7 @@ export function productionRecords(jobs: ClipJob[], stories: StoryRef[] = []): Pr
         source: { name: j.source, rights: j.rights, note: j.permission, own: !rightsProblem({ ...j, rights: undefined }) },
         settings: c.edit ?? j.options, revisions: family.map((x) => ({ clip: x.id, title: x.title, status: x.status, edit: x.edit, video: x.video })),
         review: { status: c.status, approved: c.status === "approved" && !!c.approvedHash, check: c.qc }, publication: p,
-        result: live ? { videoId: p.videoId!, url: p.url ?? `https://youtube.com/shorts/${p.videoId}` } : undefined, blockers: blockersOf(j, c) };
+        result: live ? { videoId: p.videoId!, url: p.url ?? `https://youtube.com/shorts/${p.videoId}` } : undefined, blockers: blockersOf(j, c), warnings: publishWarnings(c, kit) };
     });
   });
 }

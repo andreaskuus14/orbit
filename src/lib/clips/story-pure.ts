@@ -1,3 +1,4 @@
+import { DEFAULT_KIT, assStyleColour, type BrandKit } from "../brand-kit-pure.ts";
 // AI Story (Clip Factory): pure logic for the story package, the Higgsfield cost/approval gate, the MCP tool guard and the
 // ffmpeg assembly graph. Server glue: story.ts; engine: story-render.ts; Higgsfield: higgsfield.ts.
 import { assText, assTime, type Word } from "./pure.ts";
@@ -441,18 +442,19 @@ export function redoItem(job: StoryJob, key: unknown): string {
 }
 
 /** Spoken-line subtitles: small white text, thin black outline, lower-centre (above the Shorts UI), 1-2 lines; optional small hook on top. */
-export function dialogueAss(lines: { text: string; start: number; end: number }[], hook = ""): string {
+export function dialogueAss(lines: { text: string; start: number; end: number }[], hook = "", kit: BrandKit = DEFAULT_KIT): string {
+  const font = kit.caption.font || "Arial", ink = assStyleColour(kit.caption.text), edge = assStyleColour(kit.caption.outline);
   const ev = lines.filter((l) => l.end - l.start > 0.05).map((l) => `Dialogue: 0,${assTime(l.start)},${assTime(l.end)},Line,,0,0,0,,${assText(l.text)}`);
   if (hook.trim() && lines.length) ev.unshift(`Dialogue: 1,${assTime(0)},${assTime(Math.min(2.5, lines[0].end))},Hook,,0,0,0,,${assText(hook)}`);
-  return assDoc(["Style: Line,Arial,54,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,0,2,140,140,560,1",
-    "Style: Hook,Arial,60,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,0,8,120,120,300,1"], ev);
+  return assDoc([`Style: Line,${font},54,${ink},${ink},${edge},${edge},0,0,0,0,100,100,0,0,1,3,0,2,140,140,560,1`,
+    `Style: Hook,${font},60,${ink},${ink},${edge},${edge},-1,0,0,0,100,100,0,0,1,4,0,8,120,120,300,1`], ev);
 }
 const assDoc = (styles: string[], ev: string[]) => ["[Script Info]", "ScriptType: v4.00+", "PlayResX: 1080", "PlayResY: 1920", "WrapStyle: 0", "ScaledBorderAndShadow: yes", "", "[V4+ Styles]",
   "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
   ...styles, "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text", ...ev, ""].join("\n");
 
 /** Thumbnail text overlay: big bold white words with a heavy black outline, upper third. */
-export const thumbAss = (text: string) => assDoc(["Style: T,Arial,110,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,9,0,8,90,90,330,1"],
+export const thumbAss = (text: string, kit: BrandKit = DEFAULT_KIT) => assDoc([`Style: T,${kit.caption.font || "Arial"},110,${assStyleColour(kit.caption.text)},${assStyleColour(kit.caption.text)},${assStyleColour(kit.caption.outline)},${assStyleColour(kit.caption.outline)},-1,0,0,0,100,100,0,0,1,9,0,8,90,90,330,1`],
   text.trim() ? [`Dialogue: 0,0:00:00.00,0:00:10.00,T,,0,0,0,,${assText(text).toUpperCase()}`] : []);
 
 /** When a shot's line is on screen: its whole shot, or tightened to the speech Whisper heard (times relative to the shot). */

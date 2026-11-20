@@ -3,6 +3,7 @@ import { crossSiteBlocked } from "@/lib/csrf";
 import { checkClipMedia, getJob, listJobs, readState, saveJob, startClipQueue, studioRoot, withJobLock } from "@/lib/clips/factory";
 import { emptyLearn, learnProblem, type LearnState } from "@/lib/clips/learn-pure";
 import { capacity, liveIds, outcomeOf, type Outcome } from "@/lib/clips/depth-pure";
+import { readBrandKit } from "@/lib/clips/brand-kit";
 import { readPublishSettings } from "@/lib/clips/publish-schedule";
 import { baseEdit, isClipId, isJobId } from "@/lib/clips/pure";
 import { cleanRights, productionRecords, recordId } from "@/lib/clips/production-pure";
@@ -19,7 +20,7 @@ export async function GET() {
     readState<LearnState>(studioRoot(), "learn", learnProblem).catch(() => null), readPublishSettings()]);
   const recs = Object.values((learn ?? emptyLearn()).clips), outcomes: Record<string, Outcome> = {};
   for (const j of jobs) for (const c of j.clips) { const o = outcomeOf(c, recs); if (o) outcomes[recordId(j.id, c.id)] = o; }
-  const records = productionRecords(jobs, stories), live = liveIds(recs);
+  const records = productionRecords(jobs, stories, await readBrandKit()), live = liveIds(recs);
   // jobs: pipeline board + calendar; live: video ids seen public (confirms a scheduled Short); bases: each job's first-pass edit (STU05)
   return Response.json({ records, jobs, live: [...live], outcomes, capacity: capacity(records, jobs, settings, Date.now(), live),
     bases: Object.fromEntries(jobs.map((j) => [j.id, baseEdit(j.options)])) });
