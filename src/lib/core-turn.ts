@@ -155,13 +155,13 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
       const sendAll = (evs: Record<string, unknown>[]) => evs.forEach(send);
       let shown = "";
       try {
-        const { text, citations, trace, model, lesson } = await answer(
+        const { text, citations, trace, model, lesson, ...rest } = await answer(
           (text) => { shown += text; send({ type: "delta", text }); }, signal,
           () => { if (shown) { shown = ""; send({ type: "reset" }); } },
           (to) => send({ type: "navigate", to }),
           (tool, input, done) => sendAll(done ? live.finish(tool, done) : live.start(tool, input)));
         sendAll(live.end());
-        return { status: 200, body: { conversationId: cid, answer: text, citations, trace, model, ...(lesson && { lesson }) } };
+        return { status: 200, body: { conversationId: cid, answer: text, citations, trace, model, ...("used" in rest && rest.used && { used: rest.used }), ...(lesson && { lesson }) } };
       } catch (e) {
         // Stopped or out of time (CoreStopped from runCore's deadline): keep what was shown, plus what cancelled agent tasks had finished.
         const done = e instanceof CoreStopped ? e.completed : "";

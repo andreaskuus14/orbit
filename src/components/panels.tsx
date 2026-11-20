@@ -55,6 +55,7 @@ import { PerfRuns } from "./PerfRuns";
 import { ModelRuns } from "./ModelRuns";
 import { LessonChip, LessonsSection } from "./LessonsCard";
 import { getLang, LangSwitch, useT } from "./i18n";
+import { usedLine } from "@/lib/core-used-pure";
 import { FailureReport } from "./FailureReport";
 import { AllowOnceCard } from "./AllowOnceCard";
 import { turnFailed } from "@/lib/failure-report-pure";
@@ -76,8 +77,9 @@ import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechG
 
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string; confirmation?: string | null; recheck_at?: string | null };
 type Cite = { id: string; title: string; kind: string };
+type UsedSet = import("@/lib/core-used-pure").Used;
 type Step = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[]; answerEval?: { pass: boolean; flags: string[] }; receipt?: unknown; policy?: { verdict: "refuse"; turn: string; allowOnce?: { id: string; journal: boolean } } };
-type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[]; lesson?: { id: string; text: string }; fixes?: string[]; live?: { rows: LiveRow[]; ms: number } };
+type Msg = { role: "user" | "assistant"; content: string; citations?: Cite[]; trace?: Step[]; error?: boolean; model?: "fast" | "smart" | "deep"; chips?: string[]; lesson?: { id: string; text: string }; fixes?: string[]; live?: { rows: LiveRow[]; ms: number }; used?: UsedSet };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
@@ -86,6 +88,21 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return json as T;
 }
 const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+
+/** "What I used": one small line under the answer (memories, facts, files, tools, web; private items only as "a private note"); click for the full list. */
+function UsedLine({ used }: { used: UsedSet }) {
+  const { t: tr } = useT();
+  const [open, setOpen] = useState(false);
+  const t = (k: string, v?: Record<string, string | number>) => tr(k as Parameters<typeof tr>[0], v);
+  const line = usedLine(used, t, open);
+  if (!line) return null;
+  return (
+    <div className="mt-1.5 text-[11px] opacity-70" data-testid="core-used">
+      <span className="font-medium">{tr("used.label")}:</span> <span>{line}</span>
+      {(used.more > 0 || open) && <button type="button" className="ml-1.5 underline" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{tr(open ? "used.hide" : "used.showAll")}</button>}
+    </div>
+  );
+}
 
 /* ---------------- CORE chat ---------------- */
 /** Polls a handed-off task until it finishes (or the chat moves on): its result replaces the dropped stream. */
@@ -157,14 +174,14 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
       const r = await chatsApi<{ messages: Msg[] }>(undefined, `?id=${encodeURIComponent(id)}`);
       if (mine !== opening.current) return;
       if (!r.messages.length) { newChat(fallbackProject); return; } // deleted (or not this user's): start fresh
-      setMsgs(r.messages.map((m) => ({ role: m.role, content: m.content, citations: m.citations, trace: m.trace })));
+      setMsgs(r.messages.map((m) => ({ role: m.role, content: m.content, citations: m.citations, trace: m.trace, used: m.used })));
       setChatId(id); setNewProject(null);
       lastQ.current = [...r.messages].reverse().find((m) => m.role === "user")?.content ?? "";
       const pending = handoffTask(r.messages); // reopened (reload, other device) while its background task runs: show the answer when it lands
       if (pending) void waitTask(pending, () => alive.current && mine === opening.current).then(async (t) => {
         if (!t || mine !== opening.current || abort.current) return; // moved on, or a new turn is streaming: the answer shows on the next open
         const again = await chatsApi<{ messages: Msg[] }>(undefined, `?id=${encodeURIComponent(id)}`).catch(() => null); // the server wrote it before closing the task
-        if (again?.messages.length && mine === opening.current && !abort.current) setMsgs(again.messages.map((m) => ({ role: m.role, content: m.content, citations: m.citations, trace: m.trace })));
+        if (again?.messages.length && mine === opening.current && !abort.current) setMsgs(again.messages.map((m) => ({ role: m.role, content: m.content, citations: m.citations, trace: m.trace, used: m.used })));
       });
     } catch (e) { if (mine === opening.current) { setMsgs([{ role: "assistant", content: e instanceof Error ? e.message : "Couldn't open that chat", error: true }]); setChatId(null); } }
   }, [setChatId, newChat]);
@@ -285,7 +302,7 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
       let buf = "";
       let finished = false;
       const handle = (line: string) => {
-        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; error?: string; to?: NavTarget; label?: string; tool?: string; taskId?: string; model?: "fast" | "smart" | "deep"; lesson?: { id: string; text: string } };
+        const ev = JSON.parse(line) as { type: string; conversationId?: string; text?: string; answer?: string; citations?: Cite[]; trace?: Step[]; used?: UsedSet; error?: string; to?: NavTarget; label?: string; tool?: string; taskId?: string; model?: "fast" | "smart" | "deep"; lesson?: { id: string; text: string } };
         if (ev.conversationId && !cid) { const id = cid = ev.conversationId; setRunning((r) => [...r, id]); }
         if (skill) {
           if (ev.type === "start" && cid) updateSkillRun(skill, { state: "started", chatId: cid });
@@ -326,7 +343,7 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
           // The final answer equals the streamed text up to citation markers (stripped for speech): speak only the tail.
           say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? "", true));
           setLive(null);
-          setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace, model: ev.model, live: { rows: steps, ms: Date.now() - since.current },
+          setMsgs((m) => [...m, { role: "assistant", content: ev.answer ?? "", citations: ev.citations, trace: ev.trace, used: ev.used, model: ev.model, live: { rows: steps, ms: Date.now() - since.current },
             chips: [...parseChoices(ev.answer ?? ""), ...followUps(message, (ev.trace ?? []).map((s) => s.step))], lesson: ev.lesson, fixes: look === "roblox" ? robloxErrors(ev.answer ?? "") : undefined }]);
         } else if (ev.type === "error") {
           throw new Error(ev.error || "CORE failed");
@@ -423,6 +440,7 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
           {m.citations.map((c, n) => <button key={c.id} className="chip" onClick={() => (c.kind.startsWith("week:") ? dispatchEvent(new CustomEvent(OPEN_SOURCE_EVENT, { detail: c })) : onOpenMemory(c.id))}>[{n + 1}] {c.title}</button>)}
         </div>
       )}
+      {m.role === "assistant" && !m.error && m.used && <UsedLine used={m.used} />}
       {m.role === "assistant" && (
         <div className="mt-2 flex flex-wrap items-center gap-1 text-xs">
           {!m.error && <>

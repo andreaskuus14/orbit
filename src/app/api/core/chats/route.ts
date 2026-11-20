@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { requireUser } from "@/lib/supabase/server";
 import { getChats, updateChats } from "@/lib/core-chats";
+import { buildUsed } from "@/lib/core-used-pure";
+import { MODULE_PRIVATE } from "@/lib/core-modules";
 import { updateCheckpoint } from "@/lib/checkpoint";
 import { coreSessionStore, coreTaintStore } from "@/lib/durable";
 import {
@@ -24,7 +26,8 @@ export async function GET(req: Request) {
     // Newest MAX_MESSAGES, shown oldest first; RLS keeps other users' chats invisible.
     const { data, error } = await sb.from("messages").select("role, content, citations, trace").eq("conversation_id", id).order("created_at", { ascending: false }).limit(MAX_MESSAGES);
     if (error) return bad(error.message, 500);
-    return Response.json({ messages: (data ?? []).reverse() });
+    // "What I used" for a reopened chat: rebuilt from the saved citations + trace (private reads redacted)
+    return Response.json({ messages: (data ?? []).reverse().map((m) => (m.role === "assistant" ? { ...m, used: buildUsed({ citations: m.citations ?? [], trace: m.trace ?? [], privateTools: MODULE_PRIVATE }) } : m)) });
   }
   const [{ data, error }, store] = await Promise.all([
     sb.from("conversations").select("id, title, updated_at").order("updated_at", { ascending: false }).limit(MAX_CHATS),
