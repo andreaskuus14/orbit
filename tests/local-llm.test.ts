@@ -1,20 +1,36 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { autostartView, DISABLE_CMD, ENABLE_CMD } from "../src/lib/autostart-pure.ts";
 
 const src = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const imports = (code: string) => [...code.matchAll(/from\s+["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g)].map((m) => m[1] ?? m[2]);
 
-test("private journal text has no path to Claude: the reflect route and local-llm.ts never import claude.ts", () => {
-  const route = src("src/app/api/life/reflect/route.ts"), llm = src("src/lib/local-llm.ts");
-  for (const [name, code] of [["reflect route", route], ["local-llm.ts", llm]] as const) {
-    for (const i of imports(code)) assert.ok(!/(^|\/)claude(\.ts)?$|anthropic|claude-agent-sdk/.test(i), `${name} imports ${i}`);
-    assert.ok(!/askClaude|runClaudeStream|withLocal/.test(code), `${name} mentions a Claude call`);
-  }
-  assert.deepEqual(imports(route).sort(), ["@/lib/life", "@/lib/local-llm", "@/lib/supabase/server"]);
-  assert.match(llm, /privateBlocked\(/); // the opt-in is checked before any journal text is sent
+const walk = (d: string): string[] => readdirSync(d).flatMap((f) => { const p = join(d, f); return statSync(p).isDirectory() ? walk(p) : /\.tsx?$/.test(f) ? [p] : []; });
+
+test("local-llm.ts never imports claude.ts, and no journal text can reach any model, local included (AGENTS.md rule 6)", () => {
+  const llm = src("src/lib/local-llm.ts"), pure = src("src/lib/local-model-pure.ts");
+  for (const i of imports(llm)) assert.ok(!/(^|\/)claude(\.ts)?$|anthropic|claude-agent-sdk/.test(i), `local-llm.ts imports ${i}`);
   assert.match(llm, /OLLAMA_URL/); // the only address it talks to (loopback, localLlmUrl)
+  assert.ok(!/journal|getLife|\/life\b/i.test(llm.replace(/^\/\/.*$/gm, "")), "local-llm.ts mentions the journal or LIFE");
+  assert.ok(!/ORBIT_LOCAL_PRIVATE|reflectJournal|journalReflect|privateBlocked|PRIVATE_LABEL/.test(llm + pure.replace(/\/\*[\s\S]*?\*\//g, "")), "the private-journal path is back");
+  assert.ok(!existsSync(new URL("../src/app/api/life/reflect/route.ts", import.meta.url)), "the reflect route is back");
+  // the only importers of local-llm are claude.ts (fallback), vault intake and the health route: none reads the journal
+  const root = fileURLToPath(new URL("../src", import.meta.url));
+  for (const f of walk(root)) {
+    const code = readFileSync(f, "utf8");
+    if (!imports(code).some((i) => /local-llm(\.ts)?$/.test(i))) continue;
+    assert.ok(!/\b(getLife|exportLife)\b|\.journal\b|from ["'][^"']*\/life(-pure)?(\.ts)?["']/.test(code), `${relative(root, f)} imports local-llm and reads LIFE`);
+  }
+});
+
+test("the owner-facing text no longer offers journal reflection and says the journal never reaches a model", () => {
+  const panel = src("src/components/LifePanel.tsx");
+  assert.ok(!/\/api\/life\/reflect|localReflect/.test(panel));
+  assert.match(src("src/lib/i18n-pure.ts"), /life\.journalPrivate": "Private: journal text is never sent to any AI model\./);
+  assert.ok(!/ORBIT_LOCAL_PRIVATE/.test(src(".env.example")));
 });
 
 test("the existing cloud guards are intact: CORE's journal tool and the sleep loop still never read journal text", () => {

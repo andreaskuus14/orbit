@@ -76,7 +76,7 @@ CORE uses your own Claude Code login, no API key. Install Claude Code and run `c
 | `ORBIT_CORE_MAX_STEPS` | Model steps CORE may take per answer (2–12) | 8 |
 | `ORBIT_CORE_SESSION` | `resume` = one Claude session per CORE chat (faster follow-ups). Empty = each step starts fresh | off |
 | `ORBIT_CLAUDE_WEEKLY_CALLS` | Your own weekly Claude budget in calls; the doctor's SYSTEM card shows 7-day use against it | off |
-| `ORBIT_LOCAL_LLM_MODEL` | Ollama model (e.g. `qwen3:8b`; old name `ORBIT_LOCAL_MODEL`) for chat and summaries when Claude is unreachable. No tools in that mode. `ORBIT_LOCAL_LLM_URL` (this PC only), `ORBIT_LOCAL_PRIVATE=1` (journal Reflect, local only): tools/ollama/README.md | off |
+| `ORBIT_LOCAL_LLM_MODEL` | Ollama model (default `qwen3.5:9b`, with `qwen3.5:4b` used while the GPU is shared; old name `ORBIT_LOCAL_MODEL`) for chat and summaries when Claude is unreachable. No tools in that mode. `ORBIT_LOCAL_LLM_URL` (this PC only), no model ever reads the journal: tools/ollama/README.md | off |
 
 If `ANTHROPIC_API_KEY` is set in your Windows environment, Claude Code bills that API key instead of your Claude login (DEV world → CORE config shows which).
 

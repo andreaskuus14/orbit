@@ -13,7 +13,7 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { AddressInfo } from "node:net";
 import { assertLocal, cents, correct, intakePrompt, isStale, markUncertain, needsOcr, parseFields, valueInQuote, type Sidecar } from "../src/lib/vault-intake-pure.ts";
-import { isCloudModel, localModelName, privateBlocked } from "../src/lib/local-model-pure.ts";
+import { isCloudModel, localModelName } from "../src/lib/local-model-pure.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
 const lib = (f: string) => JSON.stringify(pathToFileURL(path.join(root, "src/lib", f)).href);
@@ -57,6 +57,7 @@ async function fakes(answer: object[]) {
   const got: { chat?: { system: string; prompt: string }; ocr: number } = { ocr: 0 };
   const read = (q: IncomingMessage) => new Promise<string>((ok) => { let b = ""; q.setEncoding("latin1"); q.on("data", (c) => (b += c)).on("end", () => ok(b)); });
   const ollama = createServer(async (q, s) => {
+    if (q.url === "/api/tags") return s.end(JSON.stringify({ models: [{ name: "qwen3:8b" }] })); // chatLocal checks which model is installed first
     const j = JSON.parse(await read(q)); got.chat = { system: j.messages[0].content, prompt: j.messages[1].content };
     s.end(JSON.stringify({ message: { content: "Here you go:\n" + JSON.stringify(answer) } }));
   });
@@ -190,12 +191,11 @@ test("a quote that is only a label doesn't vouch for the value; amounts, IBANs a
   assert.deepEqual([valueInQuote("gross", "124.00", "Kokku 124,00 EUR"), valueInQuote("gross", "125.00", "Kokku 124,00"), valueInQuote("vat", "24", "Kaibemaks")], [true, false, false]);
 });
 
-test("Ollama cloud models are never the local model: intake, journal and every private use refuse them", async () => {
+test("Ollama cloud models are never the local model: intake and every private use refuse them", async () => {
   for (const m of ["gpt-oss:120b-cloud", "qwen3-coder:480b-cloud", "deepseek-v3.1:671b-cloud", "kimi:cloud"]) {
     assert.ok(isCloudModel(m), m);
     assert.equal(localModelName({ ORBIT_LOCAL_LLM_MODEL: m }), "");
     assert.equal(localModelName({ ORBIT_LOCAL_MODEL: m }), "");
-    assert.match(privateBlocked({ model: m, optIn: "1" }) ?? "", /ollama\.com/);
   }
   assert.equal(localModelName({ ORBIT_LOCAL_LLM_MODEL: "qwen3:8b" }), "qwen3:8b");
   assert.equal(isCloudModel("cloudy-llama:7b"), false);

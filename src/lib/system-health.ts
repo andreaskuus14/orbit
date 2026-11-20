@@ -73,7 +73,7 @@ async function probes(sb: SupabaseClient, events: { type: string; created_at: st
     { id: "higgsfield", label: "Higgsfield", state: stories.length ? "ok" : "off", okAt: hfDone?.updatedAt ?? null,
       detail: !stories.length ? "Not used yet" : hfFail && (!hfDone || hfFail.updatedAt > hfDone.updatedAt) ? `Last job failed: ${redact(hfFail.error?.message ?? hfFail.step).slice(0, 120)}` : "Last job worked" },
     !local || local.state === "off" ? { id: "ollama", label: "Local brain (Ollama)", state: "off", detail: "Off (ORBIT_LOCAL_MODEL empty)" }
-      : { id: "ollama", label: "Local brain (Ollama)", state: local.state === "ok" ? "ok" : "down", detail: local.text, okAt: local.state === "ok" ? nowIso : null },
+      : { id: "ollama", label: "Local brain (Ollama)", state: local.state === "ok" || local.state === "fallback" ? "ok" : "down", detail: local.text, okAt: local.state === "ok" || local.state === "fallback" ? nowIso : null },
     !push ? { id: "push", label: "Phone push", state: "off", detail: "Couldn't read the paired devices" }
       : push.problem ? { id: "push", label: "Phone push", state: "off", detail: push.problem }
       : { id: "push", label: "Phone push", state: push.phones ? "ok" : "off", detail: push.phones ? `${push.phones} phone${push.phones > 1 ? "s" : ""} subscribed` : "No phone subscribed (open Remote on the phone and turn notifications on)", okAt: iso(push.last) },

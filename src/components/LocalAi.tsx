@@ -306,7 +306,7 @@ export function IfcOpen() {
 }
 
 /** OPERATIONS → Local AI: what each tool does, whether it is installed, VRAM, license and the exact setup command. */
-type Pc = { brain: LocalStatus & { private: boolean }; autostart: Autostart };
+type Pc = { brain: LocalStatus & { using?: string }; autostart: Autostart };
 
 /** "This PC" rows above the tool list: the local brain (Ollama) and Starts with Windows. Data: /api/local-brain. */
 function ThisPc() {
@@ -331,9 +331,9 @@ function ThisPc() {
     <div className="grid gap-2">
       <div className="glass grid gap-1 rounded-lg p-2 text-xs">
         <div className="flex flex-wrap items-center justify-between gap-2"><b>Local brain</b>
-          <span style={{ color: b.state === "ok" ? "#4ade80" : b.state === "off" ? undefined : "#fbbf24" }} className={b.state === "off" ? "muted" : undefined}>{b.state === "ok" ? "Ready" : b.state === "off" ? "Off" : b.state === "missing" ? "Model not pulled" : "Not running"}</span></div>
+          <span style={{ color: b.state === "ok" ? "#4ade80" : b.state === "off" ? undefined : "#fbbf24" }} className={b.state === "off" ? "muted" : undefined}>{b.state === "ok" ? "Ready" : b.state === "fallback" ? "Using another model" : b.state === "off" ? "Off" : b.state === "missing" ? "Model not pulled" : "Not running"}</span></div>
         <p>{b.text}{b.state === "down" ? " ORBIT tried to start it (ollama serve); check again in a minute." : ""}</p>
-        <p className="muted">A small model on this PC: answers chat and summaries when Claude is unreachable{b.private ? ", and reflects on your journal when you ask (LIFE → Journal), processed on this PC only" : ""}. Setup: <code className="select-all">powershell -ExecutionPolicy Bypass -File tools\ollama\setup.ps1</code></p>
+        <p className="muted">A small model on this PC: answers chat and summaries when Claude is unreachable. Your journal is never read by any model, this one included. Setup: <code className="select-all">powershell -ExecutionPolicy Bypass -File tools\ollama\setup.ps1</code></p>
       </div>
       <div className="glass grid gap-1 rounded-lg p-2 text-xs">
         <div className="flex flex-wrap items-center justify-between gap-2"><b>Starts with Windows: {a.on === null ? "?" : a.on ? "on" : "off"}</b>

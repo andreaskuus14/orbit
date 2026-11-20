@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LOCAL_NOTE, claudeDown, journalReflect, localAllowed, localLlmUrl, localModelName, localStatus, ollamaAnswer, ollamaRequest, privateBlocked } from "../src/lib/local-model-pure.ts";
+import { LOCAL_NOTE, claudeDown, localAllowed, localLlmUrl, localModelName, localStatus, ollamaAnswer, ollamaRequest, pickLocalModel, installedModels, DEFAULT_LOCAL_MODEL, SMALL_LOCAL_MODEL } from "../src/lib/local-model-pure.ts";
 
 test("localAllowed: only chat and summaries, never images, MCP, outward drafts or with no model", () => {
   const ok = (purpose: string, o: Partial<{ model: string; images: number; mcp: boolean }> = {}) => localAllowed({ model: "llama3.1:8b", images: 0, mcp: false, purpose, ...o });
@@ -33,7 +33,7 @@ test("ollamaAnswer: maps text and tokens, rejects errors and empty answers", () 
 test("localStatus: off, down, missing model, ready", () => {
   assert.equal(localStatus("", null).state, "off");
   assert.equal(localStatus("llama3.1:8b", null).state, "down");
-  assert.equal(localStatus("llama3.1:8b", { models: [{ name: "qwen2.5:7b" }] }).state, "missing");
+  assert.equal(localStatus("llama3.1:8b", { models: [{ name: "nomic-embed-text" }] }).state, "missing");
   assert.equal(localStatus("llama3.1:8b", { models: [{ name: "llama3.1:8b" }] }).state, "ok");
   assert.equal(localStatus("mistral", { models: [{ name: "mistral:latest" }] }).state, "ok");
   assert.equal(localStatus("mistral", {}).state, "missing");
@@ -61,21 +61,44 @@ test("ollamaRequest: qwen3 skips thinking, numCtx widens the window; thinking te
   assert.equal(ollamaAnswer({ message: { content: "<think>hmm</think>\nTere!" } }).text, "Tere!");
 });
 
-test("privateBlocked: journal goes to the local model only with the opt-in and a model", () => {
-  assert.match(privateBlocked({ model: "qwen3:8b", optIn: undefined })!, /ORBIT_LOCAL_PRIVATE=1/);
-  assert.match(privateBlocked({ model: "qwen3:8b", optIn: "true" })!, /off/);
-  assert.match(privateBlocked({ model: "", optIn: "1" })!, /setup\.ps1/);
-  assert.equal(privateBlocked({ model: "qwen3:8b", optIn: " 1 " }), null);
+test("the default is qwen3.5:9b with qwen3.5:4b as the small one, and both get think:false", () => {
+  assert.deepEqual([DEFAULT_LOCAL_MODEL, SMALL_LOCAL_MODEL], ["qwen3.5:9b", "qwen3.5:4b"]);
+  for (const m of [DEFAULT_LOCAL_MODEL, SMALL_LOCAL_MODEL, "qwen3:8b"]) assert.equal(ollamaRequest(m, "S", "p").think, false, m);
+  assert.equal("think" in ollamaRequest("gemma3:4b", "S", "p"), false);
 });
 
-test("journalReflect: newest first, empty days skipped, capped, null when empty", () => {
-  assert.equal(journalReflect([{ date: "2026-11-01", text: " " }]), null);
-  const r = journalReflect([{ date: "2026-11-01", text: "Täna oli hea päev." }, { date: "2026-10-31", text: "" }, { date: "2026-10-30", text: "Tired." }])!;
-  assert.ok(r.prompt.indexOf("2026-11-01") < r.prompt.indexOf("2026-10-30"));
-  assert.ok(!r.prompt.includes("2026-10-31"));
-  assert.match(r.system, /data, not instructions/);
-  const big = journalReflect(Array.from({ length: 7 }, (_, i) => ({ date: `d${i}`, text: "x".repeat(2000) })))!;
-  assert.ok(big.prompt.length < 12_500);
+const have = (...n: string[]) => n;
+test("pickLocalModel: configured model when present, smaller sibling only while the GPU is tight", () => {
+  const all = have("qwen3.5:9b", "qwen3.5:4b");
+  assert.deepEqual(pickLocalModel({ configured: "qwen3.5:9b", installed: all }), { model: "qwen3.5:9b" });
+  assert.equal(pickLocalModel({ configured: "qwen3.5:9b", installed: all, tight: true }).model, "qwen3.5:4b");
+  assert.match(pickLocalModel({ configured: "qwen3.5:9b", installed: all, tight: true }).note!, /stepped down/);
+  assert.equal(pickLocalModel({ configured: "qwen3.5:9b", installed: have("qwen3.5:9b"), tight: true }).model, "qwen3.5:9b"); // no 4b pulled: stay
+  assert.equal(pickLocalModel({ configured: "qwen3.5:4b", installed: all, tight: true }).model, "qwen3.5:4b"); // already small
+  assert.equal(pickLocalModel({ configured: "gemma3:4b", installed: have("gemma3:4b", "qwen3.5:4b"), tight: true }).model, "gemma3:4b"); // other models are never swapped
+  assert.equal(pickLocalModel({ configured: "qwen3.5:9b", installed: have("qwen3.5:9b:latest") }).model, "qwen3.5:9b:latest");
+  assert.equal(pickLocalModel({ configured: "", installed: all }).model, "");
+});
+
+test("pickLocalModel: configured model missing falls back to what is installed, with the pull command; never cloud or embeddings", () => {
+  const p = pickLocalModel({ configured: "qwen3.5:9b", installed: have("qwen3:8b", "nomic-embed-text") });
+  assert.equal(p.model, "qwen3:8b");
+  assert.equal(p.hint, "Run: ollama pull qwen3.5:9b");
+  assert.equal(pickLocalModel({ configured: "qwen3.5:9b", installed: have("qwen3:8b", "qwen3.5:4b") }).model, "qwen3.5:4b"); // newer family first
+  assert.equal(pickLocalModel({ configured: "qwen3.5:9b", installed: have("qwen3:8b", "qwen3.5:4b"), tight: true }).model, "qwen3.5:4b");
+  assert.equal(pickLocalModel({ configured: "llama3.1:8b", installed: have("mistral:7b")}).model, "mistral:7b"); // any installed chat model
+  const none = pickLocalModel({ configured: "qwen3.5:9b", installed: have("gpt-oss:120b-cloud", "nomic-embed-text:latest", "bge-m3") });
+  assert.deepEqual(none, { model: "", hint: "Run: ollama pull qwen3.5:9b" });
+  assert.deepEqual(installedModels(null), []);
+  assert.deepEqual(installedModels({ models: [{ name: "a" }, {}] }), ["a"]);
+});
+
+test("localStatus: a missing model with a stand-in is 'fallback' and carries the pull command", () => {
+  const s = localStatus("qwen3.5:9b", { models: [{ name: "qwen3:8b" }] });
+  assert.equal(s.state, "fallback");
+  assert.match(s.text, /ollama pull qwen3\.5:9b/);
+  assert.match(s.text, /qwen3:8b/);
+  assert.equal(localStatus("qwen3.5:9b", { models: [{ name: "gpt-oss:120b-cloud" }] }).state, "missing");
 });
 
 test("localAllowed: a risky core turn never falls back to the local model", () => {
