@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isCurrent } from "./memory-types-pure";
-import { askClaude, recordUsage, emit, MODEL } from "./claude";
+import { askClaude, recordUsage, emit, MODEL, FAST_MODEL, ROUTING_ON } from "./claude";
+import { routeFast } from "./model-routing-pure.ts";
 import { createMemory, safeFetch } from "./memory";
 import { asJob } from "./crash-log";
 import { parseFeed, normalizeUrl, parseCitations, numberCitations, type BriefingKind } from "./pure";
@@ -229,13 +230,18 @@ async function briefing(sb: SupabaseClient, userId: string, kind: PulseKind, foc
 
     const prompt = `USER CONTEXT:\n${context || "(no profile yet)"}\n\nNEWS EVENTS (newest ${WINDOW_HOURS[kind]}h, grouped):\n${events.join("\n\n")}`;
     const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-    const r = await askClaude(prompt, systemPrompt(kind, today, focus), { purpose: `pulse.${kind}` });
-    await recordUsage(sb, userId, `pulse.${kind}`, r);
-
-    const citations: ArticleCitation[] = parseCitations(r.text, "a")
+    const toCitations = (text: string): ArticleCitation[] => parseCitations(text, "a")
       .map((id) => used.get(id))
       .filter((a): a is ArticleRow => !!a)
       .map(({ id, title, url, source, published_at, summary }) => ({ id, title, url, source, published_at, ...evidenceOf(url, readUrl.get(id) ?? null, fullText.get(id) ?? null, summary) }));
+    let r = await askClaude(prompt, systemPrompt(kind, today, focus), { purpose: `pulse.${kind}` });
+    await recordUsage(sb, userId, `pulse.${kind}`, r, routeFast(`pulse.${kind}`, ROUTING_ON) ? FAST_MODEL : MODEL);
+    let citations = toCitations(r.text);
+    if (!citations.length && routeFast(`pulse.${kind}`, ROUTING_ON)) { // the fast model's draft cited nothing verifiable: redo it once on the default model
+      r = await askClaude(prompt, systemPrompt(kind, today, focus), { purpose: `pulse.${kind}`, model: MODEL });
+      await recordUsage(sb, userId, `pulse.${kind}`, r);
+      citations = toCitations(r.text);
+    }
     if (!citations.length) throw new Error("Pulse's draft had no verifiable sources, so it was discarded");
 
     const title = `${kind === "manual" && focus === "world" ? "World brief" : kind === "manual" && focus === "mine" ? "Your topics brief" : BRIEFING_TITLES[kind]} · ${new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`;

@@ -1,6 +1,6 @@
 import { access } from "node:fs/promises";
 import path from "node:path";
-import { askClaude } from "../claude";
+import { MODEL, askClaude } from "../claude";
 import { api } from "../youtube";
 import { withYoutubeBudget } from "../youtube-quota";
 import { getJob, listJobs, readState, saveState, studioRoot } from "./factory";
@@ -62,8 +62,10 @@ export async function writeDescription(jobId: string, clipId: string, signal?: A
   if (!job || !clip) throw new Error("Clip not found");
   const creator = creatorFromSource(job.source);
   const prompt = `Title: ${clean(title ?? clip.title, 100)}\nHook: ${clean(clip.hook, 300)}\nWhy it works: ${clean(clip.reason, 300)}${creator ? `\nCreator: ${creator}` : ""}`;
-  const r = await askClaude(prompt, DESC_SYSTEM + (await tastePrompt()), { lane: "background", signal, purpose: "clips.description" });
-  const text = buildDescription(r.text, creator, job.options.preset === "devlog" ? DEVLOG_TAGS : []);
+  const system = DESC_SYSTEM + (await tastePrompt()), tags = job.options.preset === "devlog" ? DEVLOG_TAGS : [];
+  // clips.description runs on Haiku (model-routing-pure.ts); if its answer has no usable description, redo it once on the default model.
+  let text = buildDescription((await askClaude(prompt, system, { lane: "background", signal, purpose: "clips.description" })).text, creator, tags);
+  if (!text) text = buildDescription((await askClaude(prompt, system, { lane: "background", signal, model: MODEL, purpose: "clips.description" })).text, creator, tags);
   if (!text) throw new Error("Claude's reply had no usable description — try again");
   return text;
 }

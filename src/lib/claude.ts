@@ -10,6 +10,7 @@ import { isLimitAnswer } from "./usage-meter-pure.ts";
 import { claudeDown, localAllowed } from "./local-model-pure.ts";
 import { LOCAL_MODEL, chatLocal } from "./local-llm.ts";
 import { ledgerIssue } from "./ledger-pure.ts";
+import { routedModel } from "./model-routing-pure.ts";
 import { adminClient } from "./supabase/admin.ts";
 
 /** An image sent to the model with the prompt (validated by attach-pure). */
@@ -30,6 +31,8 @@ export const DEEP_MODEL = process.env.ORBIT_MODEL_DEEP || "opus";
 const effortEnv = process.env.ORBIT_DEEP_EFFORT ?? "high";
 export const DEEP_EFFORT = /^(low|medium|high|xhigh|max)$/.test(effortEnv) ? effortEnv : "";
 export const TIMEOUT_MS = 120_000;
+/** ORBIT_HAIKU_ROUTING=0 turns the purpose table (model-routing-pure.ts) off: every call then uses the model its caller names, else MODEL. */
+export const ROUTING_ON = process.env.ORBIT_HAIKU_ROUTING !== "0";
 const WIN = process.platform === "win32";
 const HINT = "Install Claude Code and run `claude` once to sign in (or set ORBIT_CLAUDE_BIN to its full path).";
 
@@ -199,6 +202,7 @@ export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; image
 /** One headless Claude Code call with all tools disabled (it can only read the prompt and answer), or only the web tools with `web`. Aborting `signal` kills the CLI. */
 export function askClaude(prompt: string | Promise<string>, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web, mcp, onLine, session, thinking, risky }: AskOpts = {}): Promise<ClaudeResult> {
   const p = purpose ?? laneDefault(lane);
+  model = routedModel(model, p, FAST_MODEL, ROUTING_ON);
   return withLocal(lane, prompt, system, p, images.length, !!mcp, signal, timeoutMs, !!risky, () => cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, p, web, mcp, onLine, session, thinking), signal));
 }
 
@@ -206,6 +210,7 @@ export function askClaude(prompt: string | Promise<string>, system: string, { la
  *  A pending prompt starts the CLI now and writes stdin when it resolves: its ~1 s boot overlaps the caller's prep. */
 export function askClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose?: string, session?: CliSession, risky = false): Promise<ClaudeResult> {
   const p = purpose ?? laneDefault(lane);
+  model = routedModel(model, p, FAST_MODEL, ROUTING_ON);
   return withLocal(lane, prompt, system, p, images.length, false, signal, timeoutMs, risky, () => cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model, images, effort, timeoutMs, p, false, undefined, undefined, session), signal));
 }
 const laneDefault = (lane: Lane) => (lane === "foreground" ? "core" : "background");
