@@ -30,7 +30,7 @@ function autostart(u: string): Promise<boolean> {
     closeSync(log);
     child.on("error", () => { G.__orbitTrellis = null; });
     child.on("exit", () => { G.__orbitTrellis = null; });
-    const deadline = Date.now() + 180_000; // the node pack checks its CUDA wheels on first start
+    const deadline = Date.now() + 180_000; // first start imports torch and loads the 3D nodes
     while (Date.now() < deadline && child.exitCode === null && child.pid) {
       await new Promise((r) => setTimeout(r, 1500));
       if (await stats(u, 2000)) return true;
@@ -95,6 +95,6 @@ export async function runTrellisTool(i: Record<string, unknown>): Promise<string
     const job = `j${Date.now().toString(36)}`;
     const bytes = await trellisModel(picture, job);
     const saved = await saveUpload(new File([bytes as BlobPart], assetName(i.name ?? i.image, "glb", "model-3d"), { type: "model/gltf-binary" }));
-    return `Saved the 3D model as "${saved}" in VAULT (${MODEL.name} on his PC, textured, max 20,000 triangles and a 1024 px texture so Roblox accepts it; takes about 7-8 min). In Roblox Studio use Import 3D and pick that file (ORBIT can't import into Studio by itself).`;
+    return `Saved the 3D model as "${saved}" in VAULT (${MODEL.name} on his PC, textured, max 20,000 triangles and a 1024 px texture so Roblox accepts it; takes several minutes). In Roblox Studio use Import 3D and pick that file (ORBIT can't import into Studio by itself).`;
   } catch (e) { return `Error: ${e instanceof Error ? e.message : String(e)}`; }
 }

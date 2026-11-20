@@ -19,7 +19,7 @@ function triangles(b: Uint8Array): number {
   return Math.round(n);
 }
 
-// wait for the server (first start imports torch and checks the node pack: can take a few minutes)
+// wait for the server (first start imports torch: can take a few minutes)
 for (let i = 0; ; i++) {
   if (await fetch(`${u}/system_stats`).then((r) => r.ok, () => false)) break;
   if (i >= 60) { console.error(`FAIL: TRELLIS.2 isn't running on ${u} after 5 min. Start tools\\trellis\\start.ps1 and check its window.`); process.exit(1); }
