@@ -10,6 +10,7 @@ const deepFlags = { effort: DEEP_EFFORT };
 // The CORE route's maxDuration is 300 s: a deep turn (steps + review) must finish inside it.
 const DEEP_TURN_MS = 270_000;
 import { typedText } from "./attach-pure";
+import { attachmentNames, buildUsed } from "./core-used-pure";
 import { rememberOwnerText } from "./site-pipeline-pure";
 import { pickModel } from "./core-ui";
 import { partialAnswer } from "./streamjson";
@@ -78,7 +79,7 @@ const SESSION_MODE_ENV = process.env.ORBIT_CORE_SESSION; // "off" opts the SDK e
 const LOGGED = ["save_memory", "ask_agent", ...MODULE_WRITES];
 
 export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[]; answerEval?: AnswerEval & { ms: number }; receipt?: Receipt; policy?: { verdict: "refuse"; turn: string; allowOnce?: { id: string; journal: boolean } } };
-export type Citation = { id: string; title: string; kind: string };
+export type Citation = { id: string; title: string; kind: string; at?: string }; // at: the memory's last change (for "what I used" ages)
 export type Turn = { role: "user" | "assistant"; content: string };
 
 type Profile = {
@@ -239,7 +240,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const maxN = maxSteps(process.env.ORBIT_CORE_MAX_STEPS, isHeavy(question, [])); // operator/research turns get more steps
   const system = systemPrompt(await at("profile", cachedProfile(sb, userId)), localDate(), maxN); // no clock: the same all day, so spare CLIs (warmCore) and prompt caching match
   onStep?.("search_memory", {});
-  let byId = new Map<string, { id: string; title: string; kind: string }>(); // memories in context, for citations
+  let byId = new Map<string, { id: string; title: string; kind: string; created_at?: string; updated_at?: string }>(); // memories in context, for citations
+  const ctxIn: ("facts" | "world" | "people")[] = []; // context blocks that were in this turn's prompt ("what I used")
   let playbookRules: string[] = [];
   const worldPrivate: string[] = []; // world-model commitment texts: in context from the start, so outbound calls are checked against them
   const evalTools: CoreEvalTool[] = (budget.tools ??= []); // carried across a handoff, so the receipt counts the finished steps too
@@ -256,6 +258,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       at("people", import("./people").then((m) => m.peopleContext(sb, userId, question), () => "")), // names + relation + last contact of people he mentions; "" otherwise
     ]);
     playbookRules = playbook?.rules ?? [];
+    if (known) ctxIn.push("facts"); if (world) ctxIn.push("world"); if (people) ctxIn.push("people");
     let { results, mode } = found;
     if (!results.length) {
       // Broad questions ("what did I save?") match nothing specific: show CORE the latest memories instead.
@@ -552,13 +555,16 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const citations: Citation[] = parseCitations(answer)
     .map((id) => byId.get(id))
     .filter((m): m is NonNullable<typeof m> => !!m)
-    .map((m) => ({ id: m.id, title: m.title, kind: m.kind }));
+    .map((m) => ({ id: m.id, title: m.title, kind: m.kind, ...((m.updated_at ?? m.created_at) && { at: (m.updated_at ?? m.created_at) as string }) }));
   const wk = citeWeek(answer, knownCites(steps.filter((s) => s.startsWith("You called week_review "))), citations.map((c) => c.id)); // [w:...] → [n], unknown ones dropped
   // Web/news links the answer cites but nothing in this turn contained: say so instead of passing them as sources.
   const unseen = unseenLinks(wk.text, [prompt, attach?.block ?? "", ...evalTools.map((t) => t.output)]), cited = citedLinks(wk.text);
   if (cited) trace.push({ step: "sources", detail: unseen.length ? `${unseen.length} of ${cited} cited links not opened this turn: ${unseen.join(" ").slice(0, 300)}` : `${cited} cited links, all from this turn's tools or context`, ms: 0, ok: !unseen.length });
   const text = (wk.text || `_(CORE stopped after ${steps.length} tool calls without writing an answer.)_`) + unseenNote(unseen) + fallbackNote(trace);
-  return { text, citations: [...citations, ...wk.cites], trace, model: tier };
+  const all = [...citations, ...wk.cites];
+  // "What I used": built from the citations, trace and context refs already in hand (core-used-pure.ts); no model call, private items redacted
+  const used = buildUsed({ citations: all, trace, privateTools: MODULE_PRIVATE, extras: { memories: [...byId.values()], context: ctxIn, files: attach ? attachmentNames(attach.block).filter((n) => !n.startsWith("Earlier attachments")) : [] } });
+  return { text, citations: all, trace, model: tier, used };
 }
 
 /** Local advisory check after the final review, never an answer gate or another model call.
