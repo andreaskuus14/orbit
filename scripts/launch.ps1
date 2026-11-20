@@ -25,6 +25,8 @@ $distPrev = Join-Path $root ".next-prev"  # the previous release, for rollback
 $buildId = Join-Path $distLive "BUILD_ID"
 $failMark = Join-Path $distNew "BUILD_FAILED" # written when a build fails; stops retrying until an input changes
 $updateFlag = Join-Path $root "orbit-update.request" # written by ORBIT (POST /api/system/update, owner only): pull main + rebuild while running
+$updateLog = Join-Path $root "orbit-update.log"      # output of the self-update's git pull and npm ci
+$busyUrl = "http://127.0.0.1:3000/api/studio/busy"  # auth-free, localhost only: is a clip render, download, scout run or publish going?
 $buildFailedMsg = "Build failed $([char]0x2014) still running the previous version. Fix the errors, then npm run app:rebuild"
 $noReleaseMsg = "Build failed and there is NO previous working version, so ORBIT runs in DEVELOPMENT mode (pages compile when first opened and requests can fail while compiling). Fix the errors, then npm run app:rebuild"
 
@@ -135,6 +137,149 @@ function Update-Release([bool]$force, [bool]$stopFirst, [scriptblock]$stopServer
   }
 }
 
+# ---- Self-update helpers (the supervisor's orbit-update.request handling) ----
+
+# Runs a native program; returns @{ Code; Out } (stdout and stderr as text). Windows PowerShell 5.1 turns a native
+# program's stderr into a terminating error under "Stop" (git and taskkill write notes there), so this function's
+# scope uses "Continue" and the caller checks Code.
+function Invoke-Native([string]$exe, [string[]]$argv) {
+  $ErrorActionPreference = "Continue" # local to this function
+  $global:LASTEXITCODE = 0
+  try { $out = & $exe @argv 2>&1 | ForEach-Object { "$_" } | Out-String }
+  catch { return @{ Code = -1; Out = $_.Exception.Message } }
+  return @{ Code = $LASTEXITCODE; Out = "$out".Trim() }
+}
+
+# Runs $cmdLine hidden through cmd.exe in the ORBIT folder, output appended to orbit-update.log, for at most
+# $timeoutSec (a credential prompt or a dead network must never hang the hidden supervisor). Returns the exit code,
+# or -1 when it timed out and was killed.
+function Invoke-Hidden([string]$cmdLine, [int]$timeoutSec) {
+  try { Add-Content -LiteralPath $updateLog -Value ("{0:yyyy-MM-dd HH:mm:ss}  > {1}" -f (Get-Date), $cmdLine) } catch { }
+  $q = Start-Process cmd.exe -ArgumentList "/c", "$cmdLine >> `"$updateLog`" 2>&1" -WorkingDirectory $root -WindowStyle Hidden -PassThru
+  $null = $q.Handle # keeps ExitCode readable (5.1)
+  if (-not $q.WaitForExit($timeoutSec * 1000)) {
+    $null = Invoke-Native "taskkill.exe" @("/PID", "$($q.Id)", "/T", "/F")
+    $null = $q.WaitForExit(10000)
+    return -1
+  }
+  return $q.ExitCode
+}
+
+function Get-Head {
+  $r = Invoke-Native "git" @("-C", $root, "rev-parse", "HEAD")
+  if ($r.Code -eq 0) { return $r.Out } else { return "" }
+}
+
+function Get-Short([string]$sha) { if ($sha.Length -gt 8) { return $sha.Substring(0, 8) } else { return $sha } }
+
+# Pulls main fast-forward only (no prompts, 2-minute limit). Returns @{ Ok; Old; New; LockChanged }:
+# Ok false = the pull failed (logged), so nothing may be built from it.
+function Sync-Main {
+  $old = Get-Head
+  $res = @{ Ok = $true; Old = $old; New = $old; LockChanged = $false }
+  $branch = Invoke-Native "git" @("-C", $root, "rev-parse", "--abbrev-ref", "HEAD")
+  if ($branch.Code -ne 0 -or -not $old) {
+    Write-Log "!!!!! git rev-parse failed (exit $($branch.Code)): $($branch.Out -replace '\s+', ' ')"
+    $res.Ok = $false; return $res
+  }
+  if ($branch.Out -ne "main") {
+    Write-Log "Not on main ($($branch.Out)): not pulling; building the checked-out code only if it changed."
+    return $res
+  }
+  # No credential prompts: git's own (GIT_TERMINAL_PROMPT), Git Credential Manager's window, or ssh asking for a passphrase.
+  $saved = @{}
+  $noPrompt = @{ GIT_TERMINAL_PROMPT = "0"; GCM_INTERACTIVE = "never" }
+  if (-not $env:GIT_SSH_COMMAND) { $noPrompt.GIT_SSH_COMMAND = "ssh -o BatchMode=yes" }
+  foreach ($k in $noPrompt.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k, "Process"); [Environment]::SetEnvironmentVariable($k, $noPrompt[$k], "Process") }
+  try { $code = Invoke-Hidden "git pull --ff-only" 120 }
+  finally { foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k], "Process") } }
+  if ($code -ne 0) {
+    if ($code -eq -1) { Write-Log "!!!!! git pull timed out after 120 s (waiting for credentials or the network?) and was stopped. Details: $updateLog" }
+    else { Write-Log "!!!!! git pull failed (exit $code; not a fast-forward, local changes, or no access). Details: $updateLog" }
+    $res.Ok = $false; return $res
+  }
+  $res.New = Get-Head
+  if (-not $res.New) { Write-Log "!!!!! git rev-parse failed after the pull."; $res.Ok = $false; return $res }
+  if ($res.New -ne $old) {
+    $d = Invoke-Native "git" @("-C", $root, "diff", "--name-only", $old, $res.New)
+    # If the diff can't be read, assume the lockfile changed: an unneeded npm ci is slow, a missing one breaks the build.
+    $res.LockChanged = ($d.Code -ne 0) -or (@($d.Out -split "\r?\n") -contains "package-lock.json")
+    Write-Log ("git pull: {0} -> {1}{2}" -f (Get-Short $old), (Get-Short $res.New), $(if ($res.LockChanged) { " (package-lock.json changed)" } else { "" }))
+  }
+  return $res
+}
+
+# Waits up to $timeoutSec for Studio work (clip renders, downloads, a scout run, a publish) to finish, so a restart
+# doesn't kill it halfway. A scout run that's only due later (scoutPending) doesn't count. No answer = go ahead.
+# Returns $true when idle, $false when it gave up waiting.
+function Wait-StudioIdle([int]$timeoutSec = 600) {
+  $deadline = (Get-Date).AddSeconds($timeoutSec)
+  $said = ""
+  while ($true) {
+    try { $b = Invoke-RestMethod $busyUrl -TimeoutSec 5 }
+    catch { Write-Log "Couldn't ask ORBIT whether Studio is busy ($($_.Exception.Message)); going ahead."; return $true }
+    $running = @("clips", "downloads", "scout", "publishing" | Where-Object { $b.$_ -eq $true })
+    if ($running.Count -eq 0) { return $true }
+    $what = $running -join ", "
+    if ((Get-Date) -ge $deadline) { Write-Log "!!!!! Studio is still busy after $([int]($timeoutSec / 60)) min ($what); restarting anyway."; return $false }
+    if ($what -ne $said) { Write-Log "Waiting for Studio work to finish before restarting ORBIT: $what."; $said = $what }
+    Start-Sleep -Seconds 10
+  }
+}
+
+# Ends the server's process tree (cmd -> npm -> next). taskkill reports a process that already exited as an error; ignored.
+function Stop-Server($proc) {
+  if (-not $proc -or $proc.HasExited) { return }
+  $k = Invoke-Native "taskkill.exe" @("/PID", "$($proc.Id)", "/T", "/F")
+  if (-not $proc.WaitForExit(15000)) { Write-Log "!!!!! The server (PID $($proc.Id)) didn't stop: taskkill exit $($k.Code): $($k.Out -replace '\s+', ' ')" }
+}
+
+function Start-Server([string]$npmScript) {
+  Write-Log "Starting ORBIT server (npm run $npmScript) on port 3000."
+  $proc = Start-Process cmd.exe -ArgumentList "/c", "npm.cmd run $npmScript >> `"$log`" 2>&1" -WorkingDirectory $root -WindowStyle Hidden -PassThru
+  $null = $proc.Handle # Windows PowerShell 5.1: keeps ExitCode readable after the process exits
+  try { Set-Content -LiteralPath $pidFile -Value @($PID, $proc.Id) } catch { }
+  return $proc
+}
+
+# After an update swap. "ok": the server answered /api/health with the new BUILD_ID and was still running after
+# $timeoutSec; "exited": it stopped within $timeoutSec; "timeout": it never answered with the new build.
+function Wait-NewRelease($proc, [string]$expectId, [int]$timeoutSec = 120) {
+  $deadline = (Get-Date).AddSeconds($timeoutSec)
+  $healthy = $false
+  while ((Get-Date) -lt $deadline) {
+    if ($proc.WaitForExit(2000)) { return "exited" }
+    if (-not $healthy) {
+      $h = Get-Health
+      # The build id check: an old server still dying on the port mustn't count as the new one answering.
+      if ($h -and (-not $expectId -or "$($h.buildId)" -eq $expectId)) { $healthy = $true }
+    }
+  }
+  if ($healthy) { return "ok" } else { return "timeout" }
+}
+
+# Undoes an update swap (the server must be stopped): the bad .next becomes .next-build (keeps its build cache for
+# the next try), .next-prev becomes .next again, and BUILD_FAILED stops the same commit from being rebuilt on its
+# own (a new commit, an edit or a forced rebuild retries). Returns $false when there's nothing to go back to.
+function Restore-PrevRelease([string]$reason, [string]$commit) {
+  if (-not (Test-Path (Join-Path $distPrev "BUILD_ID"))) { Write-Log "!!!!! $reason, and there is no previous version (.next-prev) to go back to."; return $false }
+  try {
+    if (Test-Path $distNew) { Invoke-Retry { Remove-Item -LiteralPath $distNew -Recurse -Force } "Deleting .next-build" }
+    if (Test-Path $distLive) { Invoke-Retry { Rename-Item -LiteralPath $distLive -NewName ".next-build" } "Renaming .next to .next-build" }
+    Invoke-Retry { Rename-Item -LiteralPath $distPrev -NewName ".next" } "Renaming .next-prev to .next"
+  } catch {
+    if (-not (Test-Path $distLive) -and (Test-Path $distNew)) { Rename-Item -LiteralPath $distNew -NewName ".next" -ErrorAction SilentlyContinue }
+    Write-Log "!!!!! Rollback failed: $($_.Exception.Message)"
+    return $false
+  }
+  $null = New-Item -ItemType Directory -Force -Path $distNew
+  $note = "Update to $(Get-Short $commit) rolled back: $reason. Server output: orbit-server.log"
+  Set-Content -LiteralPath $failMark -Value "$(Get-Date -Format o) $note"
+  try { Add-Content -LiteralPath $buildLog -Value $note } catch { } # the doctor shows the build log's first error line
+  Write-Log "!!!!! UPDATE ROLLED BACK: $reason. The previous version is back in .next; commit $(Get-Short $commit) won't be rebuilt until it changes (or a forced rebuild)."
+  return $true
+}
+
 # ---- Supervisor: build if needed, run the server, restart it when it exits unexpectedly. ----
 if ($Supervise) {
   $mutex = New-Object System.Threading.Mutex($false, "Local\orbit-supervisor")
@@ -144,8 +289,9 @@ if ($Supervise) {
   $forceBuild = $Rebuild.IsPresent
   $crashes = @()
   $rebuilt = $false
+  $verify = $null # set after an update swap: the new release must prove itself or it is rolled back
   while ($true) {
-    foreach ($f in $log, $launcherLog) { try { if ((Test-Path $f) -and (Get-Item $f).Length -gt 5MB) { Move-Item $f "$f.1" -Force } } catch { } }
+    foreach ($f in $log, $launcherLog, $updateLog) { try { if ((Test-Path $f) -and (Get-Item $f).Length -gt 5MB) { Move-Item $f "$f.1" -Force } } catch { } }
     $devMode = $Dev.IsPresent
     if (-not $devMode) {
       if ($forceBuild -or (Test-BuildStale)) {
@@ -158,27 +304,72 @@ if ($Supervise) {
       }
     }
     $npmScript = if ($devMode) { "dev" } else { "start" }
-    Write-Log "Starting ORBIT server (npm run $npmScript) on port 3000."
     $started = Get-Date
-    $p = Start-Process cmd.exe -ArgumentList "/c", "npm.cmd run $npmScript >> `"$log`" 2>&1" -WorkingDirectory $root -WindowStyle Hidden -PassThru
-    $null = $p.Handle # Windows PowerShell 5.1: keeps ExitCode readable after the process exits
-    try { Set-Content -LiteralPath $pidFile -Value @($PID, $p.Id) } catch { }
+    $p = Start-Server $npmScript
+    if ($verify) {
+      # Never leave ORBIT down on a bad update: the new release must answer /api/health and keep running for 2
+      # minutes, or the previous one is swapped back in and started.
+      $v = Wait-NewRelease $p $verify.Id 120
+      if ($v -eq "ok") { Write-Log "Update verified: $(Get-Short $verify.Commit) answers and kept running for 2 minutes." }
+      else {
+        $why = if ($v -eq "exited") { "the new version stopped (exit code $($p.ExitCode)) within 2 minutes" } else { "the new version didn't answer /api/health within 2 minutes" }
+        Write-Log "!!!!! $why; rolling back to the previous version."
+        Stop-Server $p
+        $badCommit = $verify.Commit
+        $verify = $null
+        # $rebuilt: if the old release then dies at boot too, don't force-rebuild the commit that just failed.
+        if (Restore-PrevRelease $why $badCommit) { $rebuilt = $true; $crashes = @(); continue }
+      }
+      $verify = $null
+    }
     $updated = $false
     # Wait for the server, checking every 5 s for an update request from ORBIT itself (the owner's click or a Claude
     # session acting for him through ORBIT). Main is pulled fast-forward only; the build runs while the server keeps
     # serving, and only a successful build stops it for the swap. A failed pull or build changes nothing.
     while (-not $p.WaitForExit(5000)) {
       if (-not (Test-Path $updateFlag)) { continue }
+      $forced = "$(Get-Content -LiteralPath $updateFlag -Raw -ErrorAction SilentlyContinue)" -match 'rebuild'
       Remove-Item -LiteralPath $updateFlag -Force -ErrorAction SilentlyContinue
-      Write-Log "Update requested from ORBIT: pulling main and rebuilding."
-      try {
-        $branch = (& git -C $root rev-parse --abbrev-ref HEAD 2>$null | Out-String).Trim()
-        if ($branch -eq "main") { Write-Log ("git pull: " + ((& git -C $root pull --ff-only 2>&1 | Out-String).Trim() -replace "\s+", " ")) }
-        else { Write-Log "Not on main ($branch): rebuilding the checked-out code without pulling." }
-      } catch { Write-Log "git pull failed: $($_.Exception.Message)" }
-      $stop = { & taskkill.exe /PID $p.Id /T /F 2>&1 | Out-Null; $null = $p.WaitForExit(15000) }
-      $r = Update-Release $true $false $stop
-      if ($r -eq "built") { $updated = $true; break }
+      $handled = Get-Date
+      Write-Log ("Update requested from ORBIT{0}: pulling main." -f $(if ($forced) { " (forced rebuild)" } else { "" }))
+      $sync = Sync-Main
+      if (-not $sync.Ok) { Write-Log "!!!!! Update skipped: nothing was built, ORBIT keeps running the current version."; continue }
+      $changed = $sync.New -ne $sync.Old
+      if ($sync.LockChanged) {
+        # npm ci replaces node_modules, which the running server loads from (and Windows keeps its native modules
+        # locked), so the server stops for it and the current release starts again right after.
+        Write-Log "Dependencies changed: stopping ORBIT for npm ci (output in $updateLog)."
+        $null = Wait-StudioIdle
+        Stop-Server $p
+        $ci = Invoke-Hidden "npm.cmd ci" 900
+        if ($ci -ne 0) {
+          Write-Log ("!!!!! npm ci {0}; not building. Going back to {1} and its dependencies. Details: {2}" -f $(if ($ci -eq -1) { "timed out after 15 min" } else { "failed (exit $ci)" }), (Get-Short $sync.Old), $updateLog)
+          $back = Invoke-Native "git" @("-C", $root, "reset", "--keep", $sync.Old)
+          if ($back.Code -ne 0) { Write-Log "!!!!! git reset --keep $(Get-Short $sync.Old) failed: $($back.Out -replace '\s+', ' ')" }
+          else {
+            $ci = Invoke-Hidden "npm.cmd ci" 900
+            if ($ci -ne 0) { Write-Log "!!!!! npm ci for the previous commit failed too (exit $ci); starting the current release anyway. Run npm ci by hand." }
+          }
+          $started = Get-Date; $p = Start-Server "start"
+          continue
+        }
+        Write-Log "npm ci done; the current release runs again while the update builds."
+        $started = Get-Date; $p = Start-Server "start"
+      }
+      # Build when main moved or a rebuild was asked for; otherwise only when the inputs changed since the last build
+      # (Update-Release without force also honours BUILD_FAILED, so a commit that failed isn't rebuilt on every click).
+      $r = Update-Release ($changed -or $forced) $false { $null = Wait-StudioIdle; Stop-Server $p }
+      if ($r -eq "current") {
+        if ((Test-Path $failMark) -and -not (Test-InputsNewer $failMark)) { Write-Log "Nothing new on main since $(Get-Short $sync.New), which failed before (see $buildLog); not retrying. Push a fix, or request a forced rebuild." }
+        else { Write-Log "Already up to date ($(Get-Short $sync.New)); nothing to build." }
+      }
+      # A rebuild request that came in while this update pulled and built was answered by it: drop it. A plain request
+      # is kept; its pull finds nothing new (no second build) unless main moved meanwhile.
+      if ($r -ne "current" -and (Test-Path $updateFlag) -and "$(Get-Content -LiteralPath $updateFlag -Raw -ErrorAction SilentlyContinue)" -match 'rebuild') {
+        Remove-Item -LiteralPath $updateFlag -Force -ErrorAction SilentlyContinue
+        Write-Log ("Ignored a rebuild request made while the one from {0:HH:mm:ss} ran." -f $handled)
+      }
+      if ($r -eq "built") { $updated = $true; $verify = @{ Id = "$(Get-Content $buildId -Raw -ErrorAction SilentlyContinue)".Trim(); Commit = $sync.New }; break }
       if ($r -eq "failed") { Write-Log "!!!!! $buildFailedMsg" }
     }
     if ($updated) { Write-Log "Update installed; starting the new version."; $crashes = @(); continue }
