@@ -118,7 +118,7 @@ async function snapshot(sb: SupabaseClient, userId: string, now = Date.now()) {
     at: iso(now)!, lastOk, services, storage, failed: failedJobs(fails, now),
     models: modelRows({ main: MODEL, fast: FAST_MODEL, deep: DEEP_MODEL, smart: SMART_MODEL }, modelCalls(), !!u.limit, now),
     local: LOCAL_MODEL || null,
-    usage: { h5: budget(u.h5.calls, u.settings.calls5h), d7: budget(u.d7.calls, weekly), limitUntil: u.limit?.until ?? null, hold: u.hold },
+    usage: { h5: budget(u.h5.calls, u.settings.calls5h), d7: budget(u.d7.calls, weekly), limitUntil: u.limit?.until ?? null, hold: u.hold, pace: u.pace },
     higgsfield: story ? budget(story.used, story.cap) : null,
     night: night?.run ? { night: night.run.key, calls: budget(night.run.calls, night.settings.maxCalls), minutes: budget(Math.round(night.run.ms / 60_000), night.settings.maxMinutes), stopped: night.run.stopped ?? null } : null,
   };

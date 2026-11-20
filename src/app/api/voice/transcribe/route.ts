@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
 import { decodeAudioBody, MAX_AUDIO_BYTES } from "@/lib/audio-pure";
+import { notePresence } from "@/lib/presence";
 import { loadVoiceAsr, MAX_VOICE_QUEUE, parseVoiceLang, transcribeSpeech, voiceQueue } from "@/lib/voice-asr";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
+  notePresence("voice"); // he is talking to ORBIT: background Claude work keeps headroom for him
   const tooLong = Response.json({ error: "Audio too long (max 30 s)" }, { status: 413 });
   if (Number(req.headers.get("content-length") ?? 0) > MAX_AUDIO_BYTES) return tooLong;
   const body = await readCapped(req, MAX_AUDIO_BYTES);

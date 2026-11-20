@@ -3,7 +3,9 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { orbitDataDir } from "./data-dir.ts";
 import { logActivity } from "./activity.ts";
-import { D7, H5, addCall, emptyMeter, hardHoldReason, holdReason, noteLogin, parseLimitError, probeDue, parseMeter, patchSettings, usageLevel, windowStats, type Call, type Meter } from "./usage-meter-pure.ts";
+import { presenceStamps } from "./presence.ts";
+import { isPresent, lastActiveAt, type PresenceSig } from "./usage-pace-pure.ts";
+import { D7, H5, addCall, emptyMeter, hardHoldReason, holdReason, paceFor, noteLogin, parseLimitError, probeDue, parseMeter, patchSettings, usageLevel, windowStats, type Call, type Meter } from "./usage-meter-pure.ts";
 
 // Usage meter store: <ORBIT data dir>/usage-meter.json, kept in memory and saved at most every 2 s (atomic tmp + rename).
 // recordCall is called by claude.ts after every CLI call; usageHold() is what background lanes check before starting.
@@ -54,12 +56,15 @@ export function recordCall(c: Omit<Call, "at">, errText = "") {
   } catch (e) { console.error("[orbit] usage meter failed:", e); }
 }
 
-/** "" when background lanes (autopilot, goals, proactive, translate) may start a Claude call, else why not. */
-export const usageHold = () => holdReason(meter(), Date.now());
+/** Owner activity right now: UI heartbeat + voice stamps (presence.ts) and his last CORE turn (from this meter). */
+const presenceSig = (now: number): PresenceSig => ({ ...presenceStamps(now), core: lastCoreCallAt() || undefined });
+/** "" when background lanes (autopilot, goals, proactive, translate) may start a Claude call, else why not (hard limit, soft budget,
+ *  or the pacer: owner active / fresh window before his morning). */
+export const usageHold = () => { const now = Date.now(); return holdReason(meter(), now, { sig: presenceSig(now) }); };
 /** Owner clicks / foreground lane: only the real provider limit holds them, never the soft 5-hour budget. */
 export const usageHardHold = () => hardHoldReason(meter(), Date.now());
 export const usageHoldFor = (lane: "foreground" | "background") => (lane === "foreground" ? usageHardHold() : usageHold());
-/** True when an owner click proceeds past the soft budget (background work is paused meanwhile): for a small UI note. */
+/** True when an owner click proceeds past the soft budget / pacer (background work is paused meanwhile): for a small UI note. */
 export const pastBudget = () => !!usageHold() && !usageHardHold();
 
 /** A real usage/rate limit (not just heavy use) is active: nothing that calls Claude should start. */
@@ -72,10 +77,12 @@ export const loginSince = () => meter().login?.at ?? null;
 export function loginProbeDue(): boolean { const m = meter(), now = Date.now(); if (!probeDue(m, now)) return false; m.login!.probed = now; save(); return true; }
 
 export function usageView() {
-  const m = meter(), now = Date.now();
+  const m = meter(), now = Date.now(), sig = presenceSig(now), pace = paceFor(m, now, { sig });
   return {
     h5: windowStats(m.calls, now, H5), d7: windowStats(m.calls, now, D7), level: usageLevel(m, now), settings: m.settings,
-    limit: m.limit && m.limit.until > now ? m.limit : null, hold: holdReason(m, now),
+    limit: m.limit && m.limit.until > now ? m.limit : null, hold: holdReason(m, now, { sig }),
+    pace: pace ? { kind: pace.kind, until: pace.until ?? null } : null, // why background waits for the owner's sake (UI: usage panel, doctor)
+    active: isPresent(sig, now), lastActiveAt: lastActiveAt(sig, now) || null,
   };
 }
 

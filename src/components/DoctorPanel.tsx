@@ -7,6 +7,7 @@ import { builderBrief, type Improve } from "@/lib/self-improve-pure";
 import type { Trend } from "@/lib/self-eval-pure";
 import type { Outcomes, Rate, WeekOutcomes } from "@/lib/outcome-metrics-pure";
 import type { systemHealthView } from "@/lib/system-health";
+import { paceReason } from "@/lib/usage-pace-pure";
 import { incidentTitle, type SvcState } from "@/lib/system-health-pure";
 import { capNone, capRow, capTitle, type Missing } from "@/lib/capability-pure";
 import type { PatchResult } from "@/lib/self-improve-patch-pure";
@@ -68,7 +69,7 @@ function SystemCard({ sys, onAck }: { sys: System; onAck: (key: string) => void 
         {sys.models.map((m) => <li key={m.role}><b>{m.role}</b> {m.model}: {t(m.state === "ok" ? "sys.m.ok" : m.state === "failing" ? "sys.m.failing" : m.state === "limited" ? "sys.m.limited" : "sys.m.unused")}
           <span className="muted">{t("sys.mCalls", { n: m.calls7d, at: when(m.lastOk) })}</span></li>)}
         {sys.local && <li><b>local</b> {sys.local} {t("sys.local")}</li>}
-        <li><b>{t("sys.claude5h")}</b> {of(sys.usage.h5, t("sys.u.calls"))}{sys.usage.hold ? <span className="muted"> · {sys.usage.hold}</span> : null}</li>
+        <li><b>{t("sys.claude5h")}</b> {of(sys.usage.h5, t("sys.u.calls"))}{sys.usage.hold ? <span className="muted"> · {sys.usage.pace && sys.usage.hold === paceReason(sys.usage.pace) ? t(sys.usage.pace.kind === "fresh" ? "usage.pace.fresh" : "usage.pace.active", { time: sys.usage.pace.until ?? "" }) : sys.usage.hold}</span> : null}</li>
         <li><b>{t("sys.claude7d")}</b> {of(sys.usage.d7, t("sys.u.calls"))}{!sys.usage.d7.cap && <span className="muted">{t("sys.weeklyHint")}</span>}</li>
         {sys.higgsfield && <li><b>{t("sys.hf")}</b> {of(sys.higgsfield, t("sys.u.credits"))}</li>}
         <li><b>{t("sys.night")}</b> {sys.night ? <>{of(sys.night.calls, t("sys.u.calls"))}, {of(sys.night.minutes, "min")} <span className="muted">{t("sys.nightOf", { night: sys.night.night })}{sys.night.stopped ? t("sys.stopped", { why: stoppedText(sys.night.stopped, lang) }) : ""}</span></> : <span className="muted">{t("sys.noRun")}</span>}</li>
