@@ -861,6 +861,22 @@ ${all.map((m, i) => `#${i + 1} ${m.start.toFixed(1)}-${m.end.toFixed(1)} s, scou
   return ok;
 }
 
+/** Follow-crop keys: face-aware (face.ts) when the face model runs, motion only when it can't, a centre crop when tracking fails. */
+async function followKeys(ff: string, src: string, start: number, duration: number, job: ClipJob, signal: AbortSignal) {
+  const warn = (w: string) => { if (!job.warnings.includes(w)) job.warnings.push(w); };
+  try {
+    const { trackFollow } = await import("./face");
+    const r = await trackFollow(ff, src, start, duration, path.join(studioRoot(), "models"), signal);
+    if (r.faceError) { console.error("[orbit] face reframing unavailable, motion only:", r.faceError); warn(FACE_FAIL); }
+    return r.keys;
+  } catch (e) {
+    if (signal.aborted) throw e;
+    // the combined run failed (e.g. its ffmpeg): the old motion-only tracker on its own
+    return trackAction(ff, trackArgs(src, start, duration), signal).catch((e2) => { if (signal.aborted) throw e2; warn(TRACK_FAIL); return []; });
+  }
+}
+const FACE_FAIL = "Follow action: face detection unavailable, framed by motion only";
+
 async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o: Required<ClipOptions> & { style?: "karaoke" | "classic" }, clip: Clip, words: Word[], rms: number[], audio: boolean, signal: AbortSignal, onWait?: (text: string) => void) {
   const duration = clip.end - clip.start;
   const ass = `${clip.id}.ass`, video = `${clip.id}.mp4`, frame = `${clip.id}.frame.jpg`;
@@ -872,7 +888,12 @@ async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o:
   const { readBrandKit } = await import("./brand-kit"), { kitId } = await import("../brand-kit-pure"), kit = await readBrandKit();
   clip.brand = kitId(kit); // the look this render has; publish checks compare it with the kit as it is then
   await writeFile(path.join(dir, ass), buildAss({ hook: clip.hook, words: capWords, duration: total, style: o.style ?? tune.style, kit }), "utf8");
-  const follow = o.layout === "follow" ? await trackAction(ff, trackArgs(src, clip.start, duration), signal).catch((e) => { if (signal.aborted) throw e; if (!job.warnings.includes(TRACK_FAIL)) job.warnings.push(TRACK_FAIL); return []; }) : [];
+  const follow = o.layout === "follow" ? await followKeys(ff, src, clip.start, duration, job, signal) : [];
+  if (o.layout === "split") {
+    const { findFacecam } = await import("./face"), { camWarning } = await import("./face-pure");
+    const w = camWarning(await findFacecam(ff, src, clip.start, duration, path.join(studioRoot(), "models"), signal), o.camSide, o.camSize);
+    if (w && !job.warnings.includes(w)) job.warnings.push(w);
+  }
   // Optional hyperframes effects layer (hyperframes.ts): when it renders, it replaces the burned ASS captions; otherwise today's path.
   const hf = await import("./hyperframes"), fx = await hf.renderEffects(dir, clip.id, { hook: clip.hook, words: capWords, duration: total, style: o.style ?? tune.style, kit }, signal);
   const warn = (w: string | null | undefined) => { if (w && !job.warnings.includes(w)) job.warnings.push(w); };

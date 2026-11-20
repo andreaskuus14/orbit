@@ -646,6 +646,12 @@ export const trackArgs = (input: string, start: number, duration: number) =>
   ["-hide_banner", "-nostdin", "-ss", sec(start), "-t", sec(duration), ...IN, input, "-map", "0:v:0", "-an", "-sn",
     "-vf", `fps=${TRACK_FPS},scale=${TRACK_W}:${TRACK_H}:flags=area,format=gray`, "-f", "rawvideo", "pipe:1"];
 
+/** Small BGR frames of a clip span on stdout for face detection (face.ts): `w` wide, height padded at the bottom to a multiple
+ *  of 32 (YuNet's strides); the padded size is in ffmpeg's output stream line. */
+export const faceArgs = (input: string, start: number, duration: number, w = 640) =>
+  ["-hide_banner", "-nostdin", "-ss", sec(start), "-t", sec(duration), ...IN, input, "-map", "0:v:0", "-an", "-sn",
+    "-vf", `fps=${TRACK_FPS},scale=${w}:-2:flags=area,pad=${w}:'ceil(ih/32)*32':0:0,format=bgr24`, "-f", "rawvideo", "pipe:1"];
+
 // ---- yt-dlp ("Add from link") ----
 
 export { cleanPermission, parseClipUrl } from "./format.ts";
