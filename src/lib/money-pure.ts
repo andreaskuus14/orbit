@@ -101,6 +101,13 @@ export type Row = {
 
 /** The VAT share of a refund: the same share the invoice's total had. */
 export const refundVat = (cents: number, t: { vat: number; gross: number }) => (t.gross ? Math.round((cents * t.vat) / t.gross) : 0);
+/** The VAT share of each refund on an invoice, in order: shares of the running total, so pieces that add up to the whole gross
+ *  give back exactly the invoice's VAT (rounding each piece alone could leave a cent of output VAT on a fully refunded invoice). */
+export function refundVats(i: Pick<Invoice, "lines" | "vat" | "refunds">): number[] {
+  const t = totals(i);
+  let cum = 0;
+  return (i.refunds ?? []).map((f) => { const before = refundVat(cum, t); cum += f.cents; return refundVat(cum, t) - before; });
+}
 
 const zero = (month: string): Row => ({ month, income: 0, incomeVat: 0, costs: 0, orbitApi: 0, orbitHf: 0, profit: 0, outVat: 0, inVat: 0, vatOwed: 0, vatPaid: 0 });
 
@@ -113,9 +120,10 @@ export function monthRow(x: Inputs, month: string): Row {
     const t = totals(i), paidHere = i.status === "paid" && i.paidAt?.startsWith(month);
     if (paidHere) { r.income += t.net; r.incomeVat += t.vat; }
     if (s.vatRegistered && (s.vatBasis === "cash" ? paidHere : i.issued.startsWith(month))) r.outVat += t.vat;
-    for (const f of i.refunds ?? []) { // a refund lowers income (and output VAT, like a credit note) in the month it was paid back
+    const fv = refundVats(i);
+    for (const [k, f] of (i.refunds ?? []).entries()) { // a refund lowers income (and output VAT, like a credit note) in the month it was paid back
       if (!f.day.startsWith(month)) continue;
-      const vat = refundVat(f.cents, t);
+      const vat = fv[k];
       r.income -= f.cents - vat; r.incomeVat -= vat;
       if (s.vatRegistered) r.outVat -= vat;
     }
@@ -167,8 +175,8 @@ export function toCsv(x: Inputs, p: Pnl): string {
     const t = totals(i);
     out.push(line([i.paidAt!, "income", i.number, i.buyer.name, eur(t.net), eur(t.vat), eur(t.gross), ""]));
   }
-  for (const i of x.invoices) for (const f of i.refunds ?? []) if (inP(f.day)) {
-    const vat = refundVat(f.cents, totals(i));
+  for (const i of x.invoices) for (const [k, f] of (i.refunds ?? []).entries()) if (inP(f.day)) {
+    const vat = refundVats(i)[k];
     out.push(line([f.day, "refund", i.number, `${i.buyer.name}${f.note ? `: ${f.note}` : ""}`, eur(vat - f.cents), eur(-vat), eur(-f.cents), ""]));
   }
   for (const e of [...x.store.expenses].filter((e) => inP(e.day)).sort((a, b) => a.day.localeCompare(b.day)))
