@@ -24,3 +24,36 @@ export function padTo(vec: ArrayLike<number>, dim = DIM): number[] | null {
   while (out.length < dim) out.push(0);
   return out;
 }
+
+/** Documents longer than this are embedded in chunks (EmbeddingGemma's window is ~2k tokens, ~8k chars). */
+export const CHUNK_AT = 8_000;
+export const CHUNK_SIZE = 6_000;
+export const MAX_CHUNKS = 12; // 72k chars; the rest is dropped so a huge paste can't stall a save
+
+/** Split long text into <= CHUNK_SIZE pieces on paragraph, line, then sentence boundaries (hard cut as last resort). Short text = one piece. */
+export function chunkText(text: string, size = CHUNK_SIZE, max = MAX_CHUNKS): string[] {
+  if (text.length <= CHUNK_AT) return [text];
+  const out: string[] = [];
+  let rest = text;
+  while (rest.length > size && out.length < max) {
+    const win = rest.slice(0, size);
+    // best boundary in the back half of the window: paragraph, else line, else sentence, else a hard cut
+    const at = (i: number, w: number) => (i >= size * 0.5 ? i + w : 0);
+    const cut = at(win.lastIndexOf("\n\n"), 2) || at(win.lastIndexOf("\n"), 1) || at(win.lastIndexOf(". "), 2) || size;
+    out.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut);
+  }
+  if (rest.trim() && out.length < max) out.push(rest.trim());
+  return out.filter(Boolean);
+}
+
+/** One vector for a chunked document: the normalized mean of its chunk vectors (all unit-length), so a fact in any chunk pulls the document toward it. */
+export function meanVector(vecs: ArrayLike<number>[]): number[] | null {
+  if (!vecs.length) return null;
+  const n = vecs[0].length;
+  if (!n || vecs.some((v) => v.length !== n)) return null;
+  const sum = new Array<number>(n).fill(0);
+  for (const v of vecs) for (let i = 0; i < n; i++) sum[i] += v[i];
+  const norm = Math.hypot(...sum);
+  return norm > 0 && Number.isFinite(norm) ? sum.map((x) => x / norm) : null;
+}

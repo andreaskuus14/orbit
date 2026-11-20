@@ -7,6 +7,7 @@ import { pipeline } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { embed, journalVectorsComparable } from "./embeddings";
+import { rerankEnabled, rerankScores } from "./rerank";
 import { emit } from "./claude";
 import { verifyRow } from "./completion";
 import { htmlToText, pickPublicAddress, assertHttpUrl, redirectTarget, readCapped } from "./pure";
@@ -120,7 +121,7 @@ export async function findSimilar(sb: SupabaseClient, text: string, min = 0.9, c
 /** Hybrid search: Postgres full-text + pgvector similarity, fused by reciprocal rank. */
 /** userId is required when sb bypasses row-level security (background automations); harmless otherwise. */
 export async function searchMemories(sb: SupabaseClient, query: string, limit = 10, userId?: string, options: MemorySearchOptions = {}) {
-  return retrieveMemories(sb, query, limit, userId, embed, { ...options, journalVectors: journalVectorsComparable() });
+  return retrieveMemories(sb, query, limit, userId, embed, { ...options, journalVectors: journalVectorsComparable(), ...(rerankEnabled() && !options.rerank ? { rerank: rerankScores } : {}) });
 }
 
 type Pinned = { address: string; family: number };

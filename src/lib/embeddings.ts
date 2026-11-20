@@ -1,7 +1,7 @@
 // Embeddings for memory search, 1024 dims to match the DB column. Two providers (embeddings-pure.ts picks):
 // - local (default without a Voyage key): EmbeddingGemma-300M on this PC via transformers.js, q8, ~200 ms each. Free, offline.
 // - voyage: the hosted API, kept for existing installs so stored vectors stay comparable until re-embedded (POST /api/memories/reembed).
-import { gemmaInput, journalsComparable, padTo, provider } from "./embeddings-pure";
+import { chunkText, gemmaInput, journalsComparable, meanVector, padTo, provider } from "./embeddings-pure";
 
 export const embeddingsEnabled = () => true; // the local model is always available; a load failure just returns null below
 export const embeddingProvider = () => provider({ ORBIT_EMBED: process.env.ORBIT_EMBED, VOYAGE_API_KEY: process.env.VOYAGE_API_KEY });
@@ -27,13 +27,20 @@ async function voyage(text: string, inputType: "document" | "query"): Promise<nu
 
 /** `kind` is the memory's kind when embedding a stored memory; a "journal" one never goes to the hosted provider. */
 export async function embed(text: string, inputType: "document" | "query", kind?: string): Promise<number[] | null> {
-  // shortcut: embeds the first 8k chars only (EmbeddingGemma's window is 2k tokens); chunk long documents when deep document search arrives.
+  // Hosted Voyage has a long window: it still gets the first 8k chars. The local model (2k-token window) embeds a long
+  // document in chunks and stores their normalized mean as the one vector (no schema change; the tail is no longer ignored).
   const t = text.slice(0, 8_000);
   try {
     if (provider({ ORBIT_EMBED: process.env.ORBIT_EMBED, VOYAGE_API_KEY: process.env.VOYAGE_API_KEY }, kind) === "voyage") return await voyage(t, inputType);
     const fe = await local();
     if (!fe) return null;
-    return padTo((await fe(gemmaInput(t, inputType), { pooling: "mean", normalize: true })).data);
+    const one = async (c: string) => (await fe(gemmaInput(c, inputType), { pooling: "mean", normalize: true })).data;
+    const chunks = inputType === "document" ? chunkText(text) : [t];
+    if (chunks.length === 1) return padTo(await one(chunks[0]));
+    const vecs: ArrayLike<number>[] = [];
+    for (const c of chunks) vecs.push(await one(c)); // sequential: one onnx session
+    const m = meanVector(vecs);
+    return m && padTo(m);
   } catch (e) {
     console.error("[orbit] embedding error", e);
     return null;
