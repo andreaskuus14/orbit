@@ -113,7 +113,7 @@ export const TOOL_AREA: Record<string, Area> = {
   watch_add: "research", // later reads of a public page (category A)
 };
 
-// Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, BUSINESS (private: true), WEEK (private: true), ORGANIZE lead_update + life_plan.
+// Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, BUSINESS business_status (find_lead_candidates is public OSM data), WEEK (private: true), ORGANIZE lead_update + life_plan.
 // shortcut: hand-copied because core-modules.ts can't load under node --test; update both when a module's private flag changes.
 export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "business_status", "week_review", "lead_update", "life_plan"];
 // Where each tool's model-chosen text goes, now or later from a stored record: "model" = any model (agents, search/news/outlier
