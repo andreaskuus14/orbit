@@ -5,10 +5,13 @@
 //   burst  — messages/second that are emote/laugh/caps walls (KEKW, 💀, "W", "LMAOOO", ALL CAPS).
 //   loud   — loudness level / jump z-scores from the hype timeline (screams, laughs).
 //   talk   — transcript excitement: shouted words, "no way", "oh my god", "!", fast talking. Only inside the transcribed spans.
+//   event  — audio-event tagger (audio-events-pure.ts): how sure it is that laughter, screaming, cheering, applause, a gasp or an
+//            explosion/gunshot is on the track. Only inside the tagged spans (time-boxed), NaN elsewhere.
 // Each signal is robust-normalized per video (median / MAD z-scores), then a weighted mean of the signals present at that second:
 // a missing signal (no heatmap, no chat, not transcribed there) drops out and the rest are renormalized.
 import { findPeaks, robustZ, smooth, type ChatMsg, type HypePeak } from "./hype-pure.ts";
 import { MIN_CLIP_SEC, type Moment, type Span, type Word } from "./pure.ts";
+import { eventReason } from "./audio-events-pure.ts";
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
 const fin = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x);
@@ -150,10 +153,10 @@ export function talkExcitement(words: Word[], spans: Span[], secs: number): numb
 
 // ---- fusion ----
 
-export type SignalKey = "replay" | "chat" | "burst" | "loud" | "talk";
+export type SignalKey = "replay" | "chat" | "burst" | "loud" | "talk" | "event";
 export type Signals = Partial<Record<SignalKey, number[]>>;
 // Real viewers' behaviour weighs most (replays = proven rewatch value), then chat, then what the audio/transcript suggest.
-export const WEIGHTS: Record<SignalKey, number> = { replay: 0.3, chat: 0.2, burst: 0.1, loud: 0.2, talk: 0.2 };
+export const WEIGHTS: Record<SignalKey, number> = { replay: 0.3, chat: 0.2, burst: 0.1, loud: 0.2, talk: 0.2, event: 0.2 }; // a missing signal drops out and the mean renormalizes
 export const SIGNAL_KEYS = Object.keys(WEIGHTS) as SignalKey[];
 
 /** Robust z-scores over the finite values only (NaN stays NaN = "unknown here"), floored at -2 so one dead signal can't sink a moment. */
@@ -196,8 +199,9 @@ export type SignalWindow = { start: number; end: number; score: number; strength
 
 const maxIn = (xs: number[] | undefined, a: number, b: number) => { let m = -Infinity; if (xs) for (let i = a; i < b; i++) if (xs[i] > m) m = xs[i]; return m; };
 
-/** Plain-words reasons a stretch [a, b) stands out, strongest first (max 3): "replayed 4.1× avg", "chat 6.0× avg", "KEKW wall ×14"… */
-export function windowReasons(f: Fused, raw: Signals, a: number, b: number, top?: Map<number, string>): string[] {
+/** Plain-words reasons a stretch [a, b) stands out, strongest first (max 3): "replayed 4.1× avg", "chat 6.0× avg", "KEKW wall ×14", "laughter 3.2× avg"…
+ *  `top`: each second's most repeated chat token; `evTop`: each second's strongest audio event group (audio-events-pure.ts). */
+export function windowReasons(f: Fused, raw: Signals, a: number, b: number, top?: Map<number, string>, evTop?: Map<number, string>): string[] {
   const out: [number, string][] = [];
   const zMax = (k: SignalKey) => maxIn(f.z[k], a, b);
   if (f.used.includes("replay")) { const x = maxIn(raw.replay, a, b) / meanOf(raw.replay!); if (x >= 1.4) out.push([zMax("replay") + 1, `replayed ${x.toFixed(1)}× avg`]); }
@@ -209,6 +213,7 @@ export function windowReasons(f: Fused, raw: Signals, a: number, b: number, top?
     const tok = toks.sort((p, q) => toks.filter((y) => y === q).length - toks.filter((y) => y === p).length)[0];
     out.push([zMax("burst"), `${tok && tok !== "CAPS" ? (tok === "LAUGH" ? "laugh" : tok) : "emote"} wall ×${Math.round(n)}`]);
   }
+  if (f.used.includes("event") && evTop && zMax("event") >= 1.5) { const r = eventReason(raw.event!, evTop, a, b); if (r) out.push([zMax("event"), r.text]); }
   if (f.used.includes("loud") && zMax("loud") >= 2) out.push([zMax("loud"), "scream / loud spike"]);
   if (f.used.includes("talk") && zMax("talk") >= 2) out.push([zMax("talk"), "excited speech"]);
   return out.sort((p, q) => q[0] - p[0]).slice(0, 3).map(([, r]) => r);
@@ -216,7 +221,7 @@ export function windowReasons(f: Fused, raw: Signals, a: number, b: number, top?
 
 /** Best non-overlapping clip windows (minSec / mid / maxSec long, 2 s steps), scored 0.55 × the window's peak + 0.45 × its mean
  *  of the fused curve (a short window around one spike beats a long lukewarm one). score: 0..1 for the UI / fallback; strength: raw z. */
-export function topWindows(f: Fused, raw: Signals, o: { maxSec: number; duration: number; n?: number; minSec?: number; top?: Map<number, string> }): SignalWindow[] {
+export function topWindows(f: Fused, raw: Signals, o: { maxSec: number; duration: number; n?: number; minSec?: number; top?: Map<number, string>; evTop?: Map<number, string> }): SignalWindow[] {
   const { n = 8, minSec = MIN_CLIP_SEC } = o, secs = f.curve.length;
   if (!f.used.length || secs < minSec) return [];
   const pre = [0];
@@ -229,14 +234,14 @@ export function topWindows(f: Fused, raw: Signals, o: { maxSec: number; duration
   for (const w of all) {
     if (out.length >= n || w.s <= 0.3) break; // ≈ ordinary: not worth suggesting
     if (out.some((x) => w.start < x.end && x.start < w.end)) continue;
-    out.push({ start: w.start, end: Math.min(o.duration, w.end), strength: r2(w.s), score: r2(Math.min(1, Math.max(0, 0.5 + w.s / 6))), reasons: windowReasons(f, raw, w.start, w.end, o.top) });
+    out.push({ start: w.start, end: Math.min(o.duration, w.end), strength: r2(w.s), score: r2(Math.min(1, Math.max(0, 0.5 + w.s / 6))), reasons: windowReasons(f, raw, w.start, w.end, o.top, o.evTop) });
   }
   return out;
 }
 
 /** Fused-curve peaks in the hype timeline's shape (for choosing what to transcribe first). */
-export function fusedPeaks(f: Fused, raw: Signals, n = 12, top?: Map<number, string>): HypePeak[] {
-  return findPeaks(f.curve, { n, minHeight: 0.6, minProm: 0.6 }).map((p) => ({ ...p, reasons: windowReasons(f, raw, Math.max(0, p.t - 5), p.t + 6, top) }));
+export function fusedPeaks(f: Fused, raw: Signals, n = 12, top?: Map<number, string>, evTop?: Map<number, string>): HypePeak[] {
+  return findPeaks(f.curve, { n, minHeight: 0.6, minProm: 0.6 }).map((p) => ({ ...p, reasons: windowReasons(f, raw, Math.max(0, p.t - 5), p.t + 6, top, evTop) }));
 }
 
 /** Windows as prompt lines (data: the caller fences them). */
