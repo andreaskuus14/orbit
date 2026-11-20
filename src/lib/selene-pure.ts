@@ -88,9 +88,12 @@ export function summaryText(project: string, fs: Finding[], d: { filed: number; 
 export type Skip = "no-files" | "missing" | "failed";
 export type SeleneRun = { status: "ok"; findings: Finding[]; truncated?: boolean } | { status: Skip; hint: string };
 
-/** Where selene may live, in order: ORBIT_SELENE, tool-manager shim folders (rokit, aftman, foreman), the project's own, then PATH. */
-export function seleneCandidates(o: { env?: string; home: string; win: boolean; projectDir: string; path: string; sep: string }): string[] {
+/** Where selene may live, in order: ORBIT_SELENE, the user's tool-manager shim folders (rokit, aftman, foreman), then PATH.
+ *  Never the exported project's own folders (a game repo could carry a planted .rokit/bin/selene.exe that would run on every
+ *  export) and never a relative path or PATH entry (spawn would resolve it against the project folder, its cwd). */
+export function seleneCandidates(o: { env?: string; home: string; win: boolean; path: string; sep: string }): string[] {
   const exe = o.win ? "selene.exe" : "selene", j = (...p: string[]) => p.join(o.win ? "\\" : "/");
-  const dirs = [j(o.home, ".rokit", "bin"), j(o.home, ".aftman", "bin"), j(o.home, ".foreman", "bin"), j(o.projectDir, ".rokit", "bin"), j(o.projectDir, ".aftman", "bin"), j(o.projectDir, ".foreman", "bin"), ...o.path.split(o.sep).filter(Boolean)];
-  return [...(o.env?.trim() ? [o.env.trim()] : []), ...dirs.map((d) => j(d, exe))].filter((p, i, a) => a.indexOf(p) === i);
+  const abs = (p: string) => (o.win ? /^([a-z]:[\\/]|\\\\)/i.test(p) : p.startsWith("/"));
+  const dirs = [j(o.home, ".rokit", "bin"), j(o.home, ".aftman", "bin"), j(o.home, ".foreman", "bin"), ...o.path.split(o.sep).map((d) => d.trim().replace(/^"(.*)"$/, "$1")).filter(Boolean)];
+  return [...(o.env?.trim() ? [o.env.trim()] : []), ...dirs.map((d) => j(d, exe))].filter((p, i, a) => abs(p) && a.indexOf(p) === i);
 }

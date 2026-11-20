@@ -3,7 +3,7 @@
 import { saveUpload } from "./vault";
 import { assetName } from "./local-ai-pure";
 import { stopAllOn } from "./stop-all";
-import { acquireGpu, freeComfyVram } from "./gpu-lock";
+import { abortError, acquireGpu, freeComfyVram, pause } from "./gpu-lock";
 import { trellisUrl } from "./trellis-pure";
 import { checkImage, comfyModel, comfyModelName, comfyNotRunning, comfyUrl, imageWorkflow, parseHistory, parseQueued, parseStats, seedOf, sizeFor, viewPath, type ComfyHealth, type ComfyModel } from "./comfy-pure";
 
@@ -74,6 +74,7 @@ export async function generate(prompt: string, aspect: unknown, seedText = promp
   const lease = await acquireGpu("image", { maxWaitMs: 30 * 60_000, ttlMs: 3 * 60_000 /* heartbeat: every poll */, onWait: o.onWait, signal: o.signal });
   try {
     await freeComfyVram(trellisUrl(process.env.ORBIT_TRELLIS_URL));
+    if (o.signal?.aborted) throw abortError(o.signal); // cancelled while waiting for the GPU: nothing queued yet
     const q = parseQueued(await (await comfyPost(u, "/prompt", { prompt: graph, client_id: "orbit" })).json().catch(() => null), model);
     if ("error" in q) throw new Error(q.error);
     const until = Date.now() + timeoutMs; // the first picture loads the 6.9 GB model from disk
@@ -81,7 +82,9 @@ export async function generate(prompt: string, aspect: unknown, seedText = promp
       for (;;) {
         if (stopAllOn()) { await comfyPost(u, "/interrupt", {}).catch(() => {}); throw new Error("Stopped: Stop-all is on"); }
         if (Date.now() > until) { await comfyPost(u, "/interrupt", {}).catch(() => {}); throw new Error(`ComfyUI took longer than ${Math.round(timeoutMs / 60_000)} min and was stopped.`); }
-        await new Promise((r) => setTimeout(r, 1000));
+        if (o.signal?.aborted) { await comfyPost(u, "/interrupt", {}).catch(() => {}); throw abortError(o.signal); } // cancelled while running: stop the GPU work too
+        await pause(1000, o.signal);
+        if (o.signal?.aborted) continue; // handled at the top of the loop
         lease.beat();
         const h = parseHistory(await fetch(`${u}/history/${encodeURIComponent(q.id)}`, { cache: "no-store", signal: AbortSignal.timeout(10_000) }).then((r) => r.json(), () => null), q.id);
         if (h.state === "error") throw new Error(h.error);

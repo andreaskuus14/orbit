@@ -72,3 +72,16 @@ export async function freeComfyVram(url: string | null): Promise<void> {
   await fetch(`${url}/free`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ unload_models: true, free_memory: true }),
     signal: AbortSignal.timeout(3000) }).catch(() => {});
 }
+
+/** Poll-loop sleep that wakes early when `signal` aborts (the caller then sees signal.aborted and stops its GPU job). */
+export function pause(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const done = () => { clearTimeout(t); signal?.removeEventListener("abort", done); resolve(); };
+    const t = setTimeout(done, ms);
+    signal?.addEventListener("abort", done, { once: true });
+  });
+}
+
+/** The error to throw when a GPU job's signal aborted (its reason when that is an Error). */
+export const abortError = (signal: AbortSignal) => (signal.reason instanceof Error ? signal.reason : new Error("Cancelled"));

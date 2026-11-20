@@ -16,8 +16,8 @@ const CAP = 4_000_000;
 const WIN = process.platform === "win32";
 
 /** First selene that exists, or null (the caller then says how to install it). */
-export function findSelene(projectDir: string): string | null {
-  const list = seleneCandidates({ env: process.env.ORBIT_SELENE, home: os.homedir(), win: WIN, projectDir, path: process.env.PATH ?? "", sep: path.delimiter });
+export function findSelene(): string | null {
+  const list = seleneCandidates({ env: process.env.ORBIT_SELENE, home: os.homedir(), win: WIN, path: process.env.PATH ?? "", sep: path.delimiter });
   return list.find((p) => { try { return statSync(p).isFile(); } catch { return false; } }) ?? null;
 }
 
@@ -35,7 +35,7 @@ function exec(bin: string, cwd: string): Promise<{ out: string; code: number | n
 /** Selene (read-only) on <projectDir>/src. A project without files on disk is skipped; so is a machine without selene. */
 export async function runSelene(projectDir: string): Promise<SeleneRun> {
   if (!existsSync(path.join(projectDir, "src"))) return { status: "no-files", hint: "No source files on disk (a Studio-only build), so Selene was skipped." };
-  const bin = findSelene(projectDir);
+  const bin = findSelene();
   if (!bin) return { status: "missing", hint: INSTALL_HINT };
   const r = await exec(bin, projectDir);
   if ("error" in r) return { status: "failed", hint: `Selene couldn't start: ${r.error.slice(0, 200)}` };

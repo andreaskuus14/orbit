@@ -19,8 +19,8 @@ import { GpuWaitError, acquireGpu, type GpuLease } from "../gpu-lock";
 import { retryConsent, retryFingerprint } from "./flop-retry-pure";
 import { createLimiter } from "../pure";
 import { asrPipeline, asrWorkers, type AsrPhase } from "../asr-pool";
-import { wantParakeet } from "./parakeet-pure";
-import { videoCodec, type VideoEncoder } from "./encode-pure";
+import { tokensToWords, wantParakeet } from "./parakeet-pure";
+import { encoderAfterWait, retryOnCpu, videoCodec, type VideoEncoder } from "./encode-pure";
 import { CHANNEL_LINK_MSG, channelLink, mmss, rootClipId } from "./format";
 import { isVideoId, uploadError, type VideoResource } from "../yt-analytics-pure";
 import { OAuthError, getAccessToken, invalidateAccess, readStored } from "../yt-oauth";
@@ -105,8 +105,9 @@ export async function ytdlpPath(): Promise<string | null> {
 
 /** Whisper (transformers.js) loads? The error text when not, so a broken install says why instead of "missing". */
 const whisperLib = () => import("@huggingface/transformers").then(() => null, (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 200));
-/** Parakeet's runtime loads (its model downloads on first use)? Off when ORBIT_ASR=whisper. */
-const parakeetLib = () => wantParakeet(process.env.ORBIT_ASR) ? import("./parakeet").then((m) => m.parakeetRuntime()).then(() => true, () => false) : Promise.resolve(false);
+/** Parakeet is installed (sherpa-onnx-node + its native addon on disk; its model downloads on first use)? Off when ORBIT_ASR=whisper.
+ *  A file check, not an import: STUDIO's status poll runs this, and sherpa only ever loads in its worker process. */
+const parakeetLib = () => wantParakeet(process.env.ORBIT_ASR) ? import("./parakeet").then((m) => m.parakeetAvailable(), () => false) : Promise.resolve(false);
 /** Any transcriber: Parakeet or Whisper. */
 export const hasTranscriber = async () => (await parakeetLib()) || (await whisperLib()) === null;
 
@@ -454,7 +455,12 @@ async function runJob(job: ClipJob, signal: AbortSignal) {
             : `Downloading the transcriber (first run only)${p.f !== undefined ? ` ${Math.round(p.f * 100)}%` : ""}`).catch(() => {});
           // Other creators' videos must be English (auto too: transformers.js assumes English anyway). Own devlog footage is never skipped.
           let checked = o.preset === "devlog";
-          if (!checked && (await whisperLib()) === null) { await set(job, "transcribing", 0.08, "Checking the audio is English"); await checkEnglish(pcmFile, spans, signal, phase); checked = true; }
+          if (!checked && (await whisperLib()) === null) {
+            await set(job, "transcribing", 0.08, "Checking the audio is English");
+            // Whisper down (worker won't start, model won't load): not a verdict. Leave it unchecked; the transcript check below decides.
+            try { await checkEnglish(pcmFile, spans, signal, phase); checked = true; }
+            catch (e) { if (signal.aborted || e instanceof NotEnglishError) throw e; console.error("[orbit] Whisper language check failed, judging from the transcript:", e instanceof Error ? e.message : e); }
+          }
           words = cleanWords(await transcribe(pcmFile, spans, o.language, signal, phase, (f) => set(job, "transcribing", 0.08 + 0.45 * f, `Transcribing${what} ${Math.round(f * 100)}%`))); // also feeds Claude a transcript without loops
           // No Whisper to guess the language: judge Parakeet's words instead, so the English-only rule still holds.
           if (!checked && transcriptLanguage(words) === "other") throw new NotEnglishError("Skipped: the speech isn't English (judged from the transcript). ORBIT only clips English videos from other creators.");
@@ -610,12 +616,15 @@ const PARAKEET_SEGMENT_SEC = 60; // attention grows with length: 60 s pieces use
 /** Parakeet first (faster, punctuated, word timings); null when it can't load, so the caller uses Whisper. ORBIT_ASR=whisper skips it. */
 async function transcribeParakeet(pcmFile: string, spans: Span[], signal: AbortSignal, onPhase: (p: AsrPhase) => void, progress: (f: number) => Promise<void>): Promise<Word[] | null> {
   if (!wantParakeet(process.env.ORBIT_ASR)) return null;
-  const { loadParakeet, parakeetWords } = await import("./parakeet");
-  const rec = await Promise.race([loadParakeet(path.join(studioRoot(), "models"), onPhase), new Promise<never>((_, reject) => {
+  const { parakeetAvailable, parakeetDecoder } = await import("./parakeet");
+  if (!parakeetAvailable()) return null;
+  const unusable = (e: unknown) => { if (signal.aborted) throw e; console.error("[orbit] Parakeet unavailable, using Whisper:", e instanceof Error ? e.message : e); return null; };
+  // Download (here) + load (in its child process) are shared and can't be cancelled: stop waiting on cancel instead.
+  const dec = await Promise.race([parakeetDecoder("clip", path.join(studioRoot(), "models"), onPhase), new Promise<never>((_, reject) => {
     signal.throwIfAborted();
     signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-  })]).catch((e) => { if (signal.aborted) throw e; console.error("[orbit] Parakeet unavailable, using Whisper:", e instanceof Error ? e.message : e); return null; });
-  if (!rec) return null;
+  })]).catch(unusable);
+  if (!dec) return null;
   const pieces = asrPieces(spans, PARAKEET_SEGMENT_SEC, ASR_OVERLAP_SEC);
   const total = pieces.reduce((s, p) => s + p.sec, 0) || 1;
   const words: Word[] = [];
@@ -625,7 +634,11 @@ async function transcribeParakeet(pcmFile: string, spans: Span[], signal: AbortS
     for (const p of pieces) { // one at a time: sherpa-onnx already uses several cores per piece
       signal.throwIfAborted();
       const audio = await readPcm(fh, p.from, p.to - p.from);
-      if (audio.length >= SAMPLE_RATE) words.push(...(await parakeetWords(rec, audio, p.from)).filter((w) => w.start >= p.start));
+      if (audio.length >= SAMPLE_RATE) {
+        const r = await dec(audio).catch(unusable); // its child crashed or timed out: Whisper redoes the whole transcript
+        if (!r) return null;
+        words.push(...tokensToWords(r, p.from).filter((w) => w.start >= p.start));
+      }
       done += p.sec;
       await progress(Math.min(1, done / total));
     }
@@ -787,14 +800,16 @@ async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o:
     // NVENC shares the one 8 GB GPU with ComfyUI/TRELLIS (gpu-lock.ts): wait for it; if it stays busy, this clip renders on the CPU.
     let waited = false;
     if (enc === "nvenc") lease = await acquireGpu("render", { signal, maxWaitMs: 20 * 60_000, ttlMs: 16 * 60_000, onWait: onWait && ((t) => { waited = true; onWait(t); }) })
-      .catch((e) => { if (e instanceof GpuWaitError && e.reason === "timeout") { enc = "x264"; return null; } throw e; });
+      .catch((e) => { const next = encoderAfterWait(e instanceof GpuWaitError ? e.reason : "cancel"); if (!next) throw e; enc = next; return null; });
     if (waited) onWait?.(""); // done waiting: back to the plain step text
     const beat = () => lease?.beat();
     try { await runFfmpeg(ff, args(enc), { cwd: dir, signal, timeoutMs: 15 * 60_000, onTime: beat }); }
     catch (e) { // the GPU encoder can fail mid-run (driver, another app holding all NVENC sessions): redo this clip on the CPU
-      if (enc === "x264" || signal.aborted) throw e;
+      if (!retryOnCpu(enc, signal.aborted)) throw e;
       console.error("[orbit] NVENC render failed, using the CPU encoder:", e instanceof Error ? e.message.slice(-300) : e);
       S.encoder = Promise.resolve("x264");
+      enc = "x264";
+      lease?.release(); lease = null; // x264 doesn't need the GPU: hand it to the next picture/3D job now, not after a CPU re-encode
       await runFfmpeg(ff, args("x264"), { cwd: dir, signal, timeoutMs: 15 * 60_000 });
     }
     beat(); // the effects pass is a second encode
