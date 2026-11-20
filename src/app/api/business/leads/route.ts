@@ -3,7 +3,9 @@ import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude, emit } from "@/lib/claude";
 import { usageHardHold } from "@/lib/usage-meter";
 import { stopAllOn } from "@/lib/stop-all";
-import { fetchPage, safeFetch } from "@/lib/memory";
+import { safeFetch } from "@/lib/memory";
+import { ladderRead } from "@/lib/web-ladder";
+import { DEFAULT_BUDGET } from "@/lib/web-ladder-pure";
 import { siteLint } from "@/lib/core-workspace";
 import { siteFromIdea } from "@/lib/site-idea";
 import { crmOf, loadCrm, logEvent, updateCrm } from "@/lib/prospect-crm";
@@ -19,13 +21,16 @@ export const maxDuration = 300;
 // → a demo site workspace | {action:"import", text} (B8) → his gosom CSV saved as draft prospects (source maps-import) | {action:"pitch", id, lang} → the prospect's draft. Nothing is sent here: the draft goes out only by his
 // "Approve & send" click (business-send.ts), it is saved without drafted_at and Auto skips lead-loop leads (autonomy.ts).
 const IMPORT_BYTES = 20_000_000;
+const LEAD_BUDGET = { ...DEFAULT_BUDGET, maxPages: 1, totalMs: 40_000, rungMs: { fetch: 8_000, scraper: 15_000, browser: 20_000 } };
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
 async function dnsOf(c: Candidate): Promise<Dns[]> {
   return Promise.all(domainGuesses(c.name).slice(0, 4).map(async (domain): Promise<Dns> => {
     const tries = await Promise.all(domainUrls(domain).map(async (u): Promise<DnsState> => {
-      try { const pg = await fetchPage(u); return pageNames(c.name, pg.text, pg.title) ? "own" : "other"; } // a parked page naming them counts as own: errs toward "has a site"
-      catch (e) { const err = e as NodeJS.ErrnoException & { cause?: NodeJS.ErrnoException }; return fetchErrorState(err.code ?? err.cause?.code, String(err.message)); }
+      // The web ladder (fetch → scraper → browser): a JS-built or bot-walled site still counts as a site. Dead domains stop at fetch.
+      const { page, error } = await ladderRead(u, { maxChars: 20_000, budget: LEAD_BUDGET });
+      if (page) return pageNames(c.name, page.text, page.title) ? "own" : "other"; // a parked page naming them counts as own: errs toward "has a site"
+      return fetchErrorState(error?.code, error?.message ?? "no readable page");
     }));
     return { domain, state: combineTries(tries) };
   }));

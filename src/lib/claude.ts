@@ -110,6 +110,9 @@ export type ClaudeResult = { text: string; inputTokens: number; outputTokens: nu
 
 /** Read-only web tools a call may opt into (AskOpts.web), approved by the owner. Nothing that runs commands, edits files or posts. */
 export const WEB_TOOLS = "WebSearch,WebFetch";
+/** web: "search": WebSearch only. ORBIT then opens the result pages itself through the web ladder (web-ladder.ts: fetch →
+ *  Scrapling → headless browser) instead of the CLI's WebFetch, so every page read keeps ORBIT's guards and rung record. */
+export const WEB_SEARCH_ONLY = "WebSearch";
 
 /** Shared setup for every CLI call: system prompt in a temp dir, fixed flags, all tools disabled unless `web`. */
 /** mcp: the call may use only these MCP tools (from the owner's own `claude mcp add` config), every call checked by the
@@ -122,7 +125,7 @@ export type McpAccess = { allow: string[]; settings: string; config?: string; to
 export type CliSession = { id: string; resume: boolean };
 const SESSION_DIR = join(tmpdir(), "orbit-core-sessions");
 
-async function prepare(system: string, format: string[], model = MODEL, effort = "", web = false, mcp?: McpAccess, session?: CliSession, thinking?: number) {
+async function prepare(system: string, format: string[], model = MODEL, effort = "", web: boolean | "search" = false, mcp?: McpAccess, session?: CliSession, thinking?: number) {
   if (!/^[\w.:-]+(?:\[1m\])?$/.test(model)) throw new Error("ORBIT_MODEL / ORBIT_MODEL_SMART / ORBIT_MODEL_FAST / ORBIT_MODEL_DEEP contains invalid characters");
   // The system prompt goes in a file and the user prompt on stdin, so no user text is ever on the command line.
   const dir = await mkdtemp(join(tmpdir(), "orbit-"));
@@ -130,7 +133,7 @@ async function prepare(system: string, format: string[], model = MODEL, effort =
   await writeFile(sysFile, system, "utf8");
   const q = (a: string) => (WIN ? `"${a}"` : a); // Windows needs a shell to run claude.cmd, so quote args there
   const tools = mcp ? ["--tools", q((mcp.tools ?? []).join(",")), ...(mcp.pluginDir ? ["--plugin-dir", q(mcp.pluginDir)] : []), "--allowedTools", q(mcp.allow.join(",")), "--permission-mode", "dontAsk", "--settings", q(mcp.settings), ...(mcp.config ? ["--mcp-config", q(mcp.config)] : [])]
-    : web ? ["--tools", q(WEB_TOOLS), "--allowedTools", q(WEB_TOOLS), "--permission-mode", "dontAsk"] : ["--tools", q("")];
+    : web ? ["--tools", q(web === "search" ? WEB_SEARCH_ONLY : WEB_TOOLS), "--allowedTools", q(web === "search" ? WEB_SEARCH_ONLY : WEB_TOOLS), "--permission-mode", "dontAsk"] : ["--tools", q("")];
   if (session && !/^[0-9a-f-]{36}$/i.test(session.id)) throw new Error("Invalid CLI session id");
   if (session) await mkdir(SESSION_DIR, { recursive: true });
   const args = ["-p", ...format, ...tools, ...(session ? [session.resume ? "--resume" : "--session-id", session.id] : ["--no-session-persistence"]),
@@ -197,7 +200,7 @@ function takeSpare(system: string, model: string): Spare | null {
 
 /** purpose: what the call is for, for the usage meter (core, agent, goals, autopilot, clips, translate…); default by lane. */
 /** web: allow only WebSearch/WebFetch (read-only); web pages are untrusted, so that call's system prompt must say they are data. */
-export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string; web?: boolean; mcp?: McpAccess; onLine?: (line: string) => void; session?: CliSession; thinking?: number; risky?: boolean };
+export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string; web?: boolean | "search"; mcp?: McpAccess; onLine?: (line: string) => void; session?: CliSession; thinking?: number; risky?: boolean };
 
 /** One headless Claude Code call with all tools disabled (it can only read the prompt and answer), or only the web tools with `web`. Aborting `signal` kills the CLI. */
 export function askClaude(prompt: string | Promise<string>, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web, mcp, onLine, session, thinking, risky }: AskOpts = {}): Promise<ClaudeResult> {
@@ -235,7 +238,7 @@ async function withLocal(lane: Lane, prompt: string | Promise<string>, system: s
 const askLocal = async (prompt: string | Promise<string>, system: string, signal?: AbortSignal, timeoutMs = TIMEOUT_MS): Promise<ClaudeResult> =>
   chatLocal(await prompt, system, { signal, timeoutMs });
 
-async function runClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background", web = false, mcp?: McpAccess, onLine?: (line: string) => void, session?: CliSession, thinking?: number): Promise<ClaudeResult> {
+async function runClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background", web: boolean | "search" = false, mcp?: McpAccess, onLine?: (line: string) => void, session?: CliSession, thinking?: number): Promise<ClaudeResult> {
   if (typeof prompt !== "string") prompt.catch(() => {}); // observed now; its error is reported once the CLI is up
   signal?.throwIfAborted();
   const t0 = Date.now();

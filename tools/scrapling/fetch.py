@@ -1,6 +1,6 @@
 """ORBIT scrape_page helper (Scrapling). Reads {"url", "mode", "select"} as JSON on stdin, prints {"url", "title", "text", "status"}
 or {"error"} as JSON. Refuses private/internal addresses before and after fetching (redirects included).
-Install once:  pip install "scrapling[fetchers]" && scrapling install"""
+Install once:  powershell -File tools/scrapling/setup.ps1  (venv in tools/scrapling/.venv)"""
 import ipaddress, json, socket, sys
 from urllib.parse import urlparse
 

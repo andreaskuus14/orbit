@@ -11,6 +11,7 @@ const deepFlags = { effort: DEEP_EFFORT };
 const DEEP_TURN_MS = 270_000;
 import { typedText } from "./attach-pure";
 import { attachmentNames, buildUsed } from "./core-used-pure";
+import { parseVia, type Rung } from "./web-ladder-pure";
 import { rememberOwnerText } from "./site-pipeline-pure";
 import { pickModel } from "./core-ui";
 import { partialAnswer } from "./streamjson";
@@ -79,7 +80,7 @@ const SESSION_MODE_ENV = process.env.ORBIT_CORE_SESSION; // "off" opts the SDK e
 // CORE tools that change things: logged to the activity log when they succeed (navigation and reads aren't).
 const LOGGED = ["save_memory", "ask_agent", ...MODULE_WRITES];
 
-export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; evidence?: WriteEvidence[]; answerEval?: AnswerEval & { ms: number }; receipt?: Receipt; policy?: { verdict: "refuse"; turn: string; allowOnce?: { id: string; journal: boolean } } };
+export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; via?: Rung[]; evidence?: WriteEvidence[]; answerEval?: AnswerEval & { ms: number }; receipt?: Receipt; policy?: { verdict: "refuse"; turn: string; allowOnce?: { id: string; journal: boolean } } };
 export type Citation = { id: string; title: string; kind: string; at?: string }; // at: the memory's last change (for "what I used" ages)
 export type Turn = { role: "user" | "assistant"; content: string };
 
@@ -350,7 +351,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     : await runCoreTool(sb, userId, tool, input, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e), { chat: sessionKey, project: memoryProject?.scope });
   const record = (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number, operator = false) => {
     evalTools.push({ tool, input, output: out.slice(0, STEP_CHARS), evidence });
-    trace.push({ step: tool, detail: `${JSON.stringify(input).slice(0, 140)} → ${out.slice(0, 140)}`, ms, ok: !out.startsWith("Error:"), ...(evidence.length ? { evidence } : {}) });
+    const via = parseVia(out); // web-ladder rungs that read this tool's pages ("what I used" shows them)
+    trace.push({ step: tool, detail: `${JSON.stringify(input).slice(0, 140)} → ${out.slice(0, 140)}`, ms, ok: !out.startsWith("Error:"), ...(via.length ? { via } : {}), ...(evidence.length ? { evidence } : {}) });
     onStep?.(tool, input, { out, ms, ok: !out.startsWith("Error:") }); // the live view's step end (core-live-pure.ts redacts it)
     if (LOGGED.includes(tool) && !out.startsWith("Error:")) logActivity({ area: operator ? "operator" : "core", title: `CORE ${tool}: ${activityLine(tool, out)}`, ...undoOf(tool, out) }); // no inputs: memory / reminder / file text stays out of the log
   };
@@ -679,9 +681,11 @@ async function runCoreTool(sb: SupabaseClient, userId: string, tool: string, inp
     const q = webSearchQuery(input);
     if ("error" in q) return q.error;
     if (timeLeft < 30_000) return "Error: not enough time left in this answer for a web search; answer with what you have";
-    const r = await askClaude(`Search: ${q.query}`, WEB_SEARCH_SYSTEM, { lane: "foreground", signal, web: true, purpose: "core.web_search", timeoutMs: Math.min(150_000, timeLeft) });
+    const t0 = Date.now();
+    const r = await askClaude(`Search: ${q.query}`, WEB_SEARCH_SYSTEM, { lane: "foreground", signal, web: "search", purpose: "core.web_search", timeoutMs: Math.min(150_000, timeLeft) });
     await recordUsage(sb, userId, "core.web_search", r);
-    return r.text || "No results.";
+    // The top cited pages, opened by ORBIT through the web ladder (fetch → scraper → browser), inside what is left of the turn.
+    return r.text ? await (await import("./web-ladder")).withLadderPages(r.text, Math.min(45_000, timeLeft - (Date.now() - t0) - 20_000)) : "No results.";
   }
   if (tool === "save_memory") {
     // decide() already refused unless the user's latest message asks to remember (stops injected text persisting itself).

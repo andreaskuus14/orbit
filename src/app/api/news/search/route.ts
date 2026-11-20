@@ -1,12 +1,10 @@
 import { requireUser } from "@/lib/supabase/server";
-import { safeFetch } from "@/lib/memory";
-import { parseFeed, str, toOrQuery } from "@/lib/pure";
-import { topicFeedUrl } from "@/lib/pulse";
+import { str, toOrQuery } from "@/lib/pure";
 import { geoTag, hotspots, importance, displayName, COUNTRIES, type Story } from "@/lib/geo";
-import { localNews, type LocalItem } from "@/lib/news";
+import { localNews, newsSearch, type LocalItem } from "@/lib/news";
 import { countryByName } from "@/lib/countries-pure";
 
-// Globe search: the user's stored articles plus live Google News results for a query or a country,
+// Globe search: the user's stored articles plus live news-search results (Bing News, Google News as fallback) for a query or a country,
 // each tagged with the countries it's about so the globe can light them up.
 type Result = Story & { countries: string[]; live: boolean; score: number };
 const g = globalThis as unknown as { __orbitNewsCache?: Map<string, { at: number; items: Story[] }> };
@@ -16,8 +14,7 @@ async function live(q: string): Promise<Story[]> {
   const hit = cache.get(q);
   if (hit && Date.now() - hit.at < 10 * 60_000) return hit.items;
   try {
-    const { res } = await safeFetch(topicFeedUrl(q), "application/rss+xml, application/xml, text/xml");
-    const items = parseFeed((await res.text()).slice(0, 2_000_000)).items.slice(0, 15)
+    const items = (await newsSearch(q, "7d")).slice(0, 15)
       .map((it) => ({ title: it.title, url: it.url, source: it.source, published_at: it.published, summary: it.summary }));
     if (cache.size > 200) cache.clear();
     cache.set(q, { at: Date.now(), items });
@@ -52,7 +49,7 @@ export async function GET(req: Request) {
         .or(words.map((w) => `title.ilike.%${w.replace(/[%,()*]/g, "")}%`).join(",")).order("published_at", { ascending: false }).limit(60)
       : Promise.resolve({ data: [], error: null }),
     live(country ? `"${q}"` : q),
-    home ? localNews(home.iso2, home.lang) : Promise.resolve([] as LocalItem[]),
+    home ? localNews(home.iso2, home.lang, "", 0, displayName(home.name)) : Promise.resolve([] as LocalItem[]),
   ]);
   if (stored.error) return Response.json({ error: stored.error.message }, { status: 500 });
 

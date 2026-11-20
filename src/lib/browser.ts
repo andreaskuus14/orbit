@@ -37,7 +37,7 @@ async function launch(): Promise<Browser | null> {
     try { return await chromium.launch({ executablePath: process.env.ORBIT_BROWSER_PATH, headless: true, args: ARGS }); }
     catch (e) { console.warn("[orbit] ORBIT_BROWSER_PATH didn't start:", e instanceof Error ? e.message : e); }
   }
-  for (const channel of ["chrome", "msedge", undefined]) { // undefined = playwright's own Chromium (npx playwright install chromium)
+  for (const channel of ["chrome", "msedge", undefined]) { // undefined = playwright's own Chromium (npx playwright-core install chromium)
     try { return await chromium.launch({ channel, headless: true, args: ARGS }); } catch { /* try the next browser */ }
   }
   console.warn("[orbit] hidden browser unavailable: Chrome, Edge or Playwright's Chromium not found");
@@ -55,6 +55,13 @@ function getBrowser() {
   return g.__orbitBrowser;
 }
 
+/** True when a headless browser can be started on this PC (the web ladder's browser rung skips itself otherwise). */
+export async function hasBrowser(): Promise<boolean> {
+  let b = await getBrowser();
+  if (!b) { g.__orbitBrowser = undefined; b = await getBrowser(); }
+  return !!b;
+}
+
 /** Send an allowed request without letting Chromium follow redirects on its own: ORBIT fetches it with redirects off, refuses a
  *  3xx whose Location is a refused host, and hands any other 3xx back to the page, so the next hop comes through route() and is
  *  checked again. Chromium's own redirect following never passes through route(), so without this a public page could make it
@@ -68,6 +75,22 @@ async function pass(route: import("playwright-core").Route, hostOk: (h: string) 
     if (!/^https?:$/.test(next.protocol) || !(await hostOk(next.hostname))) return route.abort();
   }
   return route.fulfill({ response: res });
+}
+
+/** Runs in the page: text including open shadow roots, which innerText skips. The headline and paragraphs when they add up to an
+ *  article (so menus and promos don't crowd it out), otherwise all the text. */
+function deepText(): string {
+  const all: string[] = [], paras: string[] = [];
+  const walk = (n: Node) => {
+    if (n.nodeType === 3) { const t = n.textContent?.trim(); if (t) all.push(t); return; }
+    if (n instanceof HTMLElement && /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(n.tagName)) return;
+    if (n instanceof HTMLElement && /^(H1|P)$/.test(n.tagName)) { const t = n.textContent?.replace(/\s+/g, " ").trim(); if (t && (n.tagName === "H1" || t.length > 40)) paras.push(t); }
+    const sr = (n as Element).shadowRoot;
+    if (sr) sr.childNodes.forEach(walk);
+    n.childNodes.forEach(walk);
+  };
+  walk(document.body);
+  return paras.join("\n\n").length >= 400 ? paras.join("\n\n") : all.join("\n");
 }
 
 /** Load a public page in the hidden browser and return its final URL and HTML (null if unavailable or blocked). */
@@ -93,7 +116,9 @@ export async function renderPage(url: string, userAgent: string): Promise<{ url:
     await page.waitForLoadState("networkidle", { timeout: 6_000 }).catch(() => {}); // good enough if it never idles
     // Second line of defence after pass(): never hand back a page that ended up on a private address.
     if (!(await allowedHost(new URL(page.url()).hostname))) return null;
-    return { url: page.url(), html: await page.content(), text: (await page.innerText("body").catch(() => "")).slice(0, 200_000) };
+    let text = await page.innerText("body").catch(() => "");
+    if (text.length < 500) text = await page.evaluate(deepText).catch(() => text); // web-component sites (MSN) keep the article in shadow DOM
+    return { url: page.url(), html: await page.content(), text: text.slice(0, 200_000) };
   } catch {
     return null;
   } finally {

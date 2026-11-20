@@ -1,9 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { safeFetch } from "./memory";
-import { parseFeed } from "./pure";
-import { topicFeedUrl } from "./pulse";
+import { newsSearch } from "./news";
 import { COUNTRIES, displayName, geoTag } from "./geo";
 import { MAX_TOPICS, cleanTopic, isNew, needsRefresh, newest, sameTopic, type Headline } from "./follows-pure";
 
@@ -48,8 +46,9 @@ function update<T>(fn: (s: Store) => T | Promise<T>): Promise<T> {
 
 async function fetchTopic(topic: string): Promise<Headline[] | null> {
   try {
-    const { res } = await safeFetch(topicFeedUrl(topic, "2d"), "application/rss+xml, application/xml, text/xml");
-    return parseFeed((await res.text()).slice(0, 2_000_000)).items.slice(0, 15)
+    const items = await newsSearch(topic, "2d"); // Bing News first, Google News only as the fallback
+    if (!items.length) return null;
+    return items.slice(0, 15)
       .map((it) => ({ title: it.title, url: it.url, source: it.source, published_at: it.published }));
   } catch { return null; } // offline or blocked: keep the old cache
 }
