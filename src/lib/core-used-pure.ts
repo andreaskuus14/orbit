@@ -73,7 +73,7 @@ export function usedItemText(i: UsedItem, t: T): string {
   }
   if (i.kind === "file") return `${t("used.file")}: ${i.title}`;
   if (i.kind === "fact") return `${t("used.factLabel")}: ${t(`used.fact.${i.title}`)}`;
-  if (i.kind === "web") return t(i.title === "searches" ? "used.searches" : "used.pages", { n: i.n ?? 1 });
+  if (i.kind === "web") { const n = i.n ?? 1; return t(i.title === "searches" ? (n === 1 ? "used.search1" : "used.searches") : (n === 1 ? "used.page1" : "used.pages"), { n }); }
   return `${t("used.tool")}: ${i.title!.replace(/_/g, " ")}${i.n ? ` ×${i.n}` : ""}`;
 }
 /** The compact line (≤6 items + "+N more"), or the full list when `full`. "" when there is nothing to show. */
