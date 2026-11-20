@@ -9,7 +9,9 @@
 #   -Rebuild     force a fresh build; if it succeeds, swap it in and restart (exit code 1 when the build fails)
 #   -Supervise   internal: the hidden supervisor loop started by this script
 #   -Background  internal: a hidden copy doing an update build so -ServerOnly (wake, sign-in) returns at once
-param([switch]$ServerOnly, [switch]$Dev, [switch]$Rebuild, [switch]$Supervise, [switch]$Background)
+#   -Watchdog    internal: the "ORBIT watchdog" scheduled task (every 5 min): start ORBIT if nothing is running it,
+#                unless it was stopped on purpose (scripts\stop.ps1 writes orbit-stopped.flag; any normal start clears it)
+param([switch]$ServerOnly, [switch]$Dev, [switch]$Rebuild, [switch]$Supervise, [switch]$Background, [switch]$Watchdog)
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $root = Split-Path -Parent $PSScriptRoot
@@ -24,6 +26,7 @@ $distNew = Join-Path $root ".next-build"  # where builds go (ORBIT_DIST_DIR) unt
 $distPrev = Join-Path $root ".next-prev"  # the previous release, for rollback
 $buildId = Join-Path $distLive "BUILD_ID"
 $failMark = Join-Path $distNew "BUILD_FAILED" # written when a build fails; stops retrying until an input changes
+$stoppedFlag = Join-Path $root "orbit-stopped.flag" # stop.ps1: stopped on purpose, so the watchdog leaves it off
 $updateFlag = Join-Path $root "orbit-update.request" # written by ORBIT (POST /api/system/update, owner only): pull main + rebuild while running
 $updateLog = Join-Path $root "orbit-update.log"      # output of the self-update's git pull and npm ci
 $busyUrl = "http://127.0.0.1:3000/api/studio/busy"  # auth-free, localhost only: is a clip render, download, scout run or publish going?
@@ -395,6 +398,31 @@ if ($Supervise) {
   }
 }
 
+# ---- Watchdog (scheduled task, every 5 min) ----
+if ($Watchdog) {
+  if ((Test-Path $stoppedFlag) -or $env:ORBIT_WATCHDOG -eq "0") { exit 0 } # stopped on purpose / turned off
+  if (Get-Health) { exit 0 }
+  # A launcher, supervisor, build or server of this folder is already at work (starting, building, swapping): let it.
+  $busy = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf("$root\", [StringComparison]::OrdinalIgnoreCase) -ge 0 -and $_.CommandLine -match 'launch\.ps1|next' })
+  if ($busy.Count -gt 0) { exit 0 }
+  Write-Log "Watchdog: ORBIT wasn't running and wasn't stopped on purpose; starting it."
+  $ServerOnly = [switch]$true
+}
+
+# The watchdog task: created once per user (no admin needed), runs hidden every 5 min. ORBIT_WATCHDOG=0 skips it.
+function Install-Watchdog {
+  if ($env:ORBIT_WATCHDOG -eq "0") { return }
+  $q = Invoke-Native "schtasks.exe" @("/query", "/tn", "ORBIT watchdog")
+  if ($q.Code -eq 0) { return }
+  # Windows PowerShell 5.1 mangles embedded quotes in native arguments, so the path goes unquoted when it can.
+  $file = if ($PSCommandPath -match '\s') { "\`"$PSCommandPath\`"" } else { $PSCommandPath }
+  $tr = "conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File $file -Watchdog"
+  $c = Invoke-Native "schtasks.exe" @("/create", "/tn", "ORBIT watchdog", "/sc", "minute", "/mo", "5", "/tr", $tr, "/f")
+  if ($c.Code -eq 0) { Write-Log "Installed the ORBIT watchdog task: every 5 min it starts ORBIT if it isn't running (npm run app:stop keeps it off)." }
+  else { Write-Log "Couldn't install the watchdog task: $($c.Out)" }
+}
+
 # ---- Launcher ----
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -486,6 +514,9 @@ if ($buildFailed) {
   Write-Host "      Errors: $buildLog" -ForegroundColor Red
   Write-Host ""
 }
+# Running again: not "stopped on purpose" any more, and the watchdog task exists from now on.
+Remove-Item -LiteralPath $stoppedFlag -Force -ErrorAction SilentlyContinue
+if (-not $Watchdog) { try { Install-Watchdog } catch { Write-Log "Watchdog setup failed: $($_.Exception.Message)" } }
 if ($ServerOnly) { if ($Rebuild -and $buildFailed) { exit 1 } else { exit 0 } }
 
 # Chrome first (where you're signed in to ORBIT), then Edge. --app gives a clean window with no tabs or address bar.
