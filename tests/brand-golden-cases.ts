@@ -1,6 +1,7 @@
 // Fixture renders for the brand-kit golden test: the same inputs run through buildAss / buildComposition / thumbSvg / renderArgs.
 // tests/fixtures/brand-golden.json was generated from the code BEFORE the brand kit existed (git show of the first commit on this branch).
 import { buildAss, renderArgs, thumbLayout, thumbSvg, type Word } from "../src/lib/clips/pure.ts";
+import { dialogueAss, thumbAss } from "../src/lib/clips/story-pure.ts";
 import { buildComposition } from "../src/lib/clips/hyperframes-pure.ts";
 
 export const words: Word[] = [
@@ -30,5 +31,7 @@ export function goldenCases(): Record<string, string> {
   out["args-ass"] = JSON.stringify(renderArgs({ input: "src.mp4", start: 1, duration: 9, segs, audio: true, layout: "split", zooms: [1, 3.5], ass: "c.ass", out: "out.mp4" }));
   out["args-fit"] = JSON.stringify(renderArgs({ input: "src.mp4", start: 1, duration: 9, audio: true, layout: "fit", ass: "c.ass", out: "out.mp4", progressBar: true, fadeOut: true, encoder: "nvenc" }));
   out["args-noass"] = JSON.stringify(renderArgs({ input: "src.mp4", start: 1, duration: 9, audio: false, layout: "fill", out: "out.mp4" }));
+  out["drama-subs"] = dialogueAss([{ text: "Hello {there}", start: 0, end: 2 }, { text: "Second line", start: 2.5, end: 4 }], "A hook");
+  out["drama-thumb"] = thumbAss("a very sad story");
   return out;
 }

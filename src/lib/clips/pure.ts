@@ -1,4 +1,5 @@
 import { videoCodec, type VideoEncoder } from "./encode-pure.ts";
+import { DEFAULT_KIT, assStyleColour, assTagColour, cardEvents, cardsOn, type BrandKit } from "../brand-kit-pure.ts";
 import path from "node:path";
 import { CAPTION_STYLES, REJECT_REASONS, rootClipId } from "./format.ts";
 import { cleanOriginal } from "./publish-checks-pure.ts";
@@ -466,14 +467,15 @@ export function captionGroups(words: Word[]): Word[][] {
   return groups;
 }
 
-const CHERRY_ASS = "&H00632EFF"; // #ff2e63 as &HAABBGGRR
+// Colours, fonts and margins come from the brand kit (brand-kit-pure.ts); DEFAULT_KIT holds the values that used to be constants here.
 // Shorts-safe area: bottom edge 640 px up (clear of the bottom ~22% title/channel UI), 150 px right margin (like/comment buttons).
-const CAP_FS = 100, CAP_CHARS = 13, CAP_MARGIN = { l: 70, r: 150, v: 640 }; // ~13 uppercase chars of bold Arial 100 fit the 860 px between margins
-const ASS_YELLOW = "&H00E5FF&", ASS_CHERRY = "&H632EFF&"; // #ffe500, #ff2e63 (override colours are &HBBGGRR&)
+const CAP_CHARS = 13; // ~13 uppercase chars of bold Arial 100 fit the 860 px between margins
 
 /** Subtitle file for one clip: the hook on top for the first 2.5 s, then karaoke captions lower-middle: 1-3 words on screen, the spoken
  *  word yellow and popping to 115% (a shouted word: cherry, 135%). Times are relative to the (jump-cut) clip. */
-export function buildAss(o: { hook: string; words: Word[]; duration: number; style?: "karaoke" | "classic" }): string {
+export function buildAss(o: { hook: string; words: Word[]; duration: number; style?: "karaoke" | "classic"; kit?: BrandKit }): string {
+  const kit = o.kit ?? DEFAULT_KIT, CAP_FS = kit.caption.size;
+  const ASS_YELLOW = assTagColour(kit.caption.highlight), ASS_CHERRY = assTagColour(kit.caption.shout), ASS_TEXT = assTagColour(kit.caption.text);
   const ev: string[] = [];
   if (o.hook.trim()) ev.push(`Dialogue: 1,${assTime(0)},${assTime(Math.min(2.5, o.duration))},Hook,,0,0,0,,${assText(o.hook).toUpperCase()}`);
   const groups = captionGroups(cleanWords(o.words));
@@ -498,16 +500,18 @@ export function buildAss(o: { hook: string; words: Word[]; duration: number; sty
       if (end - start < 0.05 || start >= o.duration) return;
       last = end;
       const pop = w.loud ? 135 : 115;
-      const line = text.map((t, j) => (j === i ? `{\\c${w.loud ? ASS_CHERRY : ASS_YELLOW}\\t(0,80,\\fscx${pop}\\fscy${pop})}${t}{\\c&HFFFFFF&\\fscx100\\fscy100}` : t)).join(" ");
+      const line = text.map((t, j) => (j === i ? `{\\c${w.loud ? ASS_CHERRY : ASS_YELLOW}\\t(0,80,\\fscx${pop}\\fscy${pop})}${t}{\\c${ASS_TEXT}\\fscx100\\fscy100}` : t)).join(" ");
       ev.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Cap,,0,0,0,,${fs}${line}`);
     });
   });
+  ev.push(...cardEvents(kit, o.duration, assTime, assText));
+  const hookC = assStyleColour(kit.hook.box), cardStyle = cardsOn(kit) ? [`Style: Card,${kit.caption.font || "Arial"},${Math.round(kit.hook.size * 1.1)},${assStyleColour(kit.hook.text)},${assStyleColour(kit.hook.text)},${hookC},${hookC},-1,0,0,0,100,100,0,0,3,18,0,5,80,80,0,1`] : [];
   return [
     "[Script Info]", "ScriptType: v4.00+", "PlayResX: 1080", "PlayResY: 1920", "WrapStyle: 0", "ScaledBorderAndShadow: yes", "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: Cap,Arial,${CAP_FS},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,10,5,2,${CAP_MARGIN.l},${CAP_MARGIN.r},${CAP_MARGIN.v},1`,
-    `Style: Hook,Arial,92,&H00FFFFFF,&H00FFFFFF,${CHERRY_ASS},${CHERRY_ASS},-1,0,0,0,100,100,0,0,3,18,0,8,80,80,260,1`,
+    `Style: Cap,${kit.caption.font || "Arial"},${CAP_FS},${assStyleColour(kit.caption.text)},${assStyleColour(kit.caption.text)},${assStyleColour(kit.caption.outline)},&H80000000,-1,0,0,0,100,100,0,0,1,${kit.caption.outlineWidth},5,2,${kit.caption.left},${kit.caption.right},${kit.caption.bottom},1`,
+    `Style: Hook,${kit.hook.font || "Arial"},${kit.hook.size},${assStyleColour(kit.hook.text)},${assStyleColour(kit.hook.text)},${hookC},${hookC},-1,0,0,0,100,100,0,0,3,18,0,8,80,80,${kit.hook.top},1`, ...cardStyle,
     "", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text", ...ev, "",
   ].join("\n");
 }
@@ -741,7 +745,8 @@ export function wrapTitle(title: string, width = 14, maxLines = 4): string[] {
 }
 
 /** Title overlay for the thumbnail: huge white bold text with a cherry stroke and glow, over a dark band. */
-export function thumbSvg(title: string, w = 1080, h = 1920, scale = 1): string {
+export function thumbSvg(title: string, w = 1080, h = 1920, scale = 1, kit: BrandKit = DEFAULT_KIT): string {
+  const { accent, text: ink } = kit.thumb;
   const { lines, size, lh, top } = thumbLayout(title, w, h, scale);
   const text = (attrs: string) => `<text x="${w / 2}" text-anchor="middle" font-family="Arial Black, Arial, Helvetica, sans-serif" font-weight="900" font-size="${size}" ${attrs}>` +
     lines.map((l, i) => `<tspan x="${w / 2}" y="${top + i * lh}">${escapeXml(l)}</tspan>`).join("") + "</text>";
@@ -749,9 +754,9 @@ export function thumbSvg(title: string, w = 1080, h = 1920, scale = 1): string {
     `<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="0.5" stop-color="#000" stop-opacity="0.55"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient>` +
     `<filter id="f" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="18"/></filter></defs>` +
     `<rect x="0" y="${Math.round(h * 0.2)}" width="${w}" height="${Math.round(h * 0.45)}" fill="url(#g)"/>` +
-    text(`fill="#ff2e63" stroke="#ff2e63" stroke-width="${Math.round(size * 0.3)}" filter="url(#f)" opacity="0.8"`) +
-    text(`fill="#ff2e63" stroke="#ff2e63" stroke-width="${Math.round(size * 0.16)}" stroke-linejoin="round"`) +
-    text(`fill="#ffffff" stroke="#000000" stroke-width="3"`) +
+    text(`fill="${accent}" stroke="${accent}" stroke-width="${Math.round(size * 0.3)}" filter="url(#f)" opacity="0.8"`) +
+    text(`fill="${accent}" stroke="${accent}" stroke-width="${Math.round(size * 0.16)}" stroke-linejoin="round"`) +
+    text(`fill="${ink}" stroke="#000000" stroke-width="3"`) +
     "</svg>";
 }
 

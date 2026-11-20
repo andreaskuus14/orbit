@@ -3,6 +3,7 @@
 // CSS keyframes only (hyperframes' css adapter seeks them per clip): no GSAP, no script, no fonts or files from the network at render.
 import { videoCodec, type VideoEncoder } from "./encode-pure.ts";
 import { IN, captionGroups, cleanWords, type Word } from "./pure.ts";
+import { CARD_SEC, DEFAULT_KIT, cardsOn, type BrandKit } from "../brand-kit-pure.ts";
 import { PLAYBOOK_MIN, type Playbook } from "./study-pure.ts";
 
 export const HF_VERSION = "0.8.171";
@@ -16,7 +17,7 @@ export const esc = (s: string) => s.replace(/[\x00-\x1f\x7f]+/g, " ").replace(/\
 const n3 = (x: number) => String(Math.round(Math.max(0, x) * 1000) / 1000);
 
 export type FxIn = { hook: string; words: Word[]; duration: number; style?: "karaoke" | "classic";
-  playbook?: Pick<Playbook, "n" | "effects" | "payoffAt"> | null };
+  playbook?: Pick<Playbook, "n" | "effects" | "payoffAt"> | null; kit?: BrandKit };
 export type FxPlan = { captions: "karaoke" | "classic" | null; hook: boolean; emoji: boolean; popups: boolean };
 
 /** Which effects are on: captions when there are words (the job's caption option already emptied them when off), the hook card when
@@ -65,13 +66,18 @@ const clip = (id: string, cls: string, start: number, dur: number, inner: string
   `<div id="${id}" class="clip ${cls}" data-start="${n3(start)}" data-duration="${n3(dur)}" data-track-index="1">${inner}</div>`;
 
 /** The whole composition (null when no effect is on). Deterministic: same input → same bytes. */
+const fam = (f: string) => (f ? `"${f}",Montserrat,sans-serif` : "Montserrat,sans-serif");
+const short = (c: string) => (c === "#ffffff" ? "#fff" : c === "#000000" ? "#000" : c); // the pre-kit CSS wrote these two short
+const kit0 = (o: FxIn) => o.kit ?? DEFAULT_KIT;
 export function buildComposition(o: FxIn): string | null {
-  const plan = fxPlan(o), dur = Math.max(0.1, o.duration);
-  if (!fxAny(plan)) return null;
+  const capFs = Math.round(kit0(o).caption.size * 0.96), plan = fxPlan(o), dur = Math.max(0.1, o.duration), kit = o.kit ?? DEFAULT_KIT, cap = kit.caption, intro = kit.card.intro.trim(), outro = kit.card.outro.trim();
+  if (!fxAny(plan) && !cardsOn(kit)) return null;
   const parts: string[] = [];
   if (plan.hook) parts.push(clip("hook", "hook", 0, Math.min(HOOK_SEC, dur), `<div class="hook-in">${esc(o.hook.toUpperCase())}</div>`));
+  if (intro) parts.push(clip("intro", "card", 0, Math.min(CARD_SEC, dur), `<div class="card-in">${esc(intro.toUpperCase())}</div>`));
+  if (outro && dur > CARD_SEC) parts.push(clip("outro", "card", dur - CARD_SEC, CARD_SEC, `<div class="card-in">${esc(outro.toUpperCase())}</div>`));
   if (plan.captions) captionEvents(o.words, dur, plan.captions).forEach((e, i) => {
-    const len = e.words.join(" ").length + 3, fs = len > 13 ? Math.floor((96 * 13) / len) : 96; // like buildAss: long lines shrink to fit
+    const len = e.words.join(" ").length + 3, fs = len > 13 ? Math.floor((capFs * 13) / len) : capFs; // like buildAss: long lines shrink to fit
     const ws = e.words.map((w, j) => `<span class="w${j === e.on ? (e.loud ? " on loud" : " on") : ""}">${esc(w)}</span>`).join(" ");
     parts.push(clip(`c${i}`, `cap ${e.on < 0 ? "classic" : "karaoke"}`, e.start, e.end - e.start, `<div class="line" style="font-size:${fs}px">${ws}</div>`));
   });
@@ -84,20 +90,20 @@ export function buildComposition(o: FxIn): string | null {
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=1080, height=1920"><title>ORBIT effects</title>
 <style>
 html,body{margin:0;background:transparent}
-#root{position:relative;width:100%;height:100%;overflow:hidden;font-family:Montserrat,sans-serif;font-weight:900;color:#fff}
+#root{position:relative;width:100%;height:100%;overflow:hidden;font-family:${fam(kit.caption.font)};font-weight:900;color:${short(cap.text)}}
 .clip{position:absolute;left:0;right:0;display:flex;justify-content:center;text-align:center}
-.hook{top:260px;padding:0 80px}
-.hook-in{display:block;background:#ff2e63;padding:18px 30px;border-radius:18px;font-size:84px;line-height:1.1;animation:hook-in 380ms cubic-bezier(.34,1.56,.64,1) both}
-.cap{bottom:640px;left:70px;right:150px}
-.line{display:block;line-height:1.15;paint-order:stroke fill;-webkit-text-stroke:18px #000;text-shadow:0 6px 0 rgba(0,0,0,.5)}
+.hook{top:${kit.hook.top}px;padding:0 80px${kit.hook.font ? `;font-family:${fam(kit.hook.font)}` : ""}}
+.hook-in{display:block;background:${kit.hook.box};${kit.hook.text === "#ffffff" ? "" : `color:${kit.hook.text};`}padding:18px 30px;border-radius:18px;font-size:${Math.round(kit.hook.size * 84 / 92)}px;line-height:1.1;animation:hook-in 380ms cubic-bezier(.34,1.56,.64,1) both}
+.cap{bottom:${cap.bottom}px;left:${cap.left}px;right:${cap.right}px}
+.line{display:block;line-height:1.15;paint-order:stroke fill;-webkit-text-stroke:${Math.round(cap.outlineWidth * 1.8)}px ${short(cap.outline)};text-shadow:0 6px 0 rgba(0,0,0,.5)}
 .w{display:inline-block;margin:0 .2em} /* thick stroke + 1.15 pop eat a plain space: "SPEEDTHATIS" */
-.karaoke .on{color:#ffe500;animation:bounce 220ms cubic-bezier(.34,1.56,.64,1) both}
-.karaoke .loud{color:#ff2e63;animation-name:bounce-big}
+.karaoke .on{color:${cap.highlight};animation:bounce 220ms cubic-bezier(.34,1.56,.64,1) both}
+.karaoke .loud{color:${cap.shout};animation-name:bounce-big}
 .classic .line{animation:rise 160ms ease-out both}
 .emoji{top:430px;left:auto;right:110px;font-size:190px;line-height:1}
-.popup{top:600px;font-size:120px;paint-order:stroke fill;-webkit-text-stroke:22px #000;color:#ffe500}
+.popup{top:600px;font-size:120px;paint-order:stroke fill;-webkit-text-stroke:22px #000;color:${cap.highlight}}
 .pop{display:block;animation:pop ${POP_SEC * 1000}ms ease-out both}
-@keyframes hook-in{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}
+${cardsOn(kit) ? `.card{top:760px;padding:0 80px}\n.card-in{display:block;background:${kit.hook.box};${kit.hook.text === "#ffffff" ? "" : `color:${kit.hook.text};`}padding:18px 30px;border-radius:18px;font-size:${Math.round(kit.hook.size * 84 / 92)}px;line-height:1.1;animation:hook-in 380ms cubic-bezier(.34,1.56,.64,1) both}\n` : ""}@keyframes hook-in{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}
 @keyframes bounce{0%{transform:scale(.8) translateY(14px)}60%{transform:scale(1.22) translateY(-6px)}100%{transform:scale(1.15) translateY(0)}}
 @keyframes bounce-big{0%{transform:scale(.8) translateY(18px)}60%{transform:scale(1.45) translateY(-10px)}100%{transform:scale(1.35) translateY(0)}}
 @keyframes rise{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}

@@ -233,6 +233,7 @@ async function run(job: StoryJob, signal: AbortSignal) {
     const rel = (f: string) => `clips/${job.clipJob}/${f}`;
     const clip: ClipJob["clips"][number] = { id: "clip-1", start: 0, end: out.duration, title: out.titles?.[0]?.text ?? job.story.title, hook: job.story.hook, reason: "AI story made with Higgsfield", score: 0,
       status: "ready", video: rel(out.video), thumb: out.thumb && rel(out.thumb), ...(out.titles ? { titleOptions: out.titles } : {}), ...(out.thumbs?.length ? { thumbOptions: out.thumbs.map(rel) } : {}),
+      brand: await import("../brand-kit-pure").then(async (b) => b.kitId(await import("./brand-kit").then((m) => m.readBrandKit()))),
       notes: ["AI-generated: tick YouTube's altered or synthetic content label when you publish"] };
     const now = new Date().toISOString();
     await saveJob({ v: STATE_V, id: job.clipJob!, source: `AI story: ${job.story.title}`, createdAt: now, updatedAt: now, status: "done", progress: 1, step: "1 clip ready",
@@ -252,8 +253,10 @@ async function run(job: StoryJob, signal: AbortSignal) {
 async function deps(ff: string, job: StoryJob, dir: string): Promise<RenderDeps> {
   const exec = (args: string[], cwd: string, signal: AbortSignal) => runFfmpeg(ff, args, { cwd, signal, timeoutMs: 20 * 60_000 });
   const music = await pickMusic({ ...job.opts, seconds: job.opts.length, dir: musicDir(), cache: path.join(dir, "..", "music-cache") });
+  const kit = await import("./brand-kit").then((m) => m.readBrandKit(), () => undefined); // STUDIO brand kit
   return {
     hf: higgsfield(),
+    kit,
     ffmpeg: exec,
     music,
     duration: async (f, signal) => parseDuration(await runFfmpeg(ff, probeArgs(f, true), { signal, timeoutMs: 60_000, okCodes: [1] })) ?? 0,

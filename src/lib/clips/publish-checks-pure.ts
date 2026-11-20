@@ -1,3 +1,4 @@
+import { brandIssue, DEFAULT_KIT, type BrandKit } from "../brand-kit-pure.ts";
 import type { Clip, ClipJob } from "./types.ts";
 
 // Checks before and after a clip goes to YouTube (pure; tested in tests/publish-checks.test.ts).
@@ -24,6 +25,12 @@ export function originalityIssue(job: Pick<ClipJob, "options"> & { source?: stri
   if (ownSource(job) || (clip.original?.trim().length ?? 0) >= ORIGINAL_MIN) return null;
   return "This clip is from another creator's video. Since 1 Oct 2026 YouTube shows re-uploads to fewer people. " +
     "Add your own layer first (your commentary, reaction or analysis) and describe it in “What I added”.";
+}
+
+/** Things worth a look before publishing that do NOT block it (the owner's click still decides): today, "doesn't match the brand kit". */
+export function publishWarnings(clip: Pick<Clip, "video" | "brand">, kit: BrandKit = DEFAULT_KIT): string[] {
+  const b = brandIssue(clip, kit);
+  return b ? [b] : [];
 }
 
 type PubInfo = { publish?: { status: string; privacy?: string; error?: string } }; // a past "scheduled" = published (as in calendar-pure)
