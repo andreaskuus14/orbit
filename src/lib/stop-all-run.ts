@@ -23,6 +23,7 @@ export async function switchStopAll(sb: SupabaseClient, userId: string, on: bool
     abortNicheWork(); // BUSINESS niche scout / shop build
     abortNightShift(); // the night shift's current step (its agent task is also in liveTaskIds above)
     abortDealHunt(); // a running deal hunt (MARKETS → Deals)
+    await import("@/lib/feature-scout").then((m) => m.abortFeatureScout()).catch(() => {}); // OPERATIONS → Scout run
     await import("@/lib/core-turn").then((m) => m.abortCoreTurns()).catch(() => 0); // CORE answers streaming right now
     cancelled = (await Promise.all(cancelling)).filter(Boolean).length;
     await clearAutoQueue(); // Profile → Autonomy: queued auto sends/publishes are cancelled

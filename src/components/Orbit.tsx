@@ -1,4 +1,5 @@
 "use client";
+import { SCOUT_CHANGED } from "./scout-nav";
 import { PerfBeacon, perfCtx } from "./PerfBeacon";
 import { AmbientSound, AmbientSoundMenu } from "./AmbientSound";
 import { ambientEvent } from "./spatial-audio";
@@ -381,6 +382,16 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       setLifeProgress({ done: today.filter((h) => h.doneToday).length, total: today.length });
     }).catch(() => {});
   }, [panel]);
+  // Feature scout: glowing moons around OPERATIONS for candidates he hasn't opened (re-read when a panel closes or the board changes).
+  const [scoutMoons, setScoutMoons] = useState(0);
+  useEffect(() => {
+    if (panel) return;
+    const read = () => { fetch("/api/scout?count=1").then((r) => (r.ok ? r.json() : null)).then((j: { glowing?: number } | null) => setScoutMoons(Math.max(0, Number(j?.glowing) || 0))).catch(() => {}); };
+    read();
+    const h = setInterval(() => { if (!document.hidden) read(); }, 30 * 60_000); // a 6-hourly run lands while the galaxy is open
+    addEventListener(SCOUT_CHANGED, read);
+    return () => { clearInterval(h); removeEventListener(SCOUT_CHANGED, read); };
+  }, [panel]);
   const refreshCount = useCallback(async () => {
     const { count } = await sb.from("memories").select("id", { count: "exact", head: true });
     setMemoryCount(count ?? 0);
@@ -700,7 +711,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {view && <WakeSequence skip={view === "3d"} />} {/* 3D has its own BootSequence intro; a 3D start uses up the wake */}
       {view === "3d" && (
         <div className="galaxy-layer absolute inset-0" data-dim={(panel === "core" && !dive) || undefined} style={galaxyGone && !staged ? { visibility: "hidden" } : undefined} inert={(galaxyGone && !staged) || undefined}>
-          <Galaxy selected={approach ?? panel} onSelect={galaxySelect} memoryCount={memoryCount} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel && !dive} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={galaxyGone} universe={living.universe} ships={ships} dilation={dilation}
+          <Galaxy selected={approach ?? panel} onSelect={galaxySelect} memoryCount={memoryCount} scoutMoons={scoutMoons} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel && !dive} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={galaxyGone} universe={living.universe} ships={ships} dilation={dilation}
             flight={flight} onDiveCross={onDiveCross} onDiveCancel={onDiveCancel} onIdle={onGalaxyIdle} />
         </div>
       )}

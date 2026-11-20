@@ -1,4 +1,6 @@
 "use client";
+import { ScoutPanel } from "./ScoutPanel";
+import { SCOUT_TAB_EVENT, takeScoutTab } from "./scout-nav";
 import { PlanetHome, useManual } from "./PlanetHome";
 import { pendingSeen } from "@/lib/approval-bind-pure";
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -270,8 +272,14 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   const [form, setForm] = useState({ request: "", agent: "nova", project_id: "" });
   const [newProject, setNewProject] = useState("");
   const [filter, setFilter] = useState<string>("");
-  const [tab, setTab] = useState<"tasks" | "team" | "automations" | "plans" | "rules" | "activity" | "localai">("tasks");
+  const [tab, setTab] = useState<"tasks" | "team" | "automations" | "plans" | "rules" | "activity" | "localai" | "scout">("tasks");
   const [manual, setManual] = useManual("operations");
+  useEffect(() => { // a glowing scout moon in the galaxy was clicked: open Scout (now, or when this panel mounts)
+    const go = () => { if (takeScoutTab()) { setManual(true); setTab("scout"); } };
+    go();
+    addEventListener(SCOUT_TAB_EVENT, go);
+    return () => removeEventListener(SCOUT_TAB_EVENT, go);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- setManual is stable enough: it only persists a flag
   const [inbox, setInbox] = useState(INITIAL_INBOX);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -333,7 +341,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   const tabs = (
     <div className="flex flex-wrap gap-1.5" role="tablist">
       <button className="chip" onClick={() => setManual(false)}>← {tr("ph.simple")}</button>
-      {(["tasks", "team", "automations", "plans", "rules", "activity", "localai"] as const).map((t) => (
+      {(["tasks", "team", "automations", "plans", "rules", "activity", "localai", "scout"] as const).map((t) => (
         <button key={t} role="tab" aria-selected={tab === t} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
           {tr(`ops.tab.${t}`)}
         </button>
@@ -342,6 +350,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   );
   if (tab === "team") return <div className="space-y-4">{tabs}<TeamStatusView /></div>;
   if (tab === "activity") return <div className="space-y-4">{tabs}<ActivityView onOpenTask={setOpen} /></div>;
+  if (tab === "scout") return <div className="space-y-4">{tabs}<ScoutPanel onOpenTask={setOpen} /></div>;
   if (tab === "localai") return <div className="space-y-4">{tabs}<LocalAiTools /></div>;
   if (tab === "plans") return <div className="space-y-4">{tabs}<PlanJobsView agents={agents} onOpenTask={setOpen} /></div>;
   if (tab === "rules") return <div className="space-y-4">{tabs}<RulesView onOpenTask={setOpen} /></div>;

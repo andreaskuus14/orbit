@@ -5,7 +5,7 @@ import { FAST_PURPOSES, PROTECTED, routeFast, routedModel } from "../src/lib/mod
 import { FOCUS_GAP, FOCUS_MAX, focusTranscript, promptTranscript, type Word } from "../src/lib/clips/pure.ts";
 
 test("the fast table is exactly the reviewed background purposes", () => {
-  assert.deepEqual([...FAST_PURPOSES].sort(), ["clips.description", "clips.suggest", "pulse.evening", "pulse.midday", "pulse.morning"]);
+  assert.deepEqual([...FAST_PURPOSES].sort(), ["clips.description", "clips.suggest", "pulse.evening", "pulse.midday", "pulse.morning", "scout.features"]);
   for (const p of FAST_PURPOSES) assert.ok(routeFast(p), p);
 });
 
