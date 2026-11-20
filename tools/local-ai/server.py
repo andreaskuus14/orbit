@@ -24,7 +24,7 @@ from pydantic import BaseModel
 HERE = Path(__file__).resolve().parent
 MODELS = HERE / "models"
 TRIPOSR_SRC = HERE / "vendor" / "TripoSR"
-os.environ.setdefault("U2NET_HOME", str(MODELS / "rembg"))  # keep rembg's cut-out model with the others
+os.environ.setdefault("U2NET_HOME", str(MODELS / "rembg"))  # keep rembg's cut-out models (BiRefNet, u2net) with the others
 os.environ.setdefault("HF_HOME", str(MODELS / "hf"))  # same cache setup.ps1 filled (TripoSR reads the DINO config from it)
 os.environ.setdefault("HF_HUB_OFFLINE", "1")  # weights come from setup.ps1; no Hub calls while running
 
@@ -44,6 +44,11 @@ MAX_DOC = 50 * 1024 * 1024
 MAX_DOC_PAGES = 300
 CAPTION_LANGS = {"auto": None, "en": "en", "et": "et"}
 DOC_TYPES = {".pdf", ".docx", ".pptx", ".png", ".jpg", ".jpeg"}
+
+# Background cut-out: BiRefNet (MIT) through rembg, with the old u2net as the fallback. Never RMBG-2.0 (non-commercial weights).
+# "lite" (Swin-tiny, ~224 MB) is the default because rembg runs it on the CPU; "birefnet-general" (~970 MB) is cleaner but slower and heavier.
+CUTOUT_MODELS = ("birefnet-general-lite", "birefnet-general", "u2net")
+FALLBACK_MODEL = "u2net"
 
 app = FastAPI(title="ORBIT local AI")
 _job = threading.Lock()
@@ -122,6 +127,31 @@ def installed() -> dict:
     }
 
 
+def cutout_models() -> list[str]:
+    """ORBIT_CUTOUT_MODEL (one of CUTOUT_MODELS, default the lite BiRefNet) first, then u2net if it isn't already first."""
+    want = os.environ.get("ORBIT_CUTOUT_MODEL", "").strip()
+    first = want if want in CUTOUT_MODELS else CUTOUT_MODELS[0]
+    return [first] if first == FALLBACK_MODEL else [first, FALLBACK_MODEL]
+
+
+def cut_out(run):
+    """run(session) -> result, with the preferred model; if BiRefNet fails to load or to run (missing weights, out of memory), u2net does it."""
+    import rembg
+    names = cutout_models()
+    for i, name in enumerate(names):
+        session = None
+        try:
+            session = rembg.new_session(name)
+            return run(session)
+        except Exception as e:
+            if i == len(names) - 1:
+                raise
+            print(f"[cutout] {name} failed, using {names[i + 1]}: {e}", file=sys.stderr)
+        finally:
+            del session
+            free_vram()
+
+
 def spool(f: UploadFile, cap: int, what: str, suffix: str) -> str:
     """Upload → temp file (capped), so a 200 MB video never sits in RAM. Caller deletes it."""
     fd, path = tempfile.mkstemp(suffix=suffix)
@@ -157,7 +187,7 @@ def remove_bg(image: UploadFile = File(...)):
     data = read_capped(image, MAX_IMAGE, "picture")
     with Busy():
         import rembg
-        return Response(rembg.remove(data), media_type="image/png")
+        return Response(cut_out(lambda session: rembg.remove(data, session=session)), media_type="image/png")
 
 
 @app.post("/image-to-3d")
@@ -168,7 +198,6 @@ def image_to_3d(image: UploadFile = File(...), resolution: int = Form(256)):
     data = read_capped(image, MAX_IMAGE, "picture")
     with Busy():
         import numpy as np
-        import rembg
         import torch
         from PIL import Image
         if str(TRIPOSR_SRC) not in sys.path:
@@ -194,7 +223,7 @@ def image_to_3d(image: UploadFile = File(...), resolution: int = Form(256)):
             model.renderer.set_chunk_size(CHUNK)
             model.to(dev)
             # Same preprocessing as TripoSR's run.py: cut out the subject, centre it, grey background.
-            cut = resize_foreground(remove_background(img.convert("RGBA"), rembg.new_session()), 0.85)
+            cut = resize_foreground(cut_out(lambda session: remove_background(img.convert("RGBA"), session)), 0.85)
             a = np.array(cut).astype(np.float32) / 255.0
             a = a[:, :, :3] * a[:, :, 3:4] + (1 - a[:, :, 3:4]) * 0.5
             with torch.no_grad():
