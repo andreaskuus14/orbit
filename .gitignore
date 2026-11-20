@@ -12,6 +12,7 @@ orbit-server.log.1
 .next-*
 orbit-server.pid
 orbit-update.request
+orbit-stopped.flag
 orbit-update.log
 orbit-build.log
 orbit-launcher.log
