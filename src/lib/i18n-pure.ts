@@ -867,6 +867,18 @@ const BASE = {
   "ft.hint": "CORE suggests the settings; you still press Make this version.", "ft.advanced": "Advanced", "ft.options": "Options",
   "cf.scoutSays": "Looks at creators' videos from the last {d} days and keyword videos from the last {h} h, at least {m} min long, every day at {hh}:00, auto-clipping up to {a} a day.",
   "cf.changeCore": "Change with CORE", "arch.viewMenu": "View", "sp.v.voice": "🎙 Voiceover", "sp.v.captions": "💬 Captions", "sp.v.track": "🎬 Step by step",
+  "memo.title": "Voice memo", "memo.hold": "Hold to record a memo", "memo.holdShort": "🎙 Hold for memo", "memo.rec": "Recording… {n}s (release to file)", "memo.busy": "Filing…",
+  "memo.keep": "Keep audio", "memo.help": "Up to 2 minutes. Transcribed on the PC; the audio is deleted afterwards unless you keep it. A rambling memo is split into separate items, each filed where it belongs.",
+  "memo.mic": "Microphone blocked: allow it for this page in Settings.", "memo.tooShort": "Hold the button while you talk.", "memo.failed": "Couldn't file the memo", "memo.failedShort": "Failed",
+  "memo.filedAs": "Filed as {kind}", "memo.guess": "(AI guess)", "memo.notStarted": "(not started)", "memo.undone": "Undone: not filed", "memo.change": "Change", "memo.start": "Start", "memo.started": "Started",
+  "memo.undo": "Undo", "memo.undoAll": "Undo all", "memo.fileAs": "File as", "memo.items.one": "Filed {n} item", "memo.items.other": "Filed {n} items", "memo.itemUndone": "Undone: not filed",
+  "memo.local": "Private: kept on this PC, never sent to AI", "memo.inGame": "in {game}",
+  "memo.target.core": "CORE", "memo.dest.idea": "Idea", "memo.dest.studio-idea": "Studio idea", "memo.dest.task": "Task", "memo.dest.memory": "Memory", "memo.dest.goal-step": "Goal step",
+  "memo.dest.shopping": "Shopping list", "memo.dest.question": "Question for CORE", "memo.dest.bug": "Game bug", "memo.dest.feature": "Game feature", "memo.dest.follow-up": "Business follow-up",
+  "memo.dest.reminder": "Reminder", "memo.dest.journal": "Private journal note",
+  "memo.note.no-game": "No game matched: saved as a memory to file later", "memo.note.duplicate": "Already in the backlog: nothing added", "memo.note.existing-lead": "Already in your pipeline: saved as a task",
+  "memo.note.no-name": "No business name heard: saved as a task", "memo.note.no-time": "No time heard: saved as a task", "memo.note.failed": "Couldn't file this one: the words are kept here",
+  "memo.note.capped": "Several short items merged here (at most 8 per memo)", "memo.note.full": "The backlog is full: saved as a memory",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -1772,6 +1784,18 @@ export const ET: Partial<Record<Key, string>> = {
   "ft.hint": "CORE soovitab seaded; vajutad ise „Tee see versioon“.", "ft.advanced": "Täpsemalt", "ft.options": "Valikud",
   "cf.scoutSays": "Vaatab loojate viimase {d} päeva videoid ja märksõnavideoid viimase {h} tunni seest, vähemalt {m} min pikad, iga päev kell {hh}:00, klipib ise kuni {a} päevas.",
   "cf.changeCore": "Muuda CORE-iga", "arch.viewMenu": "Vaade", "sp.v.voice": "🎙 Pealelugemine", "sp.v.captions": "💬 Subtiitrid", "sp.v.track": "🎬 Samm-sammult",
+  "memo.title": "Häälmärkus", "memo.hold": "Hoia salvestamiseks", "memo.holdShort": "🎙 Hoia märkuse jaoks", "memo.rec": "Salvestan… {n}s (lase lahti, et salvestada)", "memo.busy": "Sorteerin…",
+  "memo.keep": "Hoia heli alles", "memo.help": "Kuni 2 minutit. Tekstiks muudetakse arvutis; heli kustutatakse pärast, kui sa seda alles ei hoia. Pikk jutuvada jagatakse eraldi kirjeteks ja iga läheb õigesse kohta.",
+  "memo.mic": "Mikrofon on blokeeritud: luba see selle lehe jaoks seadetes.", "memo.tooShort": "Hoia nuppu all, kuni räägid.", "memo.failed": "Märkust ei õnnestunud salvestada", "memo.failedShort": "Ebaõnnestus",
+  "memo.filedAs": "Salvestatud kui {kind}", "memo.guess": "(tehisintellekti pakkumine)", "memo.notStarted": "(pole alustatud)", "memo.undone": "Võetud tagasi: ei salvestatud", "memo.change": "Muuda", "memo.start": "Alusta", "memo.started": "Alustatud",
+  "memo.undo": "Võta tagasi", "memo.undoAll": "Võta kõik tagasi", "memo.fileAs": "Salvesta kui", "memo.items.one": "Salvestatud {n} kirje", "memo.items.other": "Salvestatud {n} kirjet", "memo.itemUndone": "Võetud tagasi: ei salvestatud",
+  "memo.local": "Privaatne: jääb sellesse arvutisse, tehisintellektile ei saadeta", "memo.inGame": "mängus {game}",
+  "memo.target.core": "CORE", "memo.dest.idea": "Idee", "memo.dest.studio-idea": "Stuudio idee", "memo.dest.task": "Ülesanne", "memo.dest.memory": "Mälukirje", "memo.dest.goal-step": "Eesmärgi samm",
+  "memo.dest.shopping": "Ostunimekiri", "memo.dest.question": "Küsimus CORE'ile", "memo.dest.bug": "Mängu viga", "memo.dest.feature": "Mängu uus võimalus", "memo.dest.follow-up": "Äri järeltegevus",
+  "memo.dest.reminder": "Meeldetuletus", "memo.dest.journal": "Privaatne päeviku kirje",
+  "memo.note.no-game": "Ühtegi mängu ei leitud: salvestatud mälukirjena hilisemaks sorteerimiseks", "memo.note.duplicate": "On juba tööde nimekirjas: midagi ei lisatud", "memo.note.existing-lead": "On juba sinu kliendivoos: salvestatud ülesandena",
+  "memo.note.no-name": "Ettevõtte nime ei kuulnud: salvestatud ülesandena", "memo.note.no-time": "Aega ei kuulnud: salvestatud ülesandena", "memo.note.failed": "Seda kirjet ei õnnestunud salvestada: sõnad jäid siia alles",
+  "memo.note.capped": "Siia liideti mitu lühikest kirjet (kuni 8 märkuse kohta)", "memo.note.full": "Tööde nimekiri on täis: salvestatud mälukirjena",
 };
 
 type Vars = Record<string, string | number>;

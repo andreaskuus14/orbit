@@ -63,7 +63,7 @@ const CEILING: Record<string, number> = {
   "StudioWorld.tsx": 34, "StudyButton.tsx": 3, "StudyCards.tsx": 31, "TeamBuilder.tsx": 12, "Terminal.tsx": 5, "TextureStudio.tsx": 13,
   "ThumbMaker.tsx": 9, "Ticker.tsx": 1, "TimeCapsuleSection.tsx": 20, "TimeDilation.tsx": 21, "TimeTravel.tsx": 4,
   "TrendRadar.tsx": 27, "TwinCard.tsx": 9, "Universe.tsx": 0, "UsageMeter.tsx": 30, "VaultPanel.tsx": 31, "VisibilityPanel.tsx": 8,
-  "VoiceMemo.tsx": 11, "WarmCompile.tsx": 0, "WarpOverlay.tsx": 0, "WeeklyCard.tsx": 7, "WhatIf.tsx": 12, "WhatsNew.tsx": 0,
+  "VoiceMemo.tsx": 0, "WarmCompile.tsx": 0, "WarpOverlay.tsx": 0, "WeeklyCard.tsx": 7, "WhatIf.tsx": 12, "WhatsNew.tsx": 0,
   "WorkspacePanel.tsx": 11, "ZoomRig.tsx": 0, "alien/Filaments.tsx": 0, "alien/Fractal.tsx": 0, "alien/Lensing.tsx": 0,
   "alien/LiquidPlanet.tsx": 0, "alien/MicroWorld.tsx": 0, "alien/NeuralArms.tsx": 0, "alien/Singularity.tsx": 0,
   "alien/WindowPlanet.tsx": 0, "dev-timing.tsx": 0, "i18n.tsx": 0, "panels.tsx": 1, "real-sky-toggle.tsx": 2,

@@ -10,8 +10,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 // Voice memos, for the paired phone (device cookie) or the PC (signed-in session). GET → {memos}.
-// POST ?op=file[&keep=1] with a 16 kHz mono WAV (≤ 2 min) → transcribe locally → classify → file → {memo}.
-// POST ?op=refile {id, kind} / ?op=undo {id} / ?op=start {id} (memo tasks are filed parked; Start queues them) → {memo}. The audio is decoded in memory and dropped after transcription,
+// POST ?op=file[&keep=1] with a 16 kHz mono WAV (≤ 2 min) → transcribe locally → split (a brain dump becomes several items) → classify → file → {memo}.
+// One plain item: memo.kind/ref as ever. Several: memo.items, each {id, text, kind, target, by, ref, note?, undone?, started?} = the receipt.
+// POST ?op=refile {id, kind[, item]} / ?op=undo {id[, item]} / ?op=start {id[, item]} (memo tasks are filed parked; Start queues them) → {memo}.
+// With `item`, only that item changes; undo without it undoes the whole memo. The audio is decoded in memory and dropped after transcription,
 // unless keep=1 (then it's saved next to memos.json on the PC). Nothing is sent outward.
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 const RATE = { limit: 20, windowMs: 60_000 };
@@ -44,9 +46,11 @@ export async function POST(req: Request) {
   const url = new URL(req.url), op = url.searchParams.get("op");
   try {
     if (op === "refile" || op === "undo" || op === "start") {
-      const body = await req.json().catch(() => null) as { id?: unknown; kind?: unknown } | null;
+      const body = await req.json().catch(() => null) as { id?: unknown; kind?: unknown; item?: unknown } | null;
       if (!body || typeof body.id !== "string") return fail("id required");
-      const r = op === "undo" ? await undoMemo(c.sb, c.userId, body.id) : op === "start" ? await startMemo(c.sb, c.userId, body.id) : await refileMemo(c.sb, c.userId, body.id, body.kind);
+      if (body.item !== undefined && typeof body.item !== "string") return fail("item must be an id");
+      const item = body.item as string | undefined;
+      const r = op === "undo" ? await undoMemo(c.sb, c.userId, body.id, item) : op === "start" ? await startMemo(c.sb, c.userId, body.id, item) : await refileMemo(c.sb, c.userId, body.id, body.kind, item);
       return typeof r === "string" ? fail(r, 409) : Response.json({ memo: r });
     }
     if (op !== "file") return fail("Unknown op");
