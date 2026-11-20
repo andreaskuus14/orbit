@@ -1,6 +1,6 @@
-// Picture → Roblox-ready 3D model with Microsoft TRELLIS.2 (MIT) in its own ComfyUI on this PC (tools/trellis).
+// Picture → Roblox-ready 3D model with Microsoft TRELLIS.2 (MIT) through ComfyUI's native nodes, in its own ComfyUI on this PC (tools/trellis).
 // Pure parts: the API-format graph, Roblox limits, reply parsing. Server glue: trellis.ts. Tests: tests/trellis.test.ts.
-// TRELLIS.2's CUDA helpers only ship Windows wheels for Python 3.11/3.12, so it can't share tools/comfyui (Python 3.13).
+// Own ComfyUI so its pinned version and --lowvram start don't depend on tools/comfyui's portable build.
 import { serviceUrl } from "./local-ai-pure.ts";
 
 export const TRELLIS_URL = "http://127.0.0.1:8189";
@@ -13,8 +13,16 @@ export const trellisUrl = (raw: string | undefined) => serviceUrl(raw, TRELLIS_U
 export const ROBLOX = { maxFaces: 20_000, texture: 1024 } as const;
 /** What we ask the simplifier for: it overshoots a little (20,017 for a 20,000 target on the flower-pot run), so keep a 5% margin. */
 export const TARGET_FACES = 19_000;
-/** GGUF Q5_K_M + low-VRAM mode for 8 GB cards: measured ~7.5 min per model on the RTX 5060 Laptop (2026-11-19). */
-export const MODEL = { name: "TRELLIS.2-4B", format: "GGUF Q5_K_M", license: "MIT (TRELLIS.2) + DINOv3 License (image encoder; commercial use allowed)" } as const;
+/** ComfyUI's native TRELLIS.2 (core nodes since v0.34.0; pure PyTorch/SciPy, no nvdiffrast) with Comfy-Org's int8 weights.
+ * Not yet measured on the RTX 5060 Laptop: the old GGUF pack took ~7.5 min per model. */
+export const MODEL = { name: "TRELLIS.2-4B", format: "int8 (Comfy-Org)", license: "MIT (TRELLIS.2) + DINOv3 License (image encoder; commercial use allowed)" } as const;
+/** Model files setup.ps1 downloads into tools/trellis/ComfyUI/models (pinned + SHA-256 checked there). */
+export const FILES = {
+  unet: "trellis_2_int8_convrot.safetensors", shapeVae: "trellis_2_shape_vae_bf16.safetensors", textureVae: "trellis_2_texture_vae_bf16.safetensors",
+  dino: "dino_v3_vit_l.safetensors", bgModel: "birefnet.safetensors",
+} as const;
+/** Remesh grid before decimating: 384³ (~250k faces) instead of the template's 768 so the field fits next to an 8 GB card. */
+export const REMESH_RESOLUTION = 384;
 
 export type Quality = "fast" | "best";
 /** local_3d's quality: "best" = TRELLIS.2 (textured, ~2 min), anything else = TripoSR (seconds, rough). */
@@ -26,21 +34,52 @@ export const outputRef = (job: string) => ({ filename: `${jobPrefix(job).split("
 
 type Graph = Record<string, { class_type: string; inputs: Record<string, unknown> }>;
 export type WorkflowIn = { image: string; seed: number; job: string };
-/** The fixed graph (node pack Aero-Ex/ComfyUI-Trellis2-GGUF, pinned in setup.ps1). Background is cut first; mesh capped for Roblox. */
+/** The fixed API graph, following ComfyUI's own template 3d_pixal3d_trellis2_image_to_model (TRELLIS.2 branch) with Roblox
+ * limits: background cut (BiRefNet) → DINOv3 conditioning → structure → shape 512 → shape 1024 → texture → remesh →
+ * decimate to TARGET_FACES → UV unwrap → bake the colour into a 1024 px texture → .glb under orbit3d/. */
 export function workflow({ image, seed, job }: WorkflowIn): Graph {
+  const ks = (model: string, cond: string, latent: [string, number], steps: number, cfg: number, scheduler = "normal") => ({
+    class_type: "KSampler", inputs: { model: [model, 0], positive: [cond, 0], negative: [cond, 1], latent_image: latent, seed, steps, cfg, sampler_name: "euler", scheduler, denoise: 1 } });
   return {
-    "1": { class_type: "Trellis2LoadImageWithTransparency_GGUF", inputs: { image } },
-    "2": { class_type: "Trellis2PreProcessImage_GGUF", inputs: { image: ["1", 0], padding: 0, remove_background: true } },
-    "3": { class_type: "Trellis2LoadModel_GGUF", inputs: { modelname: MODEL.name, model_format: MODEL.format, backend: "sdpa", device: "cuda", low_vram: true, keep_models_loaded: false } },
-    "4": { class_type: "Trellis2MeshWithVoxelGenerator_GGUF", inputs: { pipeline: ["3", 0], image: ["2", 0], seed, pipeline_type: "1024_cascade",
-      sparse_structure_steps: 12, shape_steps: 12, texture_steps: 12, max_num_tokens: 49152, sparse_structure_resolution: 32, max_views: 4,
-      generate_texture_slat: true, use_tiled_decoder: true } },
-    "5": { class_type: "Trellis2PostProcessAndUnWrapAndRasterizer_GGUF", inputs: { mesh: ["4", 0], bvh: ["4", 1],
-      mesh_cluster_threshold_cone_half_angle_rad: 60, mesh_cluster_refine_iterations: 0, mesh_cluster_global_iterations: 1, mesh_cluster_smooth_strength: 1,
-      texture_size: ROBLOX.texture, remesh: true, remesh_band: 1, remesh_project: 0, target_face_num: TARGET_FACES, simplify_method: "Cumesh",
-      fill_holes: true, texture_alpha_mode: "OPAQUE", dual_contouring_resolution: "1024", double_side_material: false, remove_floaters: true,
-      bake_on_vertices: false, use_custom_normals: false, uv_unwrap_method: "Xatlas", remove_inner_faces: true } },
-    "6": { class_type: "Trellis2ExportMesh_GGUF", inputs: { trimesh: ["5", 0], filename_prefix: jobPrefix(job), file_format: "glb" } },
+    // picture + background cut
+    "1": { class_type: "LoadImage", inputs: { image } },
+    "2": { class_type: "LoadBackgroundRemovalModel", inputs: { bg_removal_name: FILES.bgModel } },
+    "3": { class_type: "RemoveBackground", inputs: { bg_removal_model: ["2", 0], image: ["1", 0] } },
+    "4": { class_type: "ImageCropToMask", inputs: { images: ["1", 0], masks: ["3", 0], width: 1024, height: 1024, pad_factor: 1.0, grow_mask: 0, background: "#000000" } },
+    "5": { class_type: "CLIPVisionLoader", inputs: { clip_name: FILES.dino } },
+    "6": { class_type: "Trellis2Conditioning", inputs: { clip_vision_model: ["5", 0], image: ["4", 0] } },
+    // models; the CFG patches match the original TRELLIS.2 pipeline (as in ComfyUI's template)
+    "10": { class_type: "UNETLoader", inputs: { unet_name: FILES.unet, weight_dtype: "default" } },
+    "11": { class_type: "VAELoader", inputs: { vae_name: FILES.shapeVae } },
+    "12": { class_type: "VAELoader", inputs: { vae_name: FILES.textureVae } },
+    "13": { class_type: "CFGOverride", inputs: { model: ["10", 0], cfg: 1, start_percent: 0.667, end_percent: 1 } },
+    "14": { class_type: "RescaleCFG", inputs: { model: ["13", 0], multiplier: 0.7 } },
+    "15": { class_type: "ModelSamplingSD3", inputs: { model: ["14", 0], shift: 5 } },
+    "16": { class_type: "CFGOverride", inputs: { model: ["10", 0], cfg: 1, start_percent: 0.769, end_percent: 1 } },
+    "17": { class_type: "RescaleCFG", inputs: { model: ["16", 0], multiplier: 0.5 } },
+    // sparse structure
+    "20": { class_type: "EmptyTrellis2LatentStructure", inputs: { batch_size: 1 } },
+    "21": ks("15", "6", ["20", 0], 12, 7.5),
+    "22": { class_type: "VaeDecodeStructureTrellis2", inputs: { samples: ["21", 0], vae: ["11", 0], resolution: "32" } },
+    // shape 512 → 1024 (the minimum; the template's 1536 needs more VRAM)
+    "23": { class_type: "Trellis2ShapeStage", inputs: { positive: ["6", 0], negative: ["6", 1], voxel: ["22", 0] } },
+    "24": ks("17", "23", ["23", 2], 20, 7.5),
+    "25": { class_type: "Trellis2UpsampleStage", inputs: { positive: ["23", 0], negative: ["23", 1], shape_latent: ["24", 0], vae: ["11", 0], target_resolution: 1024 } },
+    "26": ks("17", "25", ["25", 2], 12, 7.5, "simple"),
+    "27": { class_type: "VaeDecodeShapeTrellis", inputs: { samples: ["26", 0], vae: ["11", 0] } },
+    // texture
+    "28": { class_type: "Trellis2TextureStage", inputs: { positive: ["25", 0], negative: ["25", 1], shape_latent: ["26", 0] } },
+    "29": ks("10", "28", ["28", 2], 12, 1),
+    "30": { class_type: "VaeDecodeTextureTrellis", inputs: { samples: ["29", 0], vae: ["12", 0], shape_subdivides: ["27", 1] } },
+    // Roblox-sized mesh: watertight remesh, decimate under the triangle cap, unwrap, bake colour, export
+    "40": { class_type: "RemeshMesh", inputs: { mesh: ["27", 0], resolution: REMESH_RESOLUTION, sign_mode: "solid", "sign_mode.fill": 20, "sign_mode.qef": false,
+      band: 1, project_back: 0, fix_poles: false, smooth_iters: 20, drop_small_components: 0.01, precluster_max_verts: 20_000_000 } },
+    "41": { class_type: "DecimateMesh", inputs: { mesh: ["40", 0], target_face_count: TARGET_FACES, placement_mode: "midpoint" } },
+    "42": { class_type: "UnwrapMesh", inputs: { mesh: ["41", 0], segmenter: "pec", resolution: ROBLOX.texture, padding: 2, weld_distance: 0.0002 } },
+    "43": { class_type: "BakeTextureFromVoxel", inputs: { mesh: ["42", 0], voxel_colors: ["30", 0], texture_size: ROBLOX.texture, reference_mesh: ["27", 0] } },
+    "44": { class_type: "ApplyTextureToMesh", inputs: { mesh: ["42", 0], base_color: ["43", 0] } },
+    "45": { class_type: "MeshSmoothNormals", inputs: { mesh: ["44", 0], crease_angle: 180 } },
+    "46": { class_type: "SaveGLB", inputs: { mesh: ["45", 0], filename_prefix: jobPrefix(job) } },
   };
 }
 
@@ -51,7 +90,7 @@ export function parseQueued(j: unknown): { id: string } | { error: string } {
   const node = Object.values(o.node_errors ?? {}).flatMap((n) => n.errors ?? []).map((e) => [e.message, e.details].filter(Boolean).join(": "))[0];
   const top = typeof o.error === "string" ? o.error : [o.error?.message, o.error?.details].filter((x) => typeof x === "string" && x).join(": ");
   const msg = (node || top || "ComfyUI refused the job").slice(0, 300);
-  return { error: /class_type|does not exist|not found|Trellis2/i.test(msg) ? `The TRELLIS.2 nodes aren't loaded (${msg}). Run ${TRELLIS_SETUP} again.` : msg };
+  return { error: /class_type|does not exist|not found|Trellis2|safetensors/i.test(msg) ? `TRELLIS.2 isn't fully set up (${msg}). Run ${TRELLIS_SETUP} again.` : msg };
 }
 
 /** GET /history/<id> → still running, failed or finished (the export node writes the file; it has no image output). */
@@ -69,8 +108,8 @@ export function parseRun(j: unknown, id: string): { state: "pending" } | { state
 /** A .glb is a binary glTF: 12-byte header starting with "glTF". Guards against saving an error page into VAULT. */
 export const isGlb = (b: Uint8Array) => b.length > 12 && b[0] === 0x67 && b[1] === 0x6c && b[2] === 0x54 && b[3] === 0x46;
 
-/** Roblox look: TRELLIS.2 bakes PBR with metallic ~0.8 / roughness ~0.07 (seen on the RTX 5060 run), which renders like chrome
- * reflecting the sky. Rewrite every material to non-metal, fully rough, keep the colour texture. Only the JSON chunk changes. */
+/** Roblox look: the old pipeline baked PBR with metallic ~0.8 / roughness ~0.07 (seen on the RTX 5060 run), which renders like
+ * chrome reflecting the sky; the native graph bakes colour only, and glTF's default factors are metallic 1 / roughness 1. Rewrite every material to non-metal, fully rough, keep the colour texture. Only the JSON chunk changes. */
 export function robloxMaterials(glb: Uint8Array): Uint8Array {
   if (!isGlb(glb)) return glb;
   const dv = new DataView(glb.buffer, glb.byteOffset, glb.byteLength);

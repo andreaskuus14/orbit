@@ -17,7 +17,7 @@ $ModelFile = "sdxl_lightning_4step.safetensors"
 $ModelUrl = "https://huggingface.co/ByteDance/SDXL-Lightning/resolve/c9a24f48e1c025556787b0c58dd67a091ece2e44/$ModelFile"
 $ModelSha = "e0d996ee0013e79d9d3561f50fcafb9a17e3ff07b780358e3b66d67932c4d490"
 $ModelBytes = 6938040682
-# Local video (-Model wan22-video): city96's ComfyUI-GGUF node pack (Apache-2.0, same pin as tools\trellis) + Wan 2.2 TI2V-5B Q6_K GGUF.
+# Local video (-Model wan22-video): city96's ComfyUI-GGUF node pack (Apache-2.0) + Wan 2.2 TI2V-5B Q6_K GGUF.
 $GgufRepo = "https://github.com/city96/ComfyUI-GGUF.git"; $GgufRev = "6ea2651e7df66d7585f6ffee804b20e92fb38b8a"
 
 function Step($t) { Write-Host "`n== $t" -ForegroundColor Cyan }

@@ -1,19 +1,29 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MODEL, ROBLOX, TARGET_FACES, glbMaterials, isGlb, robloxMaterials, jobPrefix, outputRef, parseQueued, parseRun, qualityOf, trellisUrl, workflow } from "../src/lib/trellis-pure.ts";
+import { FILES, ROBLOX, TARGET_FACES, glbMaterials, isGlb, robloxMaterials, jobPrefix, outputRef, parseQueued, parseRun, qualityOf, trellisUrl, workflow } from "../src/lib/trellis-pure.ts";
 
-test("workflow: background cut, TRELLIS.2 GGUF in low-VRAM mode, mesh capped to Roblox limits, glb export under orbit3d/", () => {
+test("workflow: native ComfyUI nodes only, background cut, mesh capped to Roblox limits, glb export under orbit3d/", () => {
   const w = workflow({ image: "pet.png", seed: 42, job: "j123" });
-  assert.equal(w["1"].inputs.image, "pet.png");
-  assert.equal(w["2"].inputs.remove_background, true);
-  assert.deepEqual([w["3"].inputs.modelname, w["3"].inputs.model_format, w["3"].inputs.low_vram, w["3"].inputs.keep_models_loaded], [MODEL.name, MODEL.format, true, false]);
-  assert.deepEqual(w["4"].inputs.image, ["2", 0]);
-  assert.equal(w["4"].inputs.seed, 42);
-  assert.deepEqual([w["5"].inputs.mesh, w["5"].inputs.bvh], [["4", 0], ["4", 1]]);
-  assert.equal(w["5"].inputs.target_face_num, TARGET_FACES);
+  const by = (t: string) => Object.entries(w).filter(([, n]) => n.class_type === t);
+  const one = (t: string) => { const m = by(t); assert.equal(m.length, 1, t); return m[0]; };
+  // no custom node pack: every class is a ComfyUI core node (the old GGUF pack's classes ended in _GGUF)
+  for (const n of Object.values(w)) assert.ok(!/_GGUF$|Rasteriz/i.test(n.class_type), n.class_type);
+  assert.equal(one("LoadImage")[1].inputs.image, "pet.png");
+  const [bgId] = one("RemoveBackground");
+  assert.deepEqual(one("ImageCropToMask")[1].inputs.masks, [bgId, 0]);
+  assert.equal(one("LoadBackgroundRemovalModel")[1].inputs.bg_removal_name, FILES.bgModel);
+  assert.equal(one("UNETLoader")[1].inputs.unet_name, FILES.unet);
+  assert.equal(by("KSampler").length, 4);
+  for (const [, k] of by("KSampler")) assert.equal(k.inputs.seed, 42);
+  const [decId, dec] = one("DecimateMesh");
+  assert.equal(dec.inputs.target_face_count, TARGET_FACES);
   assert.ok(TARGET_FACES <= ROBLOX.maxFaces * 0.95);
-  assert.equal(w["5"].inputs.texture_size, ROBLOX.texture);
-  assert.deepEqual([w["6"].inputs.trimesh, w["6"].inputs.filename_prefix, w["6"].inputs.file_format], [["5", 0], "orbit3d/j123", "glb"]);
+  const [unwrapId, unwrap] = one("UnwrapMesh");
+  assert.deepEqual(unwrap.inputs.mesh, [decId, 0]); // unwrap the decimated mesh, so the cap holds
+  const [bakeId, bake] = one("BakeTextureFromVoxel");
+  assert.deepEqual([bake.inputs.mesh, bake.inputs.texture_size], [[unwrapId, 0], ROBLOX.texture]);
+  assert.deepEqual(one("ApplyTextureToMesh")[1].inputs.base_color, [bakeId, 0]);
+  assert.equal(one("SaveGLB")[1].inputs.filename_prefix, "orbit3d/j123");
   // every link points at a node in the graph
   for (const n of Object.values(w)) for (const v of Object.values(n.inputs)) if (Array.isArray(v)) assert.ok(w[String(v[0])], `missing node ${v[0]}`);
 });
