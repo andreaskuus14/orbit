@@ -7,13 +7,15 @@ import { getPlaybook, applyPlaybookEdits } from "./playbook";
 import { parseReflection, allowedSaves, summaryDue, normTitle, shouldReflect, hasPreferenceSignal, type MemoryDraft } from "./reflect-pure";
 import { typedText } from "./attach-pure";
 import { verifyRow } from "./completion";
+import { dropPrivate } from "./private-pure";
 
 const DUPLICATE_SIMILARITY = 0.92;
 
 async function recentTitles(sb: SupabaseClient, userId: string): Promise<string[]> {
   // shortcut: only the latest 500 titles are checked for exact (normalized) duplicates; embeddings catch older near-duplicates.
-  const { data } = await sb.from("memories").select("title").eq("user_id", userId).order("created_at", { ascending: false }).limit(500);
-  return (data ?? []).map((m) => m.title as string);
+  // These titles go into the reflection prompt (KNOWN MEMORIES): never a journal/LIFE title (private-pure.ts).
+  const { data } = await sb.from("memories").select("title, kind, tags").eq("user_id", userId).neq("kind", "journal").order("created_at", { ascending: false }).limit(500);
+  return dropPrivate(data).map((m) => m.title as string);
 }
 
 /** Memories CORE saved by itself (chat tool + reflection) since UTC midnight; both count toward the daily cap. */
@@ -34,7 +36,7 @@ export async function saveCoreMemory(sb: SupabaseClient, userId: string, draft: 
   const key = normTitle(draft.title);
   const existing = (titles ?? (await recentTitles(sb, userId))).find((t) => normTitle(t) === key);
   if (existing) {
-    const { data, error } = await sb.from("memories").select("id, title").eq("user_id", userId).eq("title", existing).limit(1).maybeSingle();
+    const { data, error } = await sb.from("memories").select("id, title").eq("user_id", userId).eq("title", existing).neq("kind", "journal").limit(1).maybeSingle();
     if (error || !data) throw new Error("The existing memory could not be read back. Nothing new was saved.");
     return { duplicate: true as const, title: data.title as string, id: data.id as string };
   }
@@ -123,7 +125,7 @@ async function reflect(sb: SupabaseClient, userId: string, conversationId: strin
     const title = `Chat: ${String(convo.data?.title ?? "conversation").slice(0, 80)}`;
     const { data: prev } = await sb.from("memories").select("id").eq("user_id", userId).eq("source", "core-summary").contains("tags", [conversationId]).limit(1).maybeSingle();
     if (prev) {
-      const e = await embed(`${title}\n\n${out.summary}`, "document");
+      const e = await embed(`${title}\n\n${out.summary}`, "document", "conversation");
       const { error } = await sb.from("memories").update({ title, content: out.summary, embedding: e ? JSON.stringify(e) : null }).eq("id", prev.id);
       if (error) throw error;
       await emit(sb, userId, "memory.updated", "memory", { id: prev.id });

@@ -69,6 +69,7 @@ import { loadWsGate, settleWsPending } from "./core-workspace";
 import { BRIEF_RULES, briefCommand, briefReply, communicationText, isBrief, withBrief } from "./brief-mode-pure";
 import { goalHint } from "./goal-card-pure";
 import type { StepDone } from "./core-live-pure";
+import { dropPrivate } from "./private-pure";
 
 /** ORBIT_CORE_SESSION=resume: one persistent Claude CLI session per CORE conversation, so follow-ups and tool results stay in it.
  *  The chat → session map survives restarts (durable.ts); a failed resume still drops it and falls back to stateless. */
@@ -264,7 +265,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       // Broad questions ("what did I save?") match nothing specific: show CORE the latest memories instead.
       const { data, error } = await sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).neq("kind", "journal").order("created_at", { ascending: false }).limit(8);
       if (error) throw error;
-      results = data ?? [];
+      results = dropPrivate(data);
       mode = "recent";
     }
     results = await import("./memory-types").then((m) => m.currentMemories(sb, userId, results, memoryProject?.scope ?? "", sessionKey, memoryProject?.legacy)).catch(() => results.filter((m) => isCurrent(m, { now: Date.now(), project: memoryProject?.scope, chat: sessionKey, legacy: memoryProject?.legacy }))); // 24–25: expired, out-of-scope (other chat/project) and corrected memories never reach CORE as current; fails closed

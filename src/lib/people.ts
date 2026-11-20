@@ -3,6 +3,7 @@
 // memories that name the person. Nothing here leaves ORBIT; CORE gets peopleBlock() only for people he mentions.
 import { randomUUID } from "node:crypto";
 import { isCurrent } from "./memory-types-pure";
+import { dropPrivate } from "./private-pure";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -69,12 +70,13 @@ async function everyone(sb: SupabaseClient): Promise<(Person & { local: boolean 
 }
 
 /** His own memories naming the person (not CORE's chat summaries: talking about someone isn't contact). */
-async function memoryTouches(sb: SupabaseClient, userId: string, name: string, limit: number): Promise<Touch[]> {
+async function memoryTouches(sb: SupabaseClient, userId: string, name: string, limit: number, forModel = false): Promise<Touch[]> {
   const n = likeSafe(name);
   if (!n) return [];
   const { data } = await sb.from("memories").select("title, content, created_at, source, kind, tags").eq("user_id", userId)
     .or(`title.ilike.%${n}%,content.ilike.%${n}%`).neq("source", "core-summary").order("created_at", { ascending: false }).limit(limit);
-  return (data ?? []).filter((m) => isCurrent(m, { now: Date.now() }) && mentioned(`${m.title} ${String(m.content).slice(0, 20_000)}`, [{ name }]).length)
+  // forModel (CORE's people block): a journal entry naming him is not a contact CORE may see, not even its date.
+  return (forModel ? dropPrivate(data) : data ?? []).filter((m) => isCurrent(m, { now: Date.now() }) && mentioned(`${m.title} ${String(m.content).slice(0, 20_000)}`, [{ name }]).length)
     .map((m) => ({ at: m.created_at, what: `Memory: ${String(m.title).slice(0, 80)}`, via: "memory" as const }));
 }
 async function stageEvents(sb: SupabaseClient, userId: string) {
@@ -110,7 +112,7 @@ export async function peopleContext(sb: SupabaseClient, userId: string, question
     const hit = mentioned(question, await everyone(sb));
     if (!hit.length) return "";
     const ev = await stageEvents(sb, userId);
-    const rows = await Promise.all(hit.map(async (p) => ({ name: p.name, relation: p.relation, last: lastContact(touchesOf(p, ev, await memoryTouches(sb, userId, p.name, 1).catch(() => []))) })));
+    const rows = await Promise.all(hit.map(async (p) => ({ name: p.name, relation: p.relation, last: lastContact(touchesOf(p, ev, await memoryTouches(sb, userId, p.name, 1, true).catch(() => []))) })));
     return peopleBlock(rows, Date.now());
   } catch { return ""; }
 }

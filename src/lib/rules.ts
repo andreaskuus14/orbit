@@ -9,6 +9,7 @@ import { ackEvent, claimEvents, clearCursor, noteWrite } from "./durable";
 import { stopAllOn } from "./stop-all";
 import { authorizeAction } from "./authority";
 import { usageLimited } from "./usage-meter";
+import { privateMemoryEvent } from "./private-pure";
 import { addRule, countEventRun, parseRule, ruleBlocked, ruleDue, describeAction, describeTrigger, type Rule, type RuleEvent, type RuleResult } from "./rules-pure";
 
 // Standing rules store + runner (logic: rules-pure.ts). State: <ORBIT data dir>/rules.json (local, single owner, like deals/skills).
@@ -162,7 +163,7 @@ async function newEvents(sb: SupabaseClient): Promise<{ hits: Hit[]; ids: number
         : "a client in BUSINESS replied" });
     } else if (e.type === "deal.found") out.push({ key, userId: e.user_id, event: "deal.found", why: "the deal hunter found a great deal (see MARKETS → Deals)" });
     else if (e.type === "pulse.completed") out.push({ key, userId: e.user_id, event: "briefing.ready", why: "a new news briefing was saved to memory (find it with search_memory, newest first)" });
-    else if (e.type === "memory.created" && USER_SOURCES.includes(p.source ?? "")) out.push({ key, userId: e.user_id, event: "memory.created", why: `the user just saved a ${p.kind ?? "memory"} titled "${(p.title ?? "").slice(0, 200)}" (read it with search_memory using that title)` });
+    else if (e.type === "memory.created" && USER_SOURCES.includes(p.source ?? "") && !privateMemoryEvent(p)) out.push({ key, userId: e.user_id, event: "memory.created", why: `the user just saved a ${p.kind ?? "memory"} titled "${(p.title ?? "").slice(0, 200)}" (read it with search_memory using that title)` });
   }
   return { hits: out, ids: data.map((e) => e.id) };
 }

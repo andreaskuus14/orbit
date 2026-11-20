@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const { sb, user, res } = await requireUser();
   if (res) return res;
-  const { data, error } = await sb.from("memories").select("id, title, content, tags, created_at, storage_path").contains("tags", ["arch"]).order("created_at", { ascending: false }).limit(300);
+  const { data, error } = await sb.from("memories").select("id, title, content, tags, created_at, storage_path").contains("tags", ["arch"]).neq("kind", "journal").order("created_at", { ascending: false }).limit(300);
   if (error) return Response.json({ error: error.message }, { status: 500 });
   return Response.json({ rows: data ?? [], digest: await readArchDigest(user.id).catch(() => null) });
 }

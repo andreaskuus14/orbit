@@ -10,6 +10,7 @@ import { orbitDataDir } from "./data-dir";
 import { usageHold } from "./usage-meter";
 import { stopAllOn } from "./stop-all";
 import { ARC_SYSTEM, arcPrompt, buildChronicle, monthArcs, parseArcTitles, titleableMonths, type ChronIn, type Chronicle } from "./chronicle-pure";
+import { dropPrivate } from "./private-pure";
 
 const TYPES = ["goal.step", "clip.outcome48h", "clip.published", "business.stage", "night.end", "deal.found", "lesson.kept", "focus.session", "journal.saved"];
 type Titles = { months: Record<string, { at: string; titles: Record<string, string> }> };
@@ -38,7 +39,7 @@ export async function gather(sb: SupabaseClient, userId: string, includePrivate:
   ]);
   return {
     now, includePrivate, events: fromRows(events.reverse()),
-    memories: memories.map((m) => ({ ...m, title: m.title ?? "", tags: m.tags ?? [] })),
+    memories: (includePrivate ? memories : dropPrivate(memories)).map((m) => ({ ...m, title: m.title ?? "", tags: m.tags ?? [] })),
     goals: goals.map((r) => ({ id: r.id, title: r.doc.title, status: r.doc.status, updatedAt: r.updated_at, steps: r.doc.steps.map((s) => ({ id: s.id, what: s.what })) })),
     clips: jobs.flatMap((j) => j.clips.map((c) => ({ job: j.id, id: c.id, title: c.publish?.title ?? c.title, ...(c.publish?.status === "done" ? { publishedAt: c.publish.at } : {}) }))),
     dev: dev.map((s) => ({ id: s.id, start: s.start, line: `Roblox dev · ${s.line}` })),

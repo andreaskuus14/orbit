@@ -8,6 +8,7 @@ import { stopAllOn } from "./stop-all";
 import { usageHold } from "./usage-meter";
 import { allows } from "./autonomy";
 import { DIGEST_SYSTEM, buildDigest, digestDue, digestPrompt, digestStats, parseDigest, type ArchDigest } from "./arch-digest-pure";
+import { dropPrivate } from "./private-pure";
 
 // ARCH weekly studio digest (roadmap 5.6): Sunday from 17:00 (Monday catch-up), scheduler tick, background lane. At most one
 // FAST_MODEL call per user per week, and only when there were critiques. Reads only memories tagged "arch", never journals.
@@ -39,7 +40,7 @@ export async function maybeArchDigest(sb: SupabaseClient, userIds: string[], now
       const { data, error } = await sb.from("memories").select("id, kind, title, content, tags, created_at").eq("user_id", id).contains("tags", ["arch"])
         .neq("kind", "journal").gte("created_at", since).order("created_at", { ascending: false }).limit(200);
       if (error) { console.error("[orbit] arch digest failed:", error.message); continue; }
-      const s = digestStats((data ?? []).filter((m) => isCurrent(m, { now: Date.now() })));
+      const s = digestStats(dropPrivate(data).filter((m) => isCurrent(m, { now: Date.now() })));
       let ai = null;
       if (s.list.length && !usageHold() && allows("briefings", "background").ok) { // Briefings & digests Off/Ask: numbers-only focus, no model call; held near the usage budget: the digest still comes, with a focus from the numbers
         const r = await askClaude(digestPrompt(s.list), DIGEST_SYSTEM, { lane: "background", model: FAST_MODEL, purpose: "arch.digest" }).catch(() => null);

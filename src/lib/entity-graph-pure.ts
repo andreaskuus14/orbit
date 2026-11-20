@@ -3,6 +3,7 @@
 // even if a caller passes them. Conflicts settle by memory-types-pure.ts weight before anything is asked. Merges are only ever SUGGESTED, and only with 2+ independent signals (signals()): claims group across names only after the owner confirms.
 
 import { currentOnly, resolveClaims, weight } from "./memory-types-pure.ts";
+import { dropPrivate } from "./private-pure.ts";
 
 export type EKind = "person" | "project" | "place" | "org";
 export type Src = { id: string; type: "memory" | "fact" | "person" | "prospect"; title: string; at: string; weight?: number }; // weight: memory-types-pure.ts
@@ -246,7 +247,7 @@ export function prospectIds(p: Pick<ProspectIn, "id" | "contact">): string[] {
   return [`prospect:${p.id}`, ...(host && !FREE_MAIL.test(host) ? [`domain:${host}`] : [])];
 }
 /** Never LIFE: journal entries are dropped here no matter who calls (defence in depth next to the query's own filter). */
-export const usable = (ms: MemIn[]) => ms.filter((m) => m.kind !== "journal");
+export const usable = (ms: MemIn[]) => dropPrivate(ms);
 
 /** Everything the scan needs from his data: mentions (people, project titles, names, emails, claim subjects/places) and claims. */
 export function gather(x: { memories: MemIn[]; facts: FactIn[]; people: PersonIn[]; prospects?: ProspectIn[] }): { mentions: Mention[]; claims: Claim[] } {

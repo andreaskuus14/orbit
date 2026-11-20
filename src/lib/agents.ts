@@ -29,6 +29,7 @@ import { verifyRow } from "./completion";
 import { BUILTIN_AGENTS, BUILTIN_ONLY_TOOLS, delegateProblem, pickFair, selfCheck, fixPrompt, type AgentDef, type Tier } from "./agent-defs-pure";
 import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
 import { noteToolResult, newsHours, parseAgentReply, parseFeed, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
+import { dropPrivate } from "./private-pure";
 
 // ORBIT's agent workforce. Each agent is Claude (via Claude Code) with its own instructions and an allow-list of
 // real tools. Agents work in steps: every reply is one JSON object that either calls a tool or gives the final
@@ -90,7 +91,7 @@ export const TOOLS: Record<string, Tool> = {
     run: async ({ sb, userId }) => {
       const { data, error } = await sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).neq("kind", "journal").order("created_at", { ascending: false }).limit(12);
       if (error) throw error;
-      return (data ?? []).filter((m) => isCurrent(m, { now: Date.now() })).map((m) => `[m:${m.id}] (${m.kind}, ${m.created_at.slice(0, 10)}) ${m.title}: ${String(m.content).slice(0, 200)}`).join("\n") || "No memories yet."; // agents run outside any chat: no chat-scoped ones
+      return dropPrivate(data).filter((m) => isCurrent(m, { now: Date.now() })).map((m) => `[m:${m.id}] (${m.kind}, ${m.created_at.slice(0, 10)}) ${m.title}: ${String(m.content).slice(0, 200)}`).join("\n") || "No memories yet."; // agents run outside any chat: no chat-scoped ones
     },
   },
   news_search: {

@@ -21,6 +21,7 @@ test("titleMonth: two requests at once for the same month make one model call", 
       if (name === "node:fs/promises") return fsp;
       if (name === "node:path") return { default: path };
       if (name.endsWith("ledger-pure")) return { fromRows: () => [] };
+      if (name.endsWith("private-pure")) return { dropPrivate: (r: unknown[] | null) => r ?? [] };
       if (name.endsWith("/claude")) return { askClaude: async () => { calls++; await new Promise((r) => setTimeout(r, 20)); return { text: "{}" }; }, recordUsage: async () => {}, FAST_MODEL: "f" };
       if (name.endsWith("/data-dir")) return { orbitDataDir: () => dir };
       if (name.endsWith("usage-meter")) return { usageHold: () => null };

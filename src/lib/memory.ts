@@ -9,6 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { embed, journalVectorsComparable } from "./embeddings";
 import { rerankEnabled, rerankScores } from "./rerank";
 import { emit } from "./claude";
+import { dropPrivate, memoryEventPayload } from "./private-pure";
 import { verifyRow } from "./completion";
 import { htmlToText, pickPublicAddress, assertHttpUrl, redirectTarget, readCapped } from "./pure";
 import { MEMORY_COLUMNS, retrieveMemories, type MemorySearchOptions } from "./memory-search";
@@ -36,7 +37,7 @@ const SUGGEST_THRESHOLD = 0.6;
 export async function createMemory(sb: SupabaseClient, userId: string, input: MemoryInput) {
   // MEM04: every capture path (notes, links, voice memos, files, CORE) carries the same provenance tags.
   if (!input.tags?.some((t) => t.startsWith("fp:"))) input = { ...input, tags: [...(input.tags ?? []), ...provenanceTags(provenance(input))] };
-  const embedding = await embed(`${input.title}\n\n${input.content}`, "document", input.kind);
+  const embedding = await embed(`${input.title}\n\n${input.content}`, "document", input); // kind + tags decide local-only
   const { data, error } = await sb
     .from("memories")
     .insert({ ...input, user_id: userId, embedding: embedding ? JSON.stringify(embedding) : null })
@@ -63,7 +64,7 @@ export async function createMemory(sb: SupabaseClient, userId: string, input: Me
     }
   }
 
-  await emit(sb, userId, "memory.created", "memory", { id: data.id, title: data.title, kind: data.kind, source: data.source, suggested });
+  await emit(sb, userId, "memory.created", "memory", memoryEventPayload({ ...data, tags: data.tags ?? input.tags }, suggested)); // no journal title in events
   await emit(sb, userId, "memory.saved", "memory", { memoryId: data.id, kind: data.kind });
   return { memory: data, embedded: !!embedding, suggested };
 }
@@ -98,7 +99,7 @@ export async function captureMemory(sb: SupabaseClient, userId: string, input: M
       if (isMissingColumn(r.error)) { delete ins.source_ref; delete ins.confirmation; r = await sb.from("memories").insert(ins); } // until 0019
       if (r.error) throw r.error;
     }
-    const e = await embed(`${cur.title}\n\n${plan.content}`, "document", input.kind); // duplicates are looked up within input.kind
+    const e = await embed(`${cur.title}\n\n${plan.content}`, "document", { kind: input.kind, tags: cur.tags }); // duplicates are looked up within input.kind
     const { error } = await sb.from("memories").update({ content: plan.content, tags: [...new Set([...cur.tags, ...keys])], embedding: e ? JSON.stringify(e) : null }).eq("id", cur.id);
     if (error) throw error;
     await emit(sb, userId, "memory.updated", "memory", { id: cur.id });
@@ -110,12 +111,12 @@ export const fileHash = (buf: Uint8Array) => createHash("sha256").update(buf).di
 
 /** The caller's memories whose embedding is at least `min` cosine-similar to `text` ([] when embeddings are off). Needs a user-session client (match_memories filters by auth.uid()). */
 export async function findSimilar(sb: SupabaseClient, text: string, min = 0.9, count = 3) {
-  const e = await embed(text, "document");
+  const e = await embed(text, "document", "note"); // a CORE draft, never journal text
   if (!e) return [];
   const { data, error } = await sb.rpc("match_memories", { query_embedding: JSON.stringify(e), match_count: count });
   if (error) throw error;
-  const mixed = !journalVectorsComparable();
-  return ((data ?? []) as { id: string; title: string; kind: string; similarity: number }[]).filter((m) => m.similarity >= min && !(mixed && m.kind === "journal"));
+  // Never a private row: its title would come back to CORE as "Already in memory: <title>" (reflect.ts saveCoreMemory).
+  return dropPrivate((data ?? []) as { id: string; title: string; kind: string; similarity: number }[]).filter((m) => m.similarity >= min);
 }
 
 /** Hybrid search: Postgres full-text + pgvector similarity, fused by reciprocal rank. */

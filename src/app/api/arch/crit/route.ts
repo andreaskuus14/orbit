@@ -6,6 +6,7 @@ import { stopAllOn } from "@/lib/stop-all";
 import { createMemory } from "@/lib/memory";
 import { MAX_IMAGE_BYTES, sniff } from "@/lib/attach-pure";
 import { str } from "@/lib/pure";
+import { isPrivate } from "@/lib/private-pure";
 import type { PriceItem, Scene } from "@/lib/arch-pure";
 import { CRIT_SYSTEM, REPLY_SYSTEM, canReply, critFacts, critNote, critPrompt, parseCrit, replyPrompt, sceneVersion, withReply } from "@/lib/arch-crit-pure";
 
@@ -62,8 +63,8 @@ async function reply(req: Request, sb: NonNullable<Awaited<ReturnType<typeof req
   const b = (await req.json().catch(() => null)) as { id?: unknown; reply?: unknown } | null;
   const text = str(b?.reply, 1500, 1), id = typeof b?.id === "string" ? b.id : "";
   if (!text || !id) return fail("Write a reply");
-  const { data: row } = await sb.from("memories").select("content, tags").eq("id", id).maybeSingle();
-  if (!row || !(row.tags ?? []).includes("crit")) return fail("Crit not found", 404);
+  const { data: row } = await sb.from("memories").select("content, kind, tags").eq("id", id).maybeSingle();
+  if (!row || isPrivate(row) || !(row.tags ?? []).includes("crit")) return fail("Crit not found", 404);
   if (!canReply(row.content)) return fail("This crit already has its follow-up; run a new crit on the next version", 409);
   const why = held();
   if (why) return fail(`Not right now: ${why}`, 503);

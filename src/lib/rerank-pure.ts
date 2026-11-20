@@ -2,10 +2,12 @@
 export const RERANK_POOL = 30;   // candidates sent to the reranker
 export const RERANK_DOC_CHARS = 600; // per candidate, title first: CPU cost grows with length (~15 ms/token on 2 cores)
 
-export type RerankItem = { id: string; kind?: string; title?: string; content?: string };
+import { isPrivate } from "./private-pure.ts";
+
+export type RerankItem = { id: string; kind?: string; title?: string; content?: string; tags?: string[] | null };
 
 /** What the reranker may see. Journal/LIFE entries never go in (AGENTS.md): they are not scored and keep their place. */
-export const rerankable = (m: RerankItem) => m.kind !== "journal";
+export const rerankable = (m: RerankItem) => !isPrivate(m); // the local reranker is a model too
 export const rerankDoc = (m: RerankItem) => `${m.title ?? ""}\n${m.content ?? ""}`.trim().slice(0, RERANK_DOC_CHARS);
 
 /** Reorder `ids` by score (higher first, stable). Only ids with a score move, and only among the slots scored ids already

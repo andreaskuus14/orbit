@@ -3,6 +3,7 @@
 // here from the judge's scores and his weights, never taken from the model. Pure (I/O: court.ts). Reuses the twin's
 // "argue the other side" evidence picking (twin-pure.ts) for ledger facts.
 import type { CalEvent } from "./gcal-pure.ts";
+import { dropPrivate } from "./private-pure.ts";
 import type { Evidence as LedgerFact } from "./twin-pure.ts";
 
 export const CRITERIA = ["money", "time", "risk", "fun", "learning"] as const;
@@ -66,7 +67,7 @@ export const plannedCalls = (n: number) => planRounds(n).length;
 /** His own data as short numbered lines. Journal memories never get here (and are dropped again if they do). */
 export function buildFacts(d: { memories?: { id?: string; title: string; content?: string; kind?: string }[]; niches?: { title: string; product?: string; status?: string; score?: number; margin?: { price: number; cogs: number; shipping: number; feePct: number; cac: number } }[]; goals?: { title: string; status: string; deadline?: string; why?: string }[]; calendar?: CalEvent[] | null; ledger?: LedgerFact[] }, max = 40): Fact[] {
   const out: Fact[] = [];
-  (d.memories ?? []).filter((m) => m.kind !== "journal").slice(0, 12).forEach((m, i) => out.push({ id: `m${i + 1}`, line: `memory (${m.kind ?? "note"}): ${s(m.title, 100)}: ${s(m.content, 220)}` }));
+  dropPrivate(d.memories).slice(0, 12).forEach((m, i) => out.push({ id: `m${i + 1}`, line: `memory (${m.kind ?? "note"}): ${s(m.title, 100)}: ${s(m.content, 220)}` }));
   (d.niches ?? []).slice(0, 8).forEach((n, i) => {
     const m = n.margin, unit = m ? Math.round((m.price - m.cogs - m.shipping - m.price * m.feePct - m.cac) * 100) / 100 : null;
     out.push({ id: `n${i + 1}`, line: `niche: ${s(n.title, 80)} (${s(n.product, 80)})${n.status ? ` status ${n.status}` : ""}${n.score !== undefined ? ` score ${n.score}` : ""}${m ? ` price €${m.price}, margin after costs €${unit}/order` : ""}` });

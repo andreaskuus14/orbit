@@ -3,6 +3,7 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
 import { MEMORY_COLUMNS } from "./memory-search";
+import { dropPrivate } from "./private-pure";
 import { buildPack, outdatedSince, parsePacks, type Pack, type PackRec } from "./memory-pack-pure";
 
 // MEM08 handover packs, I/O (rules: memory-pack-pure.ts). Saved revisions: <ORBIT data dir>/packs.json, per user and project.
@@ -31,7 +32,7 @@ async function rows(sb: SupabaseClient, project: string): Promise<PackRec[]> {
 export async function packView(sb: SupabaseClient, userId: string, project: string, now = Date.now()) {
   const [rs, s] = await Promise.all([rows(sb, project), load()]);
   const saved: Pack | null = s[userId]?.[project.toLowerCase()] ?? null;
-  return { saved, current: buildPack(rs, project, now, saved), outdatedSince: saved ? outdatedSince(saved, rs, now) : null };
+  return { saved, current: buildPack(dropPrivate(rs), project, now, saved) /* buildPack also filters via packable */, outdatedSince: saved ? outdatedSince(saved, rs, now) : null };
 }
 
 /** Saves the current pack as the project's revision (same content keeps its revision number). One write at a time. */

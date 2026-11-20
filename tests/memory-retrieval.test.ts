@@ -50,7 +50,7 @@ test("metadata filter quotes punctuation and escapes SQL wildcards", () => {
   assert.equal(JSON.parse(filter.slice("title.ilike.".length, filter.indexOf(",folder.ilike."))), '%A\\%,\\_"),user\\_id.neq.x%');
 });
 
-type Row = MemoryMetadata & { content: string; kind?: string };
+type Row = MemoryMetadata & { content: string; kind?: string; tags?: string[] };
 type Call = { columns: string; user?: string; query?: string; filter?: string; ids?: string[]; limit?: number; ordered?: boolean; equalities?: Record<string, string>; notKind?: string };
 function fakeStore(opts: { fts: string[]; semantic?: string[]; project?: MemoryMetadata[]; rows: Row[]; projectError?: boolean; hydrateError?: boolean }) {
   const calls: Call[] = [];
@@ -87,6 +87,13 @@ test("journal entries never reach CORE/agent search (full-text or semantic); onl
   assert.ok(def.calls.filter((c) => c.query || c.ids).every((c) => c.notKind === "journal"), "full-text and hydration both exclude journal");
   assert.deepEqual((await retrieveMemories(store().client, "pet sim", 8, "owner", async () => [1], { projectName: "Pet" })).results.map((m) => m.id), ["note"]);
   assert.deepEqual((await retrieveMemories(store().client, "pet sim", 8, undefined, async () => [1], { includeJournal: true })).results.map((m) => m.id).sort(), ["diary", "note"]);
+});
+
+test("JG: a journal-TAGGED row of another kind never reaches CORE/agent search either (shared private-pure guard)", async () => {
+  const rows = [{ id: "tagged", title: "Rough day", content: "private", kind: "note", tags: ["journal"] }, { id: "note", title: "Pet sim plan", content: "Plan", kind: "note" }] as Row[];
+  const store = () => fakeStore({ rows, fts: ["tagged", "note"], semantic: ["tagged"] });
+  assert.deepEqual((await retrieveMemories(store().client, "pet sim", 8, "owner", async () => [1])).results.map((m) => m.id), ["note"]);
+  assert.deepEqual((await retrieveMemories(store().client, "pet sim", 8, undefined, async () => [1], { includeJournal: true })).results.map((m) => m.id).sort(), ["note", "tagged"]);
 });
 
 test("chat-summary search filters full-text and hydration, and uses the dedicated semantic pool", async () => {

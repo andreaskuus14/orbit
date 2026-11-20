@@ -7,6 +7,7 @@ import { parseBasis } from "./artifact-rev-pure";
 import { PAUSED_MSG } from "./stop-all-pure";
 import { proposalsSkip, type Remembered } from "./scheduler-gate-pure";
 import { cleanProposals, extractProposalJson, isMissingTable, MAX_PENDING, MAX_PER_RUN, PROPOSAL_KINDS } from "./proactive-pure";
+import { dropPrivate } from "./private-pure";
 
 // Proactive agents: look at the user's news, tasks, memories and activity and PROPOSE work.
 // Proposals sit in public.proposals until the user approves (→ a normal agent task) or dismisses them.
@@ -97,7 +98,7 @@ export async function generateProposals(sb: SupabaseClient, userId: string) {
       `RECENT HEADLINES (48 h):\n${line((articles.data ?? []).map((a) => `${a.title} — ${a.source ?? "?"}${a.topic ? ` [${a.topic}]` : ""}`))}`,
       `OPEN OR FAILED TASKS:\n${line(open.map((t) => `${t.title} (${t.agent}, ${t.status}${t.error ? `: ${String(t.error).slice(0, 80)}` : ""})`))}`,
       `RECENTLY DONE TASKS:\n${line(done.map((t) => `${t.title} (${t.agent})`))}`,
-      `RECENT MEMORIES:\n${line((memories.data ?? []).filter((m) => isCurrent(m, { now: Date.now() })).map((m) => `${m.title} (${m.kind}, ${m.created_at.slice(0, 10)})`))}`,
+      `RECENT MEMORIES:\n${line(dropPrivate(memories.data).filter((m) => isCurrent(m, { now: Date.now() })).map((m) => `${m.title} (${m.kind}, ${m.created_at.slice(0, 10)})`))}`,
       `ACTIVITY (48 h): ${eventCounts || "none"}`,
       `ALREADY SUGGESTED RECENTLY (don't repeat):\n${line((prior ?? []).map((x) => `${x.title} (${x.status})`))}`,
     ].join("\n\n");

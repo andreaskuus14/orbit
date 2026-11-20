@@ -5,6 +5,7 @@ import { ackEvent, claimEvents, type EventRow } from "./durable";
 import { stopAllOn } from "./stop-all";
 import { authorizeAction } from "./authority";
 import { PAUSED_MSG } from "./stop-all-pure";
+import { privateMemoryEvent } from "./private-pure";
 
 // Automation engine. Each automation run becomes an ordinary agent task (traceable, retryable, approvals intact).
 // Called every minute by the server-side scheduler with the secret-key client, so every query filters by user_id.
@@ -73,9 +74,9 @@ export async function handleEvents(sb: SupabaseClient) {
 }
 
 async function handleEvent(sb: SupabaseClient, e: EventRow) {
-  const p = (e.payload ?? {}) as { title?: string; kind?: string; source?: string };
+  const p = (e.payload ?? {}) as { title?: string; kind?: string; source?: string; private?: boolean };
   const event = e.type === "pulse.completed" ? "briefing.ready" : "memory.created";
-  if (event === "memory.created" && !USER_SOURCES.includes(p.source ?? "")) return;
+  if (event === "memory.created" && (!USER_SOURCES.includes(p.source ?? "") || privateMemoryEvent(p))) return; // a journal entry never starts an agent
   const { data: autos } = await sb.from("automations").select(COLS).eq("user_id", e.user_id).eq("enabled", true).eq("trigger", "event").eq("event", event);
   for (const a of (autos ?? []) as Automation[]) {
     if (a.kind_filter && a.kind_filter !== p.kind) continue;

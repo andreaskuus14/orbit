@@ -8,6 +8,7 @@ import { parseFeed, normalizeUrl, parseCitations, numberCitations, type Briefing
 import { readArticle } from "./news";
 import { clusterEvents, due, evidenceOf, freshAfterRepair, independentSources, nextHealth } from "./news-intel-pure";
 import { readIntel, updateIntel } from "./news-intel";
+import { dropPrivate } from "./private-pure";
 
 // Pulse — the News Intelligence Agent. Collects real articles from the user's feeds, de-duplicates,
 // groups them into events, and has Claude write a briefing that may only use (and must cite) those articles.
@@ -226,7 +227,7 @@ async function briefing(sb: SupabaseClient, userId: string, kind: PulseKind, foc
       profile?.projects?.length && `Projects: ${profile.projects.join(", ")}`,
       profile?.goals?.length && `Goals: ${profile.goals.join(", ")}`,
       profile?.news_topics?.length && `News topics: ${profile.news_topics.join(", ")}`,
-      wantsMemories && recentMemories?.length && `Saved in ORBIT recently (do not cite these): ${recentMemories.filter((m) => isCurrent(m, { now: Date.now() })).map((m) => m.title).join("; ")}`,
+      wantsMemories && recentMemories?.length && `Saved in ORBIT recently (do not cite these): ${dropPrivate(recentMemories).filter((m) => isCurrent(m, { now: Date.now() })).map((m) => m.title).join("; ")}`,
     ].filter(Boolean).join("\n");
 
     const prompt = `USER CONTEXT:\n${context || "(no profile yet)"}\n\nNEWS EVENTS (newest ${WINDOW_HOURS[kind]}h, grouped):\n${events.join("\n\n")}`;
