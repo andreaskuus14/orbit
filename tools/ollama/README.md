@@ -18,6 +18,24 @@ It installs Ollama (`winget install --id Ollama.Ollama`, no admin), pulls the mo
 Estonian and writes `ORBIT_LOCAL_LLM_MODEL` to `.env.local`. OPERATIONS → Local AI shows "Local brain: Ready".
 If Ollama isn't running, ORBIT starts it hidden (`ollama serve`) when that page is opened.
 
+## Document OCR (optional): `glm-ocr`
+
+    powershell -ExecutionPolicy Bypass -File tools\ollama\setup.ps1 -Ocr
+
+Pulls `glm-ocr` (GLM-OCR, 0.9B, about 2.7 GB; Ollama library tag `glm-ocr`, latest; MIT license from the model's authors, Z.ai).
+With it, scanned PDFs and photos of receipts/invoices (png, jpg, webp, gif) get text:
+
+- VAULT intake (incoming invoices and purchase orders) OCRs every page with no text layer;
+- CORE's `vault_read` returns the OCR text of a scanned PDF or a picture (cached in `<vault>\.ocr\`, read again if the file changes).
+
+PDF pages are drawn by Local AI (`/render-pdf`, pypdfium2: installed with `setup.ps1 -Docs` in tools\local-ai), so Local AI must be
+installed too. Everything runs on this PC: the only addresses used are Ollama's and Local AI's loopback URLs. One page at a time
+holds the shared GPU lease ("document OCR"), a page times out after 2 minutes, and Stop-all stops it. HEIC photos aren't read: share
+them as JPG. Without the model, intake falls back to Docling's OCR (if installed) and `vault_read` gives no text for scans.
+OPERATIONS -> Doctor -> "Document OCR" shows whether the model is pulled.
+Documented alternative (not wired in, since `glm-ocr` is on Ollama): PaddleOCR-VL (Apache 2.0, GPU recommended); if an Ollama build of it is ever pulled, set `ORBIT_OCR_MODEL` to its name (the request format is GLM-OCR's, so check its prompt first).
+Settings: `ORBIT_OCR=0` (off), `ORBIT_OCR_MODEL`, `ORBIT_OCR_MAX_PAGES` (default 20, max 50).
+
 ## The models: `qwen3.5:9b` and `qwen3.5:4b`
 
 | Tag | Download | Notes |

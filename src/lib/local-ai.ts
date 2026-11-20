@@ -1,5 +1,6 @@
 // Local AI tools, server side: talks to tools/local-ai/server.py on this PC and saves results in VAULT (local only, no cloud copy).
 import { readStream, saveUpload } from "./vault";
+import { parseRender } from "./ocr-pure";
 import { NOT_RUNNING, assetName, cleanTranscript, cloneBlocked, docMarkdown, docMdName, isCaptionLang, isDocName, isMediaName, parseHealth, parseIfcSummary, parseTranscript,
   serviceError, serviceUrl, toSrt, toVtt, ttsRequest, type Health, type IfcSummary } from "./local-ai-pure";
 
@@ -112,6 +113,13 @@ export async function ocrPages(bytes: Uint8Array, name: string): Promise<string[
   const j = (await callJson("/doc-to-md", form({ file: new File([bytes as BlobPart], name), per_page: "1" }), 20 * MINUTE)) as { byPage?: unknown };
   if (!Array.isArray(j?.byPage)) throw new Error("Local AI is running an older server.py that cannot read pages one by one: restart it (close its window or reboot) and try again.");
   return j.byPage.map((p) => (typeof p === "string" ? p : ""));
+}
+
+/** Page pictures (JPEG, base64) of a PDF by pypdfium2 on this PC, for the OCR model. `pages` are 1-based; the service caps how many it renders. */
+export async function renderPdfPages(bytes: Uint8Array, name: string, pages: number[]): Promise<{ total: number; pages: { page: number; image: string }[] }> {
+  const r = parseRender(await callJson("/render-pdf", form({ file: new File([bytes as BlobPart], name), pages: pages.join(",") }), 5 * MINUTE));
+  if (!r) throw new Error("Local AI is running an older server.py that cannot draw PDF pages: restart it (close its window or reboot) and try again.");
+  return r;
 }
 
 /** CORE tools local_3d / local_tts / local_transcribe. Errors come back as "Error: ..." text (core.ts's convention). */

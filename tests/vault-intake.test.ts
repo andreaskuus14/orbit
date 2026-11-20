@@ -57,7 +57,7 @@ async function fakes(answer: object[]) {
   const got: { chat?: { system: string; prompt: string }; ocr: number } = { ocr: 0 };
   const read = (q: IncomingMessage) => new Promise<string>((ok) => { let b = ""; q.setEncoding("latin1"); q.on("data", (c) => (b += c)).on("end", () => ok(b)); });
   const ollama = createServer(async (q, s) => {
-    if (q.url === "/api/tags") return s.end(JSON.stringify({ models: [{ name: "qwen3:8b" }] })); // chatLocal checks which model is installed first
+    if (q.url === "/api/tags") return s.end(JSON.stringify({ models: [{ name: "qwen3:8b" }] })); // chatLocal checks which model is installed first; no OCR model pulled: Docling reads the scan
     const j = JSON.parse(await read(q)); got.chat = { system: j.messages[0].content, prompt: j.messages[1].content };
     s.end(JSON.stringify({ message: { content: "Here you go:\n" + JSON.stringify(answer) } }));
   });
@@ -144,7 +144,7 @@ test("a scanned page with a non-local OCR URL is refused before any request is m
 test("no cloud path: vault-intake.ts and its local helpers import nothing that reaches Claude, Supabase or another API", () => {
   const imports = (f: string) => [...readFileSync(path.join(root, "src/lib", f), "utf8").matchAll(/^(?!\s*import type)[^\n]*?(?:from\s+["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\))/gm)].map((m) => m[1] ?? m[2]);
   assert.deepEqual(imports("vault-intake.ts").sort(),
-    ["./extract.ts", "./local-ai-pure.ts", "./local-ai.ts", "./local-llm.ts", "./local-model-pure.ts", "./vault-intake-pure.ts", "./vault-meta-pure.ts", "./vault-pure.ts", "./vault.ts", "node:fs/promises", "node:path"]);
+    ["./extract.ts", "./local-ai-pure.ts", "./local-ai.ts", "./local-llm.ts", "./local-model-pure.ts", "./ocr.ts", "./vault-intake-pure.ts", "./vault-meta-pure.ts", "./vault-pure.ts", "./vault.ts", "node:fs/promises", "node:path"]);
   for (const f of ["vault-intake.ts", "vault-intake-pure.ts", "local-llm.ts", "local-ai.ts", "extract.ts"])
     for (const i of imports(f)) assert.ok(!/(^|\/)claude(\.ts)?$|anthropic|claude-agent-sdk|openai|supabase|cloud|http/i.test(i), `${f} imports ${i}`);
   assert.throws(() => assertLocal("https://api.anthropic.com", "x"), /this PC only/);

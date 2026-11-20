@@ -2,12 +2,13 @@
 
 Listens on 127.0.0.1 only. One job at a time and every GPU model is unloaded after its job, so a 6 GB laptop GPU
 never holds two models. Endpoints: /health, /image-to-3d, /remove-bg, /tts, /clone-tts, and the optional modules
-/transcribe (captions), /ifc-summary (IFC models), /doc-to-md (document reading); see README.md.
+/transcribe (captions), /ifc-summary (IFC models), /doc-to-md (document reading), /render-pdf (PDF pages as pictures for OCR); see README.md.
 
 UNTESTED ON A GPU: written and syntax-checked in a cloud box without CUDA or Windows. setup.ps1 installs what this imports.
 """
 from __future__ import annotations
 
+import base64
 import gc
 import importlib.util
 import io
@@ -42,6 +43,8 @@ MAX_MEDIA = 200 * 1024 * 1024
 MAX_IFC = 100 * 1024 * 1024
 MAX_DOC = 50 * 1024 * 1024
 MAX_DOC_PAGES = 300
+MAX_RENDER_PAGES = 50  # /render-pdf: pictures of PDF pages for the OCR model (Ollama glm-ocr)
+RENDER_SIDE = 2000
 CAPTION_LANGS = {"auto": None, "en": "en", "et": "et"}
 DOC_TYPES = {".pdf", ".docx", ".pptx", ".png", ".jpg", ".jpeg"}
 
@@ -451,6 +454,35 @@ def doc_to_md(file: UploadFile = File(...), per_page: str = Form("")):
     if by_page is not None:
         out["byPage"] = by_page
     return out
+
+
+@app.post("/render-pdf")
+def render_pdf(file: UploadFile = File(...), pages: str = Form("")):
+    """PDF pages → JPEG pictures (base64) for ORBIT's OCR model. CPU only (pypdfium2 comes with Docling); `pages` = "1,3,4" (1-based)."""
+    need(has("pypdfium2"), "PDF page drawing (pypdfium2, installed with Document reading)")
+    path = spool(file, MAX_DOC, "PDF", ".pdf")
+    try:
+        import pypdfium2 as pdfium
+        try:
+            pdf = pdfium.PdfDocument(path)
+        except Exception:
+            raise HTTPException(400, "ORBIT couldn't open that PDF. Is it damaged or password-protected?")
+        try:
+            total = len(pdf)
+            want = [int(p) for p in pages.split(",") if p.strip().isdigit() and 1 <= int(p) <= total][:MAX_RENDER_PAGES]
+            out = []
+            for n in want:
+                page = pdf[n - 1]
+                scale = min(2.5, RENDER_SIDE / max(page.get_width(), page.get_height(), 1))
+                img = page.render(scale=scale).to_pil().convert("RGB")
+                buf = io.BytesIO()
+                img.save(buf, "JPEG", quality=90)
+                out.append({"page": n, "image": base64.b64encode(buf.getvalue()).decode("ascii")})
+        finally:
+            pdf.close()
+    finally:
+        os.unlink(path)
+    return {"total": total, "pages": out}
 
 
 @app.exception_handler(HTTPException)
