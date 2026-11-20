@@ -10,7 +10,8 @@ export type ScoutSettings = { watchlist: ScoutCreator[]; keywords: string[]; aiK
 export type ScoutStats = { views: number; likes: number; comments: number };
 export type PickStatus = "new" | "queued" | "dismissed";
 export type ScoutPick = { videoId: string; url: string; title: string; channel: string; channelId: string; durationSec: number; publishedAt: string;
-  stats: ScoutStats; score: number; reason: string; source: "watchlist" | "keyword"; status: PickStatus; error?: string };
+  stats: ScoutStats; score: number; reason: string; source: "watchlist" | "keyword"; status: PickStatus; error?: string;
+  signals?: string[] }; // extra source signals (source-pick-pure.ts): replay peaks, trending game, length
 export type ScoutRun = { at: string; ok: boolean; error?: string; warnings: string[]; candidates: number; units: number; ranker: "claude" | "score"; auto: number;
   skipped?: Record<string, number>; summary?: string }; // why candidates were left out, and that as one line for the UI
 export type Scout = ScoutSettings & {
@@ -23,7 +24,8 @@ export type Scout = ScoutSettings & {
 };
 /** A video as the filters/scorer see it (built from videos.list). */
 export type Candidate = { id: string; title: string; channel: string; channelId: string; publishedAt: string; durationSec: number; live: string;
-  description: string; stats: ScoutStats; source: "watchlist" | "keyword"; baseline?: number }; // baseline: the channel's median views/hour
+  description: string; stats: ScoutStats; source: "watchlist" | "keyword"; baseline?: number; // baseline: the channel's median views/hour
+  lang?: string }; // snippet.defaultAudioLanguage, when the creator set it
 
 // ORBIT weighted cap (search=100), separate from Google's current granular search/upload buckets.
 // Runtime admission and attribution use youtube-quota.ts; these legacy planners receive the relevant share remaining.
@@ -150,7 +152,7 @@ export function videoIdOf(url: string): string | null {
   return isVid(id) ? id : null;
 }
 
-type VideoItem = { id?: unknown; snippet?: { title?: unknown; channelTitle?: unknown; channelId?: unknown; publishedAt?: unknown; liveBroadcastContent?: unknown; description?: unknown };
+type VideoItem = { id?: unknown; snippet?: { title?: unknown; channelTitle?: unknown; channelId?: unknown; publishedAt?: unknown; liveBroadcastContent?: unknown; description?: unknown; defaultAudioLanguage?: unknown };
   contentDetails?: { duration?: unknown }; statistics?: { viewCount?: unknown; likeCount?: unknown; commentCount?: unknown } };
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 /** videos.list items → candidates (malformed items dropped). */
@@ -161,7 +163,8 @@ export function toCandidates(items: unknown, source: Candidate["source"]): Candi
     return [{ id, title: line(sn.title, 200), channel: line(sn.channelTitle, 100), channelId: typeof sn.channelId === "string" ? sn.channelId : "",
       publishedAt: sn.publishedAt, durationSec: parseIsoDuration(typeof v.contentDetails?.duration === "string" ? v.contentDetails.duration : ""),
       live: typeof sn.liveBroadcastContent === "string" ? sn.liveBroadcastContent : "none", description: line(sn.description, 300),
-      stats: { views: num(v.statistics?.viewCount), likes: num(v.statistics?.likeCount), comments: num(v.statistics?.commentCount) }, source }];
+      stats: { views: num(v.statistics?.viewCount), likes: num(v.statistics?.likeCount), comments: num(v.statistics?.commentCount) }, source,
+      ...(typeof sn.defaultAudioLanguage === "string" && /^[\w-]{2,16}$/.test(sn.defaultAudioLanguage) ? { lang: sn.defaultAudioLanguage } : {}) }];
   });
 }
 
@@ -185,7 +188,8 @@ export function skipReason(c: Candidate, o: { now: number; maxAgeHours: number; 
 /** "25 found · 0 picks — 14 too short (<15 min), 9 older than 48 h, 2 live": why the list is short. */
 export function skipSummary(found: number, picks: number, skipped: Record<string, number>, s: Pick<ScoutSettings, "minMinutes" | "maxAgeHours" | "creatorMaxAgeDays">): string {
   const label: Record<string, string> = { short: `too short (<${s.minMinutes} min)`, long: `too long (>${MAX_SOURCE_SEC / 3600} h)`, old: `older than ${s.maxAgeHours} h`,
-    oldCreator: `creator uploads older than ${s.creatorMaxAgeDays} d`, live: "live/upcoming", made: "already downloaded", seen: "dismissed or queued before", reupload: "re-uploads from clip channels" };
+    oldCreator: `creator uploads older than ${s.creatorMaxAgeDays} d`, live: "live/upcoming", made: "already downloaded", seen: "dismissed or queued before", reupload: "re-uploads from clip channels",
+    clipped: "already clipped", lang: "not English audio" };
   const why = Object.entries(skipped).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${label[k] ?? k}`);
   return `${found} found · ${picks} pick${picks === 1 ? "" : "s"}${why.length ? ` — ${why.join(", ")}` : ""}`;
 }

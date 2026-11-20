@@ -623,6 +623,7 @@ export const trackArgs = (input: string, start: number, duration: number) =>
 export { cleanPermission, parseClipUrl } from "./format.ts";
 
 export const YTDLP_FILE_MARK = "ORBIT_FILE=";
+export const YTDLP_META_MARK = "ORBIT_META=";
 
 /** yt-dlp argv (spawned without a shell, cwd = inbox). The URL is always the last element, after "--", so it can't be read as an option. */
 export const ytdlpArgs = (url: string, ffmpegDir: string) => [
@@ -637,6 +638,8 @@ export const ytdlpArgs = (url: string, ffmpegDir: string) => [
     "/bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=720]/b", "--merge-output-format", "mp4",
   "--ffmpeg-location", ffmpegDir, "-o", "%(uploader).40s - %(title).80s [%(id)s].%(ext)s",
   "--print", `after_move:${YTDLP_FILE_MARK}%(filepath)s`, // marked: other plain lines ("Aborting remaining downloads") reach stdout too
+  // Same extraction, no extra request: YouTube's "Most replayed" heatmap + what the video is (for the game focus), saved in <file>.source.json.
+  "--print", `after_move:${YTDLP_META_MARK}%(.{heatmap,title,uploader,channel,language,categories,tags,live_status,was_live})j`,
   "--no-quiet", // --print implies --quiet, which hides the "Destination:" lines used to clean up partial files
   "--", url,
 ];
@@ -682,14 +685,14 @@ export function isPlainName(name: unknown): name is string {
   return !/[\\/:\0]|[\x00-\x1f]/.test(name); // separators are banned, so ".." inside a name ("So... this.mp4") is harmless
 }
 
-const LAYOUTS = ["fit", "fill", "split", "follow"], SIDES = ["left", "right", "tl", "tr", "bl", "br"], LANGS = ["auto", "en"], PRESETS = ["viral", "devlog"];
+const LAYOUTS = ["fit", "fill", "split", "follow"], SIDES = ["left", "right", "tl", "tr", "bl", "br"], LANGS = ["auto", "en"], PRESETS = ["viral", "devlog"], FOCUSES = ["auto", "general", "game", "gta"];
 const LAYOUT_ERR = "layout must be fit, fill, split or follow", CAM_SIDE_ERR = "camSide must be left, right, tl, tr, bl or br", CAM_SIZE_ERR = "camSize must be 0.1-0.6";
 const isCamSize = (v: unknown) => typeof v === "number" && v >= 0.1 && v <= 0.6;
 /** Clip options from a request body (defaults: 5 clips, 45 s, captions, follow layout, jump cuts, zooms, English, cold open, loop end,
  *  no progress bar) or an error message. */
 export function validOptions(b: Record<string, unknown>): Required<ClipOptions> | string {
   const { count = 5, maxSec = 45, captions = true, layout = "follow", camSide = "right", camSize = 0.3, jumpCuts = true, zooms = true, language = "en",
-    coldOpen = true, progressBar = false, loopEnd = true, preset = "viral" } = b;
+    coldOpen = true, progressBar = false, loopEnd = true, preset = "viral", focus = "auto" } = b;
   if (!Number.isInteger(count) || (count as number) < 1 || (count as number) > 10) return "count must be 1-10";
   if (!Number.isInteger(maxSec) || (maxSec as number) < 15 || (maxSec as number) > 120) return "maxSec must be 15-120";
   for (const [k, v] of Object.entries({ captions, jumpCuts, zooms, coldOpen, progressBar, loopEnd })) if (typeof v !== "boolean") return `${k} must be a boolean`;
@@ -698,7 +701,8 @@ export function validOptions(b: Record<string, unknown>): Required<ClipOptions> 
   if (!isCamSize(camSize)) return CAM_SIZE_ERR;
   if (!LANGS.includes(language as string)) return "language must be auto or en";
   if (!PRESETS.includes(preset as string)) return "preset must be viral or devlog";
-  return { count, maxSec, captions, layout, camSide, camSize, jumpCuts, zooms, language, coldOpen, progressBar, loopEnd, preset } as Required<ClipOptions>;
+  if (!FOCUSES.includes(focus as string)) return "focus must be auto, general, game or gta";
+  return { count, maxSec, captions, layout, camSide, camSize, jumpCuts, zooms, language, coldOpen, progressBar, loopEnd, preset, focus } as Required<ClipOptions>;
 }
 
 export const isJobId = (s: unknown): s is string => typeof s === "string" && /^[a-z0-9]{6,12}-[a-f0-9]{6}$/.test(s);

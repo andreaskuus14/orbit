@@ -1,6 +1,8 @@
 // Clip Factory contract shared by the server (src/lib/clips/factory.ts) and the STUDIO UI.
 import type { Critique } from "./titles";
 import type { HypeView } from "./hype-pure";
+import type { Focus, ResolvedFocus } from "./game-pure";
+import type { SignalKey, SignalWindow } from "./moments-pure";
 import type { Virality } from "./score-pure";
 import type { HookLab } from "./hooklab-pure";
 import type { MediaCheck, SourceRights } from "./production-pure";
@@ -42,11 +44,17 @@ export type ClipJob = { v?: number; id: string; source: string; createdAt: strin
   auto?: boolean; // started by scout/autopilot/inbox auto-clip, not the owner: a re-upload source is skipped instead of warned
   resumes?: number; // times re-queued automatically after ORBIT restarted mid-run (max 1)
   devlogDay?: number; // devlog preset: this recording's "Day N" (taken from the series counter once, on the first run)
-  hype?: HypeView }; // hype timeline (chat + audio) for the HypeWave, downsampled (hype-pure.ts)
+  hype?: HypeView; // hype timeline (chat + audio) for the HypeWave, downsampled (hype-pure.ts)
+  audience?: JobAudience }; // real-audience signals used to pick the moments (moments-pure.ts)
+/** What the moment picker knew: the resolved focus (game-pure), YouTube's "Most replayed" heatmap (packed [start, end, value]),
+ *  which signals were fused, and the best signal windows with their reasons. */
+export type JobAudience = { focus?: ResolvedFocus; game?: string; heatmap?: [number, number, number][]; heatFrom?: string; signals?: SignalKey[];
+  windows?: Pick<SignalWindow, "start" | "end" | "score" | "reasons">[] };
 // The edit options are optional: jobs saved before they existed get the defaults (validOptions({})).
 export type ClipOptions = { count: number; maxSec: number; captions: boolean; layout?: VersionEdit["layout"]; camSide?: VersionEdit["camSide"]; camSize?: number;
   jumpCuts?: boolean; zooms?: boolean; language?: "auto" | "en";
   coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean; // retention edits: teaser of the peak first, bottom progress bar, trimmed tail + audio fade
+  focus?: Focus; // what moments to look for: auto (from title/channel), general, game, gta (game-pure.ts); missing = auto
   preset?: "viral" | "devlog" }; // moment-picking style: streamer highlights, or game-dev progress (devlog.ts); missing = viral
 export type InboxFile = { name: string; size: number; mtime: string; jobId?: string; permission?: string }; // permission: from <name>.source.json
 export type ToolsStatus = { ffmpeg: boolean; transcriber: boolean; ytdlp: boolean; missing: string[]; parakeet?: boolean; whisperErr?: string | null }; // parakeet/whisperErr: the doctor's speech-to-text line

@@ -17,6 +17,8 @@ import type { Open } from "@/lib/clips/pipeline-pure";
 import { devlogHashtags } from "@/lib/clips/devlog";
 import { HypeWave, ScoreRing, ScoreWhy } from "./HypeScore";
 import type { HypeView } from "@/lib/clips/hype-pure";
+import type { JobAudience } from "@/lib/clips/types";
+import { FOCUSES, focusLabel, resolveFocus, type Focus } from "@/lib/clips/game-pure";
 import type { Virality } from "@/lib/clips/score-pure";
 import { uploadHealth } from "@/lib/clips/publish-checks-pure";
 import { CLIP_TABS, parseClipTab, type ClipTab } from "@/lib/studio-ui-pure";
@@ -51,10 +53,10 @@ type PublishBody = { title: string; description: string; privacy: "private" | "u
 type JobStatus = "queued" | "probing" | "transcribing" | "finding" | "rendering" | "done" | "failed";
 type ClipJob = { id: string; source: string; createdAt: string; updatedAt: string; status: JobStatus; progress: number; step: string;
   durationSec?: number; error?: string; warnings: string[]; clips: Clip[]; options: ClipOptions;
-  timings?: { audio: number; transcribe: number; pick: number; render: number }; hype?: HypeView };
+  timings?: { audio: number; transcribe: number; pick: number; render: number }; hype?: HypeView; audience?: JobAudience };
 type CamSide = "left" | "right" | "tl" | "tr" | "bl" | "br";
 type ClipOptions = { count: number; maxSec: number; captions: boolean; layout?: VersionEdit["layout"]; camSide?: CamSide; camSize?: number;
-  jumpCuts?: boolean; zooms?: boolean; language?: "auto" | "en"; coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean; preset?: "viral" | "devlog" };
+  jumpCuts?: boolean; zooms?: boolean; language?: "auto" | "en"; coldOpen?: boolean; progressBar?: boolean; loopEnd?: boolean; preset?: "viral" | "devlog"; focus?: Focus };
 type InboxFile = { name: string; size: number; mtime: string; jobId?: string; permission?: string };
 type ToolsStatus = { ffmpeg: boolean; transcriber: boolean; ytdlp: boolean; missing: string[] };
 type Download = { id: string; url: string; status: "queued" | "downloading" | "done" | "failed"; progress: number; step: string; file?: string; error?: string;
@@ -153,7 +155,7 @@ export default function ClipFactory({ reduced, onClose, review, failed }: { redu
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [conflict, setConflict] = useState<Record<string, ClipOptions>>({}); // source → options that got a 409
   const [form, setForm] = useState<string | null>(null);
-  const [opts, setOpts] = useState<Opts>({ count: 5, maxSec: 45, captions: true, layout: "follow", camSide: "right", camSize: 0.3, jumpCuts: true, zooms: true, language: "en", coldOpen: true, progressBar: false, loopEnd: true, preset: "viral" });
+  const [opts, setOpts] = useState<Opts>({ count: 5, maxSec: 45, captions: true, layout: "follow", camSide: "right", camSize: 0.3, jumpCuts: true, zooms: true, language: "en", coldOpen: true, progressBar: false, loopEnd: true, preset: "viral", focus: "auto" });
   const [showRejected, setShowRejected] = useState(false);
   const [docVisible, setVisible] = useState(true);
   const paused = useWorldPaused(), visible = docVisible && !paused; // STUDIO kept but hidden: no polling
@@ -505,6 +507,12 @@ export default function ClipFactory({ reduced, onClose, review, failed }: { redu
                           <Choice legend={tr("cf.style")} values={["viral", "devlog"] as Opts["preset"][]} value={opts.preset} fmt={(v) => (v === "devlog" ? "🛠 Devlog" : `🔥 ${tr("cf.highlights")}`)}
                             hint={opts.preset === "devlog" ? tr("cf.devlogHint") : undefined}
                             onChange={(preset) => setOpts((o) => ({ ...o, preset, ...(preset === "devlog" ? { count: 3, maxSec: 60 } : {}) }))} />
+                          {opts.preset !== "devlog" && (() => {
+                            const auto = resolveFocus("auto", { text: f.name }); // the server also reads the video's title/tags/category
+                            return <Choice legend={tr("cf.focus")} values={FOCUSES} value={opts.focus ?? "auto"} fmt={(v) => (v === "auto" ? `${tr("cf.focusAuto")}${auto.focus !== "general" ? ` · ${focusLabel(auto.focus)}` : ""}` : focusLabel(v))}
+                              hint={(opts.focus ?? "auto") === "auto" ? (auto.game ? tr("cf.focusDetected", { game: auto.game }) : tr("cf.focusAutoHint")) : opts.focus === "gta" ? tr("cf.focusGtaHint") : opts.focus === "game" ? tr("cf.focusGameHint") : undefined}
+                              onChange={(focus) => setOpts((o) => ({ ...o, focus }))} />;
+                          })()}
                           <Choice legend={tr("cf.count")} values={[3, 5, 8]} value={opts.count} fmt={String} onChange={(count) => setOpts((o) => ({ ...o, count }))} />
                           <Choice legend={tr("cf.maxLen")} values={[30, 45, 60]} value={opts.maxSec} fmt={(v) => `${v} s`} onChange={(maxSec) => setOpts((o) => ({ ...o, maxSec }))} />
                           <label className="flex items-center gap-1.5">
@@ -585,7 +593,8 @@ export default function ClipFactory({ reduced, onClose, review, failed }: { redu
 // Mirrors src/lib/clips/scout-pure.ts.
 type ScoutCreator = { channelId: string; title: string; autoClip: boolean };
 type ScoutPick = { videoId: string; url: string; title: string; channel: string; channelId: string; durationSec: number; publishedAt: string;
-  stats: { views: number; likes: number; comments: number }; score: number; reason: string; source: "watchlist" | "keyword"; status: "new" | "queued" | "dismissed"; error?: string };
+  stats: { views: number; likes: number; comments: number }; score: number; reason: string; source: "watchlist" | "keyword"; status: "new" | "queued" | "dismissed"; error?: string;
+  signals?: string[] }; // replay peaks, trending game, length (source-pick-pure.ts)
 type CreatorOp = { channelId: string; autoClip?: boolean; remove?: true }; // PATCH { creator }: one creator, applied server-side
 type ScoutPatch = Partial<ScoutSettings> & { creator?: CreatorOp };
 type ScoutSettings = { watchlist: ScoutCreator[]; keywords: string[]; aiKeywords: string[]; nicheAuto: boolean; maxAgeHours: number; creatorMaxAgeDays: number; minMinutes: number; dailyAuto: number; runAt: number };
@@ -689,6 +698,7 @@ function ScoutSection({ visible, onQueued, runSignal, reduced, layout, rev, onOp
                     <b className="line-clamp-2 leading-snug">{p.title}</b>
                     <span className="muted num block text-[11px]">{p.channel} · {mmss(p.durationSec)} · {ago(p.publishedAt)} · {tr("cf.views", { n: compact(p.stats.views) })}</span>
                     <p className="mt-0.5 leading-snug">{p.reason}</p>
+                    {!!p.signals?.length && <p className="muted mt-0.5 text-[11px] leading-snug" aria-label={tr("cf.pickSignals")}>{p.signals.join(" · ")}</p>}
                     <div className="mt-1 flex flex-wrap items-center gap-1">
                       <Status text={tr("cf.score", { n: p.score })} tone={p.score >= 70 ? "good" : undefined} />
                       <Status text={p.source === "watchlist" ? `★ ${tr("cf.watchlist")}` : `🔎 ${tr("cf.keyword")}`} />
@@ -1191,6 +1201,14 @@ function JobCard({ job, reduced, showRejected, busy, Note, yt, publishing, onRet
         <HypeWave hype={job.hype} duration={job.durationSec ?? 0} reduced={reduced}
           clips={clips.filter((c) => !c.variantOf && c.status !== "failed").map((c) => ({ id: c.id, start: c.start, end: c.end, title: c.title, score: c.virality?.score }))}
           onPick={(id) => { const el = document.getElementById(`cf-clip-${job.id}/${id}`); el?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" }); el?.focus({ preventScroll: true }); }} />
+      )}
+
+      {job.audience && (job.audience.signals?.length || job.audience.focus !== "general") && (
+        <p className="muted mt-1 text-[11px]" aria-label={tr("cf.audience")}>
+          {job.audience.focus && job.audience.focus !== "general" && <span>{focusLabel(job.audience.focus)}{job.audience.game && job.audience.focus !== "gta" ? ` (${job.audience.game})` : ""} {tr("cf.focusMoments")} · </span>}
+          {job.audience.heatmap?.length ? `📈 ${tr("cf.replayUsed")}` : tr("cf.noReplay")}
+          {job.audience.windows?.[0]?.reasons.length ? ` · ${tr("cf.topSignal", { at: mmss(job.audience.windows[0].start), why: job.audience.windows[0].reasons.join(", ") })}` : ""}
+        </p>
       )}
 
       {job.warnings.length > 0 && <ul className="mt-2 space-y-0.5 text-xs" aria-label={tr("cf.warnings")}>{job.warnings.map((w, k) => <li key={k} className={w.startsWith("Looks like a re-upload") ? "error font-medium" : undefined}>⚠ {w}</li>)}</ul>}
