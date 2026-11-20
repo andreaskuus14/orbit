@@ -78,3 +78,6 @@ if ($conn) {
 
 Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue
 if ($stopped -gt 0) { Write-Host "ORBIT stopped." } else { Write-Host "ORBIT isn't running." }
+
+# Stopped on purpose: the watchdog task leaves ORBIT off until the next normal start (launch.ps1 clears this).
+try { Set-Content -LiteralPath (Join-Path $root "orbit-stopped.flag") -Value (Get-Date -Format o) } catch { }
