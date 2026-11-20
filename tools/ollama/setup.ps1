@@ -1,9 +1,10 @@
-# ORBIT local brain: installs Ollama (if missing), pulls a small model, prints a test reply and sets ORBIT_LOCAL_LLM_MODEL in .env.local.
+# ORBIT local brain: installs Ollama (if missing), pulls the offline model, prints a test reply and sets ORBIT_LOCAL_LLM_MODEL in .env.local.
 # Run from the ORBIT folder:  powershell -ExecutionPolicy Bypass -File tools\ollama\setup.ps1
-#   -Model qwen3:8b   the model to pull (default; ~5.2 GB, fits an 8 GB GPU)
-#   -Private          also set ORBIT_LOCAL_PRIVATE=1: lets the local model (only it, never Claude) read your journal when you click Reflect
+#   -Model qwen3.5:9b the model to pull (default; Apache-2.0, 6.6 GB, text + image input, fits an 8 GB GPU)
+#   With the default 9B it also pulls qwen3.5:4b (3.3 GB): ORBIT switches to it by itself while pictures/3D/video hold the GPU
+#   -Private          removed: journal text never goes to any model, so this does nothing (accepted so old commands still run)
 # No admin rights needed: Ollama installs into your user folder.
-param([string]$Model = "qwen3:8b", [switch]$Private)
+param([string]$Model = "qwen3.5:9b", [switch]$Private)
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -45,9 +46,16 @@ Write-Host "Pulling $Model (a few GB the first time)..."
 & $ollama pull $Model
 if ($LASTEXITCODE -ne 0) { Write-Host "ollama pull $Model failed." -ForegroundColor Red; exit 1 }
 
+# 3b. The small sibling for a shared GPU (only with the qwen3.5:9b default; other models have no automatic small choice)
+if ($Model -eq "qwen3.5:9b") {
+  Write-Host "Pulling qwen3.5:4b (3.3 GB, used automatically while another job holds the GPU)..."
+  & $ollama pull "qwen3.5:4b"
+  if ($LASTEXITCODE -ne 0) { Write-Host "qwen3.5:4b didn't download; the 9B model still works (run: ollama pull qwen3.5:4b later)." -ForegroundColor Yellow }
+}
+
 # 4. Test reply
 $body = @{ model = $Model; stream = $false; messages = @(@{ role = "user"; content = "Say hello in one short English sentence, then the same in Estonian." }) }
-if ($Model -like "qwen3*") { $body.think = $false }
+if ($Model -like "qwen3*") { $body.think = $false } # qwen3 and qwen3.5
 Write-Host "Asking $Model for a test reply (the first load into the GPU takes a few seconds)..."
 $r = Invoke-RestMethod "$api/api/chat" -Method Post -ContentType "application/json" -Body ($body | ConvertTo-Json -Depth 5) -TimeoutSec 300
 Write-Host ""
@@ -63,7 +71,7 @@ function Set-EnvLine([string]$name, [string]$value) {
   Write-Host "Set $name=$value in .env.local"
 }
 Set-EnvLine "ORBIT_LOCAL_LLM_MODEL" $Model
-if ($Private) { Set-EnvLine "ORBIT_LOCAL_PRIVATE" "1" }
+if ($Private) { Write-Host "-Private is gone: journal text never goes to any model, not even this local one." -ForegroundColor Yellow }
 
 Write-Host ""
 Write-Host "Done. Restart ORBIT so it reads the new setting:  npm run app:rebuild" -ForegroundColor Green
