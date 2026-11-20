@@ -57,8 +57,8 @@ async function generateVideoNow(r: VideoRequest, picture: Blob | null, timeoutMs
         return bytes;
       }
     }
-  } finally {
-    void comfyPost(u, "/free", { unload_models: true, free_memory: true }).catch(() => {});
+  } finally { // back-to-back clips keep Wan loaded (gpu-lock keepWarm); anything else frees the GPU now
+    void import("./gpu-lock").then((g) => g.unloadUnlessNext("video", () => comfyPost(u, "/free", { unload_models: true, free_memory: true })));
   }
 }
 

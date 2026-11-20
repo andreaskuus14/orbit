@@ -219,13 +219,14 @@ async function briefing(sb: SupabaseClient, userId: string, kind: PulseKind, foc
 
     const { data: profile } = await sb.from("profiles").select("interests, projects, goals, news_topics").eq("id", userId).maybeSingle();
     const daySince = new Date(Date.now() - (kind === "weekly" ? 168 : 24) * 3600_000).toISOString();
-    const { data: recentMemories } = await sb.from("memories").select("title, kind, content, tags, created_at").eq("user_id", userId).neq("source", "pulse").gte("created_at", daySince).limit(15);
+    const wantsMemories = kind === "evening" || kind === "weekly"; // only these two show "saved recently": no read for the others
+    const { data: recentMemories } = wantsMemories ? await sb.from("memories").select("title, kind, content, tags, created_at").eq("user_id", userId).neq("source", "pulse").neq("kind", "journal").gte("created_at", daySince).limit(15) : { data: null };
     const context = [
       profile?.interests?.length && `Interests: ${profile.interests.join(", ")}`,
       profile?.projects?.length && `Projects: ${profile.projects.join(", ")}`,
       profile?.goals?.length && `Goals: ${profile.goals.join(", ")}`,
       profile?.news_topics?.length && `News topics: ${profile.news_topics.join(", ")}`,
-      (kind === "evening" || kind === "weekly") && recentMemories?.length && `Saved in ORBIT recently (do not cite these): ${recentMemories.filter((m) => isCurrent(m, { now: Date.now() })).map((m) => m.title).join("; ")}`,
+      wantsMemories && recentMemories?.length && `Saved in ORBIT recently (do not cite these): ${recentMemories.filter((m) => isCurrent(m, { now: Date.now() })).map((m) => m.title).join("; ")}`,
     ].filter(Boolean).join("\n");
 
     const prompt = `USER CONTEXT:\n${context || "(no profile yet)"}\n\nNEWS EVENTS (newest ${WINDOW_HOURS[kind]}h, grouped):\n${events.join("\n\n")}`;

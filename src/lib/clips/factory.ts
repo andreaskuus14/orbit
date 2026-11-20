@@ -116,7 +116,17 @@ const eventsLib = () => import("./audio-events").then((m) => m.audioEventsAvaila
 /** Any transcriber: Parakeet or Whisper. */
 export const hasTranscriber = async () => (await parakeetLib()) || (await whisperLib()) === null;
 
+// GET /api/studio/clips polls every 2-5 s and each call probed ffmpeg, yt-dlp (a PATH scan), Parakeet and Whisper again. An all-OK
+// answer is reused for 30 s; anything missing is re-checked every call, so a fresh install shows at once. ORBIT_TOOLS_CACHE=0 = off.
+const TC = globalThis as unknown as { __orbitToolsOk?: { at: number; v: ToolsStatus } };
 export async function checkTools(): Promise<ToolsStatus> {
+  const hit = TC.__orbitToolsOk, now = Date.now();
+  if (hit && process.env.ORBIT_TOOLS_CACHE !== "0" && now - hit.at < 30_000 && now >= hit.at) return { ...hit.v, missing: [...hit.v.missing] };
+  const v = await checkToolsNow();
+  TC.__orbitToolsOk = v.ffmpeg && v.transcriber && v.ytdlp && !v.whisperErr ? { at: now, v } : undefined;
+  return v;
+}
+async function checkToolsNow(): Promise<ToolsStatus> {
   const [ffmpeg, ytdlp, parakeet, whisperErr] = await Promise.all([ffmpegPath().then(Boolean), ytdlpPath().then(Boolean), parakeetLib(), whisperLib()]);
   const transcriber = parakeet || whisperErr === null;
   if (whisperErr) console.error("[orbit] Whisper (transformers.js) doesn't load:", whisperErr);

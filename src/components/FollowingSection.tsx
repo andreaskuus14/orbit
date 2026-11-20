@@ -22,7 +22,7 @@ export function FollowingSection() {
   }, []);
   useEffect(() => {
     void load(true); // opening the panel is a visit; later reloads keep this visit's "new" badges
-    const t = setInterval(() => load(), REFRESH_MS);
+    const t = setInterval(() => { if (!document.hidden) void load(); }, REFRESH_MS);
     const on = () => void load();
     addEventListener(FOLLOWS_EVENT, on);
     return () => { clearInterval(t); removeEventListener(FOLLOWS_EVENT, on); };
