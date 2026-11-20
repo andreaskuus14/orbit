@@ -537,7 +537,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       }).catch(() => { if (!off && activityHome) setGalaxyTasksFailed(true); }).finally(() => { pending = false; });
     };
     load();
-    const t = setInterval(load, 20_000);
+    const t = setInterval(() => { if (!document.hidden) load(); }, 20_000); // hidden tab: no reads; coming back reloads at once
     document.addEventListener("visibilitychange", load);
     return () => { off = true; clearInterval(t); document.removeEventListener("visibilitychange", load); };
   }, [sb, runningTasks, view, covered, activityHome]);

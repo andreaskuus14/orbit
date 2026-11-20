@@ -52,8 +52,8 @@ async function generateMusicNow(prompt: string, seconds: number, timeoutMs: numb
         return { bytes: new Uint8Array(await r.arrayBuffer()), meta: musicMeta({ prompt, seconds: secs, seed }) };
       }
     }
-  } finally {
-    await comfyPost(u, "/free", { unload_models: true, free_memory: true }).catch(() => {});
+  } finally { // a batch of beds keeps ACE-Step loaded between beds (gpu-lock keepWarm); anything else frees the GPU now
+    await (await import("./gpu-lock")).unloadUnlessNext("music", () => comfyPost(u, "/free", { unload_models: true, free_memory: true }));
   }
 }
 

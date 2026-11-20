@@ -918,7 +918,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
     const get = () => fetch("/api/news/follows", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
       .then((j) => { if (Array.isArray(j?.countries)) setFollowed(j.countries.filter((n: string) => INDEX.has(n)).sort()); }).catch(() => {});
     get();
-    const t = setInterval(get, REFRESH_MS);
+    const t = setInterval(() => { if (!document.hidden) get(); }, REFRESH_MS); // hidden tab: skip (the next visible tick catches up)
     addEventListener(FOLLOWS_EVENT, get);
     return () => { clearInterval(t); removeEventListener(FOLLOWS_EVENT, get); };
   }, []);
@@ -955,7 +955,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
   }, [hours]);
   useEffect(() => {
     void load();
-    const t = setInterval(load, 5 * 60_000);
+    const t = setInterval(() => { if (!document.hidden) void load(); }, 5 * 60_000);
     addEventListener("orbit:news", load); // a new briefing just finished
     return () => { clearInterval(t); removeEventListener("orbit:news", load); };
   }, [load]);

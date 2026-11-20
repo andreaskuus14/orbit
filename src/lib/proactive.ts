@@ -5,6 +5,7 @@ import { BUILTIN_AGENTS, getAgent, kickQueue } from "./agents";
 import { stopAllOn } from "./stop-all";
 import { parseBasis } from "./artifact-rev-pure";
 import { PAUSED_MSG } from "./stop-all-pure";
+import { proposalsSkip, type Remembered } from "./scheduler-gate-pure";
 import { cleanProposals, extractProposalJson, isMissingTable, MAX_PENDING, MAX_PER_RUN, PROPOSAL_KINDS } from "./proactive-pure";
 
 // Proactive agents: look at the user's news, tasks, memories and activity and PROPOSE work.
@@ -17,8 +18,9 @@ const JOB = "proposals";
 const SCHEDULE_EVERY_MS = 6 * 3600_000;
 const MANUAL_COOLDOWN_MS = 10 * 60_000;
 
-const g = globalThis as unknown as { __orbitProposing?: Set<string> };
+const g = globalThis as unknown as { __orbitProposing?: Set<string>; __orbitProposalLast?: Map<string, Remembered<number>> };
 const inFlight = (g.__orbitProposing ??= new Set());
+const lastSeen = (g.__orbitProposalLast ??= new Map()); // scheduler-gate-pure: the tick re-reads job_runs only when a run could be due
 
 export class ProposalError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -32,7 +34,11 @@ async function lastRunAt(sb: SupabaseClient, userId: string): Promise<number> {
 /** Scheduler check: every 6 h, daytime only (07–23 on this PC), never while one is running. */
 export async function proposalsDue(sb: SupabaseClient, userId: string, now = new Date()) {
   if (inFlight.has(userId) || now.getHours() < 7) return false;
-  return now.getTime() - (await lastRunAt(sb, userId)) >= SCHEDULE_EVERY_MS;
+  const t = now.getTime();
+  if (process.env.ORBIT_SCHED_GATES !== "0" && proposalsSkip(lastSeen.get(userId), t, SCHEDULE_EVERY_MS)) return false;
+  const last = await lastRunAt(sb, userId);
+  lastSeen.set(userId, { value: last, at: t });
+  return t - last >= SCHEDULE_EVERY_MS;
 }
 
 /** Manual "Suggest now": same generator, but at most once per 10 minutes. */
@@ -71,7 +77,7 @@ export async function generateProposals(sb: SupabaseClient, userId: string) {
       sb.from("articles").select("title, source, topic").eq("user_id", userId).gte("fetched_at", since2).order("published_at", { ascending: false, nullsFirst: false }).limit(15),
       sb.from("briefings").select("title, content, created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       sb.from("tasks").select("title, agent, status, error, created_at").eq("user_id", userId).is("parent_id", null).order("created_at", { ascending: false }).limit(25),
-      sb.from("memories").select("title, kind, content, tags, created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(8),
+      sb.from("memories").select("title, kind, content, tags, created_at").eq("user_id", userId).neq("kind", "journal").order("created_at", { ascending: false }).limit(8), // journals never go to a model
       sb.from("events").select("type").eq("user_id", userId).gte("created_at", since2).limit(300),
     ]);
     const taskRows = tasks.data ?? [];

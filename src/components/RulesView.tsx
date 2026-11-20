@@ -33,7 +33,7 @@ export function RulesView({ onOpenTask }: { onOpenTask: (id: string) => void }) 
   const [err, setErr] = useState("");
   const load = useCallback(() => api<{ rules: Row[] }>("/api/rules").then((r) => setList(r.rules)).catch((e) => setErr(e.message)), []);
   const paused = useWorldPaused();
-  useEffect(() => { if (paused) return; void load(); const h = setInterval(() => void load(), 10_000); return () => clearInterval(h); }, [load, paused]);
+  useEffect(() => { if (paused) return; void load(); const h = setInterval(() => { if (!document.hidden) void load(); }, 10_000), back = () => { if (!document.hidden) void load(); }; document.addEventListener("visibilitychange", back); return () => { clearInterval(h); document.removeEventListener("visibilitychange", back); }; }, [load, paused]);
 
   async function post(body: object, after?: () => void) {
     if (locked.current) return;

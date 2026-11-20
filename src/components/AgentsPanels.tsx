@@ -417,7 +417,7 @@ export function AgentsPanel({ onOpenTask }: { onOpenTask: (id: string) => void }
     catch (e) { setErr(e instanceof Error ? e.message : "Could not load"); }
   }, []);
   const paused = useWorldPaused();
-  useEffect(() => { if (paused) return; void load(); const h = setInterval(() => void load(), 5000); return () => clearInterval(h); }, [load, paused]);
+  useEffect(() => { if (paused) return; void load(); const h = setInterval(() => { if (!document.hidden) void load(); }, 5000), back = () => { if (!document.hidden) void load(); }; document.addEventListener("visibilitychange", back); return () => { clearInterval(h); document.removeEventListener("visibilitychange", back); }; }, [load, paused]);
   useEffect(() => {
     if (!sel) return;
     api<{ tasks: Task[] }>(`/api/tasks?agent=${sel}`).then((r) => setTasks(r.tasks)).catch((e) => setErr(e.message));
@@ -545,7 +545,7 @@ export function AutomationsView({ agents, onOpenTask }: { agents: AutomationAgen
   const cancel = () => { setDraft(null); setEditing(null); setErr(""); };
   const load = useCallback(() => api<{ automations: Automation[] }>("/api/automations").then((r) => setList(r.automations)).catch((e) => setErr(e.message)), []);
   const paused = useWorldPaused();
-  useEffect(() => { if (paused) return; void load(); const h = setInterval(() => void load(), 5000); return () => clearInterval(h); }, [load, paused]);
+  useEffect(() => { if (paused) return; void load(); const h = setInterval(() => { if (!document.hidden) void load(); }, 5000), back = () => { if (!document.hidden) void load(); }; document.addEventListener("visibilitychange", back); return () => { clearInterval(h); document.removeEventListener("visibilitychange", back); }; }, [load, paused]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();

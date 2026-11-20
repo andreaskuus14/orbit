@@ -47,7 +47,7 @@ function ui(options: { failSave?: boolean; failRun?: boolean } = {}) {
     useEffect(f: () => any, deps: any[]) { const i = cursor++, old = hooks[i]; if (!old || deps.some((x, n) => x !== old.deps[n])) effects.push(() => { old?.cleanup?.(); hooks[i] = { deps, cleanup: f() }; }); },
   };
   const m = { exports: {} as any };
-  runInNewContext(compile("AgentsPanels"), { module: m, exports: m.exports, Error, confirm: () => true, setInterval: () => 1, clearInterval() {},
+  runInNewContext(compile("AgentsPanels"), { module: m, exports: m.exports, Error, confirm: () => true, setInterval: () => 1, clearInterval() {}, document: { hidden: false, addEventListener() {}, removeEventListener() {} },
     require: (name: string) => name === "react" ? react : name.endsWith("automation-edit-pure") ? edit : name.endsWith("automation-preview-pure") ? preview : name.endsWith("business-loop-pure") ? businessLoop : name.endsWith("AutomationFields") ? fieldsModule.exports : name.endsWith("world-paused") ? { useWorldPaused: () => false } : name === "./i18n" ? { useT: () => ({ t: (k: Parameters<typeof translate>[1], v?: Record<string, string | number>) => translate("en", k, v), tn: (b: string, n: number) => translate("en", `${b}.${n === 1 ? "one" : "other"}` as Parameters<typeof translate>[1], { n }) }) } : name === "react/jsx-runtime" ? require(name) : {},
     fetch: async (_url: string, init: any = {}) => {
       const method = init.method ?? "GET", body = init.body ? JSON.parse(init.body) : null;

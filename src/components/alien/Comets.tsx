@@ -21,7 +21,7 @@ export function Comets({ level, reduced, onSelect }: { level: number; reduced: b
     let live = true;
     const load = () => fetch("/api/comets").then((r) => (r.ok ? r.json() : null)).then((j) => { if (live && Array.isArray(j?.comets)) setItems(j.comets.slice(0, MAX_COMETS)); }).catch(() => {});
     load();
-    const t = setInterval(load, 10 * 60_000);
+    const t = setInterval(() => { if (!document.hidden) load(); }, 10 * 60_000);
     return () => { live = false; clearInterval(t); };
   }, [on]);
   // Tail along +y of the cone, pointing away from the CORE (the CORE is the sun).

@@ -17,20 +17,31 @@ import { maybeScorecard } from "./agent-replay";
 import { maybeArchDigest } from "./arch-digest";
 import { allows, tickAutonomy } from "./autonomy";
 import { beat } from "./host-heartbeat";
+import { briefingsSkip, sweepDue, type Remembered } from "./scheduler-gate-pure";
 
 // Server-side scheduler (briefings + automations): runs inside the ORBIT server process (npm run dev / npm start), so briefings
 // happen without a browser open. It needs SUPABASE_SECRET_KEY to act for the user with no session.
 // Missed slots (PC asleep) are caught up within a few hours (the morning brief: any time that day), never twice.
 
 const TICK_MS = 60_000;
-const g = globalThis as unknown as { __orbitScheduler?: NodeJS.Timeout; __orbitTick?: unknown; __orbitBusy?: boolean; __orbitWarned?: boolean; __orbitCapsuleFallback?: boolean; __orbitBriefSkip?: boolean };
+const g = globalThis as unknown as { __orbitScheduler?: NodeJS.Timeout; __orbitTick?: unknown; __orbitBusy?: boolean; __orbitWarned?: boolean; __orbitCapsuleFallback?: boolean; __orbitBriefSkip?: boolean;
+  __orbitUsers?: { at: number; ids: { id: string }[] }; __orbitBriefLast?: Map<string, Remembered<Partial<Record<BriefingKind, string>>>>; __orbitExpiryAt?: Map<string, number> };
+// Gates (scheduler-gate-pure.ts): reads whose answer can't have changed are skipped. ORBIT_SCHED_GATES=0 = read every tick, as before.
+const gates = () => process.env.ORBIT_SCHED_GATES !== "0";
+const USERS_MS = 10 * 60_000, EXPIRY_MS = 10 * 60_000; // the owner list; approval expiry (a 48 h rule) checked every 10 min
+const briefLast = (g.__orbitBriefLast ??= new Map()), expiryAt = (g.__orbitExpiryAt ??= new Map());
 
 async function tick(sb: SupabaseClient) {
   if (g.__orbitBusy) return;
   g.__orbitBusy = true;
   try {
-    const { data: users, error } = await sb.from("profiles").select("id");
-    if (error) throw error;
+    let users = gates() && !sweepDue(g.__orbitUsers?.at, Date.now(), USERS_MS) ? g.__orbitUsers!.ids : null;
+    if (!users) {
+      const { data, error } = await sb.from("profiles").select("id");
+      if (error) throw error;
+      users = data ?? [];
+      g.__orbitUsers = { at: Date.now(), ids: users };
+    }
     // Event-triggered automations first (they should feel instant), then scheduled ones, then briefings.
     await handleEvents(sb).catch((e) => console.error("[orbit] automation events failed:", e?.message ?? e)); // still advances its cursor: startAutomation refuses while Stop-all is on
     void import("./ntfy").then((m) => m.tickNtfy(sb)); // phone notifications for finished/failed/waiting tasks; drops them while Stop-all is on
@@ -46,34 +57,37 @@ async function tick(sb: SupabaseClient) {
       if (id === users?.[0]?.id) await import("./rules").then((r) => r.tickRules(sb, [id])); // standing rules (Agents → Rules); never throws
       void kickQueue(sb, id); // tasks still queued after a restart (the in-process queue is gone) start again
       void import("./bg-resume").then((m) => m.resumeBackgroundTurns(sb, id)); // background CORE turns a restart cut off (bg-resume-pure.ts)
-      void import("./approval-expiry").then((m) => m.expireApprovals(sb, id)); // agent approvals unanswered for 48 h → rejected, never approved
+      if (!gates() || sweepDue(expiryAt.get(id), Date.now(), EXPIRY_MS)) { expiryAt.set(id, Date.now()); void import("./approval-expiry").then((m) => m.expireApprovals(sb, id)); } // agent approvals unanswered for 48 h → rejected, never approved
       void import("./plan-jobs").then((m) => { void m.tickPlanJobs(sb, id); void m.tickStudioPlans(); }); // plan-file jobs + STUDIO plans (Autonomy-gated): one step per session, resumed from their plan file
       void nightOwnsCompany().then((night) => resumeChains(sb, id, night)).catch((e) => console.error("[orbit] agent teams resume failed:", e?.message ?? e)); // continue after approvals/restarts
       // Goals without a browser: one step per goal per tick; inside the night-shift window the night shift owns them (its switch and budget).
       // Goals Off/Ask in Profile → Autonomy: no unattended steps; his Continue click and opening ORBIT (owner lane) still advance them.
       if (allows("goals", "background").ok) void nightOwnsCompany().then((night) => night ? undefined : import("./goals").then((m) => m.resumeGoals(sb, id, 1))).catch((e) => console.error("[orbit] goals resume failed:", e?.message ?? e));
       void import("./missions").then((m) => m.resumeMissions(sb, id)).catch((e) => console.error("[orbit] missions resume failed:", e?.message ?? e));
-      const since = new Date(Date.now() - 8 * 86400_000).toISOString();
-      const { data: recent } = await sb.from("briefings").select("kind, created_at").eq("user_id", id).gte("created_at", since).order("created_at", { ascending: false });
-      // Failed attempts count as "ran" too, so a broken feed doesn't retry every minute.
-      const { data: failed } = await sb.from("job_runs").select("detail, started_at").eq("user_id", id).eq("job", "pulse").eq("status", "failed").gte("started_at", since);
-      const last: Partial<Record<BriefingKind, string>> = {};
-      for (const b of recent ?? []) last[b.kind as BriefingKind] ??= b.created_at;
-      for (const f of failed ?? []) {
-        const k = (f.detail ?? "").split(":")[0] as BriefingKind;
-        if (!last[k] || last[k]! < f.started_at) last[k] = f.started_at;
-      }
       // Briefings & digests Off/Ask/Stop-all: due slots are skipped, not run and not recorded as failed (no retry loop); his own Refresh still works.
       const brief = allows("briefings", "background");
-      const due = dueSlots(new Date(), last);
-      if (!brief.ok && due.length && !g.__orbitBriefSkip) console.log(`[orbit] scheduled briefings skipped: ${brief.why}`);
-      g.__orbitBriefSkip = !brief.ok && due.length > 0;
-      for (const kind of brief.ok ? due : []) {
-        console.log(`[orbit] scheduled ${kind} briefing starting`);
-        await runPulse(sb, id, kind).then(
-          (r) => console.log(`[orbit] ${kind} briefing ready (${r.briefing.article_count} articles)`),
-          (e) => console.error(`[orbit] ${kind} briefing failed:`, e instanceof Error ? e.message : e),
-        );
+      if (!(gates() && briefingsSkip(briefLast.get(id), new Date()))) { // no slot due even with the remembered runs: the database would agree (runs only get added)
+        const since = new Date(Date.now() - 8 * 86400_000).toISOString();
+        const { data: recent } = await sb.from("briefings").select("kind, created_at").eq("user_id", id).gte("created_at", since).order("created_at", { ascending: false });
+        // Failed attempts count as "ran" too, so a broken feed doesn't retry every minute.
+        const { data: failed } = await sb.from("job_runs").select("detail, started_at").eq("user_id", id).eq("job", "pulse").eq("status", "failed").gte("started_at", since);
+        const last: Partial<Record<BriefingKind, string>> = {};
+        for (const b of recent ?? []) last[b.kind as BriefingKind] ??= b.created_at;
+        for (const f of failed ?? []) {
+          const k = (f.detail ?? "").split(":")[0] as BriefingKind;
+          if (!last[k] || last[k]! < f.started_at) last[k] = f.started_at;
+        }
+        briefLast.set(id, { value: last, at: Date.now() });
+        const due = dueSlots(new Date(), last);
+        if (!brief.ok && due.length && !g.__orbitBriefSkip) console.log(`[orbit] scheduled briefings skipped: ${brief.why}`);
+        g.__orbitBriefSkip = !brief.ok && due.length > 0;
+        for (const kind of brief.ok ? due : []) {
+          console.log(`[orbit] scheduled ${kind} briefing starting`);
+          await runPulse(sb, id, kind).then(
+            (r) => console.log(`[orbit] ${kind} briefing ready (${r.briefing.article_count} articles)`),
+            (e) => console.error(`[orbit] ${kind} briefing failed:`, e instanceof Error ? e.message : e),
+          );
+        }
       }
       // Proactive suggestions (every 6 h, daytime) — after briefings so they see the freshest news.
       if (brief.ok && !usageHold() && await proposalsDue(sb, id).catch(() => false)) { // background lane: waits near the usage budget / after a limit

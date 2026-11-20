@@ -2,6 +2,7 @@ import { safeFetch } from "./memory";
 import { bareHeadline, bingNewsUrl, decodeGoogleNewsId, hostMatchesSource, extractArticle, extractLinks, parseFeed, sameHeadline } from "./pure";
 import { renderPage } from "./browser";
 import { googleNewsSearchUrl, googleNewsTopUrl, isEditionOf, LOCAL_FEEDS } from "./local-news-pure";
+import { createTtlCache, envOn } from "./ttl-cache-pure";
 
 // Turning news links into readable full articles. Google News RSS wraps every link in a news.google.com
 // redirect; we unwrap it (old ids decode locally, new ids go through the same endpoint Google's own page uses).
@@ -75,7 +76,17 @@ export async function resolveNewsUrl(url: string, hint?: NewsHint): Promise<stri
 /** Full text of a web page or news article (main content only). Plain download first; if that gets
  *  nothing readable (JavaScript-built page, bot wall), the hidden browser loads it. Null if both fail. */
 export type Page = { url: string; title: string; text: string; links: { text: string; url: string }[] };
+// Article text cache: the morning/midday/evening briefings and the citation check re-read many of the same top stories.
+// A published article doesn't change within hours; only readable results are kept (a failure is retried). ORBIT_ARTICLE_CACHE=0 = off.
+const AC = globalThis as unknown as { __orbitArticles?: ReturnType<typeof createTtlCache<Page | null>> };
+const articles = (AC.__orbitArticles ??= createTtlCache<Page | null>({ max: 400, ttlMs: 6 * 3_600_000 }));
 export async function readArticle(url: string, maxChars = 4000, useBrowser = true, hint?: NewsHint): Promise<Page | null> {
+  // Long reads (an agent's read_url, 40k) always go live: a page it opens may be a price or status that just changed.
+  if (maxChars > 4000 || !envOn(process.env.ORBIT_ARTICLE_CACHE)) return readArticleNow(url, maxChars, useBrowser, hint);
+  const p = await articles.memo(`${maxChars}|${useBrowser ? 1 : 0}|${url}`, () => readArticleNow(url, maxChars, useBrowser, hint));
+  return p && { ...p, links: [...p.links] }; // a copy: callers may rewrite fields
+}
+async function readArticleNow(url: string, maxChars: number, useBrowser: boolean, hint?: NewsHint): Promise<Page | null> {
   let real = url;
   let plain: Page | null = null;
   try {

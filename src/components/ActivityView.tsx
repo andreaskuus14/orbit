@@ -24,7 +24,7 @@ export function ActivityView({ onOpenTask }: { onOpenTask: (id: string) => void 
     } catch (e) { setErr(e instanceof Error ? e.message : "Could not load"); }
   }, [area]);
   const paused = useWorldPaused();
-  useEffect(() => { if (paused) return; void load(); const h = setInterval(() => void load(), 45_000); return () => clearInterval(h); }, [load, paused]);
+  useEffect(() => { if (paused) return; void load(); const h = setInterval(() => { if (!document.hidden) void load(); }, 45_000), back = () => { if (!document.hidden) void load(); }; document.addEventListener("visibilitychange", back); return () => { clearInterval(h); document.removeEventListener("visibilitychange", back); }; }, [load, paused]);
 
   const open = (x: ActItem) => {
     if (x.link?.task) onOpenTask(x.link.task);

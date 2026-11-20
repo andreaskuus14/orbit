@@ -1,7 +1,9 @@
 // Embeddings for memory search, 1024 dims to match the DB column. Two providers (embeddings-pure.ts picks):
 // - local (default without a Voyage key): EmbeddingGemma-300M on this PC via transformers.js, q8, ~200 ms each. Free, offline.
 // - voyage: the hosted API, kept for existing installs so stored vectors stay comparable until re-embedded (POST /api/memories/reembed).
+import { createHash } from "node:crypto";
 import { chunkText, gemmaInput, journalsComparable, meanVector, padTo, provider } from "./embeddings-pure";
+import { createTtlCache, envOn } from "./ttl-cache-pure";
 
 export const embeddingsEnabled = () => true; // the local model is always available; a load failure just returns null below
 export const embeddingProvider = () => provider({ ORBIT_EMBED: process.env.ORBIT_EMBED, VOYAGE_API_KEY: process.env.VOYAGE_API_KEY });
@@ -25,8 +27,19 @@ async function voyage(text: string, inputType: "document" | "query"): Promise<nu
   return vec && vec.length === 1024 ? vec : null;
 }
 
+// Query vectors are deterministic per (provider, text): CORE embeds the same question twice per turn (memories + chat
+// summaries, core.ts prep), so one in-flight/10-minute cache serves both. Keyed by a hash, never the text. ORBIT_EMBED_CACHE=0 = off.
+const Q = globalThis as unknown as { __orbitQueryVecs?: ReturnType<typeof createTtlCache<number[] | null>> };
+const queryVecs = (Q.__orbitQueryVecs ??= createTtlCache<number[] | null>({ max: 200, ttlMs: 10 * 60_000 }));
+
 /** `kind` is the memory's kind when embedding a stored memory; a "journal" one never goes to the hosted provider. */
 export async function embed(text: string, inputType: "document" | "query", kind?: string): Promise<number[] | null> {
+  if (inputType !== "query" || !envOn(process.env.ORBIT_EMBED_CACHE)) return embedNow(text, inputType, kind);
+  const key = createHash("sha256").update(`${embeddingProvider()}\0${kind ?? ""}\0${text}`).digest("hex");
+  return queryVecs.memo(key, () => embedNow(text, inputType, kind)).then((v) => (v ? [...v] : v)); // a copy: callers may not share one array
+}
+
+async function embedNow(text: string, inputType: "document" | "query", kind?: string): Promise<number[] | null> {
   // Hosted Voyage has a long window: it still gets the first 8k chars. The local model (2k-token window) embeds a long
   // document in chunks and stores their normalized mean as the one vector (no schema change; the tail is no longer ignored).
   const t = text.slice(0, 8_000);

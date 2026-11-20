@@ -2,7 +2,7 @@
 // Callers: comfy.ts generate (pictures), trellis.ts trellisModel (3D), clips/factory.ts renderClip (only when encoding with NVENC).
 // Quick health checks never take it. Stop-all rejects everyone still waiting; holders stop by themselves and release.
 import { stopAllOn } from "./stop-all.ts";
-import { beat, drop, emptyGpu, enqueue, gpuSlots, gpuStatus, holds, tick, waitText, type GpuKind, type GpuState, type GpuStatus } from "./gpu-lock-pure.ts";
+import { beat, busyWith, drop, emptyGpu, keepWarm, enqueue, gpuSlots, gpuStatus, holds, tick, waitText, type GpuKind, type GpuState, type GpuStatus } from "./gpu-lock-pure.ts";
 
 type Pending = { resolve: () => void; reject: (e: Error) => void; onWait?: (text: string) => void; shown: string; kind: GpuKind };
 type G = { state: GpuState; pending: Map<string, Pending>; timer?: NodeJS.Timeout; n: number };
@@ -85,3 +85,12 @@ export function pause(ms: number, signal?: AbortSignal): Promise<void> {
 
 /** The error to throw when a GPU job's signal aborted (its reason when that is an Error). */
 export const abortError = (signal: AbortSignal) => (signal.reason instanceof Error ? signal.reason : new Error("Cancelled"));
+
+/** End of a music/video job: unload now, unless the next GPU waiter is the same kind (keepWarm). Then the unload is only
+ *  postponed: 3 min later it runs unless a job of that kind is still holding or waiting (its own end decides again). */
+export function unloadUnlessNext(kind: GpuKind, unload: () => Promise<unknown>): Promise<unknown> {
+  if (!keepWarm(G().state, kind, process.env.ORBIT_GPU_KEEP_WARM !== "0")) return unload().catch(() => {});
+  const t = setTimeout(() => { if (!busyWith(G().state, kind)) void unload().catch(() => {}); }, 3 * 60_000);
+  t.unref?.();
+  return Promise.resolve();
+}

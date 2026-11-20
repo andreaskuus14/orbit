@@ -68,3 +68,10 @@ export function gpuStatus(s: GpuState, now: number): GpuStatus {
     : "GPU free";
   return { busy: holders.length > 0, text, holders, waiting };
 }
+
+/** Keep a heavy model loaded after a job: only when the very next waiter is the same kind (a batch of beds or clips), so the
+ *  next job skips a ~10 GB reload. Any other next job, or none, still gets the GPU freed first. on=false (ORBIT_GPU_KEEP_WARM=0): never. */
+export const keepWarm = (s: GpuState, kind: GpuKind, on = true): boolean => on && s.queue[0]?.kind === kind;
+
+/** True while a job of this kind holds or waits for the GPU (a delayed unload then leaves the models to that job's own end). */
+export const busyWith = (s: GpuState, kind: GpuKind): boolean => s.holders.some((h) => h.kind === kind) || s.queue.some((w) => w.kind === kind);
