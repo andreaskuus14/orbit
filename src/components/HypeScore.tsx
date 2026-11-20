@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { HypeView } from "@/lib/clips/hype-pure";
 import type { Virality } from "@/lib/clips/score-pure";
 import { mmss } from "@/lib/clips/format";
+import { useT } from "./i18n";
 
 // STUDIO hype + virality visuals: HypeWave (a job's stream-long hype curve with its clips marked) and ScoreRing / ScoreWhy (a clip's
 // personal virality score and the factors behind it). Data comes on the job (job.hype) and the clip (clip.virality); see hype-pure.ts, score-pure.ts.
@@ -32,7 +33,7 @@ type Mark = { id: string; start: number; end: number; title: string; score?: num
 
 /** The stream's hype over time, picked clips as luminous bands: hover shows the clip, click jumps to its card. */
 export function HypeWave({ hype, duration, clips, reduced, onPick }: { hype: HypeView; duration: number; clips: Mark[]; reduced: boolean; onPick: (id: string) => void }) {
-  const uid = useId().replace(/:/g, ""), [hover, setHover] = useState<string | null>(null);
+  const uid = useId().replace(/:/g, ""), [hover, setHover] = useState<string | null>(null), { t: tr } = useT();
   const total = Math.max(1, duration || hype.curve.length * hype.bucketSec);
   const x = (sec: number) => (sec / total) * W, y = (v: number) => H - v * (H - TOP);
   const pts = hype.curve.map((v, i): [number, number] => [x((i + 0.5) * hype.bucketSec), y(v)]);
@@ -40,11 +41,12 @@ export function HypeWave({ hype, duration, clips, reduced, onPick }: { hype: Hyp
   const chatMax = Math.max(1, ...(hype.chat ?? [0]));
   const chat = hype.chat && smoothPath(hype.chat.map((v, i) => [x((i + 0.5) * hype.bucketSec), y((v / chatMax) * 0.92)]));
   const audio = smoothPath(hype.audio.map((v, i) => [x((i + 0.5) * hype.bucketSec), y(v * 0.85)]));
+  const replay = hype.replay && smoothPath(hype.replay.map((v, i) => [x((i + 0.5) * hype.bucketSec), y(v * 0.9)])); // YouTube "Most replayed"
   const top = [...hype.peaks].sort((a, b) => b.height - a.height).slice(0, 3);
   const summary = top.length
     ? `Biggest moments: ${top.map((p) => `${mmss(p.t)}${p.reasons.length ? ` (${p.reasons.join(", ")})` : ""}`).join("; ")}.`
     : "No clear hype spikes in this stream.";
-  const source = hype.chatMsgs ? `${hype.chatFrom ?? "Chat replay"} · ${hype.chatMsgs.toLocaleString()} messages · chat delay ${hype.delay} s` : "Audio only";
+  const source = (hype.chatMsgs ? `${hype.chatFrom ?? "Chat replay"} · ${hype.chatMsgs.toLocaleString()} messages · chat delay ${hype.delay} s` : "Audio only");
   const hov = clips.find((c) => c.id === hover);
 
   return (
@@ -74,6 +76,7 @@ export function HypeWave({ hype, duration, clips, reduced, onPick }: { hype: Hyp
           <g className={reduced ? "" : "hype-sweep"}>{/* draw-in: a left-to-right sweep, like a seismograph */}
           {area && <path d={area} fill={`url(#${uid}-fill)`} />}
           <path d={audio} fill="none" stroke="#c084fc" strokeOpacity="0.45" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+          {replay && <path d={replay} fill="none" stroke="#7ee0b5" strokeOpacity="0.7" strokeWidth="1.25" strokeDasharray="1 3" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
           {chat && <path d={chat} fill="none" stroke="#ffd6e0" strokeOpacity="0.5" strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />}
           {line && <path d={line} fill="none" stroke={`url(#${uid}-heat)`} strokeWidth="5" opacity="0.55" filter={`url(#${uid}-glow)`} vectorEffect="non-scaling-stroke" />}
           {line && <path d={line} fill="none" stroke={`url(#${uid}-heat)`} strokeWidth="2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
@@ -96,7 +99,7 @@ export function HypeWave({ hype, duration, clips, reduced, onPick }: { hype: Hyp
         )}
       </div>
       <div className="num mt-0.5 flex justify-between text-[10px]" style={{ color: "rgba(255,214,224,0.45)" }} aria-hidden>
-        <span>0:00</span><span className="hype-legend"><i style={{ background: "linear-gradient(90deg,#a855f7,#ff2e63,#ffb347)" }} />hype<i className="dash" />chat<i style={{ background: "#c084fc" }} />audio</span><span>{mmss(total)}</span>
+        <span>0:00</span><span className="hype-legend"><i style={{ background: "linear-gradient(90deg,#a855f7,#ff2e63,#ffb347)" }} />hype<i className="dash" />chat<i style={{ background: "#c084fc" }} />audio{hype.replay && <><i style={{ background: "#7ee0b5" }} />{tr("cf.replayedLegend")}</>}</span><span>{mmss(total)}</span>
       </div>
       <p className="muted mt-1 text-[11px] leading-snug">{summary}{hype.hint ? ` ${hype.hint}.` : ""}</p>
     </figure>

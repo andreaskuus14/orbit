@@ -293,7 +293,7 @@ export const peakInside = (m: { start: number; end: number }, peaks: HypePeak[])
 
 // ---- stored on the job, for the UI ----
 
-export type HypeView = { v: 1; bucketSec: number; curve: number[]; chat?: number[]; audio: number[]; peaks: HypePeak[]; delay: number; chatMsgs: number; chatFrom?: string; hint?: string };
+export type HypeView = { v: 1; bucketSec: number; curve: number[]; chat?: number[]; replay?: number[] /* YouTube "Most replayed", 0..1 (moments-pure) */; audio: number[]; peaks: HypePeak[]; delay: number; chatMsgs: number; chatFrom?: string; hint?: string };
 
 /** Downsampled to ≤ maxPts buckets (bucket = its max: peaks stay visible), curve/audio 0..1, chat as × usual (capped 10). */
 export function packHype(h: Hype, o: { chatFrom?: string; hint?: string } = {}, maxPts = 480): HypeView {

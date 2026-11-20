@@ -249,12 +249,12 @@ test("ytdlpArgs keeps the URL last, after --", () => {
 
 test("validOptions and isDownloadId", () => {
   assert.deepEqual(validOptions({}), { count: 5, maxSec: 45, captions: true, layout: "follow", camSide: "right", camSize: 0.3, jumpCuts: true, zooms: true, language: "en",
-    coldOpen: true, progressBar: false, loopEnd: true, preset: "viral" });
+    coldOpen: true, progressBar: false, loopEnd: true, preset: "viral", focus: "auto" });
   assert.match(validOptions({ coldOpen: "yes" }) as string, /coldOpen/);
   assert.equal((validOptions({ progressBar: true }) as { progressBar: boolean }).progressBar, true);
   assert.deepEqual(validOptions({ layout: "split", camSide: "left", jumpCuts: false, zooms: false, language: "auto" }),
-    { count: 5, maxSec: 45, captions: true, layout: "split", camSide: "left", camSize: 0.3, jumpCuts: false, zooms: false, language: "auto", coldOpen: true, progressBar: false, loopEnd: true, preset: "viral" });
-  for (const bad of [{ count: 11 }, { captions: "yes" }, { layout: "zoom" }, { camSide: "top" }, { jumpCuts: 1 }, { zooms: null }, { language: "de" }, { preset: "funny" }])
+    { count: 5, maxSec: 45, captions: true, layout: "split", camSide: "left", camSize: 0.3, jumpCuts: false, zooms: false, language: "auto", coldOpen: true, progressBar: false, loopEnd: true, preset: "viral", focus: "auto" });
+  for (const bad of [{ count: 11 }, { captions: "yes" }, { layout: "zoom" }, { camSide: "top" }, { jumpCuts: 1 }, { zooms: null }, { language: "de" }, { preset: "funny" }, { focus: "racing" }])
     assert.equal(typeof validOptions(bad), "string", JSON.stringify(bad));
   assert.ok(isDownloadId("dl-mgr1abc-a1b2c3"));
   assert.ok(!isDownloadId("../x"));
