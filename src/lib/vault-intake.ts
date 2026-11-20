@@ -1,5 +1,5 @@
 // VAULT intake IO: incoming invoice / purchase order → fields with page + quote, saved as a sidecar <vault>/.intake/<file id>.json.
-// Private documents: text per page (extract.ts worker), OCR for scanned pages (Local AI / Docling on this PC), one call to the
+// Private documents: text per page (extract.ts worker), OCR for scanned pages (GLM-OCR in Ollama on this PC, ocr.ts; Docling in Local AI as the fallback), one call to the
 // local model (Ollama on this PC). Never Claude or any cloud API: this file must not import claude.ts (tests/vault-intake.test.ts).
 // Read-only: the original file is only read; nothing is paid, sent or created from the result.
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
@@ -57,10 +57,17 @@ export async function runIntake(name: unknown, signal?: AbortSignal): Promise<Si
   const pages = type === "application/pdf" ? await extractPages(bytes, type) : [""];
   const scanned = pages.map(needsOcr);
   if (scanned.some(Boolean)) {
-    assertLocal(ocrUrl, "Local AI (OCR)");
-    const { ocrPages } = await import("./local-ai.ts");
-    const ocr = await ocrPages(bytes, n).catch((e: unknown) => { throw new VaultError(`OCR on this PC failed: ${e instanceof Error ? e.message : e}`, 502); });
-    pages.forEach((_, i) => { if (scanned[i]) pages[i] = ocr[i] ?? ""; });
+    assertLocal(ocrUrl, "Local AI (OCR)"); // page pictures and the Docling fallback both go through it: refuse before any request
+    // Preferred: GLM-OCR through the Ollama on this PC (ocr.ts); Docling's OCR is the fallback when that model isn't pulled.
+    const { ocrReady, ocrDocument } = await import("./ocr.ts");
+    if (await ocrReady()) {
+      const r = await ocrDocument(bytes, n, { scanned, signal }).catch((e: unknown) => { throw new VaultError(`OCR on this PC failed: ${e instanceof Error ? e.message : e}`, 502); });
+      pages.forEach((_, i) => { if (scanned[i]) pages[i] = r.pages[i] ?? ""; });
+    } else {
+      const { ocrPages } = await import("./local-ai.ts");
+      const ocr = await ocrPages(bytes, n).catch((e: unknown) => { throw new VaultError(`OCR on this PC failed: ${e instanceof Error ? e.message : e}`, 502); });
+      pages.forEach((_, i) => { if (scanned[i]) pages[i] = ocr[i] ?? ""; });
+    }
   }
   assertLocal(llm, "the local model URL");
   const { prompt, partial } = intakePrompt(pages);

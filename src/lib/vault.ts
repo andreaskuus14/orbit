@@ -210,6 +210,7 @@ export function purgeTrash(id: unknown): Promise<void> {
     await unlink(path.join(vaultDir(), TRASH_DIR, id as string)).catch((e) => { if (e?.code !== "ENOENT") throw e; });
     await updateMeta((m) => { m.trash = m.trash.filter((x) => x.id !== id); });
     await unlink(path.join(vaultDir(), ".intake", `${id}.json`)).catch(() => {}); // its invoice/PO intake sidecar (vault-intake.ts), keyed by file id
+    await unlink(path.join(vaultDir(), ".ocr", `${id}.json`)).catch(() => {}); // its OCR text cache (vault-ocr.ts)
   });
 }
 
@@ -347,7 +348,13 @@ export async function searchVaultInfo(q: string, limit = 10): Promise<{ results:
 export async function readVaultText(name: string, maxChars = 8000): Promise<string | null> {
   try {
     name = path.basename(await filePath(name)); // a renamed file's old name still resolves
-    if (extractType(name, DOCX)) return ((await freshIndex())[name]?.text ?? "").slice(0, maxChars) || null;
+    if (extractType(name, DOCX)) {
+      const t = ((await freshIndex())[name]?.text ?? "").slice(0, maxChars);
+      if (t.replace(/\s/g, "").length >= 20 || !/\.pdf$/i.test(name)) return t || null;
+      // A scanned PDF has no text layer: read it by OCR on this PC (vault-ocr.ts; null when OCR isn't set up)
+      return (await (await import("./vault-ocr.ts")).ocrVaultText(name))?.slice(0, maxChars) ?? (t || null);
+    }
+    if (kindOf(name) === "image") return (await (await import("./vault-ocr.ts")).ocrVaultText(name))?.slice(0, maxChars) ?? null; // photo of a receipt, a scanned page
     if (kindOf(name) === "text") return (await previewText(name, Math.max(PREVIEW_BYTES, maxChars * 4))).text.slice(0, maxChars); // up to 4 UTF-8 bytes a char
     return null;
   } catch { return null; }

@@ -173,7 +173,7 @@ export const TOOLS: Record<string, Tool> = {
     },
   },
   vault_read: {
-    description: "Read a VAULT file's text (text, PDF or Word) by its exact name from vault_search. Cite it by file name.",
+    description: "Read a VAULT file's text (text, PDF or Word; scanned PDFs and photos are read by OCR on his PC when set up) by its exact name from vault_search. Cite it by file name.",
     input: '{"name": string}',
     run: async (_, i) => {
       const name = s(i.name, 120);

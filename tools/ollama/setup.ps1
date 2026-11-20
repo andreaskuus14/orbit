@@ -2,9 +2,10 @@
 # Run from the ORBIT folder:  powershell -ExecutionPolicy Bypass -File tools\ollama\setup.ps1
 #   -Model qwen3.5:9b the model to pull (default; Apache-2.0, 6.6 GB, text + image input, fits an 8 GB GPU)
 #   With the default 9B it also pulls qwen3.5:4b (3.3 GB): ORBIT switches to it by itself while pictures/3D/video hold the GPU
+#   -Ocr              also pull glm-ocr (GLM-OCR 0.9B, MIT, ~2.7 GB): ORBIT then reads scanned PDFs and photos of receipts on this PC
 #   -Private          removed: journal text never goes to any model, so this does nothing (accepted so old commands still run)
 # No admin rights needed: Ollama installs into your user folder.
-param([string]$Model = "qwen3.5:9b", [switch]$Private)
+param([string]$Model = "qwen3.5:9b", [switch]$Private, [switch]$Ocr)
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -51,6 +52,14 @@ if ($Model -eq "qwen3.5:9b") {
   Write-Host "Pulling qwen3.5:4b (3.3 GB, used automatically while another job holds the GPU)..."
   & $ollama pull "qwen3.5:4b"
   if ($LASTEXITCODE -ne 0) { Write-Host "qwen3.5:4b didn't download; the 9B model still works (run: ollama pull qwen3.5:4b later)." -ForegroundColor Yellow }
+}
+
+# 3c. Optional: document OCR model (a failed pull here never undoes the chat model above)
+if ($Ocr) {
+  Write-Host "Pulling glm-ocr (document OCR, about 2.7 GB)..."
+  & $ollama pull glm-ocr
+  if ($LASTEXITCODE -ne 0) { Write-Host "ollama pull glm-ocr failed: run this script again with -Ocr. Scanned pages fall back to Docling meanwhile." -ForegroundColor Yellow }
+  else { Write-Host "glm-ocr ready: OPERATIONS -> Doctor shows 'Document OCR: ready'." -ForegroundColor Green }
 }
 
 # 4. Test reply

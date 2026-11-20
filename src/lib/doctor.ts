@@ -226,6 +226,8 @@ export async function runDoctor(sb: SupabaseClient): Promise<Report> {
     Promise.resolve(latencyCheck(coreTurns)),
     // Shared 8 GB GPU lease (gpu-lock.ts): informational, busy is normal while a picture, 3D model or render runs.
     guard("gpu", "Shared GPU (local AI, renders)", async () => { const g = (await import("./gpu-lock")).gpuNow(); return check("gpu", "Shared GPU (local AI, renders)", "ok", g.text); }),
+    // Optional: GLM-OCR in Ollama reads scanned PDFs and photos on this PC (ocr.ts)
+    guard("ocr", "Document OCR", async () => { const o = await import("./ocr.ts"); return (await import("./ocr-pure.ts")).ocrCheck(process.env, await o.ocrTags()); }),
     ...(WIN ? [guard("wake", "Voice wake-up", wake)] : []),
     Promise.resolve(envCheck(process.env, ENV_REQUIRED, ENV_OPTIONAL)),
     // Matters most once ORBIT is reachable from a phone (docs/PHONE.md): without it any account in the Supabase project gets in.
