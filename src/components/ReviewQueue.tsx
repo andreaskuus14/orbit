@@ -5,26 +5,37 @@ import ClipPicks from "./ClipPicks";
 import { useWorldPaused } from "./world-paused";
 import { ScoreRing, ScoreWhy } from "./HypeScore";
 import type { Virality } from "@/lib/clips/score-pure";
+import { reviewQueue, startAt } from "@/lib/studio-ui-pure";
+import { publishWarnings } from "@/lib/clips/publish-checks-pure";
+import type { BrandKit } from "@/lib/brand-kit-pure";
+import { useT } from "./i18n";
 
-// Morning review: every ready clip across all jobs, one at a time, keyboard first (A approve · R reject + 1–6 · V version · T title · ←/→ · Esc).
-// Uses the clip factory's routes only: GET /api/studio/clips, PATCH …/[job]/[clip], POST …/[job]/[clip]/version and …/titles. Mounted by ClipFactory.
+// Morning review, the ONE review queue (UI audit PR 2): every clip waiting for a decision, one at a time, keyboard first
+// (A approve · R reject + 1–6 · V version · T title · ←/→ · Esc). Every "review / approve" entry point opens this: Shorts' Next card
+// and Review tab, the Autopilot's "Waiting for you", Production → Review and Needs-you links. Clips the autopilot packaged also show
+// its plan (title runner-ups, critics, slot, "What I added") with its own Approve & schedule, the same call its card made before.
+// Routes: GET /api/studio/clips, PATCH …/[job]/[clip], POST …/version and …/titles; GET/POST /api/studio/autopilot. Mounted by ClipFactory.
 
 // Mirrors src/lib/clips/types.ts (only what the review reads).
 type CaptionStyle = (typeof CAPTION_STYLES)[number];
 type VersionEdit = { layout: "fit" | "fill" | "split" | "follow"; camSide: "left" | "right" | "tl" | "tr" | "bl" | "br"; camSize?: number; captions: CaptionStyle; jumpCuts: boolean; zooms: boolean };
 type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
   retryOf?: { videoId: string; title: string };
-  status: "rendering" | "ready" | "failed" | "approved" | "rejected"; video?: string; thumb?: string; edit?: VersionEdit;
+  status: "rendering" | "ready" | "failed" | "approved" | "rejected"; video?: string; thumb?: string; edit?: VersionEdit; brand?: string;
   titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; virality?: Virality };
 type Job = { id: string; source: string; createdAt: string; clips: Clip[];
   options: { captions: boolean; layout?: VersionEdit["layout"]; camSide?: VersionEdit["camSide"]; camSize?: number; jumpCuts?: boolean; zooms?: boolean } };
 type Item = { job: string; source: string; base: VersionEdit; clip: Clip };
+// Mirrors src/lib/clips/autopilot-pure.ts (what the plan box reads).
+type Proposal = { title: string; titleWhy: string; description?: string; slot?: string; slotWhy: string; alts?: string[]; notes?: string[] };
+type ApView = { items: { clips: { key: string; stage: string }[] }[]; proposals: Record<string, Proposal>; slots?: string[] };
+const AP = "/api/studio/autopilot";
+const when = (iso?: string) => (iso ? new Date(iso).toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—");
 type Mode = "idle" | "reject" | "title" | "version";
 
 const API = "/api/studio/clips";
 const media = (p: string) => `${API}/media?f=${encodeURIComponent(p)}`;
 const score = (s: number) => Math.round(Number.isFinite(s) ? (s <= 1 ? s * 100 : s) : 0); // same scale rule as ClipFactory
-const rank = (c: Clip) => c.virality?.score ?? score(c.score); // mirrors rankScore in score-pure.ts
 const LAYOUTS: VersionEdit["layout"][] = ["fit", "fill", "follow", "split"];
 const CAM_SIDES = Object.keys(CAM_NAME) as VersionEdit["camSide"][];
 
@@ -35,7 +46,7 @@ async function api<T>(url: string, method?: string, body?: unknown): Promise<T> 
   return json as T;
 }
 
-export default function ReviewQueue({ reduced, onClose }: { reduced: boolean; onClose: () => void }) {
+export default function ReviewQueue({ reduced, onClose, start }: { reduced: boolean; onClose: () => void; start?: string /* "job/clip" to open on */ }) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [err, setErr] = useState("");
   const [i, setI] = useState(0);
@@ -48,17 +59,36 @@ export default function ReviewQueue({ reduced, onClose }: { reduced: boolean; on
   const [said, setSaid] = useState("");
   const [muted, setMuted] = useState(true);
 
-  // A snapshot taken on open, so decided clips stay in place for ← and the count doesn't shift under you.
+  const { t: tr } = useT();
+  const [kit, setKit] = useState<BrandKit | undefined>(); // brand kit: renders made with another look get a (non-blocking) warning
+  const [ap, setAp] = useState<ApView | null>(null); // null: no autopilot data (not used, or it couldn't load): plain review still works
+  // A snapshot taken on open, so decided clips stay in place for ← and the count doesn't shift under you. Waits for the autopilot
+  // view too, so its approved-and-waiting clips are in the list from the start (studio-ui-pure reviewQueue).
   useEffect(() => {
-    api<{ jobs: Job[] }>(API).then(({ jobs }) => setItems([...jobs].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).flatMap((j) => j.clips
-      .filter((c) => c.status === "ready")
-      .map((c) => ({ job: j.id, source: j.source, clip: c, base: c.edit ?? { layout: j.options.layout ?? "fit", camSide: j.options.camSide ?? "right", camSize: j.options.camSize,
-        captions: j.options.captions ? "karaoke" : "none", jumpCuts: j.options.jumpCuts ?? true, zooms: j.options.zooms ?? true } })))
-      .sort((a, b) => rank(b.clip) - rank(a.clip))), // most likely to do well first (stable: newest job first among equals)
-    (e) => setErr(e instanceof Error ? e.message : "Couldn't load clips"));
-  }, []);
+    Promise.all([api<{ jobs: Job[] }>(API), api<ApView>(AP).catch(() => null), api<{ kit: BrandKit }>("/api/studio/brand").catch(() => null)]).then(([{ jobs }, view, brand]) => {
+      setAp(view); setKit(brand?.kit);
+      const waiting = new Set(view ? view.items.flatMap((x) => x.clips.filter((c) => c.stage === "waiting" && view.proposals[c.key]).map((c) => c.key)) : []);
+      const list: Item[] = reviewQueue(jobs, waiting).map(({ job: j, clip: c }) => ({ job: j.id, source: j.source, clip: c, base: c.edit ?? { layout: j.options.layout ?? "fit", camSide: j.options.camSide ?? "right", camSize: j.options.camSize,
+        captions: j.options.captions ? "karaoke" : "none", jumpCuts: j.options.jumpCuts ?? true, zooms: j.options.zooms ?? true } }));
+      setItems(list); setI(startAt(list.map((x) => ({ job: { id: x.job }, clip: x.clip })), start));
+    }, (e) => setErr(e instanceof Error ? e.message : "Couldn't load clips"));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- one snapshot per opening
 
   const n = items?.length ?? 0, cur = items && i < n ? items[i] : null, c = cur?.clip;
+  const key = cur ? `${cur.job}/${cur.clip.id}` : "", plan = key ? ap?.proposals[key] : undefined;
+  const added = useRef<Record<string, string>>({}); // "What I added" per clip (sent with Approve & schedule; required for other creators' clips)
+  // The autopilot's own actions, unchanged: edit title/slot, title critics, approve = approved + scheduled into exactly that slot.
+  const apAct = (body: Record<string, unknown>, after?: () => void) => run(async () => {
+    const r = await api<Partial<ApView>>(AP, "POST", body);
+    if (r && r.proposals) setAp((v) => v && { ...v, proposals: r.proposals!, slots: r.slots ?? v.slots });
+    else await api<ApView>(AP).then((v) => setAp((x) => x && { ...x, proposals: v.proposals, slots: v.slots ?? x.slots }), () => {});
+    after?.();
+  });
+  const approvePlan = () => { const k = i, original = added.current[key]?.trim();
+    void apAct({ action: "approve", key, ...(original ? { original } : {}) }, () => {
+      setItems((xs) => xs && xs.map((x, j) => (j === k ? { ...x, clip: { ...x.clip, status: "approved" } } : x)));
+      setSaid("✅ Approved: uploading as private, YouTube publishes it at the slot"); next(k);
+    }); };
   const url = (it: Item) => `${API}/${encodeURIComponent(it.job)}/${encodeURIComponent(it.clip.id)}`;
   const go = (k: number) => { setI(Math.max(0, Math.min(n, k))); setMode("idle"); setNote(""); };
 
@@ -167,7 +197,7 @@ export default function ReviewQueue({ reduced, onClose }: { reduced: boolean; on
           <div className="flex min-w-0 flex-col gap-2 text-sm">
             <p className="muted truncate text-xs" title={cur.source}>From {cur.source}</p>
             {c.retryOf && <p className="text-xs">Retry of {c.retryOf.title}. Approving allows the old Short to become private after this retry is published publicly. You can restore it from Last Shorts.</p>}
-            {c.status !== "ready" && <p className={c.status === "approved" ? "ok" : "error"}>{c.status === "approved" ? "✓ Approved" : c.status === "rejected" ? "✕ Rejected" : c.status}</p>}
+            {c.status !== "ready" && !plan && <p className={c.status === "approved" ? "ok" : "error"}>{c.status === "approved" ? "✓ Approved" : c.status === "rejected" ? "✕ Rejected" : c.status}</p>}
 
             {mode === "title" ? (
               <form className="flex flex-wrap gap-1" onSubmit={(e) => { e.preventDefault(); saveTitle(); }}>
@@ -187,7 +217,12 @@ export default function ReviewQueue({ reduced, onClose }: { reduced: boolean; on
             {c.virality && <div className="flex items-start gap-3 rounded-xl border border-white/10 p-2"><ScoreRing key={c.id} v={c.virality} reduced={reduced} size={56} /><div className="min-w-0 flex-1"><ScoreWhy key={c.id} v={c.virality} open /></div></div>}
             <p className="muted num text-xs">{c.virality ? "editor" : "score"} {score(c.score)}/100 · {mmss(c.start)}–{mmss(c.end)} · {mmss(Math.max(0, c.end - c.start))}</p>
             {c.reason && <p className="muted text-xs leading-snug">Why: {c.reason}</p>}
+            {(() => { const w = publishWarnings(c, kit); return w.length > 0 && <div className="rounded-lg border border-white/10 p-2 text-xs" role="note"><b>{tr("sp.warnings")}</b>
+              <ul className="list-disc pl-4">{w.map((x) => <li key={x}>{x}</li>)}</ul></div>; })()}
 
+            {plan && <PlanBox key={key} p={plan} slots={ap?.slots ?? []} busy={busy} approved={c.status === "approved"} added={added.current[key] ?? ""} onAdded={(t) => { added.current[key] = t; }}
+              onTitle={(title) => void apAct({ action: "edit", key, title })} onSlot={(slot) => void apAct({ action: "edit", key, slot })}
+              onCritics={() => void apAct({ action: "review", key })} onApprove={approvePlan} />}
             <div className="mt-1 flex flex-wrap gap-1.5">
               <button className="chip" onClick={() => void approve()} disabled={busy || c.status !== "ready"} aria-label={`Approve ${c.title}${c.retryOf ? " and replace original after publication" : ""} (A)`}>✓ {c.retryOf ? "Approve & replace after publication" : "Approve"}<Kbd k="A" /></button>
               <button className="chip" onClick={() => setMode((m) => (m === "reject" ? "idle" : "reject"))} disabled={busy || c.status === "rejected"} aria-expanded={mode === "reject"} aria-label={`Reject ${c.title} (R)`}>✕ Reject<Kbd k="R" /></button>
@@ -253,5 +288,43 @@ export default function ReviewQueue({ reduced, onClose }: { reduced: boolean; on
         </div>
       )}
     </div>
+  );
+}
+
+/** The autopilot's plan for a clip it packaged (was the Autopilot tab's waiting card): its title and runner-ups, the title critics,
+ *  the slot, "What I added", and Approve & schedule (approved + uploaded as private for exactly that slot; the owner's click). */
+function PlanBox({ p, slots, busy, approved, added, onAdded, onTitle, onSlot, onCritics, onApprove }: {
+  p: Proposal; slots: string[]; busy: boolean; approved: boolean; added: string; onAdded: (t: string) => void;
+  onTitle: (t: string) => void; onSlot: (s: string) => void; onCritics: () => void; onApprove: () => void;
+}) {
+  const { t: tr } = useT();
+  const [text, setText] = useState(added);
+  return (
+    <section className="space-y-2 rounded-xl border border-[#ff8fab]/30 bg-[#ff2e63]/5 p-2 text-xs" aria-label={tr("rq.plan")}>
+      <b className="block text-[10px] uppercase tracking-widest">🤖 {tr("rq.plan")}</b>
+      {approved && <p className="ok">{tr("rq.planOnly")}</p>}
+      <div><p className="font-semibold">{p.title}</p><p className="muted">{p.titleWhy}</p></div>
+      {!!p.alts?.length && <div className="flex flex-wrap items-center gap-1" role="group" aria-label={tr("ap.runnerUps")}>
+        <span className="muted">{tr("ap.swap")}</span>
+        {p.alts.map((x) => <button key={x} className="chip !px-2 !py-0.5 text-left !text-[11px]" disabled={busy} onClick={() => onTitle(x)} aria-label={tr("ap.useTitle", { t: x })}>↔ {x}</button>)}
+      </div>}
+      {p.notes?.length ? <ul className="space-y-0.5" aria-label={tr("ap.critics")}>{p.notes.map((x, k) => <li key={k}><span aria-hidden>🧐 </span>{x}</li>)}</ul>
+        : <button className="chip !px-2 !py-0.5" disabled={busy} onClick={onCritics}>{busy ? tr("ap.criticsReading") : `🧐 ${tr("ap.reviewTitles")}`}</button>}
+      <label className="flex flex-wrap items-center gap-1.5"><span className="muted">{tr("ap.slot")}</span>
+        <select className="chip" value={p.slot ?? ""} disabled={busy} onChange={(e) => onSlot(e.target.value)}>
+          {!p.slot && <option value="">{tr("ap.noneFree")}</option>}
+          {p.slot && <option value={p.slot}>{when(p.slot)}</option>}
+          {slots.filter((x) => x !== p.slot).map((x) => <option key={x} value={x}>{when(x)}</option>)}
+        </select>
+        <span className="muted">{p.slotWhy}</span>
+      </label>
+      {p.description && <details><summary className="muted cursor-pointer">{tr("cf.description")}</summary><p className="mt-1 whitespace-pre-line">{p.description}</p></details>}
+      <label className="block"><span className="muted">{tr("ap.whatAdded")}</span>
+        <input className="field mt-0.5 w-full !px-2 !py-1" value={text} maxLength={200} disabled={busy} placeholder={tr("ap.whatAddedPh")}
+          onChange={(e) => { setText(e.target.value); onAdded(e.target.value); }} />
+        <span className="muted text-[11px]">{tr("ap.ownLayer")}</span>
+      </label>
+      <button className="btn !px-4 !py-1.5" disabled={busy || !p.slot} onClick={onApprove}>{busy ? tr("ap.approving") : `✅ ${tr("ap.approveSchedule")}`}</button>
+    </section>
   );
 }

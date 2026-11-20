@@ -221,6 +221,9 @@ test("review queue names the original and sends its exact video id only with the
       if (n.endsWith("ClipPicks")) return { __esModule: true, default: () => null };
       if (n.endsWith("HypeScore")) return {};
       if (n.endsWith("world-paused")) return { useWorldPaused: () => false };
+      if (n.endsWith("studio-ui-pure")) return { reviewQueue: () => [], startAt: () => 0 }; // used only by the load effect (not run here)
+      if (n.endsWith("/i18n")) return { useT: () => ({ t: (k: string) => k }) };
+      if (n.endsWith("publish-checks-pure")) return { publishWarnings: () => [] };
       return require(n);
     },
   });

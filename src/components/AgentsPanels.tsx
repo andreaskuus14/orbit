@@ -358,15 +358,21 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
         <form onSubmit={create} className="mt-3 space-y-2">
           <textarea className="field h-20 w-full" value={form.request} onChange={(e) => setForm({ ...form, request: e.target.value })}
             placeholder={tr("ops.taskPh")} aria-label={tr("ops.task")} maxLength={8000} />
-          <div className="flex flex-wrap gap-2">
-            <select className="field" value={form.agent} onChange={(e) => setForm({ ...form, agent: e.target.value })} aria-label={tr("ops.agent")}>
-              {agents.map((a) => <option key={a.slug} value={a.slug}>{a.name}{a.slug === "nova" ? tr("ops.novaHint") : ""}</option>)}
-            </select>
-            <select className="field" value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })} aria-label={tr("ops.project")}>
-              <option value="">{tr("ops.noProject")}</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+          <div className="flex flex-wrap items-start gap-2">
             <button className="btn" disabled={!form.request.trim()}>{tr("life.start")}</button>
+            {/* who does it and which project: the default agent (Nova) decides and delegates, so these are folded */}
+            <details className="min-w-0 flex-1">
+              <summary className="muted cursor-pointer select-none py-1.5 text-xs">{tr("ft.options")} ▾ <span className="num">· {agents.find((a) => a.slug === form.agent)?.name ?? form.agent}{form.project_id ? ` · ${projects.find((p) => p.id === form.project_id)?.name ?? ""}` : ""}</span></summary>
+              <div className="mt-1 flex flex-wrap gap-2">
+                <select className="field" value={form.agent} onChange={(e) => setForm({ ...form, agent: e.target.value })} aria-label={tr("ops.agent")}>
+                  {agents.map((a) => <option key={a.slug} value={a.slug}>{a.name}{a.slug === "nova" ? tr("ops.novaHint") : ""}</option>)}
+                </select>
+                <select className="field" value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })} aria-label={tr("ops.project")}>
+                  <option value="">{tr("ops.noProject")}</option>
+                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+            </details>
           </div>
         </form>
       </details>

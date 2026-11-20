@@ -17,6 +17,7 @@ import { Captions, Voiceover } from "./LocalAi";
 import { ProjectDesk } from "./ProjectDesk";
 import StudioTrack from "./StudioTrack";
 import StudioBrand from "./StudioBrand";
+import { PROD_SECONDARY } from "@/lib/studio-ui-pure";
 
 type V = "ideas" | "production" | "review" | "edit" | "calendar" | "results" | "voice" | "captions" | "projects" | "track" | "brand";
 type Data = { records: Rec[]; jobs: ClipJob[]; live: string[]; outcomes: Record<string, Outcome>; capacity: Capacity; bases: Record<string, VersionEdit> };
@@ -29,10 +30,13 @@ async function call<T>(method: string, body?: unknown): Promise<T> {
   return j as T;
 }
 
-export default function StudioProduction({ reduced, review, onReview, onOpenClips }: { reduced: boolean; review: string | null; onReview: (id: string | null) => void; onOpenClips: () => void }) {
+export default function StudioProduction({ reduced, review, onReview, onOpenClips, onOpenQueue }: { reduced: boolean; review: string | null; onReview: (id: string | null) => void; onOpenClips: () => void;
+  onOpenQueue?: () => void /* the one review queue (Shorts → ReviewQueue) */ }) {
   const { t } = useT();
-  const views: View<V>[] = [{ id: "ideas", label: t("sp.v.ideas") }, { id: "production", label: t("sp.v.production") }, { id: "review", label: t("sp.v.review") }, { id: "edit", label: t("sp.v.edit") },
-    { id: "calendar", label: t("sp.v.calendar") }, { id: "results", label: t("sp.v.results") }, { id: "voice", label: "🎙 Voiceover" }, { id: "captions", label: "💬 Captions" }, { id: "projects", label: t("desk.projects") }, { id: "track", label: "🎬 Production track" }, { id: "brand", label: t("sp.v.brand"), secondary: true }];
+  // Production, Review, Edit and Results in the row; Ideas (= All steps), Calendar (= Scheduled) and the tools behind More (PROD_SECONDARY).
+  const views: View<V>[] = ([{ id: "production", label: t("sp.v.production") }, { id: "review", label: t("sp.v.review") }, { id: "edit", label: t("sp.v.edit") }, { id: "results", label: t("sp.v.results") },
+    { id: "ideas", label: t("sp.v.ideas") }, { id: "calendar", label: t("sp.v.calendar") }, { id: "voice", label: t("sp.v.voice") }, { id: "captions", label: t("sp.v.captions") }, { id: "projects", label: t("desk.projects") }, { id: "track", label: t("sp.v.track") }, { id: "brand", label: t("sp.v.brand") }] as View<V>[])
+    .map((v) => (PROD_SECONDARY.has(v.id) ? { ...v, secondary: true } : v));
   const [view, setView] = useWorkspaceView<V>("studio", views);
   const [data, setData] = useState<Data | null>(null);
   const [err, setErr] = useState("");
@@ -58,6 +62,7 @@ export default function StudioProduction({ reduced, review, onReview, onOpenClip
         {data && view === "ideas" && <ShortsBoard jobs={data.jobs} active reduced={reduced} onOpen={onOpenClips}
           onPickTitle={async () => { onOpenClips(); return false; }} onMoreTitles={async () => { onOpenClips(); return false; }} />}
         {data && view === "production" && <RecordList records={data.records.filter((r) => !r.result)} onOpen={open} empty={t("sp.none")} />}
+        {data && view === "review" && onOpenQueue && <button className="btn" onClick={onOpenQueue}>☀ {t("sp.reviewQueue")}</button>}
         {data && view === "review" && (rec ? <ReviewCard rec={rec} outcome={data.outcomes[rec.id]} onChanged={load} onBack={() => onReview(null)} onOpenClips={onOpenClips} />
           : <><p className="muted">{review ? t("sp.notFound") : t("sp.pick")}</p><RecordList records={data.records.filter((r) => r.review.status === "ready" || r.review.status === "approved")} onOpen={open} empty={t("sp.none")} /></>)}
         {data && view === "edit" && (rec && data.bases[rec.job] ? <EditWorkspace key={rec.id} rec={rec} records={data.records} job={data.jobs.find((j) => j.id === rec.job)!}
@@ -241,7 +246,7 @@ function EditWorkspace({ rec, records, job, base, onPick, onChanged }: { rec: Re
           </li>)}</ol></section>
         <section aria-label={t("se.controls")}><b>{t("se.controls")}</b>
           {c.status === "ready" || c.status === "approved"
-            ? <VersionBox key={c.id} clip={c as never} base={{ ...base, ...c.edit } as never} busy={busy} onVersion={onVersion} onDraft={(f) => setDraft(f && { ...f, id: c.id })}
+            ? <VersionBox key={c.id} clip={c as never} jobId={job.id} base={{ ...base, ...c.edit } as never} busy={busy} onVersion={onVersion} onDraft={(f) => setDraft(f && { ...f, id: c.id })}
               note={msg && <p className="muted text-[11px]" role="status">{msg}</p>} />
             : <p className="muted">{t("se.notEditable")}</p>}
         </section>

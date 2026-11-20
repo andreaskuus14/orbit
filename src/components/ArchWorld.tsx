@@ -306,6 +306,8 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
     } catch { return null; }
   }, [sunAt, sun.date, at.lat, at.lon, north]);
   const [dome, setDome] = useState(false); // sun-path dome, off by default
+  const [viewOpen, setViewOpen] = useState(false); // the "View ▾" fold of the show-me toggles
+  const viewsOn = [noRoof, spin, bp, holo, sun.on, dome, dayOn, site.on, sc.on].filter(Boolean).length;
   const domeLines = useMemo(() => {
     if (!dome) return null;
     try {
@@ -630,17 +632,23 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         )}
         <div className="flex flex-wrap gap-1.5">
           <button className="chip" onClick={() => setRun((n) => n + 1)} title={tr("arch.buildTitle")}>▶ {tr("arch.build")}</button>
+          <button className="chip" aria-pressed={walk} disabled={flat} onClick={() => setWalk((v) => !v)} title={tr("arch.walkTitle")}>🚶 {tr("arch.walk")}</button>
+          <button className="chip" disabled={!past.length} onClick={undo}>↶ {tr("arch.undo")}</button>
+          {/* "show me X" toggles, folded (UI audit PR 3); a count shows how many are on. The "Do it" box can ask for these too. */}
+          <details className="w-full" open={viewOpen} onToggle={(e) => setViewOpen((e.currentTarget as HTMLDetailsElement).open)}>
+            <summary className="chip inline-flex cursor-pointer select-none list-none">👁 {tr("arch.viewMenu")} {viewOpen ? "▴" : "▾"}{viewsOn ? <span className="num ml-1">· {viewsOn}</span> : null}</summary>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
           <button className="chip" aria-pressed={noRoof} onClick={() => setNoRoof((v) => !v)}>{tr("arch.hideRoof")}</button>
           <button className="chip" aria-pressed={spin} onClick={() => setSpin((v) => !v)}>{tr("arch.turntable")}</button>
           <button className="chip" aria-pressed={bp} onClick={() => setMode((m) => (m === "bp" ? "model" : "bp"))}>{tr("arch.blueprint")}</button>
           <button className="chip" aria-pressed={holo} onClick={() => setMode((m) => (m === "holo" ? "model" : "holo"))} title={tr("arch.holoTitle")}>{tr("arch.holo")}</button>
-          <button className="chip" aria-pressed={walk} disabled={flat} onClick={() => setWalk((v) => !v)} title={tr("arch.walkTitle")}>🚶 {tr("arch.walk")}</button>
           <button className="chip" aria-pressed={sun.on} onClick={() => setSun((v) => ({ ...v, on: !v.on }))}>☀ {tr("arch.sun")}</button>
           <button className="chip" aria-pressed={dome} disabled={!!scan} onClick={() => setDome((v) => !v)} title={tr("arch.sunDomeTitle")}>◠ {tr("arch.sunDome")}</button>
           <button className="chip" aria-pressed={dayOn} onClick={() => { setDayOn((v) => !v); setDaylight(null); }} title={tr("arch.dayTitle")}>🌤 {tr("arch.daylight")}</button>
           <button className="chip" aria-pressed={site.on} onClick={() => setSite((v) => ({ ...v, on: !v.on, draft: null }))} title={tr("arch.siteTitle")}>🏘 {tr("arch.site")}</button>
           <button className="chip" aria-pressed={sc.on} onClick={() => setSc((v) => ({ ...v, on: !v.on }))} title={tr("arch.structTitle")}>📐 {tr("arch.structure")}</button>
-          <button className="chip" disabled={!past.length} onClick={undo}>↶ {tr("arch.undo")}</button>
+            </div>
+          </details>
           {save.status !== "idle" && !lesson && (
             <span className="chip" role="status" title={save.error}>
               {tr(`arch.save.${save.status}`)}

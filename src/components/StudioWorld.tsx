@@ -24,6 +24,9 @@ import StudioProduction from "./StudioProduction";
 import StudioDrafts from "./StudioDrafts";
 import LastShorts from "./LastShorts";
 import { PlanetHome, useManual } from "./PlanetHome";
+import { STUDIO_MODES, type StudioMode as Mode } from "@/lib/studio-ui-pure";
+import { splitTabs } from "@/lib/ui-state-pure";
+import type { Key } from "@/lib/i18n-pure";
 import { useT } from "./i18n";
 import { isShort, medianViewsPerDay, moonRadius, takeoff, viewsPerDay, type Channel, type Video } from "@/lib/youtube-pure";
 
@@ -336,7 +339,6 @@ function Comet({ m, reduced, onPick }: { m: Moon; reduced: boolean; onPick: (id:
 }
 
 /** Shifts the scene left of the side panel on wide screens. */
-type Mode = "channel" | "stats" | "clips" | "production" | "sites" | "other";
 const HOME = Math.hypot(4.2, 11);
 
 /** Cinematic camera: flies in from far on open, then glides the planet aside for whatever panel is open
@@ -380,9 +382,7 @@ function StudioCamera({ mode, reduced }: { mode: Mode; reduced: boolean }) {
 /* ---------- data + UI ---------- */
 
 type Sort = "newest" | "views" | "takeoff";
-// The first four are the YouTube section; Websites and Other (site pictures, unrelated drafts) sit after a divider so they never mix.
-const MODES: [Mode, string][] = [["channel", "Channel"], ["stats", "Stats"], ["clips", "Clips"], ["production", "Produce"], ["sites", "Websites"], ["other", "Other"]];
-const YOUTUBE_MODES = 4;
+// Channel · Shorts · Stats in the row; Production details, Websites and More drafts behind More ▾ (studio-ui-pure.ts).
 
 export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, quality = "auto", paused = false, review = null, onReview }: { review?: string | null /* production record from a #…&k=review link */; onReview?: (id: string | null) => void; onClose: () => void; reduced: boolean; quality?: QualityMode; paused?: boolean /* kept mounted but hidden */; onOpenTask?: (id: string) => void; flat?: boolean /* 2D view: panel only, no WebGL */; open?: { view: "stats" | "clips" | "review" | "failed" | "none" } | null /* from CORE navigation */ }) {
   const q = useLeanQuality(quality);
@@ -399,22 +399,36 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
   const modesRef = useRef<HTMLElement>(null);
   const { t } = useT();
   const [manual, setManual] = useManual("studio");
+  const [modeMenu, setModeMenu] = useState(false);
   useEffect(() => {
     if (!paused) modesRef.current?.querySelector<HTMLElement>('[aria-pressed="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [mode, paused]); // CORE/deep links can select a section outside the visible part of the strip
   useEffect(() => { if (review) setMode("production"); }, [review]); // a review link opens the production workspace
   useEffect(() => { if (open) setMode(open.view === "stats" ? "stats" : open.view === "clips" || open.view === "review" || open.view === "failed" ? "clips" : "channel"); }, [open]);
   useEffect(() => { // Esc goes back to the channel first; capture phase + preventDefault keeps Orbit from closing the world
-    if (mode === "channel" || paused) return;
+    if ((mode === "channel" && !modeMenu) || paused) return;
     const h = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (e.key !== "Escape" || (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       if (document.querySelector(".drawer:not(.drawer-out), .review-queue, dialog[open], [popover]:popover-open")) return; // CORE or the clip review is on top: Esc closes that first
-      e.preventDefault(); setMode("channel");
+      e.preventDefault();
+      if (modeMenu) { e.stopPropagation(); setModeMenu(false); return; } // the open More menu closes first
+      setMode("channel");
     };
     addEventListener("keydown", h, true);
     return () => removeEventListener("keydown", h, true);
-  }, [mode, paused]);
+  }, [mode, paused, modeMenu]);
+  useEffect(() => { // close the More menu on a click outside it
+    if (!modeMenu) return;
+    const off = (e: PointerEvent) => { if (!modesRef.current?.contains(e.target as Node)) setModeMenu(false); };
+    addEventListener("pointerdown", off);
+    return () => removeEventListener("pointerdown", off);
+  }, [modeMenu]);
+  const modeSplit = splitTabs(STUDIO_MODES, mode);
+  const pickMode = (m: Mode) => { setModeMenu(false); setMode(m); };
+  // Every "review clips" entry point (Shorts' Next card, Autopilot, Production → Review, Needs you links) opens the one ReviewQueue.
+  const [reviewReq, setReviewReq] = useState<object | null>(null);
+  useEffect(() => { if (open?.view === "review") setReviewReq(open); }, [open]);
   const [idea, setIdea] = useState<{ busy: boolean; error?: string }>({ busy: false });
   const seq = useRef(0);
 
@@ -570,9 +584,12 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
         )}
       </header>
 
-      {!simple && <nav ref={modesRef} className="studio-modes absolute left-1/2 top-[4.5rem] z-[15] -translate-x-1/2" aria-label="Studio sections">
-        {MODES.map(([k, label], i) => <button key={k} aria-pressed={mode === k} onClick={() => setMode(k)} className={i === YOUTUBE_MODES ? "studio-sep" : undefined} title={i < YOUTUBE_MODES ? `YouTube: ${label}` : label}>{label}</button>)}
-        {data?.configured !== false && <button className="studio-refresh" onClick={() => { if (!loading) void load(true); }} aria-disabled={loading} aria-label={loading ? "Refreshing channel data" : "Refresh channel data"} title="Refresh">{loading ? "…" : "↻"}</button>}
+      {!simple && <nav ref={modesRef} className="studio-modes absolute left-1/2 top-[4.5rem] z-[15] -translate-x-1/2" aria-label={t("st.sections")}
+>
+        {modeSplit.row.map((m) => <button key={m.id} aria-pressed={mode === m.id} onClick={() => pickMode(m.id)} className={m.secondary ? "studio-sep studio-wide" : undefined}>{t(m.label as Key)}</button>)}
+        <button className="studio-sep" aria-expanded={modeMenu} aria-controls="studio-more-menu" onClick={() => setModeMenu((v) => !v)}>{t("ws.more")} {modeMenu ? "▴" : "▾"}</button>
+        {modeMenu && modeSplit.more.map((m, i) => <button key={m.id} id={i === 0 ? "studio-more-menu" : undefined} className="studio-wide studio-more-item" autoFocus={i === 0} onClick={() => pickMode(m.id)}>{t(m.label as Key)}</button>) /* inline: the strip scrolls, so a dropdown would be clipped */}
+        {data?.configured !== false && <button className="studio-refresh" onClick={() => { if (!loading) void load(true); }} aria-disabled={loading} aria-label={t(loading ? "st.refreshing" : "st.refresh")} title={t("st.refreshTitle")}>{loading ? "…" : "↻"}</button>}
       </nav>}
 
       {mode === "channel" && (
@@ -662,8 +679,8 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
           {mode === "stats"
             ? <StudioStats onClose={() => setMode("channel")} videoId={selected} videoTitle={sel?.title} reduced={reduced} onPickVideo={setSelected} titleOf={(id) => byId.get(id)?.title} />
             : mode === "sites" || mode === "other" ? <StudioDrafts section={mode === "sites" ? "websites" : "other"} />
-            : mode === "production" ? <StudioProduction reduced={reduced} review={review} onReview={(id) => onReview?.(id)} onOpenClips={() => setMode("clips")} />
-            : <ClipFactory onClose={() => setMode("channel")} reduced={reduced} review={open?.view === "review" ? open : null} failed={open?.view === "failed" ? open : null} />}
+            : mode === "production" ? <StudioProduction reduced={reduced} review={review} onReview={(id) => onReview?.(id)} onOpenClips={() => setMode("clips")} onOpenQueue={() => { setReviewReq({}); setMode("clips"); }} />
+            : <ClipFactory onClose={() => setMode("channel")} reduced={reduced} review={reviewReq} failed={open?.view === "failed" ? open : null} />}
         </div>
       )}
     </div>

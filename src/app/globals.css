@@ -519,6 +519,8 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .studio-modes > button[aria-pressed="true"] { color: #06080c; font-weight: 600; background: linear-gradient(100deg, #c9f6ff, #e6dcff); box-shadow: 0 0 18px -4px #7ae3ffaa; }
 .studio-modes > .studio-refresh { width: 2rem; color: var(--ice-dim); }
 .studio-modes > .studio-sep { box-shadow: inset 1px 0 0 #7ae3ff55; } /* YouTube | Websites, Other */
+.studio-modes > .studio-wide { width: auto; min-width: var(--mw); padding-inline: 0.6rem; white-space: nowrap; } /* Production details, Websites, More drafts */
+.studio-modes > .studio-more-item { color: var(--ice); }
 /* Between phone and wide screens the centred switch would sit on the title and the video rail: both drop below it. */
 @media (min-width: 641px) and (max-width: 1199px) { .studio-head[data-mode="channel"] { top: 7.5rem; } }
 @media (min-width: 900px) and (max-width: 1199px) { .studio .studio-rail { top: 7.5rem; max-height: calc(100dvh - 14rem); } }
