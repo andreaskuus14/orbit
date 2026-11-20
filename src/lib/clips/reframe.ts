@@ -12,21 +12,21 @@ const CENTER_BIAS = 0.15; // a flat-ish frame prefers the middle
 const CUT_MAD = 30; // mean |frame diff| (0..255) over which a frame is a new shot...
 const CUT_RATIO = 2.5; // ...and also this many times the previous frame's (busy gameplay is not a cut)
 
-/** Per sample: column energy, and whether it starts a new shot. */
-export function frameEnergy(frames: Uint8Array[], w: number, h: number): { energy: Float64Array[]; cuts: boolean[] } {
+/** Per sample: column energy, and whether it starts a new shot. `mask` (w*h, 1 = ignore): pixels that add no energy (a facecam box). */
+export function frameEnergy(frames: Uint8Array[], w: number, h: number, mask?: Uint8Array): { energy: Float64Array[]; cuts: boolean[] } {
   const energy: Float64Array[] = [], cuts: boolean[] = [];
   let prevMad = 0;
   frames.forEach((f, i) => {
     const e = new Float64Array(w), prev = frames[i - 1];
     let mad = 0;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      const k = y * w + x;
-      if (x < w - 1) e[x] += EDGE_W * Math.abs(f[k + 1] - f[k]);
-      if (prev) { const d = Math.abs(f[k] - prev[k]); mad += d; if (d > NOISE) e[x] += d; }
+      const k = y * w + x, off = mask?.[k];
+      if (x < w - 1 && !off && !mask?.[k + 1]) e[x] += EDGE_W * Math.abs(f[k + 1] - f[k]);
+      if (prev) { const d = Math.abs(f[k] - prev[k]); mad += d; if (d > NOISE && !off) e[x] += d; }
     }
     mad /= w * h;
     const cut = i > 0 && mad > CUT_MAD && mad > CUT_RATIO * Math.max(prevMad, 4);
-    if (cut) { e.fill(0); for (let y = 0; y < h; y++) for (let x = 0; x < w - 1; x++) e[x] += EDGE_W * Math.abs(f[y * w + x + 1] - f[y * w + x]); } // diff across a cut is meaningless
+    if (cut) { e.fill(0); for (let y = 0; y < h; y++) for (let x = 0; x < w - 1; x++) if (!mask?.[y * w + x] && !mask?.[y * w + x + 1]) e[x] += EDGE_W * Math.abs(f[y * w + x + 1] - f[y * w + x]); } // diff across a cut is meaningless
     energy.push(e); cuts.push(cut); prevMad = mad;
   });
   return { energy, cuts };
@@ -48,33 +48,44 @@ export function bestWindow(e: ArrayLike<number>, cw: number): number | null {
 }
 
 /** Camera-operator smoothing: hold inside a dead zone, then pan at most `speed` (positions/s) until on target; a cut jumps
- *  (at the midpoint between the two samples). Collinear keys are dropped, so holds and steady pans are 2 keys each. */
-export function smoothPath(samples: { t: number; p: number | null; cut?: boolean }[], o = { dead: 0.12, speed: 0.35 }): Key[] {
+ *  (at the midpoint between the two samples). Collinear keys are dropped, so holds and steady pans are 2 keys each.
+ *  `accel` (positions/s², optional): ease in and out instead of starting and stopping at full speed (face follow). */
+export type Sample = { t: number; p: number | null; cut?: boolean };
+export function smoothPath(samples: Sample[], o: { dead: number; speed: number; accel?: number } = { dead: 0.12, speed: 0.35 }): Key[] {
   const keys: Key[] = [];
-  let pos = 0.5, moving = false;
+  let pos = 0.5, moving = false, vel = 0;
   samples.forEach((s, i) => {
     if (i === 0 || s.cut) {
       const tc = i ? (samples[i - 1].t + s.t) / 2 : s.t;
       if (i) keys.push({ t: tc, p: pos });
-      pos = shotStart(samples, i); moving = false;
+      pos = shotStart(samples, i); moving = false; vel = 0;
       keys.push({ t: tc, p: pos });
       if (i && tc < s.t) keys.push({ t: s.t, p: pos });
       return;
     }
-    const d = (s.p ?? pos) - pos;
+    const d = (s.p ?? pos) - pos, dt = s.t - samples[i - 1].t;
     if (Math.abs(d) > o.dead) moving = true; // hysteresis: start outside the dead zone, stop only on target
-    if (moving) {
-      const step = o.speed * (s.t - samples[i - 1].t);
+    if (moving && o.accel) {
+      // Ease: speed up by at most accel*dt, and never faster than still lets it stop on target after this step
+      // (v·dt + v²/2a ≤ |d|), so it eases out too.
+      const ad = o.accel * dt, want = Math.sign(d) * Math.min(o.speed, -ad + Math.sqrt(ad * ad + 2 * o.accel * Math.abs(d)));
+      vel += Math.max(-o.accel * dt, Math.min(o.accel * dt, want - vel));
+      const step = vel * dt;
+      if (Math.sign(step) === Math.sign(d) && Math.abs(step) >= Math.abs(d)) { pos += d; vel = 0; } else pos += step;
+      if (Math.abs((s.p ?? pos) - pos) < 0.02 && Math.abs(vel) < 0.05) { moving = false; vel = 0; }
+    } else if (moving) {
+      const step = o.speed * dt;
       pos += Math.abs(d) <= step ? d : Math.sign(d) * step;
       if (Math.abs((s.p ?? pos) - pos) < 0.02) moving = false;
     }
+    pos = Math.min(1, Math.max(0, pos));
     keys.push({ t: s.t, p: pos });
   });
   return simplify(keys);
 }
 
 /** Where a shot opens: the median target of its first second (one noisy sample would set off a pan), centre if none. */
-function shotStart(samples: { t: number; p: number | null; cut?: boolean }[], i: number): number {
+function shotStart(samples: Sample[], i: number): number {
   const ps: number[] = [];
   for (let j = i; j < samples.length && samples[j].t - samples[i].t < 1 && (j === i || !samples[j].cut); j++) if (samples[j].p !== null) ps.push(samples[j].p!);
   if (!ps.length) return 0.5;
@@ -149,45 +160,62 @@ export function pathExpr(keys: Key[]): string {
   return terms.join("+");
 }
 
-/** Raw grey frames (TRACK_W x TRACK_H, TRACK_FPS) of one clip + its source aspect → smoothed keys in clip seconds ([] = centre). */
-export function analyse(buf: Uint8Array, aspect: number): Key[] {
+/** Raw grey frames (TRACK_W x TRACK_H, TRACK_FPS) of one clip + its source aspect → per-sample motion targets and cuts
+ *  (null when the source is already ~9:16 or too short). `mask`: TRACK_W*TRACK_H, 1 = ignore that pixel (a facecam box). */
+export function motionSamples(buf: Uint8Array, aspect: number, mask?: Uint8Array): Sample[] | null {
   const frac = 9 / 16 / aspect; // crop width as a fraction of the source width
   const size = TRACK_W * TRACK_H, n = Math.floor(buf.length / size);
-  if (frac >= 0.99 || n < 2) return [];
+  if (frac >= 0.99 || n < 2) return null;
   const frames = Array.from({ length: n }, (_, i) => buf.subarray(i * size, (i + 1) * size));
-  const { energy, cuts } = frameEnergy(frames, TRACK_W, TRACK_H);
+  const { energy, cuts } = frameEnergy(frames, TRACK_W, TRACK_H, mask);
   const cw = Math.max(1, Math.round(TRACK_W * frac));
   const shot: number[] = []; // shot index per sample, so the time-averaging never mixes two shots
   cuts.forEach((c, i) => shot.push(i ? shot[i - 1] + (c ? 1 : 0) : 0));
   const R = 2; // ±0.5 s of averaging: a single busy frame doesn't move the camera
-  return smoothPath(energy.map((_, i) => {
+  return energy.map((_, i) => {
     const e = new Float64Array(TRACK_W);
     for (let j = Math.max(0, i - R); j <= Math.min(n - 1, i + R); j++) if (shot[j] === shot[i]) energy[j].forEach((v, x) => { e[x] += v; });
     return { t: i / TRACK_FPS, p: bestWindow(e, cw), cut: cuts[i] };
-  }));
+  });
+}
+
+/** Raw grey frames of one clip + its source aspect → smoothed keys in clip seconds ([] = centre). Motion only. */
+export function analyse(buf: Uint8Array, aspect: number): Key[] {
+  const s = motionSamples(buf, aspect);
+  return s ? smoothPath(s) : [];
 }
 
 /** Runs ffmpeg with trackArgs (pure.ts) and analyses its raw output; the source aspect comes from ffmpeg's input stream line. */
 export const TRACK_FAIL = "Follow action: tracking failed, used a centre crop";
 
-export function trackAction(ff: string, args: string[], signal: AbortSignal, timeoutMs = 5 * 60_000): Promise<Key[]> {
+/** Runs ffmpeg and collects stdout; resolves with it and the first input video stream's WxH (from ffmpeg's stderr) and,
+ *  when present, the first output video stream's WxH. */
+export function readRaw(ff: string, args: string[], signal: AbortSignal, timeoutMs = 5 * 60_000): Promise<{ buf: Buffer; inW: number; inH: number; outW?: number; outH?: number }> {
   return new Promise((resolve, reject) => {
     const child = spawn(ff, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], signal, killSignal: "SIGKILL" });
     const out: Buffer[] = [];
-    let head = "", tail = ""; // head: the input stream lines (aspect), tail: the last error line
+    let head = "", tail = ""; // head: the stream lines (sizes), tail: the last error line
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
     child.stdout.on("data", (b: Buffer) => out.push(b));
     child.stderr.on("data", (b: Buffer) => {
       const t = b.toString();
-      if (head.length < 20_000 && !head.includes("Output #0")) head += t;
+      if (head.length < 40_000 && !/Output #0[\s\S]*Stream #0:\d+[^\n]*Video:[^\n]*\n/.test(head)) head += t;
       tail = (tail + t).slice(-2000);
     });
     child.on("error", (e) => { clearTimeout(timer); reject(e); });
     child.on("close", (code) => {
       clearTimeout(timer);
-      const m = /Stream #0:\d+[^\n]*Video:[^\n]*?\b(\d{2,5})x(\d{2,5})\b/.exec(head.split("Output #0")[0]);
+      const [inp, outp = ""] = head.split("Output #0");
+      const size = /Stream #0:\d+[^\n]*Video:[^\n]*?\b(\d{2,5})x(\d{2,5})\b/;
+      const m = size.exec(inp), o = size.exec(outp);
       if (code !== 0 || !m) return reject(new Error(`tracking failed: ${tail.split("\n").filter(Boolean).pop() ?? code}`));
-      resolve(analyse(Buffer.concat(out), +m[1] / +m[2]));
+      resolve({ buf: Buffer.concat(out), inW: +m[1], inH: +m[2], ...(o ? { outW: +o[1], outH: +o[2] } : {}) });
     });
   });
+}
+
+/** Runs ffmpeg with trackArgs (pure.ts) and analyses its raw output (motion only); the source aspect comes from ffmpeg's input stream line. */
+export async function trackAction(ff: string, args: string[], signal: AbortSignal, timeoutMs = 5 * 60_000): Promise<Key[]> {
+  const r = await readRaw(ff, args, signal, timeoutMs);
+  return analyse(r.buf, r.inW / r.inH);
 }
