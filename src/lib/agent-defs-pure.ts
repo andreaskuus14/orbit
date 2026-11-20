@@ -212,7 +212,7 @@ const BY_JOB: Record<JobKind, string> = {
   search: JOB_MODELS.haiku, rename: JOB_MODELS.haiku, boilerplate: JOB_MODELS.haiku,
   build: JOB_MODELS.sonnet, test: JOB_MODELS.sonnet,
   ui: JOB_MODELS.opus, bug: JOB_MODELS.opus, review: JOB_MODELS.opus,
-  plan: JOB_MODELS.fable, security: JOB_MODELS.fable,
+  plan: JOB_MODELS.opus, security: JOB_MODELS.opus, // owner, 2026-11-20: Opus, never Fable
 };
 export type Risk = { auth?: boolean; money?: boolean; approvals?: boolean; sending?: boolean };
 // Word edges that also split on "_", so tool names (gmail_send, lead_email, ws_publish) flag the job by themselves.
@@ -248,5 +248,5 @@ export function modelForJob(job: JobKind, risk: Risk = {}, pref?: string): strin
   const want = pref?.trim() || BY_JOB[job];
   return isRisky(risk) ? atLeastOpus(want) : want;
 }
-/** The reviewer is Opus; Fable when Opus wrote it (a review comes from a different model and is never below Opus). */
-export const reviewerFor = (writer: string) => (rank(writer) === OPUS ? JOB_MODELS.fable : JOB_MODELS.opus);
+/** The reviewer is always Opus, in a fresh context (owner, 2026-11-20: never Fable). Never below Opus. */
+export const reviewerFor = (_writer: string): string => JOB_MODELS.opus;

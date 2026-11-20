@@ -615,7 +615,7 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
         if (needsSelfReview(result, transcript.length, depth, verified) && budget.used < budget.calls && budget.deadline - Date.now() > 150_000) {
           chargeCall(budget, signal);
           const t0 = Date.now();
-          const reviewer = isRisky(risk) ? reviewerFor(model) : MODEL; // risky: Opus, or Fable when Opus wrote it; else the cheaper main model
+          const reviewer = isRisky(risk) ? reviewerFor(model) : MODEL; // risky: Opus (never Fable); else the cheaper main model
           const rv = await reviewDraft(`TASK: ${task.title}\n\n${task.request}`, result, transcript.join("\n\n"), { signal, model: reviewer, purpose: `agent.${agent.slug}.review`, onUsage: (rr) => recordUsage(sb, userId, `agent.${agent.slug}.review`, rr),
             onFail: (e) => emit(sb, userId, "review.failed", "agents", { agent: agent.slug, taskId, model: reviewer, error: String(e instanceof Error ? e.message : e).slice(0, 200) }) });
           result = rv.text;
