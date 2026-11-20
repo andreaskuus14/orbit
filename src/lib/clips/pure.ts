@@ -151,6 +151,34 @@ export function promptTranscript(words: Word[], cands: Candidate[], maxChars = 6
   return out.slice(0, maxChars);
 }
 
+/** Scout input cap: a transcript longer than FOCUS_ABOVE chars is cut to the regions around the strongest signals (up to FOCUS_MAX chars). */
+export const FOCUS_ABOVE = 16_000, FOCUS_MAX = 14_000;
+export const FOCUS_GAP = "[... transcript skipped ...]";
+
+/** The transcript lines (same breaking as promptTranscript) inside `regions`, strongest region first, until `maxChars` is full.
+ *  Skipped stretches show as FOCUS_GAP so a moment never spans one. Returns "" when no region has any line. */
+export function focusTranscript(words: Word[], regions: Span[], maxChars = FOCUS_MAX): string {
+  const lines: { t: number; text: string }[] = [];
+  words.forEach((w, i) => {
+    const last = lines[lines.length - 1], prev = words[i - 1];
+    if (last && w.start - last.t < 10 && !/[.!?]["')\]]*$/.test(prev.text) && w.start - prev.end <= 0.6) last.text += " " + w.text;
+    else lines.push({ t: w.start, text: w.text });
+  });
+  const fmt = (l: { t: number; text: string }) => `[${l.t.toFixed(1)}s] ${l.text.replace(/[<>]/g, "")}`;
+  const keep = new Set<number>();
+  let size = 0;
+  for (const r of regions) {
+    const add = lines.map((l, i) => (l.t >= r.start && l.t <= r.end && !keep.has(i) ? i : -1)).filter((i) => i >= 0);
+    const cost = add.reduce((n, i) => n + fmt(lines[i]).length + 1, 0);
+    if (!add.length || size + cost > maxChars) continue; // a region that doesn't fit whole is skipped; weaker ones may still fit
+    add.forEach((i) => keep.add(i));
+    size += cost;
+  }
+  const out: string[] = [];
+  [...keep].sort((a, b) => a - b).forEach((i, k, a) => { if (k && i !== a[k - 1] + 1) out.push(FOCUS_GAP); out.push(fmt(lines[i])); });
+  return out.join("\n");
+}
+
 /** A time as seconds: a number, or a "m:ss(.d)" / "h:mm:ss(.d)" string (Claude sometimes answers in clock format). */
 const toSec = (v: unknown) => typeof v === "string" && /^\d+(:\d{2}){1,2}(\.\d+)?$/.test(v.trim()) ? v.trim().split(":").reduce((a, p) => a * 60 + Number(p), 0) : Number(v);
 
