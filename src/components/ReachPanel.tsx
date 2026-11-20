@@ -68,7 +68,7 @@ export default function ReachPanel() {
           </div>
         );
       })}
-      {scan && !!scan.at && <p className="muted text-xs">Scanned {new Date(scan.at).toLocaleTimeString()} · refreshes every 3 h · 🔥 = 2× the batch&apos;s per-hour rate and over a minimum</p>}
+      {scan && !!scan.at && <p className="muted text-xs">Scanned {new Date(scan.at).toLocaleTimeString()} · refreshes every 3 h · 🔥 = 3+ deviations and 2×+ the source&apos;s own 14-day normal; while it&apos;s learning (under 5 days of history) 2× the batch&apos;s per-hour rate</p>}
 
       <div className="card space-y-1.5">
         <div className="flex items-center gap-2">

@@ -3,6 +3,8 @@ import path from "node:path";
 import { orbitDataDir } from "../data-dir";
 import { stopAllOn } from "../stop-all";
 import { REACH_SOURCES, defaultSources, parseSources, scoreItems, type ReachItem, type ReachSource, type ReachSources, type Scored } from "./pure";
+import { loadHistory, saveHistory } from "./history";
+import { recordScan, sourceKey } from "./baseline-pure";
 import { readReddit } from "./reddit";
 import { readKick } from "./kick";
 import { readTwitch } from "./twitch";
@@ -45,7 +47,15 @@ async function scan(now: number): Promise<ReachScan> {
     try { const r = await run(); items.push(...r.items); hints[src].push(...r.hints); }
     catch (e) { hints[src].push(e instanceof Error ? e.message.slice(0, 160) : "failed"); }
   }));
-  return { at: now, items: scoreItems(items, Date.now()).slice(0, 200), hints, running: false };
+  // Score against the history of PRIOR days, then fold this scan in (no extra requests: it only reads what the scan already fetched).
+  const hist = await loadHistory();
+  const scored = scoreItems(items, Date.now(), hist);
+  if (items.length) {
+    const rates = new Map<string, number[]>();
+    for (const x of scored) { const k = sourceKey(x); (rates.get(k) ?? rates.set(k, []).get(k)!).push(x.perHour); }
+    await saveHistory(recordScan(hist, rates, new Date().toLocaleDateString("en-CA"))).catch((e) => console.error("[reach] history:", e instanceof Error ? e.message : e));
+  }
+  return { at: now, items: scored.slice(0, 200), hints, running: false };
 }
 
 /** The cached scan; starts a fresh one in the background when stale (not while Stop-all is on). */

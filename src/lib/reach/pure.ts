@@ -2,13 +2,15 @@
 // Pure parsers, velocity scoring, Herald cards and list validation; tested in tests/reach.test.ts. Network: ./net.ts + one reader per source.
 import { parseClipUrl } from "../clips/format.ts";
 import type { HeraldCard } from "../herald-pure.ts";
+import { baselineFor, hotLine, hotness, isHotVsNormal, sourceKey, type History, type Hotness } from "./baseline-pure.ts";
 
 export type ReachSource = "reddit" | "kick" | "twitch" | "bsky";
 export const REACH_SOURCES: ReachSource[] = ["reddit", "kick", "twitch", "bsky"];
 export const SOURCE_NAME: Record<ReachSource, string> = { reddit: "Reddit", kick: "Kick", twitch: "Twitch", bsky: "Bluesky" };
 /** metric: upvotes (Reddit), views (Kick/Twitch), likes + 2×reposts (Bluesky). open: page to open; media: the clip/video link, if any. */
 export type ReachItem = { source: ReachSource; id: string; title: string; open: string; media?: string; thumb?: string; channel?: string; created: number; metric: number; comments?: number };
-export type Scored = ReachItem & { perHour: number; velocity: number; hot: boolean };
+/** usual: how far above the source's own 14-day normal (undefined only for items scored without history). */
+export type Scored = ReachItem & { perHour: number; velocity: number; hot: boolean; usual?: Hotness };
 export type ReachSources = Record<ReachSource, string[]>;
 
 // Endpoints, one constant per source (checked Oct 2026).
@@ -119,8 +121,10 @@ export const FLOORS: Record<ReachSource, { metric: number; perHour: number }> = 
 const median = (xs: number[]) => { if (!xs.length) return 0; const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
 /** Per source: perHour = metric / age (age floored at 15 min), velocity = perHour / the batch median.
- *  Hot = ≥2× the median (or the only item) AND over the source's absolute floors. Duplicates by id dropped; sorted by perHour. */
-export function scoreItems(items: ReachItem[], now: number): Scored[] {
+ *  With ≥5 prior days of history for the item's source key (subreddit / channel), hot = ≥3 robust deviations and ≥2× that source's own
+ *  14-day normal, over the absolute floors. Without enough history ("learning") hot = ≥2× the batch median (or the only item) over the floors.
+ *  Duplicates by id dropped; hot first, then by perHour. */
+export function scoreItems(items: ReachItem[], now: number, history: History = {}, today = new Date(now).toLocaleDateString("en-CA")): Scored[] {
   const out: Scored[] = [];
   for (const src of REACH_SOURCES) {
     const seen = new Set<string>();
@@ -130,15 +134,17 @@ export function scoreItems(items: ReachItem[], now: number): Scored[] {
     const f = FLOORS[src];
     for (const x of xs) {
       const velocity = med > 0 ? Math.round((x.perHour / med) * 10) / 10 : 1;
-      out.push({ ...x, velocity, hot: (xs.length === 1 || velocity >= 2) && x.metric >= f.metric && x.perHour >= f.perHour });
+      const usual = hotness(x.perHour, baselineFor(history[sourceKey(x)], today));
+      const over = x.metric >= f.metric && x.perHour >= f.perHour;
+      out.push({ ...x, velocity, usual, hot: over && (usual.learning ? xs.length === 1 || velocity >= 2 : isHotVsNormal(usual)) });
     }
   }
-  return out.sort((a, b) => b.perHour - a.perHour);
+  return out.sort((a, b) => Number(b.hot) - Number(a.hot) || b.perHour - a.perHour);
 }
 
 const UNIT: Record<ReachSource, string> = { reddit: "upvotes", kick: "views", twitch: "views", bsky: "likes" };
 const k = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n));
-export const statLine = (x: Scored) => `+${k(x.perHour)} ${UNIT[x.source]}/h · ${k(x.metric)} total · ${x.velocity}× the batch${x.channel ? ` · ${x.channel}` : ""}`;
+export const statLine = (x: Scored) => `+${k(x.perHour)} ${UNIT[x.source]}/h · ${k(x.metric)} total · ${x.usual && !x.usual.learning ? hotLine(x.usual) : `${x.velocity}× the batch${x.usual ? ` · ${hotLine(x.usual)}` : ""}`}${x.channel ? ` · ${x.channel}` : ""}`;
 
 /** Hot items → Herald cards: "🎬 Clip it now" when STUDIO's downloader accepts the media link, else "▶ Open". At most `max`. */
 export function reachCards(items: Scored[], max = 3): HeraldCard[] {
