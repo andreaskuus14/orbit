@@ -261,6 +261,35 @@ export function operatorAllows(tool: string, ctx: Pick<PolicyCtx, "stopAll" | "a
   return (l ?? AREA_INFO[area].def) === "do";
 }
 
+// Public read-only research tools that an owner's explicit same-message request may naturally run before a safe local T2 write
+// (e.g. "find example.com's pricing page and watch it", "research X and queue tonight: ..."). Never plugins, vault, mail, agents or T3.
+const PUBLIC_RESEARCH = ["web_search", "fetch_url", "scrape_page", "browse", "read_more"] as const;
+const STATUS_AFTER_AREA: Record<string, Area> = {
+  run_scout: "operator-build", run_niche: "operator-build", plan_task: "operator-build",
+  life_check: "operator-organize", life_add_habit: "operator-organize", life_remind: "operator-organize",
+  add_wish: "operator-organize",
+};
+const RESEARCH_AFTER_AREA: Record<string, Area> = {
+  watch_add: "operator-organize",
+  create_goal: "operator-build", queue_tonight: "operator-build", start_mission: "operator-build",
+};
+function explicitAfterSafeRead(tool: string, question: string, ctx: PolicyCtx): boolean {
+  const statusArea = STATUS_AFTER_AREA[tool], researchArea = RESEARCH_AFTER_AREA[tool];
+  const area = statusArea ?? researchArea;
+  if (!area || ctx.stopAll || ctx.attach || ctx.pins || denied(tool, question)) return false;
+  if ((ctx.autonomy?.[area] ?? AREA_INFO[area].def) !== "do") return false;
+  if (statusArea && untrustedIn(ctx.steps)) return false; // only ORBIT's own safe status reads (studio_status, life_status, goal_status…)
+  if (researchArea && untrustedIn(ctx.steps, PUBLIC_RESEARCH)) return false; // only status reads + public read-only research; never vault/mail/agents/plugins
+  if (tool === "run_scout" || tool === "run_niche" || tool === "plan_task") return actionBlocked(tool, question, false) === "";
+  if (tool === "life_check" || tool === "life_add_habit" || tool === "life_remind") return lifeWriteBlocked(tool, question, false) === null;
+  if (tool === "watch_add") return watchBlocked(question, false) === "";
+  if (tool === "add_wish") return wishBlocked(question, false) === "";
+  if (tool === "create_goal") return createGoalBlocked(question, false) === "";
+  if (tool === "queue_tonight") return tonightBlocked(question, false) === "";
+  if (tool === "start_mission") return ownerAsked("start_mission", question);
+  return false;
+}
+
 /** Plugin tools called this turn that are local or of unknown locality: they may have read his Journal, so their output is private. */
 export const localPluginReads = (ctx: Pick<PolicyCtx, "steps" | "plugins">) => ctx.steps.map((s) => s.slice(11, s.indexOf(" ", 11))).filter((t) => isPluginTool(t) && ctx.plugins?.[t]?.local !== false);
 /** Private tools for egress checks: his modules plus any local plugin read this turn. */
@@ -354,8 +383,9 @@ function decideRaw(tool: string, input: Record<string, unknown> | undefined, ctx
   else if (tool === "save_checkpoint") blocked = checkpointBlocked(question);
   else if (isOpsTool(tool)) { if (ctx.stopAll) return no(PAUSED_MSG); blocked = opsBlocked(tool, question, dataIn, input, ctx.attach || ctx.pins ? [] : [...createdLeads(ctx.steps), ...(ctx.ownLeads ?? [])]) ?? ""; } // Stop-all halts operator writes outright
   else if (tool === "save_memory" && !asksToRemember(question)) blocked = "only save when the user asks; reflection handles the rest"; // core.ts:287
-  if (blocked && operatorAllows(tool, ctx)) return { allow: true, tier, reason: OPERATOR_REASON };
+  if (blocked && (operatorAllows(tool, ctx) || explicitAfterSafeRead(tool, question, ctx))) return { allow: true, tier, reason: OPERATOR_REASON };
   if (blocked) return no(blocked);
+  if (tool === "start_mission" && dataIn && !operatorAllows(tool, ctx) && explicitAfterSafeRead(tool, question, ctx)) return { allow: true, tier, reason: OPERATOR_REASON };
   return { allow: true, tier, reason: "allowed" };
 }
 
