@@ -47,7 +47,7 @@ async function call(path: string, body: FormData | object, ms: number): Promise<
   return new Uint8Array(await res.arrayBuffer());
 }
 
-const save = (bytes: Uint8Array | string, name: string, type: string) => saveUpload(new File([bytes as BlobPart], name, { type }));
+const save = (bytes: Uint8Array | string, name: string, type: string) => saveUpload(new File([bytes as BlobPart], name, { type }), { made: "Made by the AI on this PC" });
 const callJson = async (path: string, body: FormData, ms: number): Promise<unknown> => JSON.parse(new TextDecoder().decode(await call(path, body, ms)));
 /** A VAULT file as a named File for the service (VAULT files are at most 40 MB; traversal/missing names are refused in readStream). */
 const vaultFile = async (name: string) => new File([await new Response((await readStream(name, null)).stream).blob()], name);

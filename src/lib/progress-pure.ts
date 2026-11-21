@@ -12,7 +12,7 @@ export type ProgressStep = { label: string; state: StepState };
 /** working: moving now · waiting: queued or held (Stop-all) · needs: waits for his click · done · failed. */
 export type ProgressPhase = "waiting" | "working" | "needs" | "done" | "failed";
 /** open: a deep-link hash ("#o=operations&k=task&id=…") or an http(s) / workspace href. */
-export type ProgressAction = { kind: "approve" | "pick" | "retry" | "open"; label: string; open: string };
+export type ProgressAction = { kind: "approve" | "pick" | "retry" | "open" | "undo"; label: string; open: string };
 export type Progress = {
   id: string; title: string; phase: ProgressPhase; steps: ProgressStep[];
   now: string | null;      // one line: what it is doing right now (null when not working)

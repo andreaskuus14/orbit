@@ -106,7 +106,7 @@ export async function makeImage(i: Record<string, unknown>): Promise<string> {
   const c = checkImage(i);
   if ("error" in c) throw new Error(c.error);
   const bytes = await generate(c.prompt, c.aspect);
-  return saveUpload(new File([bytes as BlobPart], assetName(c.name || c.prompt.slice(0, 40), "png", "picture"), { type: "image/png" }));
+  return saveUpload(new File([bytes as BlobPart], assetName(c.name || c.prompt.slice(0, 40), "png", "picture"), { type: "image/png" }), { made: "Picture made on this PC" });
 }
 
 /** CORE tool local_image. Errors come back as "Error: ..." text (core.ts's convention). */

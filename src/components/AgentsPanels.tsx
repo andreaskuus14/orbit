@@ -10,6 +10,7 @@ import { OrbitLog } from "./OrbitLog";
 import { useWorldPaused } from "./world-paused";
 import { highlight } from "./Highlight";
 import { ActivityView } from "./ActivityView";
+import { TimeMachineView } from "./TimeMachineView";
 import { TeamStatusView } from "./TeamStatusView";
 import { ResultEvidence } from "./ResultEvidence";
 import { AutomationFields } from "./AutomationFields";
@@ -276,7 +277,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   const [form, setForm] = useState({ request: "", agent: "nova", project_id: "" });
   const [newProject, setNewProject] = useState("");
   const [filter, setFilter] = useState<string>("");
-  const [tab, setTab] = useState<"tasks" | "team" | "automations" | "plans" | "rules" | "activity" | "localai" | "scout" | "terminal">("tasks");
+  const [tab, setTab] = useState<"tasks" | "team" | "automations" | "plans" | "rules" | "activity" | "time" | "localai" | "scout" | "terminal">("tasks");
   const [manual, setManual] = useManual("operations");
   useEffect(() => { // a glowing scout moon in the galaxy was clicked: open Scout (now, or when this panel mounts)
     const go = () => { if (takeScoutTab()) { setManual(true); setTab("scout"); } };
@@ -355,7 +356,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   const tabs = (
     <div className="flex flex-wrap gap-1.5" role="tablist">
       <button className="chip" onClick={() => setManual(false)}>← {tr("ph.simple")}</button>
-      {(["tasks", "automations", "activity", ...(OPS_MORE.some((m) => m === tab) ? [tab] : [])] as (typeof tab)[]).map((t) => (
+      {(["tasks", "automations", "activity", "time", ...(OPS_MORE.some((m) => m === tab) ? [tab] : [])] as (typeof tab)[]).map((t) => (
         <button key={t} role="tab" aria-selected={tab === t} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
           {tr(`ops.tab.${t}`)}
         </button>
@@ -371,6 +372,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   );
   if (tab === "team") return <div className="space-y-4">{tabs}<TeamStatusView /></div>;
   if (tab === "activity") return <div className="space-y-4">{tabs}<ActivityView onOpenTask={setOpen} /></div>;
+  if (tab === "time") return <div className="space-y-4">{tabs}<TimeMachineView onOpenTask={setOpen} /></div>;
   if (tab === "scout") return <div className="space-y-4">{tabs}<ScoutPanel onOpenTask={setOpen} /></div>;
   if (tab === "localai") return <div className="space-y-4">{tabs}<LocalAiTools /></div>;
   if (tab === "terminal") return <div className="space-y-4">{tabs}<TerminalView /></div>;

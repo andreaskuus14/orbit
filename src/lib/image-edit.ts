@@ -65,7 +65,7 @@ export async function runImageEditTool(i: Record<string, unknown>): Promise<stri
     const { stream } = await readStream(r.image, null); // a VAULT file; traversal/missing names are refused there
     if (!stream) throw new Error("Couldn't read that picture from VAULT.");
     const bytes = await editImage(r, await new Response(stream).blob());
-    const saved = await saveUpload(new File([bytes as BlobPart], assetName(r.name || `${r.image.replace(/\.[^.]+$/, "")} edit`, "png", "picture"), { type: "image/png" }));
+    const saved = await saveUpload(new File([bytes as BlobPart], assetName(r.name || `${r.image.replace(/\.[^.]+$/, "")} edit`, "png", "picture"), { type: "image/png" }), { made: "Picture edit" });
     return `Saved the edited picture as "${saved}" in VAULT (edited "${r.image}", which is unchanged; made on his PC with FLUX.2 klein 4B in ComfyUI; free, nothing uploaded). Show it with vault_read or tell him where it is.`;
   } catch (e) { return `Error: ${e instanceof Error ? e.message : String(e)}`; }
 }

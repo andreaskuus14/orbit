@@ -42,11 +42,15 @@ function update(fn: (s: AutonomyState) => AutonomyState | string): Promise<Auton
   return p;
 }
 
-export async function setAreaLevel(sb: SupabaseClient, userId: string, area: unknown, level: unknown, confirm: unknown) {
+/** record: false when the time machine itself puts a level back (its own record is the undo). */
+export async function setAreaLevel(sb: SupabaseClient, userId: string, area: unknown, level: unknown, confirm: unknown, record = true) {
   const from = autonomyLevels()[area as Area];
   const rp = await import("./remote-push"), push = rp.canNotify() ? "" : rp.pushProblem(); // the push after each auto action is part of the deal: no push (Web Push or ntfy), no auto
   const r = await update((s) => setLevel(s, area, level, confirm, Date.now(), push));
-  if (typeof r !== "string" && from !== level) await emit(sb, userId, "autonomy.change", "core", { area, from, to: level });
+  if (typeof r !== "string" && from !== level) {
+    await emit(sb, userId, "autonomy.change", "core", { area, from, to: level });
+    if (record) void import("./time-machine").then((m) => m.recordSetting(String(area), String(from), String(level))); // TIME MACHINE: Undo puts it back only when that is stricter
+  }
   return r;
 }
 export const setLimits = (b: Record<string, unknown>) => update((s) => { const l = patchLimits(b, s.limits); return typeof l === "string" ? l : { ...s, limits: l }; });

@@ -98,6 +98,8 @@ const BASE = {
   "trust.title": "Suggestions from your approvals", "trust.line": "You approved {approved} of {total} {kind} this month. Let ORBIT do these on its own?",
   "trust.change": "{area}: Ask → Do & report. Nothing is sent, published or spent without your click.", "trust.accept": "Accept", "trust.later": "Not now",
   "act.undo": "Undo", "act.undoing": "Undoing…", "act.operator": "Operator",
+  "tm.title": "Time machine", "tm.purpose": "Everything ORBIT did, day by day. Undo what can be undone.", "tm.empty": "ORBIT did nothing recorded on this day.",
+  "tm.prev": "Day before", "tm.next": "Day after", "tm.today": "Today", "tm.pick": "Pick a day", "tm.undone": "Undone. You can undo that too.",
   "trust.kind.save_memory": "memory saves", "trust.kind.memory.hygiene": "memory merge and retract suggestions", "trust.kind.add_task": "follow-up agent tasks",
   "profile.persona": "ORBIT's character", "profile.playbook": "How CORE has adapted", "profile.lessons": "What I learned about you",
 
@@ -358,7 +360,7 @@ const BASE = {
 
   "ops.memory": "memory", "ops.tab.tasks": "Jobs & projects", "ops.tab.automations": "Routines", "ops.tab.plans": "Multi-step jobs", "ops.tab.rules": "Ask-first rules",
   "plans.intro": "Long jobs kept as a plan file: one step per session, each step an ordinary agent task (its approvals stay yours). After a restart it carries on at the first unfinished step.", "plans.new": "New plan job", "plans.title": "Title", "plans.goal": "Goal (optional)", "plans.steps": "Steps, one per line", "plans.agent": "Agent", "plans.night": "Night shift window only", "plans.nightOnly": "night only", "plans.create": "Create", "plans.empty": "No plan jobs yet.", "plans.pause": "Pause", "plans.resume": "Resume", "plans.retry": "Retry step", "plans.delete": "Delete", "plans.deleteConfirm": "Delete the plan job \"{name}\"? Its tasks stay in Tasks.", "plans.task": "task", "plans.progress": "Progress log", "plans.status.active": "Active", "plans.status.paused": "Paused", "plans.status.done": "Done", "plans.step.todo": "To do", "plans.step.doing": "Running", "plans.step.done": "Done", "plans.step.failed": "Failed",
-  "ops.tab.activity": "Activity", "ops.tab.localai": "AI on this PC", "ops.tab.team": "Team",
+  "ops.tab.activity": "Activity", "ops.tab.time": "Time machine", "ops.tab.localai": "AI on this PC", "ops.tab.team": "Team",
   "ops.tab.scout": "New AI tools", "scout.intro": "Every 6 hours ORBIT reads Hugging Face, GitHub, the Ollama library and the MCP server list for new open models and tools, keeps the ones that fit this PC and have a clear license, and lists them here. It never installs or downloads anything.",
   "scout.check": "Check now", "scout.checking": "Checking…", "scout.last": "Last check: {when}", "scout.never": "never", "scout.off": "The feature scout is off (ORBIT_SCOUT=0).",
   "scout.empty": "Nothing new yet.", "scout.ready": "Ready to try", "scout.watch": "Watch list (license or size unclear: not proposed)", "scout.improves": "Would improve", "scout.vs": "Today: {name}",
@@ -1102,6 +1104,8 @@ export const ET: Partial<Record<Key, string>> = {
   "trust.title": "Soovitused sinu kinnituste põhjal", "trust.line": "Sel kuul kinnitasid {total}-st {approved} ({kind}). Kas ORBIT võib neid edaspidi ise teha?",
   "trust.change": "{area}: Küsi → Tee ja teata. Midagi ei saadeta, avaldata ega kulutata ilma sinu klõpsuta.", "trust.accept": "Nõustu", "trust.later": "Mitte praegu",
   "act.undo": "Võta tagasi", "act.undoing": "Võtan tagasi…", "act.operator": "Operaator",
+  "tm.title": "Ajamasin", "tm.purpose": "Kõik, mida ORBIT tegi, päev päeva haaval. Võta tagasi, mida saab.", "tm.empty": "Sel päeval ei teinud ORBIT midagi, mis kirja läks.",
+  "tm.prev": "Eelmine päev", "tm.next": "Järgmine päev", "tm.today": "Täna", "tm.pick": "Vali päev", "tm.undone": "Tagasi võetud. Ka seda saab tagasi võtta.",
   "trust.kind.save_memory": "mälukirjete salvestamine", "trust.kind.memory.hygiene": "mälukirjete ühendamise ja tagasivõtmise soovitused", "trust.kind.add_task": "agendi järelülesanded",
   "profile.persona": "ORBITi iseloom", "profile.playbook": "Kuidas CORE on kohanenud", "profile.lessons": "Mida ma sinust õppisin",
 
@@ -1308,7 +1312,7 @@ export const ET: Partial<Record<Key, string>> = {
 
   "ops.memory": "mälukirje", "ops.tab.tasks": "Tööd ja projektid", "ops.tab.automations": "Rutiinid", "ops.tab.plans": "Mitmeastmelised tööd", "ops.tab.rules": "Küsi-enne reeglid",
   "plans.intro": "Pikad tööd plaanifailina: üks samm sessiooni kohta, iga samm tavaline agendi ülesanne (kinnitused jäävad sinu teha). Pärast taaskäivitust jätkab esimesest lõpetamata sammust.", "plans.new": "Uus plaanitöö", "plans.title": "Pealkiri", "plans.goal": "Eesmärk (valikuline)", "plans.steps": "Sammud, üks rea kohta", "plans.agent": "Agent", "plans.night": "Ainult öövahetuse ajal", "plans.nightOnly": "ainult öösel", "plans.create": "Loo", "plans.empty": "Plaanitöid veel pole.", "plans.pause": "Peata", "plans.resume": "Jätka", "plans.retry": "Proovi sammu uuesti", "plans.delete": "Kustuta", "plans.deleteConfirm": "Kustutada plaanitöö \"{name}\"? Selle ülesanded jäävad alles.", "plans.task": "ülesanne", "plans.progress": "Edenemise logi", "plans.status.active": "Aktiivne", "plans.status.paused": "Peatatud", "plans.status.done": "Valmis", "plans.step.todo": "Teha", "plans.step.doing": "Käib", "plans.step.done": "Tehtud", "plans.step.failed": "Ebaõnnestus",
-  "ops.tab.activity": "Tegevus", "ops.tab.localai": "AI selles arvutis", "ops.tab.team": "Tiim",
+  "ops.tab.activity": "Tegevus", "ops.tab.time": "Ajamasin", "ops.tab.localai": "AI selles arvutis", "ops.tab.team": "Tiim",
   "ops.tab.scout": "Uued AI-tööriistad", "scout.intro": "Iga 6 tunni järel loeb ORBIT Hugging Face'i, GitHubi, Ollama kogu ja MCP-serverite nimekirja uute avatud mudelite ja tööriistade leidmiseks, jätab alles need, mis sellele arvutile sobivad ja millel on selge litsents, ning näitab neid siin. See ei paigalda ega laadi midagi alla.",
   "scout.check": "Kontrolli kohe", "scout.checking": "Kontrollin…", "scout.last": "Viimati kontrollitud: {when}", "scout.never": "mitte kunagi", "scout.off": "Funktsioonide luure on välja lülitatud (ORBIT_SCOUT=0).",
   "scout.empty": "Veel pole midagi uut.", "scout.ready": "Valmis proovimiseks", "scout.watch": "Jälgimisnimekiri (litsents või suurus ebaselge: ei pakuta)", "scout.improves": "Parandaks", "scout.vs": "Praegu: {name}",

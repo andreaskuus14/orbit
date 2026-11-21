@@ -214,7 +214,7 @@ export async function runBrowseTool(i: Record<string, unknown>): Promise<string>
     if (!r) return "Error: the page couldn't be opened in ORBIT's browser (no Chrome/Edge found, a private address, or it didn't load). Try fetch_url for plain pages.";
     if ("needsClick" in r) return ask(r.needsClick);
     let shot: string | undefined;
-    if (r.shot) shot = await (await import("./vault")).saveUpload(new File([r.shot as BlobPart], `browse-${new URL(r.url).hostname}.jpg`, { type: "image/jpeg" })).catch(() => undefined);
+    if (r.shot) shot = await (await import("./vault")).saveUpload(new File([r.shot as BlobPart], `browse-${new URL(r.url).hostname}.jpg`, { type: "image/jpeg" }), { made: "Screenshot of a page ORBIT browsed" }).catch(() => undefined);
     return browseReport({ ...r, shot });
   } catch (e) { return `Error: ${e instanceof Error ? e.message : String(e)}`; }
 }
