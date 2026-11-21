@@ -254,11 +254,18 @@ export type Night = { key: string; startedAt: string; endedAt?: string; stopped?
 export type RepairState = { nights: Night[]; patches: Patch[] };
 
 /** A night repair is mergeable only with a complete exam result tied to its exact candidate commit. */
-export function repairExamVerdict(exam: RepairExam | undefined, commit: string | undefined): "unmeasured" | "regressed" | "passed" {
-  if (!exam || !commit || exam.candidateCommit !== commit || !exam.runId.trim()
+export function repairExamVerdict(exam: RepairExam | undefined, commit: string | undefined): "unmeasured" | "mismatched" | "regressed" | "passed" {
+  if (!exam) return "unmeasured";
+  if (exam.candidateCommit && commit && exam.candidateCommit !== commit) return "mismatched";
+  if (!commit || !exam.candidateCommit || !exam.runId.trim()
     || !Number.isFinite(exam.baseScore) || !Number.isFinite(exam.candidateScore)
     || exam.baseScore < 0 || exam.baseScore > 100 || exam.candidateScore < 0 || exam.candidateScore > 100) return "unmeasured";
   return exam.candidateScore < exam.baseScore ? "regressed" : "passed";
+}
+export function repairExamBlock(exam: RepairExam | undefined, commit: string | undefined): string {
+  const verdict = repairExamVerdict(exam, commit);
+  return verdict === "mismatched" ? "The ORBIT exam score belongs to another commit"
+    : verdict === "regressed" ? "This candidate scored lower on the ORBIT exam" : "";
 }
 export const KEEP_NIGHTS = 14, KEEP_PATCHES = 60;
 
@@ -285,7 +292,11 @@ export function patchCard(p: Patch): { title: string; detail: string; message: s
     title: `Night fix: ${p.title}`.slice(0, 160),
     detail: `Code patch on ${p.branch}${p.pr ? ` (PR #${p.pr.number})` : " (local branch)"}`,
     message: [`Problem: ${p.problem}`, p.summary ? `Fix: ${p.summary}` : "", `Diff: ${diffSummary(p.files)}`, gateLine(p.gate), p.effect ?? "Not measured",
-      p.exam ? `ORBIT exam: ${p.exam.baseScore}% → ${p.exam.candidateScore}%` : "ORBIT exam: not measured; approval is blocked",
+      repairExamVerdict(p.exam, p.commit) === "mismatched"
+        ? "ORBIT exam score belongs to another commit; approval is blocked"
+        : repairExamVerdict(p.exam, p.commit) === "unmeasured"
+          ? "ORBIT exam: not measured by the exam yet"
+          : `ORBIT exam: ${p.exam!.baseScore}% → ${p.exam!.candidateScore}%`,
       "Approve merges it into main and starts ORBIT's self-update (build, swap, rollback if unhealthy)."].filter(Boolean).join("\n"),
   };
 }

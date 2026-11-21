@@ -21,7 +21,7 @@ import { checkPatch } from "./night-repair-protect-pure";
 import * as G from "./night-repair-git";
 import {
   AGENT_TOOLS, REPAIR_SYSTEM, agentPermissions, branchName, budgetStop, collectSignals, effectLine, failedTests, gateEnv, isWaiting, parseAgentReply,
-  parseMetric, parseRepair, patchCard, patchSeen, prBody, rankSignals, repairBlock, repairConfig, repairExamVerdict, repairModel, repairPrompt, retryPrompt, tail, trimState,
+  parseMetric, parseRepair, patchCard, patchSeen, prBody, rankSignals, repairBlock, repairConfig, repairExamBlock, repairExamVerdict, repairModel, repairPrompt, retryPrompt, tail, trimState,
   type Effect, type Night, type Patch, type RepairState, type SelfTest, type Signal, type Smoke,
 } from "./night-repair-pure";
 
@@ -282,9 +282,8 @@ export async function approveRepair(id: string, seen: string): Promise<Decision>
     if (head !== p.commit) return no("The branch moved since the gate passed: reject it");
     const problems = checkPatch(await G.diffOf(repo(), p.base, p.commit!));
     if (problems.length) return no(`Refused: ${problems.join("; ").slice(0, 300)}`);
-    const exam = repairExamVerdict(p.exam, p.commit);
-    if (exam === "unmeasured") return no("Not merged: this exact candidate has no verified ORBIT exam score");
-    if (exam === "regressed") return no("Not merged: this candidate scored lower on the ORBIT exam");
+    const examBlock = repairExamBlock(p.exam, p.commit);
+    if (examBlock) return no(`Not merged: ${examBlock}`);
     let how: string;
     const token = p.pr ? await ghToken() : "", slug = p.pr ? await ghRepo() : "";
     if (p.pr && token && slug) {

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   REPAIR_SYSTEM, agentPermissions, branchName, budgetStop, collectSignals, effectLine, failedTests, gateEnv, isWaiting, parseAgentReply, parseMetric, parseRepair,
-  patchCard, patchSeen, prBody, rankSignals, repairBlock, repairBrief, repairConfig, repairExamVerdict, repairModel, repairPrompt, validBranch, type IssueIn, type Patch, type Signal,
+  patchCard, patchSeen, prBody, rankSignals, repairBlock, repairBrief, repairConfig, repairExamBlock, repairExamVerdict, repairModel, repairPrompt, validBranch, type IssueIn, type Patch, type Signal,
 } from "../src/lib/night-repair-pure.ts";
 
 const NOW = Date.parse("2026-11-21T02:00:00Z");
@@ -36,11 +36,15 @@ test("repairBlock: off switch, Stop-all, window, once a night, usage pacer, owne
   assert.match(repairBlock({ ...open, autonomy: "Night shift is Off in Profile → Autonomy" }), /Off/);
 });
 
-test("night repair cannot merge without an exact-commit exam or when the candidate score regresses", () => {
+test("night repair allows an unmeasured candidate but blocks a lower score or a score for another commit", () => {
   assert.equal(repairExamVerdict(undefined, "abc"), "unmeasured");
+  assert.equal(repairExamBlock(undefined, "abc"), "");
+  assert.equal(repairExamBlock({ baseScore: 80, candidateScore: 80, candidateCommit: "abc", runId: "ev-20261121-aaaa" }, "abc"), "");
   assert.equal(repairExamVerdict({ baseScore: 80, candidateScore: 79, candidateCommit: "abc", runId: "ev-20261121-aaaa" }, "abc"), "regressed");
+  assert.match(repairExamBlock({ baseScore: 80, candidateScore: 79, candidateCommit: "abc", runId: "ev-20261121-aaaa" }, "abc"), /lower/);
   assert.equal(repairExamVerdict({ baseScore: 80, candidateScore: 80, candidateCommit: "abc", runId: "ev-20261121-aaaa" }, "abc"), "passed");
-  assert.equal(repairExamVerdict({ baseScore: 80, candidateScore: 82, candidateCommit: "other", runId: "ev-20261121-aaaa" }, "abc"), "unmeasured");
+  assert.equal(repairExamVerdict({ baseScore: 80, candidateScore: 82, candidateCommit: "other", runId: "ev-20261121-aaaa" }, "abc"), "mismatched");
+  assert.match(repairExamBlock({ baseScore: 80, candidateScore: 82, candidateCommit: "other", runId: "ev-20261121-aaaa" }, "abc"), /another commit/);
   assert.equal(repairExamVerdict({ baseScore: 80, candidateScore: 101, candidateCommit: "abc", runId: "ev-20261121-aaaa" }, "abc"), "unmeasured");
 });
 
