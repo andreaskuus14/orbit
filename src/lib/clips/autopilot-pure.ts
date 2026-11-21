@@ -1,5 +1,6 @@
 // YouTube autopilot (pure, tested in tests/autopilot.test.ts): settings + daily caps, learned preferences shrunk toward the channel's
 // usual for small samples, candidate ranking, title + slot proposals, and pipeline stages. The orchestration is autopilot.ts.
+import { LOG_OPTS, decide, meanSteps, type MeanObs, type Verdict } from "../abtest-pure.ts";
 import { creatorOf, hookStyle, kindOf, lengthBand, scoreClips, type LearnRec } from "./learn-pure.ts";
 import { isClipId, isJobId, validOptions } from "./pure.ts";
 import { MIN_LEAD_MS, nextSlots, wall, type PublishSettings } from "./schedule.ts";
@@ -80,7 +81,10 @@ export function spendDownload(a: Autopilot, now: Date) { a.downloads = usedDownl
 
 export type Dim = "creator" | "length" | "hook" | "title" | "layout" | "hour" | "kind";
 const DIMS: Dim[] = ["creator", "length", "hook", "title", "layout", "hour", "kind"];
-export type Pref = { n: number; mult: number }; // mult: shrunk multiplier on the channel's usual 72 h views (1 = usual)
+// mult: shrunk multiplier on the channel's usual 72 h views (1 = usual), a soft nudge for ranking only.
+// verdict/more: the honest test of this bucket vs every other Short (abtest-pure, anytime-valid, ≥ 5 a side). Only a sure
+// verdict is ever said out loud (findings) or allowed to move a publish slot.
+export type Pref = { n: number; mult: number; verdict?: Verdict; more?: number };
 export type Prefs = { at: string; n: number; dims: Partial<Record<Dim, Record<string, Pref>>> };
 export const PRIOR_K = 3; // pseudo-Shorts at the channel's usual: 1 Short moves a bucket ~25% of the way, 9 Shorts ~75%
 
@@ -94,18 +98,28 @@ export const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, ""); //
 /** Published Shorts with 72 h stats → per-feature multipliers. tz: the publish time zone (posting hour). */
 export function learnPrefs(recs: LearnRec[], tz: string, at: string): Prefs {
   const scored = scoreClips(recs), acc = new Map<string, { dim: Dim; label: string; logs: number[] }>();
+  const order: { t: number; x: number; keys: Set<string> }[] = [];
   for (const { rec: r, score } of scored) {
+    const keys = new Set<string>();
     const pub = r.publishedAt ? Date.parse(r.publishedAt) : NaN;
     const f: Record<Dim, string> = { creator: r.sourceChannel, length: lengthBand(r.durationSec), hook: hookStyle(r.hook), title: hookStyle(r.title), layout: r.layout, kind: r.kind,
       hour: Number.isFinite(pub) ? hourLabel(wall(pub, tz)[3]) : "unknown" };
     for (const d of DIMS) {
       if (!f[d] || f[d] === "unknown" || f[d] === "other") continue;
       const k = `${d}\0${f[d]}`;
+      keys.add(k);
       (acc.get(k) ?? acc.set(k, { dim: d, label: f[d], logs: [] }).get(k)!).logs.push(Math.log(Math.max(0.05, score))); // 0 views → 0.05×, not -∞
     }
+    order.push({ t: Number.isFinite(pub) ? pub : 0, x: Math.log(Math.max(0.05, score)), keys });
   }
   const dims: Prefs["dims"] = {};
-  for (const b of acc.values()) (dims[b.dim] ??= {})[b.label] = { n: b.logs.length, mult: Math.round(shrunkMult(b.logs) * 100) / 100 };
+  order.sort((a, b) => a.t - b.t); // looks in publish order, as the data came in
+  for (const [k, b] of acc) {
+    const obs: MeanObs[] = order.map((o) => ({ arm: o.keys.has(k) ? "B" : "A", x: o.x }));
+    const d = decide(meanSteps(obs, LOG_OPTS.minVar), LOG_OPTS);
+    (dims[b.dim] ??= {})[b.label] = { n: b.logs.length, mult: Math.round(shrunkMult(b.logs) * 100) / 100, verdict: d.verdict,
+      ...(d.more !== undefined && Number.isFinite(d.more) && { more: d.more }) };
+  }
   return { at, n: scored.length, dims };
 }
 
@@ -123,13 +137,14 @@ const PHRASE: Record<Dim, (l: string) => string> = {
   title: (l) => `Titles as ${l === "none" ? "no text" : `a ${l}`}`, layout: (l) => `The ${l} layout`, hour: (l) => `Posting at ${l}`, kind: (l) => `${l[0].toUpperCase()}${l.slice(1)} moments`,
 };
 
-/** Plain-English findings, strongest first: buckets ≥ 2 Shorts whose shrunk multiplier is ≥ 15% off the usual. */
+/** Plain-English findings, strongest first: only buckets whose honest test is sure (better or worse than the rest, ≥ 5 a side).
+ *  "Too early" and "no real difference" are never said as a pattern. */
 export function findings(p: Prefs | undefined, max = 5): { text: string; dim: Dim; label: string; n: number; mult: number }[] {
   const out = [];
   for (const d of DIMS) for (const [label, x] of Object.entries(p?.dims[d] ?? {})) {
-    if (x.n < 2 || Math.abs(Math.log(x.mult)) < Math.log(1.15)) continue;
-    const how = x.mult >= 1 ? `get ${x.mult.toFixed(1)}× your usual views` : `get ${Math.round((1 - x.mult) * 100)}% fewer views than usual`;
-    out.push({ text: `${PHRASE[d](clean(label))} ${how} (${x.n} Shorts)`, dim: d, label, n: x.n, mult: x.mult });
+    if (x.verdict !== "better" && x.verdict !== "worse") continue;
+    const how = x.verdict === "better" ? `get more views than your other Shorts (${x.mult.toFixed(1)}× usual)` : `get fewer views than your other Shorts (${x.mult.toFixed(1)}× usual)`;
+    out.push({ text: `${PHRASE[d](clean(label))} ${how}, ${x.n} Shorts, sure enough`, dim: d, label, n: x.n, mult: x.mult });
   }
   return out.sort((a, b) => Math.abs(Math.log(b.mult)) - Math.abs(Math.log(a.mult))).slice(0, max);
 }
@@ -201,18 +216,20 @@ export function editProposal(p: Proposal, b: Record<string, unknown>, free: stri
   return out;
 }
 
-/** A publish slot from the free calendar slots: the earliest, unless one of the next 3 is at an hour that clearly (>10%) does better.
+/** A publish slot from the free calendar slots: the earliest, unless one of the next 3 is at an hour that does better (>10%) AND
+ *  the honest test is sure about it (that hour is better, or the earliest one's hour is worse). A hunch never moves a slot.
  *  taken: slots already proposed to other clips (they count as used, so proposals never collide). */
 export function proposeSlot(s: PublishSettings, used: number[], taken: string[], now: number, p?: Prefs): { slot?: string; why: string } {
   // nextSlots keeps MIN_LEAD_MS + 1 min ahead; shifting `now` makes that PROPOSE_LEAD_MS, so there's time to approve before the slot is too close
   const free = nextSlots(s, [...used, ...taken.map(Date.parse).filter(Number.isFinite)], now + PROPOSE_LEAD_MS - MIN_LEAD_MS - 60_000, 3);
   if (!free.length) return { why: "No free slot in the next 6 months — edit your publish slots" };
   const hour = (iso: string) => hourLabel(wall(Date.parse(iso), s.timezone)[3]);
-  const best = free.reduce((a, b) => (multOf(p, "hour", hour(b)) > multOf(p, "hour", hour(a)) * 1.1 ? b : a));
+  const sure = (iso: string, v: Verdict) => prefOf(p, "hour", hour(iso))?.verdict === v;
+  const best = free.reduce((a, b) => (multOf(p, "hour", hour(b)) > multOf(p, "hour", hour(a)) * 1.1 && (sure(b, "better") || sure(a, "worse")) ? b : a));
   const m = prefOf(p, "hour", hour(best)), first = prefOf(p, "hour", hour(free[0]));
   const why = best === free[0] ? "Next free slot in your calendar"
-    : m ? `Posting at ${hour(best)} gets ${m.mult.toFixed(1)}× your usual views (${m.n} Shorts)`
-    : `Skips ${hour(free[0])}, which gets ${first ? `${first.mult.toFixed(1)}× your usual views (${first.n} Shorts)` : "fewer views"}`;
+    : m?.verdict === "better" ? `Posting at ${hour(best)} gets more views (${m.mult.toFixed(1)}× your usual, ${m.n} Shorts, sure enough)`
+    : `Skips ${hour(free[0])}, which gets fewer views${first ? ` (${first.mult.toFixed(1)}× your usual, ${first.n} Shorts, sure enough)` : ""}`;
   return { slot: best, why };
 }
 

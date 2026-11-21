@@ -25,6 +25,18 @@ ORBIT's code doesn't change for this. It stays bound to `127.0.0.1`; Tailscale f
 - LIFE reminders show while ORBIT is open on the phone. They don't push when it's closed. (Only the /remote app below has push notifications, and only for approvals, Shorts, failures and Stop-all.)
 - STUDIO, agents, Clip Factory and everything else still run on the PC. The phone is a remote screen for it, so **the PC must be on with ORBIT running**.
 
+## Phone chat (/chat): CORE as its own app
+
+The same CORE chat as on the PC (history, search, files, pictures, Stop, Edit), without the galaxy, so it opens fast on the phone.
+
+1. Do the one-time setup above (Tailscale Serve + sign-in).
+2. On the phone, open `https://<your-pc>.<tailnet>.ts.net/chat` and sign in. Then **Add to Home Screen** (iPhone: Share button; Android: the **Install on this phone** button or the browser menu).
+3. Open **ORBIT** from the home screen. Sign in once more inside it on iPhone (the home-screen app keeps its own sign-in).
+
+What's stored on the phone: only the chat app itself (the page and its code files), so it opens quickly. Your chats, answers and files are never cached on the phone; every message goes to the PC live. When the PC is off you see "Can't reach ORBIT. Is the PC on?".
+
+Files: tap 📎 or paste a picture. Documents are read on the PC (scanned PDF pages with the OCR on the PC, GLM-OCR or Docling); a photo is looked at by CORE, and also OCR'd on the PC when you ask for its text ("read this receipt").
+
 ## Phone remote (/remote): approvals, Stop-all, Studio queue, ask CORE
 
 A light page for the phone that doesn't need the full galaxy or a Supabase sign-in on the phone. It uses the same Tailscale Serve address as above; nothing else is exposed.

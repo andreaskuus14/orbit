@@ -5,6 +5,7 @@ import { useT } from "./i18n";
 import { OpsStatus } from "./OpsStatus";
 import { lastProgress } from "@/lib/ops-status-pure";
 import { INBOX_BUCKETS, inboxBucket, inboxView, type InboxFilter, type InboxSort } from "@/lib/operations-inbox-pure";
+import { OrbitExamCard } from "./OrbitExamCard";
 
 export type InboxState = { query: string; agent: string; filter: InboxFilter; sort: InboxSort; limit: number };
 export const INITIAL_INBOX: InboxState = { query: "", agent: "", filter: "all", sort: "priority", limit: 12 };
@@ -26,6 +27,7 @@ export function OperationsInbox({ tasks, agents, projects, project, onProject, s
   const clear = () => { onChange({ ...INITIAL_INBOX, sort: state.sort }); onProject(""); };
 
   return <section className="min-w-0 space-y-3" aria-label={text.title}>
+    <OrbitExamCard />
     <div className="flex flex-wrap items-start justify-between gap-2">
       <div><h3 className="h3">{text.title}</h3><p className="muted text-xs">{tasks.length} {text.loaded} · {text.scope}</p></div>
       <button type="button" className="chip" onClick={onRefresh} disabled={loading}>{loading ? text.refreshing : text.refresh}</button>

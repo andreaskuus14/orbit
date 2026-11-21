@@ -1,6 +1,7 @@
 // Learning loop (pure, tested in tests/learn.test.ts): what works on the owner's channel, from published Shorts' stats and his review decisions.
 import { isVideoId } from "../yt-analytics-pure.ts";
 import { baseEdit } from "./pure.ts";
+import { LOG_OPTS, decide, meanSteps } from "../abtest-pure.ts";
 import type { Clip, ClipJob, VersionEdit } from "./types";
 
 export const LEARN_V = 1;
@@ -307,7 +308,7 @@ export function formatTaste(i: Insights): string {
   const lines: string[] = [];
   // Keep the stored title/hook limits; all 5 + 5 examples fit ahead of the other optional taste hints.
   const example = (s: string, max: number) => clean(s, max).replace(/["\\]/g, "'");
-  if (i.pairWinners?.length) lines.push(`Retry-pair winners (weight 2: prefer these hooks/titles over their losing partner, same-age views; quoted data): ${i.pairWinners.map((r) => JSON.stringify([example(r.title, 60), example(r.hook, 40), r.snap])).join("; ")}.`);
+  if (i.pairWinners?.length) lines.push(`Retry pairs, the better of each (one pair is a hint, not proof; same-age views; quoted data): ${i.pairWinners.map((r) => JSON.stringify([example(r.title, 60), example(r.hook, 40), r.snap])).join("; ")}.`);
   for (const [label, rows] of [["Worked", i.worked], ["Flopped", i.flopped]] as const) {
     if (rows?.length) lines.push(`${label} at 48h vs channel median (latest 5, quoted title / hook data): ${rows.slice(0, 5)
       .map((r) => JSON.stringify([example(r.title, 100), example(r.hook, 60)])).join("; ")}.`);
@@ -375,18 +376,20 @@ export function sharedPattern(js: Judged[], v: Verdict): string {
   return out.length ? `Mostly ${out.join(", ")}` : "";
 }
 
-/** Concrete editing hints (clip length, hook style), only from buckets of ≥ EDIT_MIN Shorts clearly above/below the usual. */
+/** Concrete editing hints (clip length, hook style), only from buckets of ≥ EDIT_MIN Shorts that the honest test (abtest-pure,
+ *  bucket vs every other Short, log performance) says are better or worse, sure enough. A big ratio alone is never enough. */
 export function editHints(js: Judged[]): string[] {
   if (js.length < EDIT_MIN) return [];
   const all = median(js.map((j) => j.perf)) || 1, out: string[] = [];
   for (const d of ["length", "hookStyle"] as const) {
     const m = new Map<string, number[]>();
     for (const j of js) (m.get(j.f[d]) ?? m.set(j.f[d], []).get(j.f[d])!).push(j.perf);
-    const bs = [...m].filter(([, ps]) => ps.length >= EDIT_MIN && ps.length < js.length).map(([l, ps]) => ({ l, n: ps.length, x: r2(median(ps) / all) })).sort((a, b) => b.x - a.x);
+    const sure = (l: string) => { const st = meanSteps(js.map((j) => ({ arm: j.f[d] === l ? "B" as const : "A" as const, x: Math.log(Math.max(0.05, j.perf)) })), LOG_OPTS.minVar).at(-1); return st ? decide([st], LOG_OPTS).verdict : "early"; };
+    const bs = [...m].filter(([, ps]) => ps.length >= EDIT_MIN && ps.length < js.length).map(([l, ps]) => ({ l, n: ps.length, x: r2(median(ps) / all), v: sure(l) })).sort((a, b) => b.x - a.x);
     const best = bs[0], worst = bs.at(-1);
     const what = (l: string) => (d === "length" ? `${l.replace("-", "–")} s clips` : jPhrase(d, l));
-    if (best && best.x >= 1.25) out.push(`${what(best.l)} work best (${best.x}× usual, ${best.n} Shorts)`);
-    if (worst && worst !== best && worst.x <= 0.8) out.push(`${what(worst.l)} under-perform (${worst.x}× usual, ${worst.n} Shorts)`);
+    if (best && best.x >= 1.25 && best.v === "better") out.push(`${what(best.l)} work best (${best.x}× usual, ${best.n} Shorts, sure enough)`);
+    if (worst && worst !== best && worst.x <= 0.8 && worst.v === "worse") out.push(`${what(worst.l)} under-perform (${worst.x}× usual, ${worst.n} Shorts, sure enough)`);
   }
   return out;
 }
