@@ -16,6 +16,7 @@ import { tonightBlocked } from "./night-pure.ts";
 import { wishBlocked } from "./deals-pure.ts";
 import { ruleBlocked } from "./rules-pure.ts";
 import { watchBlocked } from "./pagewatch-pure.ts";
+import { robloxWriteBlocked } from "./rojo-sync-pure.ts";
 import { AREA_INFO, autonomyAllows, type Area, type Levels } from "./autonomy-pure.ts";
 import { et, etQuestion } from "./et-ask-pure.ts";
 import { createdLeads, isOpsTool, opsAsked, opsBlocked } from "./core-operator-pure.ts";
@@ -82,6 +83,8 @@ export const TIERS: Record<string, Tier> = {
   roblox_lint: "T0", // selene on his exported project, read-only
   terminal_run: "T2", // one shell command in his connected folders: command-policy-pure levels (1 now, 2 snapshot + Undo, 3 waits for his click in OPERATIONS → Terminal)
   terminal_status: "T0", terminal_stop: "T2",
+  roblox_files: "T0", roblox_read: "T0", // his Rojo project's script list / one file, read-only
+  roblox_write: "T2", roblox_undo: "T2", // one Luau file in his own project (checked by StyLua + Selene first), each a git commit; Rojo pushes it to Studio only while live sync is on. Never publishes
   local_video: "T2", // Wan 2.2 in ComfyUI on his PC: a new VAULT .mp4 (optionally from a VAULT picture), nothing leaves the PC
   local_music: "T2", // ACE-Step in ComfyUI on his PC: a new VAULT .flac + .json record, nothing leaves the PC
   local_image_edit: "T2", // FLUX.2 klein in ComfyUI on his PC: a new VAULT picture from a VAULT picture, nothing leaves the PC
@@ -118,6 +121,7 @@ export const TOOL_AREA: Record<string, Area> = {
   roblox_export: "operator-build", // local project files + git commit (category A)
   terminal_run: "operator-build", // builds/tests/scripts in his project folders (category A); installs, deletes, uploads wait for his click
   pc_act: "operator-organize", // his own PC: apps, files in connected folders (Undo), level 3 after his OK
+  roblox_write: "operator-build", roblox_undo: "operator-build", // his script files + git commit (category A)
   watch_add: "research", // later reads of a public page (category A)
 };
 
@@ -153,6 +157,7 @@ export const EGRESS_CLASS: Record<string, "model" | "web" | "none"> = {
   ws_stop: "none", vault_move: "none", vault_rename: "none", life_plan: "none", automation_pause: "none", studio_drafts: "none", roblox_export: "none",
   roblox_lint: "none", save_decision: "none", watch_list: "none", watch_changes: "none", daily_runs: "none",
   terminal_status: "none", terminal_stop: "none",
+  roblox_lint: "none", roblox_files: "none", roblox_read: "none", roblox_write: "none", roblox_undo: "none", save_decision: "none", watch_list: "none", watch_changes: "none", daily_runs: "none",
   pc_window: "none", pc_act: "none", // stays on the PC (loopback helper)
 };
 // lead_update: the lead selector is BUSINESS's own record key (business_status shows it), so only its free-text fields are scanned;
@@ -170,6 +175,7 @@ export const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "find_outlier
 /** His own stores that hold other people's text (invites, video text, offer titles, files, commits, analysed code). */
 // plan_day carries calendar invites; local_transcribe the words in any audio/video file he points it at.
 const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "vault_skill", "ws_read", "plan_day", "local_transcribe", "pc_window", "pc_act", "terminal_run", "terminal_status"];
+const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "vault_skill", "ws_read", "plan_day", "local_transcribe", "roblox_read", "pc_window", "pc_act"]; // roblox_read: free-model / copied code
 // mission_status: agents' results; run_niche: its web research.
 export const UNTRUSTED = ["browse", "fetch_url", "scrape_page", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "find_outliers", "find_lead_candidates", "ask_agent", "business_status", "watch_changes", "mission_status", "run_niche", ...STORED_OUTSIDE];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;
@@ -331,6 +337,7 @@ function decideRaw(tool: string, input: Record<string, unknown> | undefined, ctx
   else if (tool === "add_wish") blocked = wishBlocked(question, dataIn);
   else if (tool === "propose_rule") blocked = ruleBlocked(question, dataIn);
   else if (tool === "watch_add") blocked = watchBlocked(question, dataIn);
+  else if (tool === "roblox_write" || tool === "roblox_undo") blocked = robloxWriteBlocked(question);
   else if (tool === "ask_agent") blocked = agentBlocked(question, input?.agent, ctx.attach || untrustedIn(ctx.steps));
   else if (tool === "save_decision" && input?.confirmed === true) blocked = !dataIn && !privateIn && confirmsDecision(typedText(question)) ? "" : "save a decision only after his latest message is a plain yes to the preview"; // the preview call writes nothing
   else if (tool === "save_checkpoint") blocked = checkpointBlocked(question);

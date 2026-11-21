@@ -10,6 +10,7 @@ export const STOP_ALL_REQUEST_EVENT = "orbit:stop-all-request";
 
 /** CORE tools that start agents, plans, goals, scout runs or uploads. Read-only tools and memory/LIFE/workspace writes still work. */
 export const STARTS_WORK = ["ask_agent", "plan_task", "create_goal", "start_mission", "run_scout", "run_niche", "schedule_approved", "higgsfield_draft", "ws_picture_draft", "ws_run", "local_3d", "local_tts", "local_transcribe", "local_image", "local_image_edit", "local_music", "local_video", "browse", "roblox_export", "pc_act", "terminal_run"];
+export const STARTS_WORK = ["ask_agent", "plan_task", "create_goal", "start_mission", "run_scout", "run_niche", "schedule_approved", "higgsfield_draft", "ws_picture_draft", "ws_run", "local_3d", "local_tts", "local_transcribe", "local_image", "local_image_edit", "local_music", "local_video", "browse", "roblox_export", "roblox_write", "roblox_undo", "pc_act"];
 
 /** The tool result CORE gets instead of running the tool, or "" when it may run. */
 export const coreToolRefusal = (on: boolean, tool: string) => (on && STARTS_WORK.includes(tool) ? `Error: ${PAUSED_MSG}` : "");
