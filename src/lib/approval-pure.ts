@@ -30,6 +30,7 @@ export const EFFECTS: Record<string, Effect> = {
   schedule_approved: "publish", // uploads only clips already approved by his click (status "approved")
   // owner-click actions
   "business.send": "outward-send", "contracts.send": "outward-send", "negotiator.approve": "outward-send", "invoices.remind": "outward-send",
+  "kaggle.upload": "outward-send", // KAGGLE BURST: the exact script (+ files) a GPU job sends to his Kaggle account
   "story.approve": "spend", "studio.schedule": "publish", "studio.publish": "publish", "contracts.sign": "sign",
   "rules.add": "reversible", "rules.confirm": "reversible", "rules.pause": "reversible", "rules.resume": "reversible", "rules.delete": "reversible", "rules.run": "reversible", "automations.start": "reversible", // standing rules run only existing runners; outward steps still wait in Approvals
   "loops.close": "reversible", "loops.snooze": "reversible", "loops.task": "reversible", // open loops: his own bookkeeping (task = his day plan)
