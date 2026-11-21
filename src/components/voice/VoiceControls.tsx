@@ -5,6 +5,7 @@ import { DEFAULT_VOICE, loadVoiceSettings, recognizerFor, saveVoiceSettings, voi
 import { useT } from "../i18n";
 import { getSpeechRecognition, VOICE_PAUSE, VOICE_RESUME, type VoiceInput } from "./useVoiceInput";
 import type { Wake } from "./WakeWord";
+import { DeskVoiceToggle } from "./DeskVoice";
 import { enrollment, loadVoicePrint, saveVoicePrint, startVoiceSampler, type VoicePrint, type VoiceProfile } from "./voiceprint";
 import { warmNaturalVoice } from "./speak";
 import { SpeakFirstToggle } from "../SpeakFirst";
@@ -248,6 +249,7 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
             <span className="muted text-[10px]">{t("voice.convHelp")}</span>
           </label>
           <VoiceMatch />
+          <DeskVoiceToggle />
           <span className="voice-sub">Spoken answers</span>
           <label className="voice-row"><input type="checkbox" checked={s.speak} onChange={(e) => update({ speak: e.target.checked })} /> Speak answers</label>
           <SpeakFirstToggle />

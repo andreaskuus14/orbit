@@ -80,6 +80,7 @@ import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
 import { useT } from "./i18n";
 import { LIVING_EVENT } from "@/lib/living-events-pure";
 import { BrandMark } from "./BrandMark";
+import { orbitTitle } from "@/lib/jarvis-pure";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const PerfRun = dynamic(() => import("./PerfRun"), { ssr: false }); // only with ?perfrun=1
@@ -106,6 +107,7 @@ const AgentsPanel = dynamic(() => import("./AgentsPanels").then((m) => m.AgentsP
 const OperationsPanel = dynamic(() => import("./AgentsPanels").then((m) => m.OperationsPanel), { ssr: false, loading: PanelLoading });
 const DoctorPanel = dynamic(() => import("./DoctorPanel").then((m) => m.DoctorPanel), { ssr: false });
 const RemoteCall = dynamic(() => import("./RemoteCall").then((m) => m.RemoteCall), { ssr: false });
+const PcConfirm = dynamic(() => import("./voice/DeskVoice").then((m) => m.PcConfirm), { ssr: false });
 const WORLDS: PanelId[] = ["studio", "creation", "agents", "arch", "memory", ...PLANET_WORLDS]; // full-screen worlds with their own side panel (no drawer)
 const VISITS = "orbit.world.visits";
 const KEEP: PanelId[] = ["intelligence", "studio", "creation", "agents", "arch", "memory"]; // kept mounted (hidden + paused) after the first visit
@@ -140,6 +142,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [reduced, setReduced] = useState(false);
   const [dilation, setDilation] = useState<{ startAt: number; endAt: number } | null>(null); // a time dilation focus block
   const [panel, setPanel] = useState<PanelId | null>(null);
+  // The window title tells the desk listener (tools/voice) when LIFE is open: it then never captures or sends anything (jarvis-pure).
+  useEffect(() => { document.title = orbitTitle(panel); }, [panel]);
   const [memoryCount, setMemoryCount] = useState(0);
   const memoryShown = useTick(memoryCount);
   const [busy, setBusy] = useState(false);
@@ -796,7 +800,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       <PerfBeacon />
       <AmbientSound />
       {perfRun && <PerfRun />}
-      {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><RemoteCall compact /></>}
+      {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><RemoteCall compact /><PcConfirm /></>}
 
       {drawer && !WORLDS.includes(drawer) && (
         <aside ref={drawerDrag.ref} tabIndex={-1} className={`glass drawer${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}

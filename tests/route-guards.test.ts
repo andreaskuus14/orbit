@@ -17,6 +17,8 @@ const WRITES = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const PUBLIC: Record<string, [string | null, string]> = {
   "health GET": [null, "liveness ping for the launcher and wake listener; returns nothing sensitive"],
   "studio/busy GET": ["loopbackOrigin", "night script polls it; localhost Host only, booleans only"],
+  "voice/desk GET": ["fromHelper", "desk listener (tools/voice) poll; loopback Host, no proxy headers, shared token file"],
+  "voice/desk POST": ["fromHelper", "desk listener utterances/glances/clicks; loopback Host, no proxy headers, shared token file"],
   "remote POST": ["deviceFromCookie", "paired-phone command endpoint; device-token cookie"],
   "remote/pair POST": ["verifyPair", "phone pairing: the 6-digit code the PC shows issues the device token"],
   "remote/pair DELETE": [null, "only deletes this phone's own device cookie"],

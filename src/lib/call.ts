@@ -8,7 +8,7 @@ import { isCurrent } from "./memory-types-pure";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
-import { askClaude, coolClaude, emit, FAST_MODEL, recordUsage } from "./claude";
+import { askClaude, coolClaude, emit, FAST_MODEL, recordUsage, type PromptImage } from "./claude";
 import { runCore, warmCore } from "./core";
 import { createMemory } from "./memory";
 import { listDevices, ownerClient, pendingApprovals } from "./remote";
@@ -35,7 +35,9 @@ import { REVIEW_START, missedReviewDue, missedReviewLine, priorityGoal, reviewOp
 
 import { futureWindow, monthOf } from "./future-pure";
 
-type Session = { id: string; userId: string; sb: SupabaseClient; reason: CallReason; turns: CallTurn[]; pending: Pending | null; done: string[]; n: number; lastAt: number; busy?: AbortController; said: Set<string>; car?: boolean; who?: string; review?: { flow: ReviewFlow; summary: ReviewSummary }; seen?: string[]; replied?: { id: string; said: string[] } };
+type Session = { id: string; userId: string; sb: SupabaseClient; reason: CallReason; turns: CallTurn[]; pending: Pending | null; done: string[]; n: number; lastAt: number; busy?: AbortController; said: Set<string>; car?: boolean; who?: string; review?: { flow: ReviewFlow; summary: ReviewSummary }; seen?: string[]; replied?: { id: string; said: string[] };
+  /** the desk listener ("Hey Orbit" on the PC, jarvis.ts): not a call; attach = this turn's screenshot only */
+  desk?: true; attach?: { block: string; images: PromptImage[] } };
 /** An opener made ahead (when ORBIT rings, or while the call screen is open): its text and its first sentence's audio. */
 type Voiced = { text: string; parts: string[]; audio: Promise<string | null>[] };
 type Pre = { reason: CallReason; at: number; key: Promise<string>; base: Promise<string>; voiced: Promise<Voiced>; who?: Promise<string>; summary?: Promise<ReviewSummary> };
@@ -116,6 +118,8 @@ function tts(text: string): Promise<string | null> {
   G.tts = p.catch(() => {});
   return p.then((b64) => { if (text.length < 40) G.cache.set(text, b64); return b64; }, (e) => { console.error("[call] tts:", e instanceof Error ? e.message : e); return null; });
 }
+/** One line in ORBIT's call voice (Kokoro on this PC), base64 WAV; null when TTS failed. The desk listener's pings use it. */
+export const speakLine = (text: string) => tts(text);
 /** Load Kokoro and make the short fillers ahead of the first turn (cached for the life of the process). */
 export const warmVoice = () => { for (const t of FILLERS) if (!G.cache.has(t)) void tts(t); };
 
@@ -251,7 +255,19 @@ export async function startCall(sb: SupabaseClient, userId: string, car = false,
 }
 
 /** A call is going on (on any device): the PC's "Hey Orbit" must not listen meanwhile. */
-export const callLive = () => G.sessions.size > 0;
+export const callLive = () => [...G.sessions.values()].some((s) => !s.desk);
+
+/** The desk listener's conversation (one per owner; a phone call ends it). Voice approvals are off on it, as in car mode. */
+export function deskSession(sb: SupabaseClient, userId: string, who: string): Session {
+  let s = [...G.sessions.values()].find((x) => x.desk && x.userId === userId);
+  if (!s) {
+    s = { id: randomUUID(), userId, sb, reason: "manual", turns: [], pending: null, done: [], n: 0, lastAt: Date.now(), said: new Set(), car: true, desk: true };
+    G.sessions.set(s.id, s);
+    sweep();
+  }
+  s.sb = sb; s.who = who;
+  return s;
+}
 
 export const getCall = (userId: string, id: string) => { const s = G.sessions.get(id); return s && s.userId === userId ? s : null; };
 
@@ -337,7 +353,7 @@ export function callTurn(s: Session, input: { audio?: Float32Array; text?: strin
               const r = takeSentences(buf);
               buf = r.rest;
               r.done.forEach(sayNew);
-            }, ac.signal, () => { buf = ""; }, s.review && rv ? reviewStyle(callStyle(items, s.who), s.review.summary, rv.flow.step) : callStyle(items, s.who)); // ORBIT's character comes with CORE's prompt (persona "call" surface)
+            }, ac.signal, () => { buf = ""; }, s.review && rv ? reviewStyle(callStyle(items, s.who), s.review.summary, rv.flow.step) : callStyle(items, s.who), undefined, undefined, s.attach); // ORBIT's character comes with CORE's prompt (persona "call" surface)
             ms.core = Date.now() - t0;
             path = out.trace.some((x) => x.step === "reflex") ? "reflex" : out.model;
             const r = takeSentences(buf, true);
@@ -356,6 +372,7 @@ export function callTurn(s: Session, input: { audio?: Float32Array; text?: strin
         if (s.turns.length > CALL.maxTurns * 2) s.turns.splice(1, s.turns.length - CALL.maxTurns * 2); // keep the opener
         s.n++; s.lastAt = Date.now();
         if (s.busy === ac) s.busy = undefined;
+        s.attach = undefined; // a screenshot is for its one turn only
         console.info(`[call] turn ${path || "-"} ${Object.entries({ ...ms, total: Date.now() - t0 }).map(([k, v]) => `${k}=${v}ms`).join(" ")}`);
         send({ type: "done", ms, path });
         if (!end) void warmCore(s.sb, s.userId); // a spare for the next turn
@@ -398,13 +415,13 @@ export async function endCall(userId: string, id: string): Promise<{ memoryId: s
         void recordUsage(s.sb, userId, "call.summary", r, FAST_MODEL);
         summary = r.text.trim().slice(0, 1500);
       } catch (e) { console.error("[call] summary:", e instanceof Error ? e.message : e); }
-      const m = await createMemory(s.sb, userId, { kind: "conversation", title: `Call with ORBIT, ${localDay(new Date())}`, content: summary || fallbackSummary(s.turns, s.done), source: "core-summary", tags: ["call", id] });
+      const m = await createMemory(s.sb, userId, { kind: "conversation", title: `${s.desk ? "Desk talk" : "Call"} with ORBIT, ${localDay(new Date())}`, content: summary || fallbackSummary(s.turns, s.done), source: "core-summary", tags: ["call", id] });
       memoryId = m.memory.id as string;
     }
   } catch (e) {
     console.error("[call] saving the call note failed:", e instanceof Error ? e.message : e);
   }
   s.turns = [];
-  void emit(s.sb, userId, "call.ended", "core", { callId: id, memoryId, actions: s.done.length });
+  if (!s.desk) void emit(s.sb, userId, "call.ended", "core", { callId: id, memoryId, actions: s.done.length });
   return { memoryId };
 }
