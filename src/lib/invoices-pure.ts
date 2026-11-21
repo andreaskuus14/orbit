@@ -112,11 +112,11 @@ export function parseLines(v: unknown): Line[] | string {
   const out: Line[] = [];
   for (const x of v) {
     const o = (x && typeof x === "object" ? x : {}) as Record<string, unknown>;
-    const text = clean(o.text, 200), qty = Number(String(o.qty ?? 1).replace(",", ".")), cents = toCents(o.price); // euros as he typed them
+    const text = clean(o.text, 200), qty = Math.round(Number(String(o.qty ?? 1).replace(",", ".")) * 1000) / 1000, cents = toCents(o.price); // euros as he typed them
     if (!text) return "Every line needs a description";
     if (!Number.isFinite(qty) || qty <= 0 || qty > 10_000) return "Quantity must be above 0";
     if (!Number.isFinite(cents) || cents < 0 || cents > MAX_CENTS) return "Price must be a number of euros";
-    out.push({ text, qty: Math.round(qty * 1000) / 1000, cents });
+    out.push({ text, qty, cents });
   }
   return out;
 }

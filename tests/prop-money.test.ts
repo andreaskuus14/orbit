@@ -69,6 +69,11 @@ test("parsed invoice lines never carry a negative or over-limit price", () => {
   }), RUNS);
 });
 
+test("regression (fast-check counterexample [{qty: 5e-324}]): a quantity that rounds to 0 is refused, not saved as 0", () => {
+  assert.equal(typeof parseLines([{ text: "!", qty: 5e-324, price: "0" }]), "string");
+  assert.equal(typeof parseLines([{ text: "x", qty: "0,0004", price: "1" }]), "string");
+});
+
 test("7-3-1 reference numbers: every generated one checks out, and changing any one digit breaks it", () => {
   fc.assert(fc.property(fc.stringMatching(/^[0-9]{1,19}$/), fc.nat(), fc.integer({ min: 1, max: 9 }), (base, at, bump) => {
     const ref = refNumber(base);
