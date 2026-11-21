@@ -71,7 +71,7 @@ test("STU06: outcome joins the exact published revision, dated readings, honest 
 });
 
 const pubJobs = (n: number) => [{ id: "j", clips: Array.from({ length: n }, (_, i) => ({ id: `x${i}`, publish: { status: "done", videoId: vid(100 + i), mediaHash: H, at: "2026-10-01T00:00:00Z" } })) }] as never;
-test("STU08: variants are compared at one fixed window, waiting until every arm has it; failures are kept", () => {
+test("STU08: variants are compared at one fixed window, waiting until every arm has it, one pair never judged alone; failures are kept", () => {
   const b = { hypothesis: "cold open", lesson: "Cold opens win", jobId: "j", clipId: "x0", variants: [{ jobId: "j", clipId: "x1" }], window: "48h" };
   const s = addExperiment(emptyExperiments(), b, pubJobs(2), "e1", "t");
   assert.ok(typeof s !== "string" && s.items[0].window === "48h" && s.items[0].variants?.length === 1);
@@ -81,8 +81,8 @@ test("STU08: variants are compared at one fixed window, waiting until every arm 
   const e = (s as { items: Experiment[] }).items[0];
   assert.equal(compareArms(e, pubJobs(2), [rec(100, 300)]).status, "waiting");
   const r = compareArms(e, pubJobs(2), [rec(100, 300), rec(101, 100)]);
-  assert.deepEqual([r.status, r.ratio, r.arms[0].readAt], ["differs", 3, "2026-10-03T00:00:00Z"]);
-  assert.equal(compareArms(e, pubJobs(2), [rec(100, 120), rec(101, 100)]).status, "similar");
+  assert.deepEqual([r.status, r.ratio, r.arms[0].readAt], ["read", 3, "2026-10-03T00:00:00Z"]); // shown, never a verdict from one pair
+  assert.equal(compareArms(e, pubJobs(2), [rec(100, 120), rec(101, 100)]).status, "read");
   assert.equal(compareArms({ ...e, window: "7d" }, pubJobs(2), [rec(100, 300), rec(101, 100)]).status, "waiting", "no peeking at another window");
   assert.match(removalProblem({ verdict: "not-supported" }), /kept/);
   assert.equal(removalProblem({ verdict: "insufficient" }), "");

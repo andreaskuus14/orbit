@@ -1,16 +1,17 @@
 // Shorts experiment loop (pure, tested in tests/experiments.test.ts): one hypothesis → the exact published version (video id +
 // sha256 of the uploaded file, from clip.publish) → its views vs comparable Shorts at the same age. One Short is never proof:
-// a verdict says "consistent with", and a lesson is only proposed after several supported experiments, through the lessons
-// acceptance flow (lessons-pure reconcile → he keeps or rejects). Reuses learn-pure (records, median, WIN), forecast-pure.
+// a verdict says "consistent with". Every experiment with the same lesson feeds one honest sequential test (abtest-pure: anytime-
+// valid, ≤ 5 % false lessons however often he looks, never from fewer than 5 Shorts). A lesson is only proposed once that test
+// is sure, through the lessons acceptance flow (lessons-pure reconcile → he keeps or rejects). Reuses learn-pure, forecast-pure.
 import { lengthBand, median, WIN, type LearnRec, type SnapKey } from "./learn-pure.ts";
 import { forecastShort, type Forecast } from "./forecast-pure.ts";
 import { normText, type Lesson } from "../lessons-pure.ts";
+import { LOG_OPTS, decide, logSpread, pooledSteps, type Decision, type SpreadObs } from "../abtest-pure.ts";
 import type { ClipJob } from "./types.ts";
 
 export const BASE_MIN = 5; // comparable Shorts a verdict needs
 export const BASE_DAYS = 90; // comparables published within this many days of the experiment
 export const NOT_SUPPORTED = 1; // at or under the baseline median
-export const LESSON_MIN = 3; // supported experiments before a lesson is proposed
 const DAY = 86_400_000;
 
 export type Arm = { jobId: string; clipId: string };
@@ -59,9 +60,9 @@ export function judge(e: Experiment, jobs: Pick<ClipJob, "id" | "clips">[], recs
 }
 
 export type ArmResult = Arm & { version: Version | null; views?: number; readAt?: string };
-export type Comparison = { window: SnapKey; arms: ArmResult[]; status: "waiting" | "differs" | "similar"; ratio?: number };
-/** STU08: every arm (the main Short + its variants) at the same age. Waits until all have that reading; a gap ≥ WIN is "differs",
- *  anything smaller "similar". One comparison per arm is never proof, and it never predicts the next Short. */
+export type Comparison = { window: SnapKey; arms: ArmResult[]; status: "waiting" | "read"; ratio?: number };
+/** STU08: every arm (the main Short + its variants) at the same age. Waits until all have that reading, then shows the gap.
+ *  One pair never names a winner: the pair goes into the lesson's sequential test (lessonTests) like any other Short. */
 export function compareArms(e: Experiment, jobs: Pick<ClipJob, "id" | "clips">[], recs: LearnRec[]): Comparison {
   const window = e.window ?? "72h";
   const arms = [{ jobId: e.jobId, clipId: e.clipId }, ...(e.variants ?? [])].map((a): ArmResult => {
@@ -71,27 +72,61 @@ export function compareArms(e: Experiment, jobs: Pick<ClipJob, "id" | "clips">[]
   const views = arms.map((a) => a.views);
   if (arms.length < 2 || views.some((v) => v === undefined)) return { window, arms, status: "waiting" };
   const ratio = Math.round((Math.max(...(views as number[])) / Math.max(1, Math.min(...(views as number[])))) * 100) / 100;
-  return { window, arms, status: ratio >= WIN ? "differs" : "similar", ratio };
+  return { window, arms, status: "read", ratio };
+}
+
+// ---- the honest test per lesson ----
+const lg = (v: number) => Math.log(Math.max(1, v));
+export type Observation = SpreadObs & { id: string; at: string; videoIds: string[] };
+/** What one experiment adds to its lesson's test, in log views (> 0 = the idea helped), or null while it can't add anything yet.
+ *  With variants: main − mean of the variants at the fixed window (a pair: same moment, so most of the noise cancels).
+ *  Alone: the Short − the mean of its comparable Shorts at the same age. Spread from those comparables.
+ *  exclude: Shorts testing the same lesson; they are the idea, not the usual, so they never count as comparables. */
+export function observation(e: Experiment, jobs: Pick<ClipJob, "id" | "clips">[], recs: LearnRec[], exclude = new Set<string>()): Observation | null {
+  const usual = recs.filter((r) => !exclude.has(r.videoId));
+  if (e.variants?.length) {
+    const c = compareArms(e, jobs, recs), main = c.arms[0], rec = recs.find((r) => r.videoId === main.version?.videoId);
+    if (c.status !== "read" || !rec) return null;
+    const vs = c.arms.slice(1).map((a) => lg(a.views!)), sp = logSpread(baseline(rec, usual, c.window).views);
+    return { id: e.id, at: c.arms.map((a) => a.readAt ?? "").sort().at(-1)!, videoIds: c.arms.map((a) => a.version!.videoId),
+      x: lg(main.views!) - vs.reduce((a, b) => a + b, 0) / vs.length, ss: sp?.ss ?? 0, df: sp?.df ?? 0, w: 1 + 1 / vs.length };
+  }
+  const r = judge(e, jobs, recs), rec = r.version && recs.find((x) => x.videoId === r.version!.videoId);
+  if (!rec || !r.snap || r.views === undefined) return null;
+  const sp = logSpread(baseline(rec, usual, r.snap).views);
+  return sp && { id: e.id, at: rec.snaps[r.snap]!.at, videoIds: [rec.videoId], x: lg(r.views) - sp.mean, ss: sp.ss, df: sp.df, w: 1 + 1 / sp.n };
+}
+
+export type LessonTest = { key: string; text: string; decision: Decision; n: number; videoIds: string[] };
+/** One sequential test per lesson (same text = same lesson), observations in the order their readings came in. */
+export function lessonTests(exps: Experiment[], jobs: Pick<ClipJob, "id" | "clips">[], recs: LearnRec[]): Map<string, LessonTest> {
+  const groups = new Map<string, { text: string; obs: Observation[] }>(), treated = new Map<string, Set<string>>();
+  for (const e of exps) { // the main Shorts carry the idea (variants are the other side)
+    const v = versionOf(e, jobs), k = normText(e.lesson);
+    if (v && k) (treated.get(k) ?? treated.set(k, new Set()).get(k)!).add(v.videoId);
+  }
+  for (const e of exps) {
+    const k = normText(e.lesson);
+    if (!k) continue;
+    const g = groups.get(k) ?? { text: e.lesson.trim(), obs: [] }, o = observation(e, jobs, recs, treated.get(k));
+    if (o) g.obs.push(o);
+    groups.set(k, g);
+  }
+  return new Map([...groups].map(([k, g]) => {
+    const obs = g.obs.sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+    return [k, { key: k, text: g.text, decision: decide(pooledSteps(obs), LOG_OPTS), n: obs.length, videoIds: obs.flatMap((o) => o.videoIds) }];
+  }));
 }
 
 /** Failed experiments are evidence too: a not-supported one can't be deleted. */
 export const removalProblem = (r: Pick<Result, "verdict">): string => (r.verdict === "not-supported" ? "Failed experiments are kept: they are evidence too" : "");
 
-/** A proposed lesson once ≥ LESSON_MIN experiments with the same lesson text are supported and supported ≥ 2 × not supported.
- *  Goes to lessons-pure reconcile as "proposed": never kept without his click. */
-export function lessonsFrom(exps: Experiment[], results: Result[], now: number): Lesson[] {
-  const groups = new Map<string, { text: string; ok: Result[]; no: number }>();
-  for (const e of exps) {
-    const r = results.find((x) => x.id === e.id), k = normText(e.lesson);
-    if (!r || !k) continue;
-    const g = groups.get(k) ?? { text: e.lesson.trim(), ok: [], no: 0 };
-    if (r.verdict === "supported") g.ok.push(r); else if (r.verdict === "not-supported") g.no++;
-    groups.set(k, g);
-  }
-  return [...groups].filter(([, g]) => g.ok.length >= LESSON_MIN && g.ok.length >= 2 * g.no).map(([k, g]) => ({
-    id: `exp:${k.replace(/ /g, "-").slice(0, 60)}`, text: g.text.slice(0, 180), planet: "studio", area: "clip.experiment", key: k, sign: 1, tags: ["shorts", "experiment"],
-    support: g.ok.length + g.no, confidence: Math.round((g.ok.length / (g.ok.length + g.no)) * 100) / 100,
-    evidence: g.ok.map((r) => r.version!.videoId).slice(0, 8), at: new Date(now).toISOString() }));
+/** A proposed lesson once its sequential test says the idea is better (sure enough). Goes to lessons-pure reconcile as "proposed":
+ *  never kept without his click. Not sure yet, no real difference or worse: no lesson. */
+export function lessonsFrom(exps: Experiment[], jobs: Pick<ClipJob, "id" | "clips">[], recs: LearnRec[], now: number): Lesson[] {
+  return [...lessonTests(exps, jobs, recs).values()].filter((t) => t.decision.verdict === "better").map((t) => ({
+    id: `exp:${t.key.replace(/ /g, "-").slice(0, 60)}`, text: t.text.slice(0, 180), planet: "studio", area: "clip.experiment", key: t.key, sign: 1, tags: ["shorts", "experiment"],
+    support: t.n, confidence: Math.round((1 - t.decision.p) * 100) / 100, evidence: t.videoIds.slice(0, 8), at: new Date(now).toISOString() }));
 }
 
 // ---- store (<studio>/experiments.json; I/O in experiments.ts) ----

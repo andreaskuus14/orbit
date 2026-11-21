@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { coach, type Finding } from "@/lib/studio-coach-pure";
 import { useT } from "./i18n";
+import { AbVerdict } from "./AbVerdict";
 import { channelHealth, postedThisWeek, type Health, type Light } from "@/lib/studio-health-pure";
 import type { Accuracy, Forecast, Hint } from "@/lib/clips/forecast-pure";
 import type { ExperimentsView } from "@/lib/clips/experiments";
@@ -635,6 +636,7 @@ function Experiments() {
             <p>{tr(`exp.cmp.${e.compare.status}` as const, { window: e.compare.window, ratio: e.compare.ratio ?? "" })}</p>
             <ul>{e.compare.arms.map((a, i) => <li key={`${a.jobId}/${a.clipId}`}>{a.views === undefined ? tr("exp.cmp.armWaiting", { title: i ? titleOf(a) : e.title, window: e.compare!.window })
               : tr("exp.cmp.arm", { title: i ? titleOf(a) : e.title, views: compact(a.views), at: (a.readAt ?? "").slice(0, 10) })}</li>)}</ul></div>}
+          {e.test && <p>{tr("exp.test", { n: e.test.n })} <b><AbVerdict verdict={e.test.verdict} more={e.test.more} a={tr("exp.theUsual")} b={tr("exp.theIdea")} /></b></p>}
           {e.verdict === "not-supported" && <p className="muted text-[11px]">{tr("exp.kept")}</p>}
           {e.forecast && <p className="muted num">{tr("fc.line", { p50: compact(e.forecast.p50), lo: compact(e.forecast.lo), hi: compact(e.forecast.hi) })}</p>}
           <p className="muted text-[11px]">{tr("exp.lessonIs", { lesson: e.lesson })}{e.version ? ` · ${e.version.videoId} · ${e.version.mediaHash.slice(0, 10)}` : ""}{" "}
