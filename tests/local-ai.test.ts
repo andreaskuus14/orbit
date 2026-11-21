@@ -16,7 +16,7 @@ test("service URL: only plain http on this PC; anything else is refused", () => 
 
 test("health: server.py's JSON → tools; unreachable or foreign JSON = not running", () => {
   const h = parseHealth({ ok: true, service: "orbit-local-ai", gpu: { name: "NVIDIA GeForce RTX 3060 Laptop GPU", vramGb: 6 }, busy: false, tools: { image3d: true, tts: true, clone: "yes" } });
-  assert.deepEqual(h, { running: true, gpu: { name: "NVIDIA GeForce RTX 3060 Laptop GPU", vramGb: 6 }, busy: false, tools: { image3d: true, removebg: false, tts: true, clone: false, captions: false, ifc: false, docs: false } });
+  assert.deepEqual(h, { running: true, gpu: { name: "NVIDIA GeForce RTX 3060 Laptop GPU", vramGb: 6 }, busy: false, tools: { image3d: true, removebg: false, tts: true, clone: false, captions: false, ifc: false, docs: false, dub: false } });
   assert.equal(parseHealth(null).running, false);
   assert.equal(parseHealth({ ok: true }).running, false); // some other service on the port
   assert.equal(toolState(parseHealth(null), "tts").text, NOT_RUNNING);
@@ -94,7 +94,7 @@ test("CORE tools: T2 local writes, reversible, halted by Stop-all, routed by hin
 test("optional modules: own setup switch, Estonian labels, fit his 8 GB GPU, health and install hint", () => {
   for (const id of MODULES) {
     const c = CATALOG.find((x) => x.id === id)!;
-    assert.match(c.setup, /setup\.ps1 -(Captions|Ifc|Docs)$/, id);
+    assert.match(c.setup, /setup\.ps1 -(Captions|Ifc|Docs|Dub)$/, id);
     assert.ok(c.et && c.et.name && c.et.what.length > 20, id);
     assert.ok(c.vramGb <= 8, id);
   }

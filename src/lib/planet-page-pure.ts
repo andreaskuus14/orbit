@@ -4,6 +4,7 @@
 // Pure; tests in tests/planet-page.test.ts. Cards never approve anything: their button opens where the item's own Approve lives.
 import type { Lang } from "./i18n-pure.ts";
 import { fromStages, fromTask, sortProgress, type Progress, type TaskLike } from "./progress-pure.ts";
+import { dubProgress, type ClipDub } from "./clips/dub-pure.ts";
 
 const STAGE_WORDS = {
   clip: {
@@ -46,7 +47,7 @@ const CLIP_STAGE: Record<string, number> = { queued: -1, probing: 0, transcribin
 const CLIP_TYPICAL_MS = 12 * 60_000;
 
 export type ClipJobLike = { id: string; source: string; createdAt: string; updatedAt: string; status: string; progress?: number; step?: string; error?: string;
-  clips?: { id: string; status: string }[] };
+  clips?: { id: string; status: string; title?: string; dub?: ClipDub }[] };
 export type DownloadLike = { id: string; url: string; status: string; progress?: number; step?: string; error?: string; createdAt: string };
 
 /** STUDIO clip jobs + downloads → "Working on it" cards: everything still running, plus what finished or failed in the last day. */
@@ -67,6 +68,10 @@ export function studioWork(jobs: ClipJobLike[], downloads: DownloadLike[], lang:
       result: done ? { text: made ? w.clipsDone(made) : w.clipsNone, ...(ready[0] && { open: `#o=studio&k=review&id=${encodeURIComponent(ready[0].id)}` }) } : null,
       needs: done && ready[0] ? { kind: "open", label: w.review, open: `#o=studio&k=review&id=${encodeURIComponent(ready[0].id)}` } : null,
     }, lang, nowMs));
+  }
+  for (const j of jobs) for (const c of j.clips ?? []) { // bilingual dubs (dub-pure.ts): one card each while running and for a day after
+    const p = c.dub ? dubProgress({ id: c.id, title: c.title ?? "", status: c.status, dub: c.dub }, j.id, lang, nowMs) : null;
+    if (p) out.push(p);
   }
   for (const d of downloads) {
     if (d.status === "done" || (d.status === "failed" && nowMs - (Date.parse(d.createdAt) || 0) > DAY)) continue;

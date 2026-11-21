@@ -133,7 +133,7 @@ export type VideoResource = {
 };
 
 /** Publish request body + clip → the video resource to upload, or a message for a 400. A schedule must be private until publishAt. */
-export function videoResource(b: Record<string, unknown>, clip: { title: string; hook: string }, now = Date.now()): VideoResource | string {
+export function videoResource(b: Record<string, unknown>, clip: { title: string; hook: string; dub?: unknown }, now = Date.now()): VideoResource | string {
   const {
     title = clip.title.replace(/[<>]/g, "").replace(/\s+/g, " ").trim().slice(0, 100),
     description = `${clip.hook.replace(/[<>]/g, "")}\n\n#shorts`.trim(), privacy = "private", publishAt, aiContent,
@@ -151,7 +151,7 @@ export function videoResource(b: Record<string, unknown>, clip: { title: string;
     at = new Date(ms).toISOString();
   }
   return { snippet: { title: t, description, categoryId: "24" }, status: { privacyStatus: at ? "private" : (privacy as Privacy), selfDeclaredMadeForKids: false, ...(at && { publishAt: at }),
-    ...(aiContent === true && { containsSyntheticMedia: true }) } }; // YouTube's "altered or synthetic content" label (Data API, since Oct 2024)
+    ...((aiContent === true || !!clip.dub) && { containsSyntheticMedia: true }) } }; // YouTube's "altered or synthetic content" label (Data API, since Oct 2024); a dub (his cloned voice) always carries it
 }
 
 /** A YouTube API error response → a message for the owner. Only reason codes are used, never Google's free text. */

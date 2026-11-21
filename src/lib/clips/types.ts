@@ -6,6 +6,7 @@ import type { SignalKey, SignalWindow } from "./moments-pure";
 import type { Virality } from "./score-pure";
 import type { HookLab } from "./hooklab-pure";
 import type { MediaCheck, SourceRights } from "./production-pure";
+import type { ClipDub } from "./dub-pure";
 export type ClipStatus = "rendering" | "ready" | "failed" | "approved" | "rejected";
 export type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
   notes?: string[];
@@ -22,7 +23,9 @@ export type Clip = { id: string; start: number; end: number; title: string; hook
   virality?: Virality; // personal virality score + the features it was computed from (score-pure.ts); learned from once published
   original?: string; // owner's note of their own layer (commentary, reaction, analysis); required to publish another creator's clip (publish-checks-pure.ts)
   brand?: string; // brand-kit id (brand-kit-pure kitId) the render was made with; none = rendered before the kit existed (the default look)
-  qc?: MediaCheck }; // last technical media check of the render (production-pure mediaVerdict); qc.media = sha256 of the file it checked
+  qc?: MediaCheck; // last technical media check (see below)
+  dub?: ClipDub }; // bilingual dub (dub-pure.ts): this version is the original Short in the other language, in his own voice. Never auto-published
+// qc: last technical media check of the render (production-pure mediaVerdict); qc.media = sha256 of the file it checked
 // unknown: the upload may or may not have reached YouTube; checked against the channel's uploads before a retry is offered.
 // scheduled: on YouTube as private, YouTube makes it public at scheduledFor (ISO; also set while uploading/unknown when one was asked for).
 export type ClipPublish = { status: "uploading" | "done" | "scheduled" | "failed" | "unknown"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string;

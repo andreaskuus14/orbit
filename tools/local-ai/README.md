@@ -15,6 +15,7 @@ Kokoro voiceover were run there on CPU (Linux); Picture to 3D and own-voice clon
 | Own-voice cloning | Reads a script in **your own** voice from a short recording of you | Audio8 TTS Realistic 0.6B | about 3 GB in bf16 (fits 6 GB); CPU works but is slow | Apache-2.0 |
 | Captions *(optional, `-Captions`)* | Writes down speech in a video/recording (English, Estonian) → `.srt`, `.vtt` and a clean transcript | Whisper large-v3-turbo via faster-whisper 1.2.1 / CTranslate2 4.8.3 | about 2-3 GB in float16; CPU int8 fallback | MIT |
 | IFC models *(optional, `-Ifc`)* | Opens an `.ifc` model: storeys, spaces with areas, element counts, materials, simple checks, spaces CSV | IfcOpenShell 0.9.0.post1 | CPU | LGPL-3.0 |
+| Bilingual dub *(optional, `-Dub`)* | STUDIO: says each line of an approved Short in English or Estonian **in your own voice** (from your consented sample in Settings) | A plain voice (Kokoro for English, Piper `et_EE-news-medium` for Estonian), then the OpenVoice V2 tone colour converter turns it into your voice | CPU (the converter is ~130 MB and stays off the GPU) | OpenVoice V2 code + weights MIT ("free for commercial use"); Piper voice MIT (TartuNLP data CC-BY); Piper runtime GPL-3.0; Kokoro Apache-2.0 |
 | Document reading *(optional, `-Docs`)* | PDF / Word / PowerPoint / scanned page → Markdown with tables, saved beside the original in VAULT | Docling 2.139.0 (layout + TableFormer + RapidOCR) | about 2 GB; CPU works | MIT |
 
 Text to 3D inside Roblox does not need this service: ORBIT already asks Roblox Studio's own `generate_mesh` tool
@@ -30,7 +31,7 @@ Text to 3D inside Roblox does not need this service: ORBIT already asks Roblox S
 
 ### Optional modules (add later; the main setup must have run once)
 
-`powershell -ExecutionPolicy Bypass -File tools\local-ai\setup.ps1 -Captions` (or `-Ifc`, `-Docs`, or `-Extras` for all three).
+`powershell -ExecutionPolicy Bypass -File tools\local-ai\setup.ps1 -Captions` (or `-Ifc`, `-Docs`, or `-Extras` for all three; `-Dub` for the bilingual dub).
 Only the chosen modules are installed; what's already there is skipped, torch is left alone, and every version is pinned
 (`constraints.txt`, resolved for Windows + Python 3.11 with torch 2.7.1). Restart `start.ps1` afterwards.
 
@@ -56,3 +57,7 @@ If 3D runs out of GPU memory: close games/browser tabs using the GPU, or set `OR
 - **Stable Fast 3D**: better textures, but the weights are gated (Hugging Face login) and it is free only under $1M revenue a year. A possible upgrade.
 - **NVIDIA MotionBricks**: an early research preview built around a robot (Unitree G1) skeleton with an Unreal demo. Its output isn't a Roblox R15 animation. Left for later.
 - **Paradee**: a distilled Kokoro with one voice. Kokoro itself already runs on CPU and has several voices.
+- **Bilingual dub, what was left out**: XTTSv2 / Coqui (CPML licence is non-commercial); Chatterbox (MIT, good, but no Estonian among its 23 languages);
+  F5-TTS and Fish Speech (non-commercial weights). Separating your voice from the background uses Spleeter 2-stems (Deezer, MIT) through
+  sherpa-onnx in ORBIT itself, not Demucs: Demucs' code is MIT but its pretrained weights have no clear licence statement. Lip-sync is
+  not done: the commercial-OK candidates (e.g. MuseTalk 1.5, MIT) need a GPU pipeline that couldn't be tested here; Wav2Lip is research-only.
