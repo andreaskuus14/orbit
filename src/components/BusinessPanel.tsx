@@ -11,6 +11,7 @@ import { leadLabel, type Candidate } from "@/lib/lead-loop-pure";
 import { euro as euroCents } from "@/lib/invoices-pure";
 import type { Bucket, Split } from "@/lib/money-pure";
 import NicheCards from "./NicheCards";
+import RegistryBox, { RegistryFacts } from "./RegistryBox";
 import InvoicesPanel from "./InvoicesPanel";
 import MoneyPanel from "./MoneyPanel";
 import BusinessOverview from "./BusinessOverview";
@@ -115,6 +116,7 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
           <FindNearby busy={busy} setBusy={setBusy} setErr={setErr} names={new Set(st.prospects.map((p) => p.name.toLowerCase()))}
             onAdd={(f) => act(`add:${f.name}`, { action: "add", source: "web-find", name: f.name, kind: f.kind, contact: f.contact, notes: f.why && `Found on the web (unchecked): ${f.why}` })} />
           <LeadLoopBox busy={busy} setBusy={setBusy} setErr={setErr} done={load} />
+          <RegistryBox done={() => void load()} />
           <div id="biz-add"><AddForm busy={busy === "add"} onAdd={(b) => act("add", { action: "add", ...b })} /></div>
           <Scorecard ps={st.prospects} />
           <VisibilityPanel />
@@ -130,7 +132,7 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
           </div>
           {!st.prospects.length && <p className="muted">No businesses yet. Add one you could walk into or call this week: a bakery that takes cake orders, a cleaning or renovation firm, a salon.</p>}
           <ul className="space-y-2">
-            {shown.map((p) => <Row key={p.id} p={p} lit={lit === p.id} due={due.has(p.id)} busy={busy} act={act} canSend={!!st.canSend} nightDraft={!!st.nightDrafts?.includes(p.id)} />)}
+            {shown.map((p) => <Row key={p.id} reload={() => void load()} p={p} lit={lit === p.id} due={due.has(p.id)} busy={busy} act={act} canSend={!!st.canSend} nightDraft={!!st.nightDrafts?.includes(p.id)} />)}
           </ul>
           <ContractsPanel prospects={st.prospects} />
           <DealCards />
@@ -344,7 +346,7 @@ function Timeline({ p, busy, act }: { p: Prospect; busy: string; act: (key: stri
   );
 }
 
-function Row({ p, lit, due, busy, act, canSend, nightDraft = false }: { p: Prospect; lit: boolean; due: boolean; busy: string; act: (key: string, body: object) => Promise<boolean>; canSend: boolean; nightDraft?: boolean }) {
+function Row({ p, lit, due, busy, act, canSend, nightDraft = false, reload }: { reload: () => void; p: Prospect; lit: boolean; due: boolean; busy: string; act: (key: string, body: object) => Promise<boolean>; canSend: boolean; nightDraft?: boolean }) {
   const { t } = useT();
   const unverified = p.crm ? !p.crm.verified : false;
   const [notes, setNotes] = useState(p.notes);
@@ -379,6 +381,7 @@ function Row({ p, lit, due, busy, act, canSend, nightDraft = false }: { p: Prosp
           <select className="chip" value={p.crm?.lost?.reason ?? ""} disabled={any} onChange={(e) => void act(`lost:${p.id}`, { action: "lost", id: p.id, reason: e.target.value || null })}>
             <option value="">{t("biz.lost.unknown")}</option>{LOST_REASONS.map((r) => <option key={r} value={r}>{t(`biz.lost.${r}` as "biz.lost.price")}</option>)}</select></label>)}
       {p.crm?.lead?.person && <p className="text-xs error" role="note">{t("biz.lead.fie")}</p>}
+      <RegistryFacts id={p.id} m={p.crm?.registry} done={reload} />
       {unverified && <p className="text-xs"><span className="error">{t("biz.crm.web")}</span> <button className="chip" disabled={any} onClick={() => void act(`verify:${p.id}`, { action: "verify", id: p.id })}>{t("biz.crm.verify")}</button></p>}
       {p.stage === "paying" && p.crm?.opsProject && <p className="text-xs muted">✓ {t("biz.crm.delivery")}</p>}
       <Timeline p={p} busy={busy} act={act} />

@@ -6,6 +6,7 @@ import ts from "typescript";
 import * as pure from "../src/lib/business-pure.ts";
 import * as leadPure from "../src/lib/lead-loop-pure.ts";
 import * as crmPure from "../src/lib/prospect-crm-pure.ts";
+import * as regPure from "../src/lib/registry-pure.ts";
 
 const code = ts.transpileModule(readFileSync(new URL("../src/app/api/business/route.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 function api(answer = "Tere! Kas minu eelmine idee võiks teile kasulik olla?", stage = "contacted", draft = "Tere! Pakun tasuta pilooti.", noTemplateColumn = false, heavy = false, noDraftedAt = "") {
@@ -34,6 +35,8 @@ function api(answer = "Tere! Kas minu eelmine idee võiks teile kasulik olla?", 
       if (name.endsWith("stop-all")) return { stopAllOn: () => false };
       if (name.endsWith("remote-push")) return { pushNotify: () => {} };
       if (name.endsWith("prospect-crm-pure")) return crmPure;
+      if (name.endsWith("registry-pure")) return regPure;
+      if (name.endsWith("/registry")) return { peopleBlock: async () => "", matchIfIndexed: async () => {} };
       if (name.endsWith("prospect-crm")) return { loadCrm: async () => ({}), updateCrm: async () => {}, logEvent: async () => {}, crmOf: () => crmPure.newCrm("manual", "", "") };
       if (name.endsWith("business-send")) return { sendDraft: () => { throw new Error("Drafting must never send"); } };
       throw new Error(name);

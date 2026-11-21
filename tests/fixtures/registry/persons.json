@@ -1,0 +1,16 @@
+[
+    {
+        "ariregistri_kood":90000001,
+        "nimi":"Näidis Pagariäri OÜ",
+        "kaardile_kantud_isikud":[
+            { "isiku_tyyp":"F", "isiku_roll":"JUHL", "isiku_roll_tekstina":"Juhatuse liige", "eesnimi":"Testi", "nimi_arinimi":"Näidisnimi", "isikukood_hash":"00000000-aaaa", "algus_kpv":"12.03.2012", "lopp_kpv":null, "email":null },
+            { "isiku_tyyp":"F", "isiku_roll":"JUHL", "isiku_roll_tekstina":"Juhatuse liige", "eesnimi":"Endine", "nimi_arinimi":"Liige", "algus_kpv":"12.03.2012", "lopp_kpv":"01.01.2020" },
+            { "isiku_tyyp":"F", "isiku_roll":"KONT", "isiku_roll_tekstina":"Kontaktisik", "eesnimi":"Kontakt", "nimi_arinimi":"Isik", "algus_kpv":"12.03.2012", "lopp_kpv":null }
+        ]
+    },
+    {
+        "ariregistri_kood":90000002,
+        "nimi":"Brace } and \"quote\" [ OÜ",
+        "kaardile_kantud_isikud":[]
+    }
+]

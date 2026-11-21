@@ -125,6 +125,8 @@ async function tick(sb: SupabaseClient) {
     if (!limited) void import("./orbit-exam").then(async (exam) => { if (!exam.orbitExamRunning()) await import("./night-repair").then((m) => m.maybeNightRepair(sb, (users ?? []).map((u) => u.id))); });
     // Weekly BUSINESS niche scout (background lane, read-only web tools); not awaited: a run takes minutes. It re-checks Stop-all and usageHold itself.
     if (!limited && allows("research", "background").ok) void maybeWeeklyScout().catch((e) => console.error("[orbit] niche scout check failed:", e instanceof Error ? e.message : e));
+    // Weekly e-Business Register refresh (registry.ts): only after his first "Get registry data" click; public open-data files in, nothing out. Not awaited; never throws.
+    if (users?.[0]) { const uid = users[0].id; void import("./registry").then((m) => m.maybeWeeklyRegistry(async () => ((await sb.from("prospects").select("id,name,notes").eq("user_id", uid).limit(1000)).data ?? []))); }
     // Weekly YouTube outlier finder → IDEA RADAR (outliers.ts): read-only, scout quota share; quietly nothing without YOUTUBE_API_KEY. Not awaited; never throws.
     if (!limited && allows("research", "background").ok) void import("./outliers").then((m) => m.maybeWeeklyOutliers()).catch((e) => console.error("[orbit] weekly outliers failed:", e instanceof Error ? e.message : e));
     // Feature scout (feature-scout.ts): every 6 h, free public sources → OPERATIONS → Scout; lists only. ORBIT_SCOUT=0 off; pacer/Stop-all wait. Not awaited.

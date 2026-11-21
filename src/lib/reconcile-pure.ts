@@ -1,7 +1,7 @@
 // Bank reconcile (ticket B3), pure, tested in tests/reconcile.test.ts. UI: ReconcilePanel.tsx inside BUSINESS → Money.
 // His bank CSV is read in the browser and never uploaded, stored or sent to a model. Nothing changes on its own: the result lists
 // "mark paid" suggestions and he applies each one with a click (the existing invoices status action). Money is integer cents only.
-import { addDays, totals, type Invoice } from "./invoices-pure.ts";
+import { addDays, daysLate, isOverdue, totals, type Invoice } from "./invoices-pure.ts";
 
 export type Format = "swedbank" | "seb" | "lhv" | "generic";
 export type Field = "day" | "amount" | "dk" | "ref" | "name" | "text";
@@ -141,4 +141,17 @@ export function reconcile(lines: BankLine[], invoices: Invoice[]): Report {
   for (const i of invoices) if (i.status === "paid" && inRange(i.paidAt)) m(i.paidAt!.slice(0, 7)).invoices += owed(i);
   for (const x of months.values()) x.diff = x.bank - x.invoices;
   return { from, to, matched, bankOnly, paidNoBank, months: [...months.values()].sort((a, b) => a.month.localeCompare(b.month)) };
+}
+
+// ---- Overdue with no payment in the bank file ----------------------------------------------------
+
+export type Unpaid = { invoice: Invoice; daysLate: number };
+/** Overdue invoices (sent, past due) the bank file shows no matching payment for. Only those whose due date the file covers:
+ *  a file that ends before the due date can't tell. The reminder itself is a draft; his Approve click is the only way out. */
+export function overdueUnpaid(lines: BankLine[], invoices: Invoice[], today: string): Unpaid[] {
+  const r = reconcile(lines, invoices), paid = new Set(r.matched.map((m) => m.invoice.id));
+  if (!r.to) return [];
+  return invoices.filter((i) => isOverdue(i, today) && !paid.has(i.id) && i.due <= r.to)
+    .map((invoice) => ({ invoice, daysLate: daysLate(invoice, today) }))
+    .sort((a, b) => b.daysLate - a.daysLate);
 }

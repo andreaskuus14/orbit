@@ -335,6 +335,15 @@ export function approveProblem(i: Invoice | undefined, today: string): string {
   if (!isOverdue(i, today)) return "It's no longer overdue (paid or not sent)";
   return "";
 }
+/** The client's language for a reminder: Estonian for an Estonian client (registry code, EE VAT number, .ee email, an Estonian
+ *  legal form or Estonian letters/places in the name or address), else English. */
+export function clientLang(b: Pick<Party, "name" | "regCode" | "vatNo" | "address" | "email">): (typeof REMIND_LANGS)[number] {
+  const t = `${b.name} ${b.address}`;
+  const ee = /^\d{8}$/.test(b.regCode.trim()) || /^EE\d{9}$/i.test(b.vatNo.replace(/\s/g, "")) || /\.ee\s*$/i.test(b.email.trim())
+    || /(?:^|[^\p{L}])(?:OÜ|AS|MTÜ|FIE|SA|TÜ|UÜ|osaühing|aktsiaselts)(?:$|[^\p{L}])/u.test(b.name)
+    || /[õäöüÕÄÖÜ]|\b(?:Eesti|Estonia|maakond|vald|Tallinn|Tartu|Pärnu|Narva)\b/u.test(t);
+  return ee ? "Estonian" : "English";
+}
 /** Overdue invoices that may get a reminder draft now: never reminded, or the last one is a week old. */
 export const remindDue = (list: Invoice[], today: string) =>
   list.filter((i) => isOverdue(i, today) && !i.reminder && !(i.reminded.length && daysBetween(localDay(new Date(i.reminded.at(-1)!.at)), today) < REMIND_AGAIN_DAYS));
