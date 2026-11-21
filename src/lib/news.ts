@@ -85,10 +85,10 @@ export type { Page } from "./web-ladder";
 const AC = globalThis as unknown as { __orbitArticles?: ReturnType<typeof createTtlCache<Page | null>> };
 const articles = (AC.__orbitArticles ??= createTtlCache<Page | null>({ max: 400, ttlMs: 6 * 3_600_000 }));
 export async function readArticle(url: string, maxChars = 4000, o: { hint?: NewsHint; lookup?: Lookup } = {}): Promise<Page | null> {
-  const now = async () => (await ladderRead(url, { maxChars, hint: o.hint, lookup: o.lookup })).page;
+  const readArticleNow = async () => (await ladderRead(url, { maxChars, hint: o.hint, lookup: o.lookup })).page;
   // Long reads (an agent's read_url, 40k) always go live: a page it opens may be a price or status that just changed.
-  if (maxChars > 4000 || !envOn(process.env.ORBIT_ARTICLE_CACHE)) return now();
-  const p = await articles.memo(`${maxChars}|${url}`, now);
+  if (maxChars > 4000 || !envOn(process.env.ORBIT_ARTICLE_CACHE)) return readArticleNow();
+  const p = await articles.memo(`${maxChars}|${url}`, readArticleNow);
   return p && { ...p, links: [...p.links] }; // a copy: callers may rewrite fields
 }
 
