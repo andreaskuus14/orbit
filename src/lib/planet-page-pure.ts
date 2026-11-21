@@ -109,3 +109,29 @@ export function plainError(msg: string, lang: Lang): string {
 
 /** Example asks for "More": the planet's three, skipping empty ones. */
 export const examples = (xs: string[]) => xs.map((x) => x.trim()).filter(Boolean).slice(0, 3);
+
+const STAGE_WORDS_BIZ: Record<string, { en: string; et: string; next: { en: string; et: string } }> = {
+  lead: { en: "To contact", et: "Võtta ühendust", next: { en: "Check the first message", et: "Vaata esimest sõnumit" } },
+  contacted: { en: "Message sent", et: "Sõnum saadetud", next: { en: "Wait for a reply", et: "Oota vastust" } },
+  replied: { en: "Replied", et: "Vastas", next: { en: "Answer them", et: "Vasta neile" } },
+  pilot: { en: "Free pilot", et: "Tasuta proov", next: { en: "Ask how it's going", et: "Küsi, kuidas läheb" } },
+  paying: { en: "Paying client", et: "Maksev klient", next: { en: "Keep them happy", et: "Hoia neid rahul" } },
+  lost: { en: "Not now", et: "Mitte praegu", next: { en: "Try again later", et: "Proovi hiljem uuesti" } },
+};
+export type SimpleRow = { id: string; title: string; sub: string; link?: string };
+
+/** BUSINESS simple page results: the latest touched prospects, each with where it stands and the next step. */
+export function businessRows(prospects: { id: string; name: string; stage: string; draft?: string; updated_at: string }[], lang: Lang): SimpleRow[] {
+  return [...prospects].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 4).map((p) => {
+    const w = STAGE_WORDS_BIZ[p.stage] ?? STAGE_WORDS_BIZ.lead;
+    const next = p.stage === "lead" && !p.draft ? (lang === "et" ? "Lase ORBITil sõnum kirjutada" : "Let ORBIT write a first message") : w.next[lang];
+    return { id: p.id, title: p.name, sub: `${w[lang]} · ${lang === "et" ? "Edasi" : "Next"}: ${next}`, link: `#o=business&k=client&id=${encodeURIComponent(p.id)}` };
+  });
+}
+
+const size = (b: number) => (b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1e3))} KB`);
+/** VAULT simple page results: the newest files with when they came in. */
+export function vaultRows(files: { name: string; size: number; mtime: number }[], lang: Lang): SimpleRow[] {
+  return [...files].sort((a, b) => b.mtime - a.mtime).slice(0, 4).map((f) => ({ id: f.name, title: f.name,
+    sub: `${lang === "et" ? "Lisatud" : "Added"} ${new Date(f.mtime).toLocaleDateString(lang === "et" ? "et-EE" : "en-GB")} · ${size(f.size)}` }));
+}
