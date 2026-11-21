@@ -23,7 +23,10 @@ import ClipFactory from "./ClipFactory";
 import StudioProduction from "./StudioProduction";
 import StudioDrafts from "./StudioDrafts";
 import LastShorts from "./LastShorts";
-import { PlanetHome, useManual } from "./PlanetHome";
+import { BackToSimple, PlanetHome, useManual } from "./PlanetHome";
+import { sharedJson, usePoll } from "./use-poll";
+import { studioWork, type ClipJobLike, type DownloadLike } from "@/lib/planet-page-pure";
+import type { Progress } from "@/lib/progress-pure";
 import { STUDIO_MODES, type StudioMode as Mode } from "@/lib/studio-ui-pure";
 import { splitTabs } from "@/lib/ui-state-pure";
 import type { Key } from "@/lib/i18n-pure";
@@ -397,7 +400,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
   const [sort, setSort] = useState<Sort>("newest");
   const [mode, setMode] = useState<Mode>(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("studio") ? "stats" : "channel"));
   const modesRef = useRef<HTMLElement>(null);
-  const { t } = useT();
+  const { t, lang } = useT();
   const [manual, setManual] = useManual("studio");
   const [modeMenu, setModeMenu] = useState(false);
   useEffect(() => {
@@ -480,7 +483,14 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
   const pick = useCallback((id: string) => setSelected((cur) => (cur === id ? null : id)), []);
   // Simple home (PlanetHome) until he opens Manual tools, a section (CORE/deep links pick one) or a video (a moon click).
   const simple = !manual && mode === "channel" && !selected;
-  const results = useMemo(() => (loading && !data ? null : videos.slice(0, 4).map((v) => ({ id: v.id, title: v.title, sub: `${n(v.views)} views`, open: () => setSelected(v.id) }))), [loading, data, videos]);
+  const results = useMemo(() => (loading && !data ? null : videos.slice(0, 4).map((v) => ({ id: v.id, title: v.title,
+    sub: t("ph.studio.res", { views: n(v.views), when: new Date(v.publishedAt).toLocaleDateString() }), next: t("ph.studio.watch"), open: () => setSelected(v.id) }))), [loading, data, videos, t]);
+  // "Working on it" on the simple page: clip jobs and downloads in plain steps (the same /api/studio/clips the Shorts tools read).
+  const [work, setWork] = useState<Progress[] | null>(null);
+  const loadWork = useCallback(() => {
+    void sharedJson<{ jobs?: ClipJobLike[]; downloads?: DownloadLike[] }>("/api/studio/clips").then((j) => setWork(j ? studioWork(j.jobs ?? [], j.downloads ?? [], lang, Date.now()) : []));
+  }, [lang]);
+  usePoll(loadWork, 8000, simple && !paused);
 
   async function ideas(v: Video) {
     if (!live) return;
@@ -523,8 +533,8 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
       <color attach="background" args={["#03050b"]} />
       <StageDeck reduced={reduced} />
       <LightScreen reduced={reduced} />
-      {q.bloomScale > 0 && <Rays reduced={reduced} />}
-      <Stars radius={70} depth={40} count={reduced ? 800 : 2000} factor={2.2} fade speed={reduced ? 0 : 0.35} />
+      {q.bloomScale > 0 && !simple && <Rays reduced={reduced} />}{/* simple page: a calm stage, no light rays, fewer and still stars */}
+      <Stars radius={70} depth={40} count={reduced || simple ? 800 : 2000} factor={2.2} fade speed={reduced || simple ? 0 : 0.35} />
       <ambientLight intensity={0.3} color="#cfe6ff" />
       <directionalLight position={[6, 5, 6]} intensity={1.6} color="#e0f2ff" />
       <pointLight position={[-5, -1, -4]} intensity={30} color="#8b5cf6" distance={20} />
@@ -595,24 +605,27 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
       {mode === "channel" && (
         <section key="rail" className="glass hud-panel world-panel studio-rail absolute inset-x-3 bottom-32 z-[14] max-h-[40dvh] overflow-y-auto p-4 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-4 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[24rem]"
           aria-label={simple ? t("ph.label") : "Videos"}>
-          {simple ? <PlanetHome planet="studio" results={results} onManual={() => setManual(true)} onOpenTask={(id) => onOpenTask?.(id)}>
+          {simple ? <PlanetHome planet="studio" results={results} work={work} onManual={() => setManual(true)} onOpenTask={(id) => onOpenTask?.(id)}
+            primary={{ label: t("ph.studio.main"), run: () => pickMode("clips") }}>
             {data && !data.configured && <p className="muted text-sm">{t("ph.studio.setup")}</p>}
           </PlanetHome> : <>
-          <button className="link mb-2 text-xs" onClick={() => { setManual(false); setSelected(null); }}>← {t("ph.simple")}</button>
+          <BackToSimple onClick={() => { setManual(false); setSelected(null); }} />
           {loading && !data && <p className="muted text-sm">Loading your channel…</p>}
           {err && <p className="error" role="alert">{err}</p>}
 
           {data && !data.configured && (
             <div className="text-sm">
               <b>Connect your YouTube channel</b>
+              <p className="mt-1">{t("ph.studio.setup")}</p>
               {data.error && <p className="error mt-1">{data.error}</p>}
+              <details className="mt-2"><summary className="link cursor-pointer text-xs">{t("st.setupSteps")}</summary>
               <ol className="mt-2 list-decimal space-y-1 pl-5">
                 <li>Get a free API key: Google Cloud Console → enable <b>YouTube Data API v3</b> → Credentials → Create API key.</li>
                 <li>Add to <code>.env.local</code>:
                   <pre className="mt-1 overflow-x-auto rounded bg-black/40 p-2 text-xs">{"YOUTUBE_API_KEY=your-key\nYOUTUBE_CHANNEL=@yourhandle"}</pre>
                 </li>
                 <li>Run <code>npm run app:rebuild</code>, then come back here.</li>
-              </ol>
+              </ol></details>
             </div>
           )}
 
