@@ -12,7 +12,7 @@ import { ProgressList } from "./ProgressCard";
 import { useT } from "./i18n";
 
 const COLS = "id,title,status,result,error,created_at,started_at,finished_at,trace,pending";
-const SHOWN = 3;
+const SHOWN = 2; // home stays calm: the two that matter most (needs-you first), the rest behind "See all"
 const FOLD_KEY = "orbit.home.fold";
 
 /** Median run time of the finished tasks in the list (ms), the basis for "about X min left"; null with fewer than 3. */
@@ -21,7 +21,8 @@ function typical(rows: { started_at?: string | null; finished_at?: string | null
   return s.length >= 3 ? s[Math.floor(s.length / 2)] * 1000 : null;
 }
 
-export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask }: {
+export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask, onNeeds }: {
+  onNeeds?: (cards: Progress[]) => void; // the tasks waiting for him, so the Needs-you inbox shows the same cards
   refresh: number;                // bumps on agent events (Orbit's running list), so a card moves at once
   onOpenNeeds: () => void; onOpenAll: () => void; onOpenTask: (id: string) => void;
 }) {
@@ -54,6 +55,9 @@ export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask }: {
   // Needs-you items that aren't tasks (approvals, blockers…) add to the count; tasks waiting for him are already in the list.
   const needN = Math.max(needs ?? 0, items?.filter((p) => p.phase === "needs").length ?? 0);
   const line = items ? statusLine(items, lang, nowMs, needN) : t("common.loading");
+  const needCards = items?.filter((p) => p.phase === "needs") ?? [];
+  const needKey = needCards.map((p) => p.id).join(",");
+  useEffect(() => { onNeeds?.(needCards); }, [needKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = () => { const v = !fold; setFold(v); try { localStorage.setItem(FOLD_KEY, v ? "1" : "0"); } catch { /* no storage */ } };
 
   return (

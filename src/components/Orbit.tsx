@@ -63,7 +63,6 @@ import { runRecipeCommand } from "./recipe-command";
 import { OrbitExplore, warmWorld, WorldLoading } from "./OrbitExplore";
 import { markOpen } from "./dev-mark";
 import { useStageActive } from "./stage-slot";
-import { ContinueWork } from "./ContinueWork";
 import { WorkView } from "./WorkView";
 import type { WorkTab } from "@/lib/work-vocab-pure";
 import { NeedsYou } from "./NeedsYou";
@@ -82,6 +81,7 @@ import { LIVING_EVENT } from "@/lib/living-events-pure";
 import { BrandMark } from "./BrandMark";
 import { orbitTitle } from "@/lib/jarvis-pure";
 import { HomeDesk } from "./HomeDesk";
+import type { Progress } from "@/lib/progress-pure";
 import { Tour, TOUR_EVENT } from "./Tour";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
@@ -166,7 +166,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [cmdErr, setCmdErr] = useState("");
   const [cmdReply, setCmdReply] = useState("");
   const [workOpen, setWorkOpen] = useState<WorkTab | false>(false);
-  const [needsOpen, setNeedsOpen] = useState(false); // the Needs-you inbox, opened from the home desk
+  const [needsOpen, setNeedsOpen] = useState(false);
+  const [deskNeeds, setDeskNeeds] = useState<Progress[]>([]); // tasks waiting for him, from the home desk // the Needs-you inbox, opened from the home desk
   // Home shows only the desk and the one input; the cockpit extras (SYSTEM panel, ticker, HUD lines, eye) are behind ⋯ → System details.
   const [details, setDetails] = useState(false);
   useEffect(() => { try { setDetails(localStorage.getItem("orbit.home.details") === "1"); } catch { /* storage off */ } }, []);
@@ -736,7 +737,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <AmbientLoop />
           <Starfield />
           <div className="overview-heading"><p>{t("overview.kicker")}</p><h1>{t("overview.title1")}<br />{t("overview.title2")}</h1><span>{t("overview.lede")}</span></div>
-          {!shown && <ContinueWork onOpenTask={openTask} onOpenGoal={openGoal} />}
           <ul className="overview-worlds">
             <li><button className={`planet-card${warning ? " warn" : ""}`} onClick={() => select("core")} style={{ borderColor: "#7dd3fc" }}>
               <b><WorldEmblem id="core" size={26} className="planet-card-emblem" />CORE</b><span className="muted text-sm">{busy ? t("overview.thinking") : warning ? t("overview.lastFailed") : t("overview.core")}</span></button></li>
@@ -821,8 +821,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <WhatsNew home={!shown && !approach} />
         <MorningBrief home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
       </>}
-      {activityHome && !workOpen && <HomeDesk refresh={runningTasks.length + shipTasks.length} onOpenNeeds={() => setNeedsOpen(true)} onOpenAll={() => setWorkOpen("work")} onOpenTask={openTask} />}
-      {activityHome && needsOpen && <NeedsYou open onClose={() => setNeedsOpen(false)} onOpenTask={(id) => { setNeedsOpen(false); openTask(id); }} onOpenGoal={(id) => { setNeedsOpen(false); openGoal(id); }} />}
+      {activityHome && !workOpen && <HomeDesk refresh={runningTasks.length + shipTasks.length} onOpenNeeds={() => setNeedsOpen(true)} onOpenAll={() => setWorkOpen("work")} onOpenTask={openTask} onNeeds={setDeskNeeds} />}
+      {activityHome && needsOpen && <NeedsYou open onClose={() => setNeedsOpen(false)} extra={deskNeeds} onOpenTask={(id) => { setNeedsOpen(false); openTask(id); }} onOpenGoal={(id) => { setNeedsOpen(false); openGoal(id); }} />}
       {boot >= 3 && <Tour ready={activityHome} />}
       {details && boot >= 2 && !shown && !approach && <HalEye />}
       {details && !shown && view === "3d" && (

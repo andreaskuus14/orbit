@@ -147,7 +147,7 @@ const BASE = {
   "perf.renderChanged": "Render changed", "perf.noBaseline": "No comparable baseline. Match the visible window, GPU and pixel ratio.",
   "common.loading": "Loading…", "common.add": "Add", "common.remove": "Remove", "common.cancel": "Cancel", "common.copied": "Copied",
 
-  "overview.aria": "Planets", "overview.kicker": "ORBIT", "overview.title1": "A universe.", "overview.title2": "Yours to shape.",
+  "overview.aria": "Planets", "overview.kicker": "ORBIT", "overview.title1": "Ask for anything.", "overview.title2": "Watch ORBIT do it.",
   "overview.lede": "Tell ORBIT what you need below, or open a planet.", "overview.thinking": "Thinking…", "overview.lastFailed": "Last request failed",
   "overview.pulseBusy": "Pulse is writing a briefing…", "overview.pulseFailed": "Last briefing failed", "overview.autoFailed": "An automation's last run failed",
   "overview.running.one": "{n} agent task running…", "overview.running.other": "{n} agent tasks running…",
@@ -1125,7 +1125,7 @@ export const ET: Partial<Record<Key, string>> = {
   "perf.renderChanged": "Renderdus muutus", "perf.noBaseline": "Võrreldav mõõtmine puudub. Kasuta sama nähtavat akent, graafikaprotsessorit ja pikslisuhet.",
   "common.loading": "Laadin…", "common.add": "Lisa", "common.remove": "Eemalda", "common.cancel": "Tühista", "common.copied": "Kopeeritud",
 
-  "overview.aria": "Planeedid", "overview.kicker": "ORBIT", "overview.title1": "Universum.", "overview.title2": "Sinu kujundada.",
+  "overview.aria": "Planeedid", "overview.kicker": "ORBIT", "overview.title1": "Küsi mida tahes.", "overview.title2": "Vaata, kuidas ORBIT selle teeb.",
   "overview.lede": "Ütle allpool, mida vajad, või ava planeet.", "overview.thinking": "Mõtlen…", "overview.lastFailed": "Viimane päring ebaõnnestus",
   "overview.pulseBusy": "Pulse kirjutab ülevaadet…", "overview.pulseFailed": "Viimane ülevaade ebaõnnestus", "overview.autoFailed": "Ühe automatiseeringu viimane käivitus ebaõnnestus",
   "overview.running.one": "{n} agendi ülesanne käib…", "overview.running.other": "{n} agendi ülesannet käib…",

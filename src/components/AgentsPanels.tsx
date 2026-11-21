@@ -346,11 +346,11 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
         : <ProgressList items={loading && !tasks.length ? null : working} max={6} empty={tr("ops.workingNone")} onOpen={(p) => setOpen(p.id)} onAction={(_, p) => setOpen(p.id)} />}
     </section>
   );
-  if (!manual) return ( // AI-first home: what's running, ask, what needs him, recent results; the tools below sit behind "Manual tools"
-    <div className="space-y-5">{workingNow}<PlanetHome planet="operations" onManual={() => setManual(true)} onOpenTask={setOpen}
+  if (!manual) return ( // AI-first home (PlanetHome shows "Working on it" itself); the tools below sit behind "Manual tools"
+    <PlanetHome planet="operations" onManual={() => setManual(true)} onOpenTask={setOpen}
       results={loading && !tasks.length ? null : tasks.filter((x) => x.status === "done" && !x.parent_id).slice(0, 6).map((x) => ({
         id: x.id, title: x.title, sub: x.finished_at ? new Date(x.finished_at).toLocaleString() : "", open: () => setOpen(x.id),
-      }))} /></div>
+      }))} />
   );
   const tabs = (
     <div className="flex flex-wrap gap-1.5" role="tablist">
@@ -381,6 +381,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
     <div className="space-y-5">
       {tabs}
       {err && <p className="error" role="alert">{err}</p>}
+      {workingNow}
       <OperationsInbox tasks={tasks} agents={agents} projects={projects} project={filter} onProject={setFilter}
         state={inbox} onChange={setInbox} loading={loading} error={loadError} onRefresh={() => void load()} onOpen={setOpen} />
       <details className="card">

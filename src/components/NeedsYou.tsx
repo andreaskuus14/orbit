@@ -12,7 +12,7 @@ import { useT } from "./i18n";
 import { OpsStatus } from "./OpsStatus";
 import { GalaxyActivityRail } from "./GalaxyActivityRail";
 import styles from "./GalaxyActivityRail.module.css";
-import { fromNeed } from "@/lib/progress-pure";
+import { fromNeed, type Progress } from "@/lib/progress-pure";
 import { ProgressCard } from "./ProgressCard";
 
 const SHOWN = 5;
@@ -34,9 +34,10 @@ export function openTarget(o: BriefOpen, onOpenTask: (id: string) => void, onOpe
 
 export type GalaxyTasks = { running: { id: string; title: string } | null; latest: { id: string; title: string } | null };
 /** open/onClose: controlled by the home desk (the inbox only, no rail). Without them: the old rail that opens into the inbox. */
-export function NeedsYou({ onOpenTask, onOpenGoal, tasks = null, tasksFailed = false, inline = false, open: shownOpen, onClose }: {
+export function NeedsYou({ onOpenTask, onOpenGoal, tasks = null, tasksFailed = false, inline = false, open: shownOpen, onClose, extra = [] }: {
   onOpenTask: (id: string) => void; onOpenGoal: (id: string) => void;
   tasks?: GalaxyTasks | null; tasksFailed?: boolean; inline?: boolean; open?: boolean; onClose?: () => void;
+  extra?: Progress[]; // task cards waiting for him (home desk); shown first unless the inbox already lists that task
 }) {
   const { t, lang } = useT();
   const titleId = useId();
@@ -103,9 +104,10 @@ export function NeedsYou({ onOpenTask, onOpenGoal, tasks = null, tasksFailed = f
         {!controlled && <button type="button" className="link" onClick={() => nav({ panel: null, mission: true })}>{t("needs.mission")}</button>}
       </span></div>
     {(err || loadFailed) && <p className="error" role="alert">{err || t("needs.loadFailed")}</p>}
-    {digest && <ul className="muted text-xs" aria-label="Digest">{digest.lines.map((l) => <li key={l}>{l}</li>)}</ul>}
+    {controlled && (() => { const own = extra.filter((p) => !(items ?? []).some((n) => n.ref.includes(p.id))); return own.length ? <ul className="mb-2 space-y-2">{own.map((p) => <li key={p.id} className="!block !border-0 !p-0"><ProgressCard p={p} onAction={() => onOpenTask(p.id)} onOpen={() => onOpenTask(p.id)} /></li>)}</ul> : null; })()}
+    {digest && !(controlled && !list.length) && <ul className="muted text-xs" aria-label="Digest">{digest.lines.map((l) => <li key={l}>{l}</li>)}</ul>}
     {!items && !err && !loadFailed && <p className="muted" role="status">{t("needs.loading")}</p>}
-    {items && !loadFailed && !items.length && <p className="muted">{t("needs.empty")}</p>}
+    {items && !loadFailed && !items.length && !(controlled && extra.length) && <p className="muted">{t("needs.empty")}</p>}
     {!!list.length && <ul className="space-y-2">{list.slice(0, SHOWN).map((n) => <li key={n.ref} className="!block !border-0 !p-0">
       <ProgressCard p={fromNeed(n, t(`needs.ask.${n.cause}`), n.group ? t("needs.reviewAll") : label(n))} onAction={() => openTarget(n.act.open, onOpenTask, onOpenGoal)} />
       <span className="mt-1 flex flex-wrap items-center gap-2 px-1">
