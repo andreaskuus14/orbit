@@ -28,6 +28,8 @@ import { INITIAL_INBOX, OperationsInbox } from "./OperationsInbox";
 import { PREVIEW_TZ, graceMinutes, lastWith, nextOccurrences } from "@/lib/automation-preview-pure";
 import { LocalAiTools } from "./LocalAi";
 import { PlanJobsView } from "./PlanJobsView";
+import { ProgressList } from "./ProgressCard";
+import { fromTask, sortProgress } from "@/lib/progress-pure";
 import { BUSINESS_LOOP } from "@/lib/business-loop-pure";
 
 type Step = { step: string; detail: string; ms: number; ok: boolean };
@@ -263,8 +265,9 @@ function Recover({ task, wholeOk, label, onAct }: { task: Task; wholeOk: boolean
 
 /* ---------- OPERATIONS: tasks + projects ---------- */
 
+const OPS_MORE: ("team" | "plans" | "rules" | "localai" | "scout")[] = ["team", "plans", "rules", "localai", "scout"];
 export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: string | null; onOpen?: (id: string | null) => void; openMemory: (id: string) => void }) {
-  const { t: tr } = useT();
+  const { t: tr, lang } = useT();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -332,20 +335,38 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
 
   if (open) return <TaskView id={open} onBack={() => { setOpen(null); void load(); }} openMemory={openMemory} />;
 
-  if (!manual) return ( // AI-first home: ask, what needs him, recent results; the tools below sit behind "Manual tools"
+  // "Working on it": what runs now, what waits for him, what failed today, as the shared progress cards.
+  const day = Date.now() - 86_400_000;
+  const working = sortProgress(tasks.filter((x) => !x.parent_id && (["running", "queued", "awaiting_approval"].includes(x.status) || (x.status === "failed" && Date.parse(x.finished_at ?? x.created_at) >= day)))
+    .map((x) => fromTask(x, lang, { nowMs: Date.now() })));
+  const workingNow = (
+    <section className="space-y-2" aria-labelledby="ops-working">
+      <h3 id="ops-working" className="h3">{tr("prog.title")}</h3>
+      {loadError ? <p className="error text-sm" role="alert">{tr("ops.loadFailed")}</p>
+        : <ProgressList items={loading && !tasks.length ? null : working} max={6} empty={tr("ops.workingNone")} onOpen={(p) => setOpen(p.id)} onAction={(_, p) => setOpen(p.id)} />}
+    </section>
+  );
+  if (!manual) return ( // AI-first home (PlanetHome shows "Working on it" itself); the tools below sit behind "Manual tools"
     <PlanetHome planet="operations" onManual={() => setManual(true)} onOpenTask={setOpen}
       results={loading && !tasks.length ? null : tasks.filter((x) => x.status === "done" && !x.parent_id).slice(0, 6).map((x) => ({
-        id: x.id, title: x.title, sub: `${x.agent} · ${x.finished_at ? new Date(x.finished_at).toLocaleString() : ""}`, open: () => setOpen(x.id),
+        id: x.id, title: x.title, sub: x.finished_at ? new Date(x.finished_at).toLocaleString() : "", open: () => setOpen(x.id),
       }))} />
   );
   const tabs = (
     <div className="flex flex-wrap gap-1.5" role="tablist">
       <button className="chip" onClick={() => setManual(false)}>← {tr("ph.simple")}</button>
-      {(["tasks", "team", "automations", "plans", "rules", "activity", "localai", "scout"] as const).map((t) => (
+      {(["tasks", "automations", "activity", ...(OPS_MORE.some((m) => m === tab) ? [tab] : [])] as (typeof tab)[]).map((t) => (
         <button key={t} role="tab" aria-selected={tab === t} className="chip" style={tab === t ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setTab(t)}>
           {tr(`ops.tab.${t}`)}
         </button>
       ))}
+      {/* the rest is for when he wants the details: under More, the open one stays in the row */}
+      <details className="relative">
+        <summary className="chip cursor-pointer list-none">{tr("ws.more")} ▾</summary>
+        <div className="glass absolute z-20 mt-1 flex min-w-[12rem] flex-col gap-1 rounded-xl p-2">
+          {OPS_MORE.filter((t) => t !== tab).map((t) => <button key={t} type="button" className="chip text-left" onClick={(e) => { setTab(t); (e.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open"); }}>{tr(`ops.tab.${t}`)}</button>)}
+        </div>
+      </details>
     </div>
   );
   if (tab === "team") return <div className="space-y-4">{tabs}<TeamStatusView /></div>;
@@ -360,6 +381,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
     <div className="space-y-5">
       {tabs}
       {err && <p className="error" role="alert">{err}</p>}
+      {workingNow}
       <OperationsInbox tasks={tasks} agents={agents} projects={projects} project={filter} onProject={setFilter}
         state={inbox} onChange={setInbox} loading={loading} error={loadError} onRefresh={() => void load()} onOpen={setOpen} />
       <details className="card">

@@ -1,0 +1,34 @@
+name: Luau checks
+
+# The generated Roblox UI kit (GAME DEV) must compile, and its coin label (Kit.Abbrev) must print exactly what ORBIT's
+# TypeScript preview prints. Uses the free Luau CLI (luau-lang/luau, MIT), pinned below; bump it deliberately.
+on:
+  push:
+    branches: [main]
+    paths: ["src/lib/gamedev-uikit-pure.ts", "scripts/luau-check.ts", ".github/workflows/luau.yml"]
+  pull_request:
+    paths: ["src/lib/gamedev-uikit-pure.ts", "scripts/luau-check.ts", ".github/workflows/luau.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  luau:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      LUAU_VERSION: '0.748'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Luau CLI
+        run: |
+          curl -fsSL -o luau.zip "https://github.com/luau-lang/luau/releases/download/${LUAU_VERSION}/luau-ubuntu.zip"
+          mkdir -p "$RUNNER_TEMP/luau" && unzip -q luau.zip -d "$RUNNER_TEMP/luau" && chmod +x "$RUNNER_TEMP/luau/"*
+          echo "LUAU_BIN_DIR=$RUNNER_TEMP/luau" >> "$GITHUB_ENV"
+      - run: npm ci --no-audit --no-fund --ignore-scripts # the lockfile's fast-check; no install scripts needed here
+      - run: node --no-warnings --experimental-strip-types scripts/luau-check.ts --require

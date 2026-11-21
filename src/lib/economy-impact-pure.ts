@@ -96,7 +96,5 @@ export function impactLines(i: Impact, lang: Lang = "en"): string[] {
   }
   out.push(`${t.walls}:`, ...i.bottlenecks.base.map((b) => `  ${t.before}: ${b}`), ...i.bottlenecks.proposed.map((b) => `  ${t.after}: ${b}`));
   if (i.sensitivity.length) out.push(`${t.sens}:`, ...i.sensitivity.map((x) => `  ${x.input}: ${x.firstUpgrade ?? "–"} / ${x.lastEgg ?? "–"}`));
-  out.push(`${t.walls}:`, ...i.bottlenecks.base.map((b) => `  ${t.before}: ${b}`), ...i.bottlenecks.proposed.map((b) => `  ${t.after}: ${b}`));
-  if (i.sensitivity.length) out.push(`${t.sens}:`, ...i.sensitivity.map((x) => `  ${x.input}: ${x.firstUpgrade ?? "–"} / ${x.lastEgg ?? "–"}`));
   return out;
 }

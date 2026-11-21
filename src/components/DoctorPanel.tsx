@@ -14,6 +14,7 @@ import type { PatchResult } from "@/lib/self-improve-patch-pure";
 import { stoppedText } from "@/lib/night-pure";
 import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 import { useDialogFocus } from "./useDialogFocus";
+import { NightRepairCard } from "./NightRepairCard";
 import { useT } from "./i18n";
 import type { Key } from "@/lib/i18n-pure";
 
@@ -304,6 +305,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
             {report.system && <SystemCard sys={report.system} onAck={ack} />}
             {report.health && <HealthCard health={report.health} />}
             {report.improve && <ImproveCard improve={report.improve} />}
+            <NightRepairCard />
             {report.selfEval && <SelfEvalCard ev={report.selfEval} />}
             {report.outcome && <OutcomeCard o={report.outcome} />}
             <p className="muted mt-3 text-[10px]">{t("doc.checkedIn", { s: (report.ms / 1000).toFixed(1), at: new Date(report.at).toLocaleTimeString() })}</p>

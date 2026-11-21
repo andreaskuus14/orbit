@@ -87,28 +87,24 @@ export async function ingestFeeds(sb: SupabaseClient, userId: string) {
   const worker = async () => {
     for (let feed = queue.shift(); feed; feed = queue.shift()) {
       try {
-        let xml = "<rss>", parsed: ReturnType<typeof parseFeed>;
+        let xml = "<rss>", parsed: ReturnType<typeof parseFeed>, headers: Headers | null = null;
         const search = newsFeedQuery(feed.url); // a news-search feed: Bing first (publisher links), Google News last
         if (search) parsed = { title: feed.title ?? "", items: await newsSearch(search.q, search.window) };
         else {
-          try { const { res } = await safeFetch(feed.url, FEED_ACCEPT); xml = (await res.text()).slice(0, 3_000_000); }
+          const known = conditional ? feedValidators.get(feed.url) : undefined;
+          try {
+            const { res } = await safeFetch(feed.url, FEED_ACCEPT, undefined, undefined, undefined, undefined, false, { headers: conditionalHeaders(known), allow304: !!known });
+            if (res.status === 304 && known) { // unchanged since the last good ingest: every item is already stored, nothing to add
+              await setHealth(feed.id, { ok: true, items: known.items }).catch(() => undefined);
+              await sb.from("feeds").update({ last_fetched_at: new Date().toISOString(), last_error: null, title: feed.title ?? known.title }).eq("id", feed.id);
+              continue;
+            }
+            headers = res.headers;
+            xml = (await res.text()).slice(0, 3_000_000);
+          }
           catch (e) { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { feedKind: "fetch" }); }
           parsed = parseFeed(xml);
         }
-        let xml: string, headers: Headers;
-        const known = conditional ? feedValidators.get(feed.url) : undefined;
-        try {
-          const { res } = await safeFetch(feed.url, FEED_ACCEPT, undefined, undefined, undefined, undefined, false, { headers: conditionalHeaders(known), allow304: !!known });
-          headers = res.headers;
-          if (res.status === 304 && known) { // unchanged since the last good ingest: every item is already stored, nothing to add
-            await setHealth(feed.id, { ok: true, items: known.items }).catch(() => undefined);
-            await sb.from("feeds").update({ last_fetched_at: new Date().toISOString(), last_error: null, title: feed.title ?? known.title }).eq("id", feed.id);
-            continue;
-          }
-          xml = (await res.text()).slice(0, 3_000_000);
-        }
-        catch (e) { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { feedKind: "fetch" }); }
-        const parsed = parseFeed(xml);
         if (!parsed.items.length && !/<(rss|feed|rdf)[\s>]/i.test(xml)) throw Object.assign(new Error("Not an RSS or Atom feed"), { feedKind: "parse" });
         const rows = freshAfterRepair(parsed.items, health[feed.id]).slice(0, 60).map((it) => {
           const source = it.source ?? feed.title ?? new URL(it.url).hostname;
@@ -123,7 +119,7 @@ export async function ingestFeeds(sb: SupabaseClient, userId: string) {
           if (error) throw error;
           added += data?.length ?? 0;
         }
-        if (conditional) { const v = validatorsFrom(headers, parsed.items.length, parsed.title || null); if (v) feedValidators.set(feed.url, v); else feedValidators.delete(feed.url); } // only after the items are stored
+        if (conditional && headers) { const v = validatorsFrom(headers, parsed.items.length, parsed.title || null); if (v) feedValidators.set(feed.url, v); else feedValidators.delete(feed.url); } // only after the items are stored
         await setHealth(feed.id, { ok: true, items: parsed.items.length }).catch(() => undefined);
         await sb.from("feeds").update({ last_fetched_at: new Date().toISOString(), last_error: null, title: feed.title ?? (parsed.title || null) }).eq("id", feed.id);
       } catch (e) {

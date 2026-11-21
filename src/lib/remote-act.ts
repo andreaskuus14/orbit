@@ -51,6 +51,11 @@ export async function decideApproval(sb: SupabaseClient, userId: string, id: str
     const j = (await r.json().catch(() => ({}))) as { message?: string; error?: string };
     return r.ok ? Response.json({ ok: true, message: j.message ?? "Approved" }) : fail(j.error ?? GENERIC_ERROR, r.status) // negotiator errors are owner-facing text, no Supabase/Resend bodies;
   }
+  if (item.kind === "patch") { // a night-repair patch: the same function the PC's Approve/Reject uses (exact version, Stop-all, diff re-checked)
+    const { approveRepair, rejectRepair } = await import("@/lib/night-repair");
+    const r = await (action === "approve" ? approveRepair : rejectRepair)(item.key.slice(6), item.seen);
+    return r.ok ? Response.json({ ok: true, message: r.message }) : fail(r.error, r.status);
+  }
   if (item.kind === "invoice") {
     const r = await approveReminder(sb, userId, item.key.slice(8), item.seen); // Stop-all, Autonomy business-send, claim-first, exact draft version
     const j = (await r.json().catch(() => ({}))) as { message?: string; error?: string; text?: string };

@@ -138,6 +138,8 @@ export async function pendingApprovals(sb: SupabaseClient): Promise<Approval[]> 
     out.push(item(`nego:${n.id}`, { kind: "nego", title: n.title, detail: n.side === "sell" ? "BUSINESS negotiation" : "Deal: message to the seller", strategy: n.draft!.strategy, message: n.draft!.text, seen: await contentHash(negoContent(n.id, n.draft!.text, to ?? null)), ...(to && { to }) }));
   }
   // Invoices (B6): overdue reminder drafts, approved through invoices.ts approveReminder (same guards as the PC click).
+  // Night repair (night-repair.ts): gated code patches; Approve merges + self-updates, Reject closes. seen = the exact commit/files/result shown.
+  for (const p of await import("./night-repair").then((m) => m.repairApprovals(), () => [])) out.push(item(p.key, { kind: "patch", title: p.title, detail: p.detail, message: p.message, seen: p.seen }));
   for (const { key, content, ...a } of remoteInvoices(await allInvoices(), localDay(new Date()), !!(process.env.RESEND_API_KEY && process.env.ORBIT_MAIL_FROM))) out.push(item(key, { kind: "invoice", ...a, seen: await contentHash(content) }));
   return out;
 }

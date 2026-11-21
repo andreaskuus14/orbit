@@ -67,7 +67,7 @@ export function StopAll() {
   return (
     <>
       <button className="chip" onClick={() => toggle(!on)} disabled={busy || !s} aria-pressed={on} style={on ? { borderColor: "var(--rose)" } : undefined}
-        aria-label={t(on ? "stop.aria.on" : "stop.aria")} title={t(on ? "stop.title.on" : "stop.title")}>🛑</button>
+        aria-label={t(on ? "stop.aria.on" : "stop.aria")} title={t(on ? "stop.title.on" : "stop.title")}>🛑<span className="hidden sm:inline"> {t("stop.label")}</span></button>
       {(on || err) && (
         <div role="alert" className="fixed left-1/2 top-16 z-50 flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-1.5 text-sm"
           style={{ background: "rgba(127, 29, 29, 0.92)", border: "1px solid var(--rose)", color: "#fff", boxShadow: "0 0 18px rgba(251, 113, 133, 0.45)" }}>

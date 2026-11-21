@@ -93,7 +93,7 @@ export function planNext(n: Negotiation, intent: Intent, theirs: number | null, 
   const better = (a: number, b: number) => d * a >= d * b; // a is at least as good for him as b
   const step = Math.max(1, Math.round((anchor * l.stepPct) / 100));
   if (mine === null) { // first priced message
-    if (intent === "counter" && theirs !== null && better(theirs, anchor)) return { action: "accept", price: clamp(theirs, l), strategy: `their ${fmt(theirs)} already meets your anchor: accept`, state: "agreed" };
+    if (intent === "counter" && theirs !== null && better(theirs, anchor)) return { action: "accept", price: theirs, strategy: `their ${fmt(theirs)} already meets your anchor: accept`, state: "agreed" };
     return { action: "offer", price: anchor, strategy: `anchor at ${fmt(anchor)}, concede ${l.stepPct}% max per step, never past ${fmt(worst)}`, state: "talking" };
   }
   if (intent !== "counter" || theirs === null) {
@@ -101,7 +101,7 @@ export function planNext(n: Negotiation, intent: Intent, theirs: number | null, 
       ? { action: "hold", price: mine, strategy: `hold at ${fmt(mine)}: answer the objection with value, no discount yet`, state: "talking" }
       : { action: "offer", price: mine, strategy: `restate ${fmt(mine)} and ask for the next step`, state: "talking" };
   }
-  if (better(theirs, mine)) return { action: "accept", price: clamp(theirs, l), strategy: `their ${fmt(theirs)} meets your ${fmt(mine)}: accept`, state: "agreed" };
+  if (better(theirs, mine)) return { action: "accept", price: theirs, strategy: `their ${fmt(theirs)} meets your ${fmt(mine)}: accept`, state: "agreed" };
   if (mine === worst) {
     const since = n.turns.findIndex((t) => t.from === "me" && t.price === worst); // he reached his limit here
     const under = n.turns.slice(since).filter((t) => t.from === "them" && t.price !== null && !better(t.price, worst)).length; // their counters past it since, this one included
@@ -109,15 +109,17 @@ export function planNext(n: Negotiation, intent: Intent, theirs: number | null, 
       ? { action: "walk", price: null, strategy: `they stay past your limit ${fmt(worst)}: walk away${l.walkAway ? ` (${l.walkAway})` : ""}`, state: "walked" }
       : { action: "hold", price: worst, strategy: `at your limit ${fmt(worst)}: hold, say it's final`, state: "talking" };
   }
-  let next = Math.round(mine - d * step);
+  let next = d > 0 ? Math.ceil(mine - step) : Math.floor(mine + step); // whole euros, rounded his way: never more than one step (Math.round gave 110.01 on a 110 step)
   if (!better(next, worst)) next = worst;
-  if (better(theirs, next)) return { action: "accept", price: clamp(theirs, l), strategy: `their ${fmt(theirs)} is within one step: accept`, state: "agreed" };
+  if (better(theirs, next)) return { action: "accept", price: theirs, strategy: `their ${fmt(theirs)} is within one step: accept`, state: "agreed" };
   const pct = Math.round((Math.abs(mine - next) / mine) * 1000) / 10;
   return { action: "offer", price: clamp(next, l), strategy: `concede ${fmt(mine)} → ${fmt(next)} (${pct}%), limit ${fmt(worst)}`, state: "talking" };
 }
 
-/** Amounts in a draft outside his limits ([] = fine). A draft may name no price at all, or only prices inside floor–ceiling. */
-export const outsideLimits = (t: string, l: Limits): string[] => amountsIn(t).filter((a) => a < l.floor || a > l.ceiling).map(fmt);
+/** Amounts in a draft outside his limits ([] = fine). A draft may name no price at all, or only prices inside floor–ceiling.
+ *  `ok`: the one amount an accept plan may name outside them, their own offer when it is better for him than his limits. */
+export const outsideLimits = (t: string, l: Limits, ok: number | null = null): string[] => amountsIn(t).filter((a) => a !== ok && (a < l.floor || a > l.ceiling)).map(fmt);
+const accepted = (d: { action: Action; price: number | null }) => (d.action === "accept" ? d.price : null);
 
 /** His reply is recorded; returns the plan for the next message. Refuses a closed negotiation. */
 export function addReply(n: Negotiation, reply: unknown, now: number, intentIn?: unknown): { n: Negotiation; plan: Plan } | string {
@@ -143,7 +145,7 @@ export function replan(n: Negotiation, now: number, intentIn?: unknown): Plan | 
 export function makeDraft(words: string, plan: Plan, intent: Intent, l: Limits, now: number): Draft | string {
   const t = text(words, MAX_TEXT).replace(/^["“]|["”]$/g, "").trim();
   if (!t) return "CORE returned an empty draft; try again";
-  const outside = outsideLimits(t, l);
+  const outside = outsideLimits(t, l, accepted(plan));
   if (outside.length) return `CORE's draft named ${outside.join(", ")}, outside your limits: not kept. Try again or write it yourself.`;
   if (plan.price !== null && !amountsIn(t).includes(plan.price)) return `CORE's draft didn't state the planned ${fmt(plan.price)}; try again`;
   return { text: t, price: plan.price, intent, action: plan.action, next: plan.state, strategy: plan.strategy, at: new Date(now).toISOString(), outside: [] };
@@ -154,7 +156,7 @@ export function editDraft(n: Negotiation, words: unknown, confirm: unknown, now:
   if (!n.draft) return "No draft to edit";
   const t = text(words, MAX_TEXT);
   if (!t) return "The message is empty";
-  const outside = outsideLimits(t, n.limits);
+  const outside = outsideLimits(t, n.limits, accepted(n.draft));
   if (outside.length && confirm !== true) return `Outside your limits: ${outside.join(", ")}. Tick "I mean it" to keep it.`;
   const a = amountsIn(t);
   return { ...n.draft, text: t, price: a.length ? a[a.length - 1] : null, at: new Date(now).toISOString(), outside, override: outside.length ? true : undefined, strategy: outside.length ? `your edit: ${outside.join(", ")} is outside your limits (you confirmed)` : n.draft.strategy };
@@ -166,7 +168,7 @@ export function approveProblem(n: Negotiation | undefined, seen: unknown): strin
   if (n.state !== "talking") return "This negotiation is closed";
   if (!n.draft) return "No draft waiting";
   if (seen !== n.draft.at) return "The draft changed since you read it: reload";
-  const outside = outsideLimits(n.draft.text, n.limits);
+  const outside = outsideLimits(n.draft.text, n.limits, accepted(n.draft));
   if (outside.length && !n.draft.override) return `Outside your limits (${outside.join(", ")}): edit it and confirm first`;
   return "";
 }
