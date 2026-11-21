@@ -48,6 +48,8 @@ export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: strin
     const row = policyEvent(name, verdict);
     if (row) void emit(t.sb, t.userId, "policy.decision", "core", { ...row, turn: t.turnId });
     t.record(name, input, out, evidence, Date.now() - at, operated);
+    // Mistake memory (#699): an allowed call that still failed is remembered so the next turn avoids it (filters private/transient errors itself).
+    if (verdict.allow && /^Error:/i.test(out)) void import("./mistake-memory").then((m) => m.recordToolFailure(t.userId, name, input, out)).catch(() => {});
     if (!verdict.allow && t.turnId) t.trace.at(-1)!.policy = { verdict: "refuse", turn: t.turnId, ...(verdict.allowOnce ? { allowOnce: verdict.allowOnce } : {}) };
     return toolResult(out);
   });

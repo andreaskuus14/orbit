@@ -24,6 +24,8 @@ export function GenUiFrame({ block, onAction }: GenUiFrameProps) {
   const [expanded, setExpanded] = useState(false);
   const [showSource, setShowSource] = useState(false);
   const [copied, setCopied] = useState(false);
+  // "ask" and "copy" come from widget code, which can carry injected content: they only happen after his click on this chip.
+  const [pending, setPending] = useState<Exclude<GenUiAction, { type: "resize" }> | null>(null);
 
   const validation = useMemo(() => (block.streaming ? null : validateGenUiHtml(block.html)), [block.html, block.streaming]);
   const srcDoc = useMemo(
@@ -40,14 +42,20 @@ export function GenUiFrame({ block, onAction }: GenUiFrameProps) {
         setHeight(action.height);
         return;
       }
-      if (action.type === "copy" && typeof navigator !== "undefined" && navigator.clipboard) {
-        void navigator.clipboard.writeText(action.text).catch(() => {});
-      }
+      if (action.type === "ask" || action.type === "copy") { setPending(action); return; }
       onAction?.(action);
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [nonce, onAction]);
+
+  const confirmPending = () => {
+    const a = pending;
+    setPending(null);
+    if (!a) return;
+    if (a.type === "copy" && typeof navigator !== "undefined" && navigator.clipboard) void navigator.clipboard.writeText(a.text).catch(() => {});
+    onAction?.(a);
+  };
 
   const copyHtml = () => {
     if (typeof navigator === "undefined" || !navigator.clipboard) return;
@@ -126,6 +134,16 @@ export function GenUiFrame({ block, onAction }: GenUiFrameProps) {
           </button>
         </div>
       </header>
+
+      {pending && (pending.type === "ask" || pending.type === "copy") ? (
+        <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", fontSize: 12, color: "#e2e8f0", background: "rgba(251, 191, 36, 0.12)" }}>
+          <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {pending.type === "ask" ? `This widget wants to ask CORE: "${pending.prompt}"` : "This widget wants to copy text to your clipboard."}
+          </span>
+          <button type="button" onClick={confirmPending} style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6 }}>{pending.type === "ask" ? "Ask" : "Copy"}</button>
+          <button type="button" onClick={() => setPending(null)} style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6 }}>No</button>
+        </div>
+      ) : null}
 
       {block.streaming ? (
         <div style={{ padding: 16, color: "#94a3b8", fontSize: 13 }}>
