@@ -17,7 +17,7 @@ export const DRAFT_AGAIN_MS = 7 * 86_400_000; // a prospect gets at most one ove
 export const PERSONA_STUDIO_RUNS = 2; // real look-only Studio playtests per night (each up to 4 minutes); the rest is simulated
 export const RESEARCH_AGENTS = ["atlas", "nova", "forge", "vector", "echo", "sentinel"];
 
-export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene", "deals", "health", "personas", "company", "rivals", "backup", "loops"] as const;
+export const NIGHT_KINDS = ["research", "goal", "business", "clips", "niche", "hygiene", "deals", "health", "personas", "company", "rivals", "backup", "loops", "playtesters"] as const;
 export type NightKind = (typeof NIGHT_KINDS)[number];
 export const ITEM_STATUSES = ["done", "approval", "failed", "skipped"] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
@@ -182,6 +182,7 @@ export type PlanInput = {
   deals?: number; // wishes the deal hunter would cover now (deals.ts dueCount); one read-only web call each
   rivals?: number; // competitor pages the weekly BUSINESS rivals watch would read now (rivals.ts rivalsDue); no model calls
   personas?: boolean; // persona playtest of the pet sim due (personas.ts): 1 walkthrough call + PERSONA_STUDIO_RUNS look-only Studio runs
+  playtesters?: boolean; // AI playtesters due (playtesters.ts): owner switched them on; 6 look-only Studio runs when Studio is open + a code check
   loops?: boolean; // open-loop scan (loops.ts): rules over his own records, no model call
   backup?: boolean; // time capsule configured and not written in the last 20 h (capsule.ts backupDue); no model call
   handled: string[]; // `${kind}:${ref}` already in this night's run (a continued run doesn't redo them)
@@ -208,6 +209,7 @@ export function planNight(i: PlanInput, s: NightSettings, used: { calls: number;
       .map((p): NightTask => ({ kind: "business", ref: p.id, label: `Follow-up for ${p.name.slice(0, 80)}`, calls: 1, minutes: 2 })),
     ...(i.deals ? [{ kind: "deals", ref: "deals", label: `Deal hunt for ${i.deals} wish${i.deals > 1 ? "es" : ""}`, calls: i.deals, minutes: 6 * i.deals } as NightTask] : []),
     ...(i.personas ? [{ kind: "personas", ref: "personas", label: "Persona playtest of the pet sim", calls: 1 + PERSONA_STUDIO_RUNS, minutes: 5 + 4 * PERSONA_STUDIO_RUNS } as NightTask] : []),
+    ...(i.playtesters ? [{ kind: "playtesters", ref: "playtesters", label: "AI playtesters in Studio", calls: 6, minutes: 26 } as NightTask] : []),
     { kind: "clips", ref: "clips", label: "Shorts packaging up to review", calls: 6, minutes: 10 } as NightTask,
     ...(i.rivals ? [{ kind: "rivals", ref: "rivals", label: "Weekly BUSINESS competitor watch", calls: 0, minutes: 1 + Math.ceil(i.rivals / 2) } as NightTask] : []),
     ...(i.nicheDue ? [{ kind: "niche", ref: "niche", label: "Weekly BUSINESS niche scout", calls: 1, minutes: 10 } as NightTask] : []),
