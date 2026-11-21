@@ -34,7 +34,7 @@ test("PDF at true scale: 1:100 on A3, read back by pdf.js with the room names, a
   const page = await pdf.getPage(1), vp = page.getViewport({ scale: 1 });
   near(vp.width, A3L.w, 0.01); near(vp.height, A3L.h, 0.01);
   const { text } = await extractText(pdf, { mergePages: true });
-  for (const s of ["Sample house", "Scale 1:100 on A3", "Kitchen + living", "Garage", "12300", "m²", "Net floor area"]) assert.ok(text.includes(s), `${s} missing`);
+  for (const s of ["Sample house", "Scale 1:100 on A3", "Kitchen + living", "Garage", "12300", "108.5", "Net floor area"]) assert.ok(text.includes(s), `${s} missing`);
   // the 12.3 m dimension line is drawn 12.3 × 28.35 pt long (+0.2 m overshoot each side): find a stroke of that length
   const ops = new TextDecoder("latin1").decode(bytes).match(/[\d.]+ [\d.]+ m [\d.]+ [\d.]+ l S/g) ?? [];
   const want = (12.3 + 0.4) * ptPerMetre(100);

@@ -126,6 +126,18 @@ const f1 = (n: number) => n.toFixed(2);
 /** Approximate Helvetica width (0.52 em per character), enough to centre labels. */
 const textW = (s: string, size: number) => s.length * size * 0.52;
 
+/** Text with "²" drawn as a small raised 2: the base-14 fonts have the glyph, but not every viewer's stand-in font does. */
+function supText(x: number, y: number, font: "F1" | "F2", size: number, s: string): string {
+  if (!s.includes("²")) return pdfText(x, y, font, size, s);
+  const out: string[] = [];
+  let cx = x;
+  s.split("²").forEach((part, i) => {
+    if (i) { out.push(pdfText(cx, y + size * 0.38, font, Number((size * 0.6).toFixed(2)), "2")); cx += textW("2", size * 0.6); }
+    if (part) { out.push(pdfText(cx, y, font, size, part)); cx += textW(part, size); }
+  });
+  return out.join("\n");
+}
+
 export type SheetInfo = { date: string; author?: string; sourceLine: string };
 /** The plan as a one-sheet A3 measured drawing at 1:n (picked to fit): plan, chains, title block with the room table. */
 export function planPdf(plan: FloorPlan, info: SheetInfo, d = drawPlan(plan)): { bytes: Uint8Array; scale: number } {
@@ -144,7 +156,7 @@ export function planPdf(plan: FloorPlan, info: SheetInfo, d = drawPlan(plan)): {
       const dx = s.anchor === "middle" ? -w / 2 : s.anchor === "end" ? -w : 0;
       ops.push(`${rgb} rg`);
       if (s.rot === -90) ops.push(`BT /${font} ${f1(size)} Tf 0 1 -1 0 ${f1(X(s.p[0]))} ${f1(Y(s.p[1]) + dx)} Tm ${pdfString(s.s)} Tj ET`);
-      else ops.push(pdfText(X(s.p[0]) + dx, Y(s.p[1]), font, Number(f1(size)), s.s));
+      else ops.push(supText(X(s.p[0]) + dx, Y(s.p[1]), font, Number(f1(size)), s.s));
     }
   }
   // scale bar: 0–5 m (0–1 m at 1:20), under the plan
@@ -157,7 +169,7 @@ export function planPdf(plan: FloorPlan, info: SheetInfo, d = drawPlan(plan)): {
   ops.push(`0.18 0.17 0.16 RG 0.8 w ${f1(tx)} ${f1(tb)} ${f1(tw)} ${f1(top - tb)} re S`);
   const st = planStats(plan, d.rooms);
   let y = top - 22;
-  const line = (s: string, size = 8, font: "F1" | "F2" = "F1", gapAfter = 4) => { ops.push(pdfText(tx + 8, y, font, size, s.slice(0, 60))); y -= size + gapAfter; };
+  const line = (s: string, size = 8, font: "F1" | "F2" = "F1", gapAfter = 4) => { ops.push(supText(tx + 8, y, font, size, s.slice(0, 60))); y -= size + gapAfter; };
   line(plan.name, 14, "F2", 6);
   line("Floor plan, ground floor", 9);
   line(`Scale 1:${scale} on A3 · dimensions in mm · areas in m²`, 8, "F1", 10);
