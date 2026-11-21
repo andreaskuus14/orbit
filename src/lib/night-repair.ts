@@ -106,7 +106,7 @@ async function runRepair(sb: SupabaseClient, key: string, ac: AbortController) {
     await saveNight(night);
     const ready = (await load()).patches.filter((p) => p.night === key && isWaiting(p));
     logActivity({ area: "system", title: `Night repair: ${ready.length} fix${ready.length === 1 ? "" : "es"} ready to approve`, detail: night.stopped ? `stopped: ${night.stopped}` : night.note });
-    if (ready.length) void import("./remote-push").then((m) => m.canNotify() && m.deliver({ title: `Night repair: ${ready.length} fix${ready.length === 1 ? "" : "es"} to approve`, body: "Code patches that passed the gate. Nothing merges without you.", url: "/remote#r-appr", tag: "night" })).catch(() => {});
+    if (ready.length) void import("./remote-push").then((m) => { if (m.canNotify()) void m.deliver({ title: `Night repair: ${ready.length} fix${ready.length === 1 ? "" : "es"} to approve`, body: "Code patches that passed the gate. Nothing merges without you.", url: "/remote#r-appr", tag: "night" }); }).catch(() => {});
     console.log(`[orbit] night repair done: ${ready.length} ready, ${night.calls} agent call(s)${night.stopped ? `, stopped (${night.stopped})` : ""}`);
   }
 }
