@@ -163,7 +163,7 @@ const patch = (o: Partial<Patch> = {}): Patch => ({ id: "p1", night: "2026-11-21
 test("the card and the PR: problem, diff summary, gate result, measured effect; nothing waits without a passing gate", () => {
   const c = patchCard(patch());
   assert.match(c.title, /^Night fix: parses attrs/);
-  for (const re of [/Problem: Failing test/, /Diff: 2 files, \+10\/−1/, /Gate: passed/, /Measured:/, /Approve merges/]) assert.match(c.message, re);
+  for (const re of [/Problem: Failing test/, /Diff: 2 files, \+10\/-1/, /Gate: passed/, /Measured:/, /ORBIT exam: not measured by the exam yet/, /Approve merges/]) assert.match(c.message, re);
   assert.match(c.detail, /local branch/);
   assert.match(patchCard(patch({ pr: { number: 7, url: "u" } })).detail, /PR #7/);
   assert.match(prBody(patch()), /Not merged/);
