@@ -20,6 +20,12 @@ test("virality score is a whole number 0–100, a missing signal counts exactly 
   }), { numRuns: 3000 });
 });
 
+test("regression (seed 1876556059): a very low prediction still shows a multiplier above 0, never 0.00×", () => {
+  const m = { ...priorModel(), w: Object.fromEntries(KEYS.map((k) => [k, -2])) as Model["w"], b: -2, learned: true, n: 50 } as Model;
+  const x = Object.fromEntries(KEYS.map((k) => [k, 1])) as FVec;
+  assert.ok(scoreFrom(m, x, {}).mult > 0);
+});
+
 test("raising a signal with a positive weight never lowers the score (and a negative weight never raises it)", () => {
   fc.assert(fc.property(model, fvec, fc.constantFrom(...KEYS), unit, (m, x, k, to) => {
     const a = { ...x, [k]: Math.min(x[k] ?? 0.5, to) }, b = { ...x, [k]: Math.max(x[k] ?? 0.5, to) };
