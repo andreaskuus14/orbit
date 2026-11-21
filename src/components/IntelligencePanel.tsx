@@ -5,6 +5,8 @@ import { FollowingSection } from "./FollowingSection";
 import { WatchesSection } from "./WatchesSection";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { useT } from "./i18n";
+import { BackToSimple, PlanetHome, useManual } from "./PlanetHome";
+import { briefingWork } from "@/lib/planet-page-pure";
 import { checkClaims, type FeedHealth, type Prefs, type rankingGate, type Vote } from "@/lib/news-intel-pure";
 import { schedState } from "@/lib/panel-states-pure";
 
@@ -98,8 +100,9 @@ export function IntelligencePanel() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [sched, setSched] = useState<{ scheduled?: boolean; failed?: "network" | "server" }>({}); // undefined = still checking: no setup notice yet
   const [open, setOpen] = useState<string | null>(null);
-  const { t } = useT();
+  const { t, lang } = useT();
   const [view, setView] = useWorkspaceView<ViewId>("intelligence", VIEWS);
+  const [manual, setManual] = useManual("intelligence");
   const [intel, setIntel] = useState<Intel | null>(null);
   const [running, setRunning] = useState(false);
   const [add, setAdd] = useState("");
@@ -158,14 +161,25 @@ export function IntelligencePanel() {
     catch (e) { setErr(e instanceof Error ? e.message : "Could not save"); }
   };
   const lastJob = jobs[0];
+  if (!manual) return ( // simple page: one sentence, "make a briefing", what's running, the latest briefings; the tools sit behind More
+    <PlanetHome planet="intelligence" onManual={() => setManual(true)}
+      primary={{ label: running ? t("intel.working") : t("ph.intelligence.main"), run: () => void generate("world"), busy: running }}
+      work={sched.scheduled === undefined && !sched.failed ? null : briefingWork(running ? { status: "running", started_at: new Date().toISOString() } : lastJob ?? null, lang, Date.now())}
+      results={sched.scheduled === undefined && !sched.failed ? null : briefings.slice(0, 4).map((b) => ({ id: b.id, title: b.title,
+        sub: `${when(b.created_at)} · ${t("ph.intelligence.sources", { n: b.citations.length })}`, next: t("ph.intelligence.read"),
+        open: () => { setOpen(b.id); setView("research"); setManual(true); } }))}>
+      {err && <p className="error text-sm">{err}</p>}
+    </PlanetHome>
+  );
   return (
+    <><BackToSimple onClick={() => setManual(false)} />
     <WorkspaceFrame planet="intelligence" title={t("intel.title")} context={t("intel.context")} view={view} onView={setView}
       views={VIEWS.map((v) => ({ ...v, label: t(`intel.v.${v.id}` as const) }))}>
       {err && view !== "today" && <p className="error">{err}</p>}
       {view === "today" && (<>
       <div className="card space-y-2 text-sm">
           <div className="flex items-center justify-between gap-2">
-            <span><b>Pulse</b> <span className="muted">· news intelligence agent</span></span>
+            <span><b>Pulse</b> <span className="muted">· {t("intel.pulseWho")}</span></span>
             <span className="flex flex-wrap justify-end gap-1.5">
               <button className="btn" onClick={() => generate("world")} disabled={running}>{running ? t("intel.working") : t("intel.world")}</button>
               <button className="chip" onClick={() => generate("mine")} disabled={running}>{t("intel.mine")}</button>
@@ -175,7 +189,7 @@ export function IntelligencePanel() {
           <SchedNote s={schedState(sched)} retry={() => void load()} />
           {lastJob && (
             <p className={`text-xs ${lastJob.status === "failed" ? "error" : "muted"}`}>
-              Last run: {lastJob.status} · {when(lastJob.started_at)}{lastJob.detail ? ` · ${lastJob.detail}` : ""}
+              {t("intel.lastRun", { status: t(lastJob.status === "failed" ? "prog.phase.failed" : lastJob.status === "running" ? "prog.phase.working" : "prog.phase.done"), at: when(lastJob.started_at) })}{lastJob.detail ? ` · ${lastJob.detail}` : ""}
             </p>
           )}
           {running && <p className="muted text-xs">Fetching feeds, grouping stories and writing the briefing. This usually takes under a minute.</p>}
@@ -246,7 +260,7 @@ export function IntelligencePanel() {
           </ul>
         </div>
       )}
-    </WorkspaceFrame>
+    </WorkspaceFrame></>
   );
 }
 
