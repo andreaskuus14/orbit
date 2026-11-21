@@ -4,13 +4,16 @@
 // → waiting (an OK click, a task approval, a plan-change proposal or the daily budget) → … → done; paused / blocked / stopped on the side.
 // Goal text, step results and web content are DATA: prompts fence them and say so; nothing here ever approves a side effect itself.
 import type { Autopilot } from "./goal-autopilot-pure.ts";
+import type { Pilot, StepMeta } from "./pilot-pure.ts";
 import { et, etQuestion, ET_NOT } from "./et-ask-pure.ts";
+/** "autopilot: …", "start a project to …", "run this project for me" (EN + ET). */
+const PROJECT_ASK = /\bautopilot\b|\b(start|run|create|make|set up|begin)\b[^.?!]{0,30}\bprojects?\b|autopiloot|(?:alusta|käivita|tee)[^.?!]{0,30}projekt/i;
 const GOAL_ET = et("(?:sea|seada|loo|tee|lisa|alusta|pane)[^.?!]{0,40}(?:eesmär[kg]|sihtmär)");
 
 export type GoalStatus = "draft" | "approved" | "running" | "waiting" | "paused" | "blocked" | "done" | "stopped";
 export type MetricKind = "none" | "manual" | "steps" | "youtube_subscribers";
 export type StepStatus = "pending" | "running" | "waiting" | "done" | "failed";
-export type StepDraft = { what: string; agent: string; expected: string; needsApproval: boolean };
+export type StepDraft = { what: string; agent: string; expected: string; needsApproval: boolean; meta?: StepMeta }; // meta: autopilot projects (pilot-pure.ts)
 export type Step = StepDraft & { id: string; status: StepStatus; ok?: true; taskId?: string; result?: string; error?: string; reflection?: string; moved?: "yes" | "no" | "unclear" };
 export type Sample = { at: string; value: number };
 export type Proposal = { reason: string; from: number; steps: StepDraft[] }; // replaces steps[from..] (all still pending)
@@ -21,6 +24,7 @@ export type Goal = {
   steps: Step[]; proposal?: Proposal; learned: string[]; blocker?: string; waitingFor?: string;
   planning?: string; planError?: string; log: { at: string; text: string }[];
   autopilot?: Autopilot; // weekly milestones (goal-autopilot-pure.ts)
+  pilot?: Pilot; // project autopilot (pilot-pure.ts): plain-words ask, daily call limit, automatic replans
 };
 export type GoalInput = Pick<Goal, "title" | "why" | "metric" | "deadline" | "agents" | "budget">;
 
@@ -379,6 +383,6 @@ export function goalProblem(x: unknown): string {
 export function createGoalBlocked(question: string, tainted: boolean): string {
   if (tainted) return "only call create_goal as your first tool, for the user's own request";
   if (/\?\s*$|^\s*(how|what|why|when|did|does|is|are|can you tell)\b/i.test(question) || etQuestion(question)
-    || !(/\b(set|create|make|add|start)\b[^.?!]{0,40}\bgoals?\b/i.test(question) || GOAL_ET.test(question))) return "only when the user tells you to set a goal in their latest message";
+    || !(/\b(set|create|make|add|start)\b[^.?!]{0,40}\bgoals?\b/i.test(question) || PROJECT_ASK.test(question) || GOAL_ET.test(question))) return "only when the user tells you to set a goal in their latest message";
   return "";
 }

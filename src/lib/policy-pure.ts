@@ -217,7 +217,7 @@ export const OPERATOR_TOOLS: Record<string, Area> = {
 export const OPERATOR_REASON = "standing operator grant";
 /** After reading his own stores the grant still applies when HIS typed message asks for this kind of action ("read my notes and
  *  set a goal"): the read is his means, not the source of the instruction. Text inside the results never counts as asking. */
-const BUILD_ASKS: Record<string, RegExp> = { create_goal: /\bgoals?\b|eesmär/i, queue_tonight: /\btonight\b|öösel|täna öö/i, start_mission: /\bmissions?\b|missioon/i };
+const BUILD_ASKS: Record<string, RegExp> = { create_goal: /\bgoals?\b|eesmär|\bautopilot\b|\bprojects?\b|autopiloot|projekt/i, queue_tonight: /\btonight\b|öösel|täna öö/i, start_mission: /\bmissions?\b|missioon/i };
 // His explicit "no" for one kind of action ("don't save this", "don't ask an agent", "set a goal but don't create an automation").
 // A denial reaches only the action it names; "don't do it (yet)" / "don't do anything" reaches every write. EN + ET.
 // "no new goals yet" / "not a goal": a plain no/not reaches only the next two words (a comma ends it: "no idea, set a goal" asks).
