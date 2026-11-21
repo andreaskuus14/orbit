@@ -2,7 +2,24 @@
 // - local (default without a Voyage key): EmbeddingGemma-300M on this PC via transformers.js, q8, ~200 ms each. Free, offline.
 // - voyage: the hosted API, kept for existing installs so stored vectors stay comparable until re-embedded (POST /api/memories/reembed).
 import { createHash } from "node:crypto";
-import { chunkText, gemmaInput, journalsComparable, meanVector, padTo, provider } from "./embeddings-pure";
+import { createReadStream } from "node:fs";
+import { rm, stat } from "node:fs/promises";
+import path from "node:path";
+import {
+  checkModelFiles,
+  chunkText,
+  gemmaInput,
+  isCorruptModelError,
+  journalsComparable,
+  LOCAL_EMBED_DTYPE,
+  LOCAL_EMBED_FILES,
+  LOCAL_EMBED_MODEL,
+  meanVector,
+  padTo,
+  provider,
+  type ModelCheckResult,
+  type ModelFileStat,
+} from "./embeddings-pure";
 import { createTtlCache, envOn } from "./ttl-cache-pure";
 import type { PrivRow } from "./private-pure";
 
@@ -10,11 +27,87 @@ export const embeddingsEnabled = () => true; // the local model is always availa
 export const embeddingProvider = () => provider({ ORBIT_EMBED: process.env.ORBIT_EMBED, VOYAGE_API_KEY: process.env.VOYAGE_API_KEY });
 export const journalVectorsComparable = () => journalsComparable({ ORBIT_EMBED: process.env.ORBIT_EMBED, VOYAGE_API_KEY: process.env.VOYAGE_API_KEY });
 
+/** Persistent cache outside node_modules (matches rerank.ts) so npm ci never wipes the ~309 MB weights. */
+export const embedCacheDir = () => path.join(process.cwd(), ".cache", "transformers");
+
+async function sha256File(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+/** Inspect cached ONNX files by size first, then streaming SHA-256 when size matches. */
+export async function inspectModelCache(
+  modelDir: string,
+  specs: readonly { relPath: string; size: number; sha256: string }[] = LOCAL_EMBED_FILES,
+): Promise<ModelCheckResult> {
+  const actual: Record<string, ModelFileStat> = {};
+  for (const spec of specs) {
+    const full = path.join(modelDir, ...spec.relPath.split("/"));
+    try {
+      const st = await stat(full);
+      const sha256 = st.size === spec.size ? await sha256File(full) : undefined;
+      actual[spec.relPath] = { size: st.size, sha256 };
+    } catch {
+      actual[spec.relPath] = null;
+    }
+  }
+  return checkModelFiles(actual, specs);
+}
+
 type FE = (s: string, o: { pooling: "mean"; normalize: boolean }) => Promise<{ data: ArrayLike<number> }>;
 const G = globalThis as unknown as { __orbitEmbed?: Promise<FE | null> };
-const local = () => (G.__orbitEmbed ??= import("@huggingface/transformers")
-  .then((tf) => tf.pipeline("feature-extraction", "onnx-community/embeddinggemma-300m-ONNX", { dtype: "q8" }) as unknown as Promise<FE>)
-  .catch((e) => { console.error("[orbit] local embedding model failed to load", e); G.__orbitEmbed = undefined; return null; }));
+
+async function loadLocalPipeline(): Promise<FE | null> {
+  const cacheDir = embedCacheDir();
+  const modelDir = path.join(cacheDir, ...LOCAL_EMBED_MODEL.split("/"));
+
+  const pre = await inspectModelCache(modelDir);
+  if (pre.status === "corrupt") {
+    console.warn(`[orbit] local embedding cache corrupt (${pre.reason}: ${pre.file}); purging and re-fetching`);
+    await rm(modelDir, { recursive: true, force: true }).catch(() => {});
+  }
+
+  const tf = await import("@huggingface/transformers");
+  const open = () =>
+    tf.pipeline("feature-extraction", LOCAL_EMBED_MODEL, {
+      dtype: LOCAL_EMBED_DTYPE,
+      cache_dir: cacheDir,
+    }) as unknown as Promise<FE>;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const fe = await open();
+      const post = await inspectModelCache(modelDir);
+      if (post.status === "corrupt") {
+        console.warn(`[orbit] local embedding download incomplete (${post.reason}: ${post.file}); purging`);
+        await rm(modelDir, { recursive: true, force: true }).catch(() => {});
+        if (attempt === 0) continue;
+        return null;
+      }
+      return fe;
+    } catch (e) {
+      if (attempt === 0 && isCorruptModelError(e)) {
+        console.warn("[orbit] local embedding model failed with corrupt-file error; purging cache and retrying once", e);
+        await rm(modelDir, { recursive: true, force: true }).catch(() => {});
+        continue;
+      }
+      throw e;
+    }
+  }
+  return null;
+}
+
+const local = () =>
+  (G.__orbitEmbed ??= loadLocalPipeline().catch((e) => {
+    console.error("[orbit] local embedding model failed to load", e);
+    G.__orbitEmbed = undefined;
+    return null;
+  }));
 
 async function voyage(text: string, inputType: "document" | "query"): Promise<number[] | null> {
   const res = await fetch(process.env.VOYAGE_API_URL || "https://ai.mongodb.com/v1/embeddings", {
