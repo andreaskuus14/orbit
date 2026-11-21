@@ -7,6 +7,7 @@
 export const FAST_PURPOSES: readonly string[] = [
   "clips.description", // 1-2 lines + hashtags, parsed by buildDescription, editable in the publish form
   "clips.suggest", // title + hook rewrite as JSON, parsed by parseSuggestion
+  "scout.features", // feature scout: score a batch of public model/tool cards as JSON, parsed by parseScores (retry on the default model)
   "pulse.morning", "pulse.midday", "pulse.evening", // daily news briefings; citations are verified, a briefing with none is retried on the default model
 ];
 

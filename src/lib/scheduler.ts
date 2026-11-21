@@ -107,6 +107,8 @@ async function tick(sb: SupabaseClient) {
     if (!limited && allows("research", "background").ok) void maybeWeeklyScout().catch((e) => console.error("[orbit] niche scout check failed:", e instanceof Error ? e.message : e));
     // Weekly YouTube outlier finder → IDEA RADAR (outliers.ts): read-only, scout quota share; quietly nothing without YOUTUBE_API_KEY. Not awaited; never throws.
     if (!limited && allows("research", "background").ok) void import("./outliers").then((m) => m.maybeWeeklyOutliers()).catch((e) => console.error("[orbit] weekly outliers failed:", e instanceof Error ? e.message : e));
+    // Feature scout (feature-scout.ts): every 6 h, free public sources → OPERATIONS → Scout; lists only. ORBIT_SCOUT=0 off; pacer/Stop-all wait. Not awaited.
+    if (!limited) void import("./feature-scout").then((m) => m.maybeFeatureScout(sb, users?.[0]?.id, allows("research", "background").ok)).catch((e) => console.error("[orbit] feature scout check failed:", e instanceof Error ? e.message : e));
     // Deal hunter (MARKETS → Deals): daytime, a wish at most every 6 h, daily call cap; not awaited. Re-checks Stop-all/usageHold itself.
     if (!limited && allows("deals", "background").ok) void maybeDealHunt(sb, (users ?? []).map((u) => u.id));
     // INTELLIGENCE → Watches (pagewatch.ts): due public pages, a few per tick, robots + polite; no model. Not awaited; never throws.

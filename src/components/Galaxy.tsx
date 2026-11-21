@@ -38,6 +38,7 @@ import {
 } from "./Cinematic";
 import { expDamp, smoothDampVec } from "@/lib/smooth-damp-pure";
 import { cursorTarget } from "./cursor-bus";
+import { requestScoutTab } from "./scout-nav";
 import { markPreload } from "./GalaxyLoader";
 import { standIn, WarmCompile, WarmIn } from "./WarmCompile";
 import { RealSky, useRealSkyPlace } from "./RealSky";
@@ -61,6 +62,7 @@ export type GalaxyProps = {
   selected: PanelId | null;
   onSelect: (id: PanelId) => void;
   memoryCount: number;       // real: one moon per stored memory (max 40 drawn)
+  scoutMoons?: number;       // real: feature-scout candidates the owner hasn't opened yet (glowing moons around OPERATIONS, max 8)
   pulses: RefObject<Record<string, number>>; // real: last backend event time per planet (ms)
   busy: boolean;             // real: a CORE request is running
   warning: boolean;          // real: last CORE request failed
@@ -183,6 +185,35 @@ function Moons({ count, reduced, spread }: { count: number; reduced: boolean; sp
         <sphereGeometry args={[0.045, 8, 8]} />
         <meshStandardMaterial color="#c9ccd6" roughness={1} />
       </instancedMesh>
+    </group>
+  );
+}
+
+/** Feature scout: one glowing moon per new candidate (max 8), pulsing until the owner opens it in OPERATIONS → Scout. Click = open Scout. */
+function ScoutMoons({ count, size, reduced, spread, onOpen }: { count: number; size: number; reduced: boolean; spread: () => number; onOpen: () => void }) {
+  const g = useRef<THREE.Group>(null);
+  const n = Math.min(count, 8);
+  const mats = useRef<(THREE.MeshBasicMaterial | null)[]>([]);
+  useFrame(({ clock }, dt) => {
+    if (!g.current) return;
+    if (!reduced) g.current.rotation.y -= dt * 0.25;
+    g.current.scale.setScalar(spread());
+    const k = reduced ? 1 : 0.65 + 0.35 * Math.sin(clock.elapsedTime * 2.4);
+    mats.current.forEach((m, i) => { if (m) m.opacity = Math.max(0.35, k - (i % 3) * 0.08); });
+  });
+  return (
+    <group ref={g} rotation-x={0.35}>
+      {Array.from({ length: n }, (_, i) => {
+        const a = (i / n) * Math.PI * 2, r = size * 2.9;
+        return (
+          <mesh key={i} position={[Math.cos(a) * r, Math.sin(a * 2) * size * 0.25, Math.sin(a) * r]}
+            onClick={(e) => { e.stopPropagation(); onOpen(); }}
+            onPointerOver={() => { document.body.style.cursor = "pointer"; }} onPointerOut={() => { document.body.style.cursor = ""; }}>
+            <sphereGeometry args={[0.07, 12, 12]} />
+            <meshBasicMaterial ref={(m) => { mats.current[i] = m; }} color="#7dd3fc" transparent opacity={0.9} toneMapped={false} />
+          </mesh>
+        );
+      })}
     </group>
   );
 }
@@ -339,10 +370,10 @@ function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; f
   );
 }
 
-function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, vitality, shell = 0, level = 1, scales, feel, arrive, fresh = false }: {
+function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, scoutMoons = 0, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, vitality, shell = 0, level = 1, scales, feel, arrive, fresh = false }: {
   p: PlanetDef; fresh?: boolean; // something new in the last 24 h: the rim warms on hover
   index: number; selected: boolean; onSelect: (id: PanelId) => void; onHover: (id: PlanetId, on: boolean) => void;
-  positions: Positions; pulses: RefObject<Record<string, number>>; memoryCount: number; reduced: boolean;
+  positions: Positions; pulses: RefObject<Record<string, number>>; memoryCount: number; scoutMoons?: number; reduced: boolean;
   agentBusy?: number; failing?: boolean; // agentBusy = number of satellites to show
   life?: { done: number; total: number } | null; still?: boolean; // still = reduced motion or low quality: no animation
   segs?: number; // sphere segments: fewer on lower quality levels
@@ -515,6 +546,7 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
         {p.id === "intelligence" && <Lightning size={size} reduced={reduced} flash={flash} />}
         {look.ring && <PlanetRing size={size} color={look.ring} />}
         {p.id === "memory" && <Moons count={memoryCount} reduced={reduced} spread={spread} />}
+        {p.id === "operations" && scoutMoons > 0 && <ScoutMoons count={scoutMoons} size={size} reduced={reduced} spread={spread} onOpen={() => { requestScoutTab(); onSelect("operations"); }} />}
         {p.id === "life" && life && <LifeRing size={size} done={life.done} total={life.total} still={still} />}
         {Array.from({ length: Math.min(agentBusy, 5) }, (_, k) => (
           <AgentSatellite key={k} size={size} active reduced={reduced} offset={(k * Math.PI * 2) / Math.min(agentBusy, 5)} spread={spread} />
@@ -1088,7 +1120,7 @@ export default function Galaxy(props: GalaxyProps) {
         <AsteroidBelt inner={32} outer={34} count={Math.round(2200 * q.belt)} seed={9} reduced={props.reduced} thickness={0.6} />
         {PLANETS.map((p, i) => (
           <Planet key={p.id} p={p} index={i} selected={props.selected === p.id} onSelect={props.onSelect} onHover={onHover}
-            positions={positions} pulses={props.pulses} memoryCount={props.memoryCount} reduced={props.reduced}
+            positions={positions} pulses={props.pulses} memoryCount={props.memoryCount} scoutMoons={p.id === "operations" ? props.scoutMoons : 0} reduced={props.reduced}
             agentBusy={p.id === "intelligence" ? (props.pulseBusy ? 1 : 0) : p.id === "agents" ? props.agentsWorking : 0}
             failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)}
             life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} vitality={props.universe?.vitality[p.id]} fresh={!!props.universe?.today?.[p.id]} shell={shellCount(level)} level={level} scales={scales} feel={feel} arrive={arrive} />
