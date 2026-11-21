@@ -150,9 +150,8 @@ export const EGRESS_CLASS: Record<string, "model" | "web" | "none"> = {
   git_summary: "none", ws_list: "none", ws_read: "none", week_review: "none", wishlist: "none", load_module: "none", read_more: "none",
   life_check: "none", life_add_habit: "none", life_remind: "none", ws_write: "none", ws_edit: "none", ws_create: "none", ws_run: "none",
   ws_stop: "none", vault_move: "none", vault_rename: "none", life_plan: "none", automation_pause: "none", studio_drafts: "none", roblox_export: "none",
-  roblox_lint: "none", save_decision: "none", watch_list: "none", watch_changes: "none", daily_runs: "none",
-  pc_window: "none", pc_act: "none", // stays on the PC (loopback helper)
   roblox_lint: "none", roblox_files: "none", roblox_read: "none", roblox_write: "none", roblox_undo: "none", save_decision: "none", watch_list: "none", watch_changes: "none", daily_runs: "none",
+  pc_window: "none", pc_act: "none", // stays on the PC (loopback helper)
 };
 // lead_update: the lead selector is BUSINESS's own record key (business_status shows it), so only its free-text fields are scanned;
 // for both lead tools BUSINESS results don't count as private (lead_create scans its whole input); journal/LIFE/attachment text in a note is still refused.
@@ -168,8 +167,7 @@ export const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "find_outlier
 // shop offer titles, vault/workspace file text, git commit subjects.
 /** His own stores that hold other people's text (invites, video text, offer titles, files, commits, analysed code). */
 // plan_day carries calendar invites; local_transcribe the words in any audio/video file he points it at.
-const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "vault_skill", "ws_read", "plan_day", "local_transcribe", "pc_window", "pc_act"];
-const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "vault_skill", "ws_read", "plan_day", "local_transcribe", "roblox_read"]; // roblox_read: free-model / copied code
+const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "vault_skill", "ws_read", "plan_day", "local_transcribe", "roblox_read", "pc_window", "pc_act"]; // roblox_read: free-model / copied code
 // mission_status: agents' results; run_niche: its web research.
 export const UNTRUSTED = ["browse", "fetch_url", "scrape_page", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "find_outliers", "find_lead_candidates", "ask_agent", "business_status", "watch_changes", "mission_status", "run_niche", ...STORED_OUTSIDE];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;
