@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   channelBaseline, channelsToRead, clusterTitles, featureLift, fallbackWhy, freshness, hookText, maturity, pacing, parseChannelTab, parseDetail, parseJson3, parseRedditSearch,
-  onNiche, parseSearch, parseTrendsTimeline, parseVtt, postingTime, rankOutliers, researchInput, scoreVideo, titleFeatures, tokens, trendDirection, validThumb, validWhy, wordsPerMinute,
+  channelsThatFit, onNiche, parseSearch, parseTrendsTimeline, parseVtt, postingTime, rankOutliers, researchInput, scoreVideo, titleFeatures, tokens, trendDirection, validThumb, validWhy, wordsPerMinute,
   MIN_VIEWS, type ChannelTab, type Evidence, type YtVideo,
 } from "../src/lib/yt-research-pure.ts";
 
@@ -177,4 +177,12 @@ test("onNiche: the niche phrase or its content words; loose search hits dropped"
   assert.equal(onNiche("What would happen without bees", "bees explained"), true);
   assert.equal(onNiche("Bee facts", "bees"), true);
   assert.equal(onNiche("Anything", "explainers"), true);
+});
+
+test("channelsThatFit: channel reads leave room for the detail reads under the call cap", () => {
+  assert.equal(channelsThatFit(4, 5, 12, 50), 12); // 4 + 24 + 15 = 43 ≤ 50
+  assert.equal(channelsThatFit(4, 5, 15, 40), 10); // the old 40 cap: 12 channels would starve details
+  assert.equal(channelsThatFit(4, 5, 12, 10), 1);
+  const r = researchInput({ niche: "what if explainers", maxChannels: 99 });
+  assert.ok(typeof r !== "string" && r.queries.length + 2 * r.maxChannels + 3 * r.top <= 50);
 });

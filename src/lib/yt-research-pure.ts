@@ -379,7 +379,11 @@ export function fallbackWhy(e: Evidence, lifts: Lift[]): Why {
 /* ---------------- run shape ---------------- */
 
 export type ResearchInput = { niche: string; queries: string[]; perQuery: number; maxChannels: number; top: number };
-export const LIMITS = { queries: 4, perQuery: 40, maxChannels: 15, top: 5, calls: 40 } as const;
+export const LIMITS = { queries: 4, perQuery: 40, maxChannels: 15, top: 5, calls: 50 } as const;
+/** Channels that fit the yt-dlp call cap after the searches (1 call each) and the detail reads (3 per top video): 2 calls per channel.
+ *  Without this the channel reads ate the cap and most shortlisted videos never got their details (live run 2026-11-21: 7 of 15). */
+export const channelsThatFit = (queries: number, top: number, wanted: number, calls: number = LIMITS.calls) =>
+  Math.max(1, Math.min(wanted, Math.floor((calls - queries - top * 3) / 2)));
 /** The owner's niche words → bounded search plan. "what if" also searches the stickman / explainer phrasings. */
 export function researchInput(raw: unknown): ResearchInput | string {
   const o = isObj(raw) ? raw : {};
@@ -389,7 +393,8 @@ export function researchInput(raw: unknown): ResearchInput | string {
   const base = niche.replace(/\bexplainers?\b/i, "").trim() || niche;
   const queries = [...new Set([niche, ...extra, `${base} explained`, `${base} animation`].map((q) => q.toLowerCase()))].slice(0, LIMITS.queries);
   const n = (v: unknown, d: number, max: number) => Math.max(1, Math.min(max, Math.round(num(v) ?? d)));
-  return { niche, queries, perQuery: n(o.perQuery, 30, LIMITS.perQuery), maxChannels: n(o.maxChannels, 12, LIMITS.maxChannels), top: n(o.top, 5, LIMITS.top) };
+  const top = n(o.top, 5, LIMITS.top);
+  return { niche, queries, perQuery: n(o.perQuery, 30, LIMITS.perQuery), maxChannels: channelsThatFit(queries.length, top, n(o.maxChannels, 12, LIMITS.maxChannels)), top };
 }
 /** Is a title about the niche? The niche phrase (minus "explainers / videos / shorts") appears in it, or, for a niche with content
  *  words, one of them does. Search also returns loosely related hits ("AI Animation" for "what if animation"): those are dropped. */

@@ -132,7 +132,7 @@ export type Report = {
 };
 export type Step = (label: string, now: string) => void;
 
-/** One full research run. Bounded: ≤ 4 searches, ≤ 15 channels (2 tabs each), detail reads for ~3× the top, ≤ 40 yt-dlp calls. */
+/** One full research run. Bounded: ≤ 4 searches, ≤ 15 channels (2 tabs each), detail reads for ~3× the top, ≤ 50 yt-dlp calls (channels shrink so the detail reads always fit). */
 export async function runResearch(inp: ResearchInput, step: Step = () => {}, signal?: AbortSignal): Promise<Report> {
   const run: Run = { calls: 0, last: 0, signal, log: [] }, now = Date.now(), sources: Report["sources"] = [];
   step("Searching YouTube", `Searching "${inp.queries[0]}"`);
