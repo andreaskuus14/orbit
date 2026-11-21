@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { doneShare, fromPlanJob, fromStages, fromTask, leftText, minutesLeft, plainStep, sortProgress, statusLine, stepsFrom } from "../src/lib/progress-pure.ts";
+import { doneShare, fromNeed, fromPlanJob, fromStages, fromTask, leftText, minutesLeft, plainStep, sortProgress, statusLine, stepsFrom } from "../src/lib/progress-pure.ts";
 
 const NOW = Date.parse("2026-11-21T12:00:00Z");
 const task = (o: Record<string, unknown>) => ({ id: "t1", title: "Research cafés", status: "running", created_at: "2026-11-21T11:50:00Z", started_at: "2026-11-21T11:55:00Z", ...o });
@@ -84,4 +84,16 @@ test("sortProgress puts needs first; statusLine reads in plain words", () => {
   assert.deepEqual(sortProgress([c, a, b]).map((x) => x.id), ["b", "a", "c"]);
   assert.equal(statusLine([a, b, c], "en", NOW), "Working on 1 thing · 1 needs you · 1 done today");
   assert.equal(statusLine([], "en", NOW), "Nothing running. Tell ORBIT what you need.");
+});
+
+test("statusLine counts the whole Needs-you inbox when given", () => {
+  assert.equal(statusLine([], "en", NOW, 2), "2 need you");
+});
+
+test("fromNeed: decide waits for him, failed blocker is failed, a result to check is done", () => {
+  const n = (kind: "decide" | "unblock" | "review", cause = "approval") => ({ ref: "r", kind, cause, title: "Post 3 Shorts", detail: "Ready" });
+  assert.equal(fromNeed(n("decide"), "Approve this exact version?", "Review").phase, "needs");
+  assert.equal(fromNeed(n("unblock", "failed"), "Retry?", "Open").phase, "failed");
+  assert.equal(fromNeed(n("review", "review"), "Looks right?", "Open").phase, "done");
+  assert.equal(fromNeed(n("decide"), "Q?", "Review").result?.text, "Ready. Q?");
 });

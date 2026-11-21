@@ -17,6 +17,7 @@ import { AlienScript } from "./AlienScript";
 import { codeOf } from "@/lib/alien-script-pure";
 import { MaskText } from "./MaskText";
 import { preloading } from "./GalaxyLoader";
+import { useT } from "./i18n";
 
 export type Motion = { speed: number }; // camera speed, fraction of the orbit distance per second (smoothed)
 export const RIM_COLOR = "#8fd3ff"; // the one cold accent
@@ -242,6 +243,7 @@ export function GalaxyHud({ selected, hoverSet, els, introMs = 900, lines }: {
   selected: PanelId | null; hoverSet: RefObject<(id: PlanetId, on: boolean) => void>; els: RefObject<HudEls>; introMs?: number;
   lines?: Partial<Record<PlanetId, string>>; // the hovered world's live line (living galaxy)
 }) {
+  const { t } = useT();
   const [hover, setHover] = useState<PlanetId | null>(null);
   useEffect(() => { hoverSet.current = (id, on) => setHover((h) => (on ? id : h === id ? null : h)); }, [hoverSet]);
   const [clock, setClock] = useState("");
@@ -269,7 +271,7 @@ export function GalaxyHud({ selected, hoverSet, els, introMs = 900, lines }: {
         {hi >= 0 && (
           <div key={hover}>{/* keyed: the leader line redraws for each planet */}
             <svg width="1" height="1"><circle r="2" /><polyline points="0,0 34,-34 74,-34" /></svg>
-            <span className="hud-leader-text"><b>{pad(hi + 1)}</b>{label}<small className={hover && lines?.[hover] ? "hud-leader-live" : undefined}>{(hover && lines?.[hover]) || `ORBIT R ${PLANETS[hi].radius.toFixed(2)}`}</small></span>
+            <span className="hud-leader-text">{label}<small>{t(`planet.${PLANETS[hi].id}.blurb`)}</small>{hover && lines?.[hover] && <small className="hud-leader-live">{lines[hover]}</small>}</span>
           </div>
         )}
       </div>
@@ -451,6 +453,7 @@ function ScriptDecode({ text, out }: { text: string; out: string }) {
 /** igloo-style section readout, bottom left: "03 / 11", the planet's name large, one line on what it does. Above the
  *  name, its alien-script line draws in first; then the name decodes out of the script. */
 export function StoryReadout({ stop, intro, onOpen }: { stop: number; intro: boolean; onOpen: (id: PanelId) => void }) {
+  const { t } = useT();
   const live = stop >= 0 ? stop : intro ? -2 : null; // -2 = the intro card
   const [shown, setShown] = useState<number>(intro ? -2 : -1);
   useEffect(() => { if (live !== null) setShown(live); }, [live]); // keep the last card while it fades out
@@ -464,8 +467,8 @@ export function StoryReadout({ stop, intro, onOpen }: { stop: number; intro: boo
         <AlienScript text={p ? p.name : "ORBITAL"} r={4} stroke={1.1} className="story-script" />
         {p ? <button type="button" className="story-name" onClick={() => onOpen(p.id)} aria-label={`Open ${p.name}`} tabIndex={live !== null ? 0 : -1}><ScriptDecode text={p.name} out={name} /></button>
           : <div className="story-name" aria-hidden><ScriptDecode text="ORBITAL" out={name} /></div>}
-        <p className="story-line">{p ? p.blurb : "Your mind has a universe."}</p>
-        <p className="story-hint" aria-hidden>{p ? "CLICK OR ENTER TO OPEN · SCROLL TO TRAVEL" : "SCROLL TO EXPLORE"}</p>
+        <p className="story-line">{p ? t(`planet.${p.id}.blurb`) : t("story.lede")}</p>
+        <p className="story-hint" aria-hidden>{t(p ? "story.hintOpen" : "story.hint")}</p>
       </div>
     </div>
   );

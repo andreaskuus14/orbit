@@ -124,13 +124,21 @@ const ORDER: Record<ProgressPhase, number> = { needs: 0, working: 1, waiting: 2,
 export const sortProgress = (xs: Progress[]) => [...xs].sort((a, b) => ORDER[a.phase] - ORDER[b.phase] || Date.parse(b.at) - Date.parse(a.at));
 
 /** The home status line: "Working on 2 things · 1 needs you · 3 done today" (Tallinn day is not needed here: "today" = last 24 h). */
-export function statusLine(xs: Progress[], lang: Lang, nowMs: number): string {
+export function statusLine(xs: Progress[], lang: Lang, nowMs: number, needsTotal?: number): string {
   const day = nowMs - 86_400_000;
   const working = xs.filter((x) => x.phase === "working" || x.phase === "waiting").length;
-  const needs = xs.filter((x) => x.phase === "needs").length;
+  const needs = Math.max(needsTotal ?? 0, xs.filter((x) => x.phase === "needs").length); // needsTotal: the whole Needs-you inbox
   const done = xs.filter((x) => x.phase === "done" && Date.parse(x.at) >= day).length;
   return W[lang].line(working, needs, done);
 }
 
 /** Done share for a thin bar, 0..1 (a failed step counts as not done). */
 export const doneShare = (p: Progress) => (p.phase === "done" ? 1 : p.steps.length ? p.steps.filter((s) => s.state === "done").length / p.steps.length : 0);
+
+/** A Needs-you item (needs-you-pure Need) as a card: Decide waits for him, a failed blocker is failed, a result to check is done.
+ *  open stays "": the inbox opens the item through its own BriefOpen (openTarget), never a one-tap approve. */
+export function fromNeed(n: { ref: string; kind: "decide" | "unblock" | "review"; cause: string; title: string; detail?: string; at?: string }, ask: string, label: string): Progress {
+  const phase: ProgressPhase = n.kind === "review" ? "done" : n.kind === "unblock" && n.cause === "failed" ? "failed" : "needs";
+  return { id: n.ref, title: n.title, phase, steps: [], now: null, leftMin: null, result: { text: n.detail ? `${n.detail}. ${ask}` : ask },
+    action: { kind: n.kind === "decide" ? "approve" : n.kind === "unblock" ? "retry" : "open", label, open: "" }, at: n.at ?? "" };
+}

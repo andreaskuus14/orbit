@@ -66,7 +66,7 @@ import { useStageActive } from "./stage-slot";
 import { ContinueWork } from "./ContinueWork";
 import { WorkView } from "./WorkView";
 import type { WorkTab } from "@/lib/work-vocab-pure";
-import { NeedsYou, type GalaxyTasks } from "./NeedsYou";
+import { NeedsYou } from "./NeedsYou";
 import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 import { TimeTravel, useLivingUniverse } from "./TimeTravel";
 import type { ShipTask } from "@/lib/ships-pure";
@@ -81,6 +81,8 @@ import { useT } from "./i18n";
 import { LIVING_EVENT } from "@/lib/living-events-pure";
 import { BrandMark } from "./BrandMark";
 import { orbitTitle } from "@/lib/jarvis-pure";
+import { HomeDesk } from "./HomeDesk";
+import { Tour, TOUR_EVENT } from "./Tour";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const PerfRun = dynamic(() => import("./PerfRun"), { ssr: false }); // only with ?perfrun=1
@@ -151,8 +153,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [pulseBusy, setPulseBusy] = useState(false);
   const [pulseFailed, setPulseFailed] = useState(false);
   const [runningTasks, setRunningTasks] = useState<string[]>([]); // real: tasks agents are working on right now
-  const [galaxyTasks, setGalaxyTasks] = useState<GalaxyTasks | null>(null);
-  const [galaxyTasksFailed, setGalaxyTasksFailed] = useState(false);
   const [shipTasks, setShipTasks] = useState<ShipTask[]>([]); // running + just-finished tasks, drawn as ships in the galaxy
   const [focusTask, setFocusTask] = useState<string | null>(null);
   const [focusGoal, setFocusGoal] = useState<string | null>(null);
@@ -166,6 +166,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [cmdErr, setCmdErr] = useState("");
   const [cmdReply, setCmdReply] = useState("");
   const [workOpen, setWorkOpen] = useState<WorkTab | false>(false);
+  const [needsOpen, setNeedsOpen] = useState(false); // the Needs-you inbox, opened from the home desk
+  // Home shows only the desk and the one input; the cockpit extras (SYSTEM panel, ticker, HUD lines, eye) are behind ⋯ → System details.
+  const [details, setDetails] = useState(false);
+  useEffect(() => { try { setDetails(localStorage.getItem("orbit.home.details") === "1"); } catch { /* storage off */ } }, []);
+  const toggleDetails = () => { const v = !details; setDetails(v); try { localStorage.setItem("orbit.home.details", v ? "1" : "0"); } catch { /* storage off */ } };
   useEffect(() => {
     const reply = (e: Event) => { setCmdErr(""); setCmdReply((e as CustomEvent<string>).detail); };
     addEventListener(COMMAND_REPLY_EVENT, reply);
@@ -527,9 +532,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   useEffect(() => { if (quiet && shown !== quiet) setQuiet(null); }, [shown, quiet]);
   const openTask = useCallback((id: string) => { setWorkOpen(false); setFocusTask(id); setFocusGoal(null); setPanel("operations"); }, []);
   const ships = useMemo(() => ({ tasks: shipTasks, onOpen: openTask }), [shipTasks, openTask]);
-  useEffect(() => { // agent events refresh the fleet and home rail; polling catches changes without events
+  useEffect(() => { // agent events refresh the fleet; polling catches changes without events (the home desk reads its own list)
     const fleetVisible = view === "3d" && !covered;
-    if (!fleetVisible && !activityHome) return;
+    if (!fleetVisible) return;
     let off = false;
     let pending = false;
     const load = () => {
@@ -540,22 +545,16 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       void Promise.all([
         fleetVisible ? sb.from("tasks").select(cols).is("parent_id", null).in("status", ["running", "awaiting_approval"]).order("created_at", { ascending: false }).limit(12) : null,
         fleetVisible ? sb.from("tasks").select(cols).is("parent_id", null).gte("finished_at", since).order("finished_at", { ascending: false }).limit(6) : null,
-        activityHome ? sb.from("tasks").select("id,title").is("parent_id", null).eq("status", "running").order("created_at", { ascending: false }).limit(1) : null,
-        activityHome ? sb.from("tasks").select("id,title").is("parent_id", null).eq("status", "done").not("finished_at", "is", null).order("finished_at", { ascending: false }).limit(1) : null,
-      ]).then(([live, fin, running, latest]) => {
+      ]).then(([live, fin]) => {
         if (off) return;
         if (live?.data) setShipTasks([...live.data, ...(fin?.data ?? [])].slice(0, 12) as ShipTask[]);
-        if (running && latest) {
-          setGalaxyTasksFailed(!!running.error || !!latest.error);
-          if (running.data && latest.data) setGalaxyTasks({ running: running.data[0] ?? null, latest: latest.data[0] ?? null });
-        }
-      }).catch(() => { if (!off && activityHome) setGalaxyTasksFailed(true); }).finally(() => { pending = false; });
+      }).catch(() => {}).finally(() => { pending = false; });
     };
     load();
     const t = setInterval(() => { if (!document.hidden) load(); }, 20_000); // hidden tab: no reads; coming back reloads at once
     document.addEventListener("visibilitychange", load);
     return () => { off = true; clearInterval(t); document.removeEventListener("visibilitychange", load); };
-  }, [sb, runningTasks, view, covered, activityHome]);
+  }, [sb, runningTasks, view, covered]);
   useEffect(() => { // SYSTEM rail's Higgsfield readout, only while the rail is on screen
     if (shown || view !== "3d") return;
     let off = false;
@@ -704,9 +703,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const title = drawer === "core" ? "CORE" : drawer === "profile" ? t("hud.profile") : drawer && planetById(drawer) ? t(`planet.${planetById(drawer)!.id}`) : "";
 
   return (
-    <main ref={shell} className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view} data-dive-in={quiet ?? undefined} data-diving={dive ? "" : undefined}>
-      {view === "3d" && !shown && <HudFrame />}
-      {boot >= 2 && view === "3d" && !shown && !approach && <Ticker />}
+    <main ref={shell} className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view} data-details={details || undefined} data-dive-in={quiet ?? undefined} data-diving={dive ? "" : undefined}>
+      {details && view === "3d" && !shown && <HudFrame />}
+      {details && boot >= 2 && view === "3d" && !shown && !approach && <Ticker />}
       {view === "3d" && <WarpOverlay target={approach} landed={panel} reduced={reduced} />}
       {view === "3d" && <WarpBurst id={isWorld(shown) && shown !== quiet ? shown : null} reduced={reduced} />}
       {view === "3d" && !shown && <AmbientOverlay a={amb} />}
@@ -737,7 +736,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <AmbientLoop />
           <Starfield />
           <div className="overview-heading"><p>{t("overview.kicker")}</p><h1>{t("overview.title1")}<br />{t("overview.title2")}</h1><span>{t("overview.lede")}</span></div>
-          {activityHome && <NeedsYou inline tasks={galaxyTasks} tasksFailed={galaxyTasksFailed} onOpenTask={openTask} onOpenGoal={openGoal} />}
           {!shown && <ContinueWork onOpenTask={openTask} onOpenGoal={openGoal} />}
           <ul className="overview-worlds">
             <li><button className={`planet-card${warning ? " warn" : ""}`} onClick={() => select("core")} style={{ borderColor: "#7dd3fc" }}>
@@ -757,9 +755,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <span><span className="brand block">Orbital</span><span className="muted block text-[10px] tracking-[0.2em]">{t("hud.tagline")}</span></span>
         </button>
         <div className="hud-bar-top">
-          <span className={"pill hidden sm:inline-flex " + (live === "live" ? "ok" : live === "offline" ? "bad" : "")} title={t("hud.liveTitle")}>{t(live === "live" ? "hud.live" : live === "offline" ? "hud.offline" : "hud.connecting")}</span>
+          {(live === "offline" || details) && <span className={"pill hidden sm:inline-flex " + (live === "live" ? "ok" : live === "offline" ? "bad" : "")} title={t("hud.liveTitle")}>{t(live === "live" ? "hud.live" : live === "offline" ? "hud.offline" : "hud.connecting")}</span>}
           {process.env.NODE_ENV === "development" && <span className="pill hidden lg:inline-flex" title="Running the development server (slower). Start Orbital from the desktop shortcut for the production server.">DEV</span>}
-          <StopAll />
+          <span data-tour="stop" className="contents"><StopAll /></span>
           <PresenceBeat />
           <TimeDilation onSpan={setDilation} />
           <NotificationCenter home={!shown && !approach} />
@@ -767,7 +765,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <OrbitExplore selected={shown} onSelect={(id) => galaxySelect(id, true)} />
           <button className="chip hud-search hud-phone-menu" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label={t("hud.search")} title={t("hud.searchTitle")}>⌕</button>
           <button className="chip hud-phone-menu" onClick={() => setWorkOpen("work")} aria-keyshortcuts="Alt+W" title={t("hud.workTitle")}>{t("hud.work")}</button>
-          <button className="chip hud-phone-menu" onClick={toggleView} title={t("hud.viewTitle")}>{t(view === "3d" ? "hud.index" : "hud.galaxy")}</button>
+          <button className="chip" data-tour="help" onClick={() => dispatchEvent(new Event(TOUR_EVENT))} aria-label={t("hud.help")} title={t("hud.helpTitle")}>?</button>
           <button className="chip hud-more" popoverTarget="hud-menu" aria-label={t("hud.more")} title={t("hud.moreTitle")}>⋯</button>
         </div>
       </header>
@@ -776,7 +774,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))}>{t("menu.search")} <kbd>Ctrl+K</kbd></button>
         {/* On a phone Work and Galaxy/Index leave the top bar (it didn't fit) and live here. */}
         <button className="hud-menu-item hud-menu-phone" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => setWorkOpen("work")}>{t("hud.work")}</button>
-        <button className="hud-menu-item hud-menu-phone" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={toggleView}>{t(view === "3d" ? "hud.index" : "hud.galaxy")}</button>
+        <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={toggleView} title={t("hud.viewTitle")}>{t(view === "3d" ? "hud.index" : "hud.galaxy")}</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => select("profile")}>{t("menu.profile")}</button>
         <div className="hud-menu-group" role="group" aria-label={t("menu.qualityGroup")}>
           <span className="muted">{t("menu.quality")}</span>
@@ -787,6 +785,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
             </button>
           ))}
         </div>
+        <button className="hud-menu-item" aria-pressed={details} onClick={toggleDetails} title={t("menu.detailsTitle")}>{t("menu.details", { state: t(details ? "common.on" : "common.off") })}</button>
+        <button className="hud-menu-item" aria-pressed={cmdMode === "task"} onClick={switchMode} title={t("cmd.modeTitle")}>{t("menu.cmdMode", { mode: t(cmdMode === "ask" ? "cmd.ask" : "cmd.task") })}</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => living.setOpen(true)}>{t("menu.timeTravel")}</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: null, mission: true } }))}>{t("menu.mission")}</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(SHORTCUTS_EVENT))}>{t("menu.shortcuts")} <kbd>?</kbd></button>
@@ -821,9 +821,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <WhatsNew home={!shown && !approach} />
         <MorningBrief home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
       </>}
-      {activityHome && view === "3d" && <NeedsYou tasks={galaxyTasks} tasksFailed={galaxyTasksFailed} onOpenTask={openTask} onOpenGoal={openGoal} />}
-      {boot >= 2 && !shown && !approach && <HalEye />}
-      {!shown && view === "3d" && (
+      {activityHome && !workOpen && <HomeDesk refresh={runningTasks.length + shipTasks.length} onOpenNeeds={() => setNeedsOpen(true)} onOpenAll={() => setWorkOpen("work")} onOpenTask={openTask} />}
+      {activityHome && needsOpen && <NeedsYou open onClose={() => setNeedsOpen(false)} onOpenTask={(id) => { setNeedsOpen(false); openTask(id); }} onOpenGoal={(id) => { setNeedsOpen(false); openGoal(id); }} />}
+      {boot >= 3 && <Tour ready={activityHome} />}
+      {details && boot >= 2 && !shown && !approach && <HalEye />}
+      {details && !shown && view === "3d" && (
         <aside ref={statusDrag.ref} className="glass hud-panel status-hud" aria-label={t("sys.aria")}>
           <div className="hud-title drag-handle" {...statusDrag.handle}>{t("sys.title")}</div>
           <StatusRail items={[
@@ -852,12 +854,12 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </button>
       )}
 
-      <form onSubmit={runCommand} className="glass cmdbar">
+      <form onSubmit={runCommand} className="glass cmdbar" data-tour="ask" data-home={activityHome || undefined}>
         <div className="flex gap-2">
-          <button type="button" className="chip shrink-0" onClick={switchMode} title={t("cmd.modeTitle")}
-            aria-label={t("cmd.modeAria", { mode: t(cmdMode === "ask" ? "cmd.modeAsk" : "cmd.modeTask") })}>
-            {t(cmdMode === "ask" ? "cmd.ask" : "cmd.task")}
-          </button>
+          {cmdMode === "task" && <button type="button" className="chip shrink-0" onClick={switchMode} title={t("cmd.modeTitle")}
+            aria-label={t("cmd.modeAria", { mode: t("cmd.modeTask") })}>
+            {t("cmd.task")}
+          </button>}
           <input ref={cmdRef} className={"field w-full" + (voice.listening ? " voice-live" : "")} value={voice.listening ? voice.interim : cmd} onChange={(e) => setCmd(e.target.value)} maxLength={8000}
             readOnly={voice.listening}
             placeholder={t(voice.listening ? "cmd.listening" : cmdMode === "ask" ? "cmd.askPh" : "cmd.taskPh")}

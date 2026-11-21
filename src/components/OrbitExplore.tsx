@@ -17,7 +17,7 @@ export function warmWorld(id: PanelId) {
 }
 
 export function WorldLoading() {
-  return <div className="world-loading" role="status"><span className="world-loading-ring" aria-hidden="true" /><p>Opening workspace…</p></div>;
+  return <div className="world-loading" role="status"><span className="world-loading-ring" aria-hidden="true" /><p>Opening planet…</p></div>;
 }
 
 export function OrbitExplore({ selected, onSelect }: { selected: PanelId | null; onSelect: (id: PanelId) => void }) {
