@@ -30,6 +30,7 @@ export async function switchStopAll(sb: SupabaseClient, userId: string, on: bool
     await import("@/lib/ws-server").then((m) => m.stopAllServers()).catch(() => 0); // local workspace demo servers
     await import("@/lib/rojo").then((m) => m.stopServe()).catch(() => false); // rojo serve started from GAME DEV → Files
     await import("@/lib/plugins").then((m) => m.closeAllPlugins()).catch(() => 0); // MCP plugin calls in flight (Blender etc.)
+    await import("@/lib/kaggle").then((m) => m.cancelKaggle("Stopped: Stop-all is on")).catch(() => false); // a running KAGGLE BURST job
     pushNotify("stop");
   }
   const stop = await saving;
