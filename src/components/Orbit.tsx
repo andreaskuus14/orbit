@@ -82,6 +82,8 @@ import { BrandMark } from "./BrandMark";
 import { orbitTitle } from "@/lib/jarvis-pure";
 import { HomeDesk } from "./HomeDesk";
 import type { Progress } from "@/lib/progress-pure";
+import { AMBER, countBadge, galaxyStatus, RED, sentenceRest, type CheckLike, type GalaxyStatus, type NeedLike, type StatusWorld } from "@/lib/galaxy-status-pure";
+import { sharedJson } from "./use-poll";
 import { Tour, TOUR_EVENT } from "./Tour";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
@@ -136,7 +138,7 @@ function Kept({ on, children }: { on: boolean; children: ReactNode }) {
 }
 
 export default function Orbit({ userId, email }: { userId: string; email: string }) {
-  const { t, tn } = useT();
+  const { t, tn, lang } = useT();
   const sb = useMemo(() => createClient(), []);
   const boot = useBootBatch(3);
   useEffect(() => { if (boot >= 3) void import("./panels"); }, [boot]); // warm the CORE drawer after first paint
@@ -168,6 +170,24 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [workOpen, setWorkOpen] = useState<WorkTab | false>(false);
   const [needsOpen, setNeedsOpen] = useState(false);
   const [deskNeeds, setDeskNeeds] = useState<Progress[]>([]); // tasks waiting for him, from the home desk // the Needs-you inbox, opened from the home desk
+  const [deskProgress, setDeskProgress] = useState<Progress[]>([]);
+  const [galaxyNeeds, setGalaxyNeeds] = useState<NeedLike[]>([]);
+  const [bootChecks, setBootChecks] = useState<CheckLike[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const pull = () => {
+      void sharedJson<{ items?: NeedLike[] }>(`/api/needs-you?lang=${lang}`).then((j) => { if (alive && Array.isArray(j?.items)) setGalaxyNeeds(j.items); });
+      void sharedJson<{ checks?: CheckLike[] }>("/api/doctor?boot=1").then((j) => { if (alive && Array.isArray(j?.checks)) setBootChecks(j.checks); });
+    };
+    pull();
+    const id = window.setInterval(() => { if (!document.hidden) pull(); }, 45_000);
+    return () => { alive = false; clearInterval(id); };
+  }, [lang, runningTasks.length]);
+  const galaxySt = useMemo<GalaxyStatus>(() => {
+    const names: Partial<Record<StatusWorld, string>> = { core: "CORE" };
+    for (const p of PLANETS) names[p.id] = t(`planet.${p.id}`);
+    return galaxyStatus({ progress: deskProgress, needs: galaxyNeeds, checks: bootChecks }, names, lang);
+  }, [deskProgress, galaxyNeeds, bootChecks, t, lang]);
   // Home shows only the desk and the one input; the cockpit extras (SYSTEM panel, ticker, HUD lines, eye) are behind ⋯ → System details.
   const [details, setDetails] = useState(false);
   useEffect(() => { try { setDetails(localStorage.getItem("orbit.home.details") === "1"); } catch { /* storage off */ } }, []);
@@ -715,7 +735,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {view && <WakeSequence skip={view === "3d"} />} {/* 3D has its own BootSequence intro; a 3D start uses up the wake */}
       {view === "3d" && (
         <div className="galaxy-layer absolute inset-0" data-dim={(panel === "core" && !dive) || undefined} style={galaxyGone && !staged ? { visibility: "hidden" } : undefined} inert={(galaxyGone && !staged) || undefined}>
-          <Galaxy selected={approach ?? panel} onSelect={galaxySelect} memoryCount={memoryCount} scoutMoons={scoutMoons} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel && !dive} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={galaxyGone} universe={living.universe} ships={ships} dilation={dilation}
+          <Galaxy selected={approach ?? panel} onSelect={galaxySelect} memoryCount={memoryCount} scoutMoons={scoutMoons} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel && !dive} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={galaxyGone} universe={living.universe} ships={ships} dilation={dilation} status={galaxySt}
             flight={flight} onDiveCross={onDiveCross} onDiveCancel={onDiveCancel} onIdle={onGalaxyIdle} />
         </div>
       )}
@@ -740,11 +760,17 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <ul className="overview-worlds">
             <li><button className={`planet-card${warning ? " warn" : ""}`} onClick={() => select("core")} style={{ borderColor: "#7dd3fc" }}>
               <b><WorldEmblem id="core" size={26} className="planet-card-emblem" />CORE</b><span className="muted text-sm">{busy ? t("overview.thinking") : warning ? t("overview.lastFailed") : t("overview.core")}</span></button></li>
-            {PLANETS.map((p) => (
-              <li key={p.id}><button className="planet-card" onPointerEnter={() => warmWorld(p.id)} onFocus={() => warmWorld(p.id)} data-overview-planet={p.id} onClick={() => galaxySelect(p.id)} style={{ borderColor: p.color }}>
-                <b style={{ color: p.color }}><WorldEmblem id={p.id} size={26} className="planet-card-emblem" />{t(`planet.${p.id}`)}</b>
-                <span className="muted text-sm">{p.id === "memory" ? tn("overview.memories", memoryShown) : p.id === "intelligence" && pulseBusy ? t("overview.pulseBusy") : p.id === "intelligence" && pulseFailed ? t("overview.pulseFailed") : p.id === "operations" && automationFailing ? t("overview.autoFailed") : p.id === "life" && lifeLine ? lifeLine : p.id === "agents" && runningTasks.length ? tn("overview.running", runningTasks.length) : t(`planet.${p.id}.blurb`)}</span></button></li>
-            ))}
+            {PLANETS.map((p) => {
+              const st = galaxySt[p.id], badge = countBadge(st);
+              const border = st?.state === "broke" ? RED : st?.state === "needs" ? AMBER : p.color;
+              const sub = st && st.state !== "idle" ? sentenceRest(st.line)
+                : p.id === "memory" ? tn("overview.memories", memoryShown) : p.id === "intelligence" && pulseBusy ? t("overview.pulseBusy") : p.id === "intelligence" && pulseFailed ? t("overview.pulseFailed") : p.id === "operations" && automationFailing ? t("overview.autoFailed") : p.id === "life" && lifeLine ? lifeLine : p.id === "agents" && runningTasks.length ? tn("overview.running", runningTasks.length) : t(`planet.${p.id}.blurb`);
+              return (
+                <li key={p.id}><button className={`planet-card${st?.state === "broke" ? " warn" : ""}`} onPointerEnter={() => warmWorld(p.id)} onFocus={() => warmWorld(p.id)} data-overview-planet={p.id} onClick={() => galaxySelect(p.id)} style={{ borderColor: border }}>
+                  <b style={{ color: p.color }}><WorldEmblem id={p.id} size={26} className="planet-card-emblem" />{t(`planet.${p.id}`)}{badge ? ` · ${badge}` : ""}</b>
+                  <span className="muted text-sm">{sub}</span></button></li>
+              );
+            })}
           </ul>
         </nav>
       )}
@@ -821,7 +847,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <WhatsNew home={!shown && !approach} />
         <MorningBrief home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
       </>}
-      {activityHome && !workOpen && <HomeDesk refresh={runningTasks.length + shipTasks.length} onOpenNeeds={() => setNeedsOpen(true)} onOpenAll={() => setWorkOpen("work")} onOpenTask={openTask} onNeeds={setDeskNeeds} />}
+      {activityHome && !workOpen && <HomeDesk refresh={runningTasks.length + shipTasks.length} onOpenNeeds={() => setNeedsOpen(true)} onOpenAll={() => setWorkOpen("work")} onOpenTask={openTask} onNeeds={setDeskNeeds} onProgress={setDeskProgress} />}
       {activityHome && needsOpen && <NeedsYou open onClose={() => setNeedsOpen(false)} extra={deskNeeds} onOpenTask={(id) => { setNeedsOpen(false); openTask(id); }} onOpenGoal={(id) => { setNeedsOpen(false); openGoal(id); }} />}
       {boot >= 3 && <Tour ready={activityHome} />}
       {details && boot >= 2 && !shown && !approach && <HalEye />}

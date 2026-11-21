@@ -56,6 +56,8 @@ export const nightBudget = (queue: Pick<NightTask, "calls" | "minutes">[], s: Pi
 /* ---------- AGT07 scorecards, AGT02 routing ---------- */
 
 
+import { RATE_OPTS, decide, rateSteps } from "./abtest-pure.ts";
+
 export const MIN_SAMPLE = 5, MIN_LEAD = 10; // finished units per agent+class before any comparison; percentage points to switch
 export type Scorecard = {
   agent: string; cls: WorkflowType; n: number; success: Rate; verified: Rate; rework: Rate; intervention: Rate;
@@ -81,9 +83,10 @@ export function scorecards(us: Unit[]): Scorecard[] {
   }).sort((a, b) => a.cls.localeCompare(b.cls) || b.n - a.n);
 }
 
-export type Route = { cls: WorkflowType; agent: string | null; usual: string | null; why: "agt.rt.none" | "agt.rt.few" | "agt.rt.usual" | "agt.rt.close" | "agt.rt.better"; vars: Record<string, string | number> };
+export type Route = { cls: WorkflowType; agent: string | null; usual: string | null; why: "agt.rt.none" | "agt.rt.few" | "agt.rt.usual" | "agt.rt.close" | "agt.rt.notSure" | "agt.rt.better"; vars: Record<string, string | number> };
 /** Per task class: the usual worker (most finished units) is the default. Another is suggested only when both have MIN_SAMPLE+
- *  finished units and its verified success leads by MIN_LEAD+ points. Never a claim from a tiny sample. */
+ *  finished units, its verified success leads by MIN_LEAD+ points AND the honest test (abtest-pure, ≤ 5 % false switches) is sure.
+ *  Never a claim from a tiny sample. */
 export function routes(cards: Scorecard[]): Route[] {
   const classes = [...new Set(cards.map((c) => c.cls))];
   return classes.map((cls): Route => {
@@ -94,8 +97,10 @@ export function routes(cards: Scorecard[]): Route[] {
     const best = cs.filter((c) => c.enough).sort((a, b) => v(b) - v(a) || b.n - a.n)[0];
     if (best.agent === usual.agent) return { cls, agent: usual.agent, usual: usual.agent, why: "agt.rt.usual", vars: { a: usual.agent, p: v(usual), n: usual.n } };
     const lead = v(best) - v(usual);
-    return lead >= MIN_LEAD
+    if (lead < MIN_LEAD) return { cls, agent: usual.agent, usual: usual.agent, why: "agt.rt.close", vars: { a: usual.agent, b: best.agent, d: lead, min: MIN_LEAD } };
+    const d = decide(rateSteps([{ arm: "A", n: usual.verified.n, of: usual.verified.of }, { arm: "B", n: best.verified.n, of: best.verified.of }]), { ...RATE_OPTS, minEach: MIN_SAMPLE });
+    return d.verdict === "better"
       ? { cls, agent: best.agent, usual: usual.agent, why: "agt.rt.better", vars: { a: best.agent, p: v(best), n: best.n, u: usual.agent, q: v(usual), m: usual.n } }
-      : { cls, agent: usual.agent, usual: usual.agent, why: "agt.rt.close", vars: { a: usual.agent, b: best.agent, d: lead, min: MIN_LEAD } };
+      : { cls, agent: usual.agent, usual: usual.agent, why: "agt.rt.notSure", vars: { a: usual.agent, b: best.agent, d: lead, n: Number.isFinite(d.more) ? d.more! : "many" } };
   });
 }

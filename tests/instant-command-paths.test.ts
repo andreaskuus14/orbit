@@ -71,7 +71,7 @@ function component(file: string, attachments = false) {
       return new Proxy({}, { get: () => noop });
     },
   });
-  const render = () => { cursor = 0; effects.length = 0; callbacks.length = 0; return file === "panels.tsx"
+  const render = () => { cursor = 0; effects.length = 0; callbacks.length = 0; return file === "CoreChat.tsx"
     ? module.exports.CorePanel({ initial: null, onConsumed: noop, onOpenMemory: noop })
     : module.exports.default({ userId: "test-user", email: "test@example.com" }); };
   return { render, state, effects, callbacks, calls, requests, events, listeners, attachmentsTaken: () => attachmentsTaken };
@@ -82,7 +82,7 @@ const commands = ["stop everything", "stop all", "peata kõik", "mute", "unmute"
 
 test("CORE typed commands return before the Claude request; a longer question still reaches CORE", async () => {
   for (const text of [...commands, "how do I stop procrastinating"]) {
-    const h = component("panels.tsx"); h.render();
+    const h = component("CoreChat.tsx"); h.render();
     const send = h.callbacks.find((f) => f.toString().includes("const message = text.trim()"));
     assert.ok(send);
     await send(text);
@@ -96,7 +96,7 @@ test("CORE typed commands return before the Claude request; a longer question st
 });
 
 test("CORE still accepts an instant command while an earlier answer is in progress", async () => {
-  const h = component("panels.tsx"); h.render();
+  const h = component("CoreChat.tsx"); h.render();
   const send = () => h.callbacks.find((f) => f.toString().includes("const message = text.trim()"))!;
   const answering = send()("explain my project"); // first fetch is waiting on its response
   h.render();
@@ -107,7 +107,7 @@ test("CORE still accepts an instant command while an earlier answer is in progre
 });
 
 test("queued attachments do not route a short command to Claude or get consumed by mute", async () => {
-  const h = component("panels.tsx", true); h.render();
+  const h = component("CoreChat.tsx", true); h.render();
   await h.callbacks.find((f) => f.toString().includes("const message = text.trim()"))!("mute");
   assert.deepEqual(h.calls, [{ panel: "core", voice: false }]);
   assert.equal(h.requests.length, 0);

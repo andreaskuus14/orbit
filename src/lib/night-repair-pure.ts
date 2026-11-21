@@ -243,14 +243,30 @@ export function effectLine(e: Effect): string {
 // ---- patches, cards, PR, brief ----------------------------------------------------------------------------------
 
 export type PatchStatus = "waiting" | "merged" | "rejected" | "failed" | "discarded";
+export type RepairExam = { baseScore: number; candidateScore: number; candidateCommit: string; runId: string };
 export type Patch = {
   id: string; night: string; signal: string; kind: SignalKind; title: string; problem: string; branch: string; base: string; commit?: string;
   status: PatchStatus; reason?: string; summary?: string; test?: string; files?: FileChange[];
-  gate?: { ok: boolean; ms: number; tail: string }; effect?: string; pr?: { number: number; url: string }; local?: boolean;
+  gate?: { ok: boolean; ms: number; tail: string }; effect?: string; exam?: RepairExam; pr?: { number: number; url: string }; local?: boolean;
   calls: number; at: string; decidedAt?: string; deployed?: string;
 };
 export type Night = { key: string; startedAt: string; endedAt?: string; stopped?: string; calls: number; selftest?: SelfTest; ranked?: { id: string; title: string }[]; note?: string };
 export type RepairState = { nights: Night[]; patches: Patch[] };
+
+/** A night repair is mergeable only with a complete exam result tied to its exact candidate commit. */
+export function repairExamVerdict(exam: RepairExam | undefined, commit: string | undefined): "unmeasured" | "mismatched" | "regressed" | "passed" {
+  if (!exam) return "unmeasured";
+  if (exam.candidateCommit && commit && exam.candidateCommit !== commit) return "mismatched";
+  if (!commit || !exam.candidateCommit || !exam.runId.trim()
+    || !Number.isFinite(exam.baseScore) || !Number.isFinite(exam.candidateScore)
+    || exam.baseScore < 0 || exam.baseScore > 100 || exam.candidateScore < 0 || exam.candidateScore > 100) return "unmeasured";
+  return exam.candidateScore < exam.baseScore ? "regressed" : "passed";
+}
+export function repairExamBlock(exam: RepairExam | undefined, commit: string | undefined): string {
+  const verdict = repairExamVerdict(exam, commit);
+  return verdict === "mismatched" ? "The ORBIT exam score belongs to another commit"
+    : verdict === "regressed" ? "This candidate scored lower on the ORBIT exam" : "";
+}
 export const KEEP_NIGHTS = 14, KEEP_PATCHES = 60;
 
 export function parseRepair(text: string | null): RepairState {
@@ -268,7 +284,7 @@ export function diffSummary(files: FileChange[] = []): string {
 export const gateLine = (g?: Patch["gate"]) => (!g ? "Gate: not run" : `Gate: ${g.ok ? "passed" : "FAILED"} (npm run gate, ${Math.round(g.ms / 60_000)} min)`);
 
 /** The version the owner approves: changes when the commit, files or result change, so a stale card can't merge a different patch. */
-export const patchSeen = (p: Patch) => hash(JSON.stringify([p.id, p.commit ?? "", p.files ?? [], p.gate?.ok ?? false, p.effect ?? ""]));
+export const patchSeen = (p: Patch) => hash(JSON.stringify([p.id, p.commit ?? "", p.files ?? [], p.gate?.ok ?? false, p.effect ?? "", p.exam ?? null]));
 
 /** The Needs-you / phone card text: problem, diff summary, gate result, measured effect. */
 export function patchCard(p: Patch): { title: string; detail: string; message: string } {
@@ -276,6 +292,11 @@ export function patchCard(p: Patch): { title: string; detail: string; message: s
     title: `Night fix: ${p.title}`.slice(0, 160),
     detail: `Code patch on ${p.branch}${p.pr ? ` (PR #${p.pr.number})` : " (local branch)"}`,
     message: [`Problem: ${p.problem}`, p.summary ? `Fix: ${p.summary}` : "", `Diff: ${diffSummary(p.files)}`, gateLine(p.gate), p.effect ?? "Not measured",
+      repairExamVerdict(p.exam, p.commit) === "mismatched"
+        ? "ORBIT exam score belongs to another commit; approval is blocked"
+        : repairExamVerdict(p.exam, p.commit) === "unmeasured"
+          ? "ORBIT exam: not measured by the exam yet"
+          : `ORBIT exam: ${p.exam!.baseScore}% → ${p.exam!.candidateScore}%`,
       "Approve merges it into main and starts ORBIT's self-update (build, swap, rollback if unhealthy)."].filter(Boolean).join("\n"),
   };
 }

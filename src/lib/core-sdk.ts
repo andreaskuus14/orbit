@@ -12,7 +12,7 @@ import { authorizeTool } from "./authority";
 import { policyEvent, TIERS, type PolicyCtx } from "./policy-pure";
 import type { WriteEvidence } from "./completion-pure";
 import { needsOpus } from "./core-mcp-boost-pure";
-import { authMode, gated, readMessage, sdkFailure, sdkOptions, sdkTools, serial, toolResult, unstringLists, userMessage, SERVER } from "./core-sdk-pure";
+import { authMode, gated, readMessage, sdkFailure, sdkOptions, sdkTools, tierGate, toolLane, toolResult, unstringLists, userMessage, SERVER } from "./core-sdk-pure";
 import type { TraceStep } from "./core";
 import type { StepDone } from "./core-live-pure";
 
@@ -37,8 +37,8 @@ export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: strin
   const abortController = new AbortController();
   let escalated = false, opus = false, escTool = "";
   t.onRoute?.(t.model);
-  const one = serial();
-  const handler = (name: string) => (raw: Record<string, unknown>) => one(async () => {
+  const gate = tierGate();
+  const handler = (name: string) => (raw: Record<string, unknown>) => gate(toolLane(name, TIERS), async () => {
     const input = unstringLists(raw);
     opus = !t.risky && needsOpus(name, t.model ?? "");
     if (t.escalate || opus) { escalated = true; escTool = name; abortController.abort(); return toolResult("Error: stopped"); }

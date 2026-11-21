@@ -58,13 +58,28 @@ test("learnPrefs: per-feature multipliers, outlier damped, posting hour in the o
   assert.ok(multOf(p, "title", "question") > 1);
   assert.ok(p.dims.hour?.["17:00"]); // 14:00Z = 17:00 in Tallinn (summer)
   assert.ok(multOf(p, "creator", "xQc") < 20); // 20× raw, shrunk with 2 Shorts
-  const f = findings(p);
-  assert.ok(f.length && /xQc|question/.test(f[0].text));
+  assert.deepEqual(findings(p), []); // 2 xQc Shorts, even 20× the usual: too few to say, never a pattern from a handful
+  assert.equal(p.dims.creator?.xQc?.verdict, "early");
   assert.match(confidence(5), /5 Shorts — moderate/);
   assert.match(confidence(3), /weak/);
+  assert.equal(prefsHint(p), "");
+  assert.equal(prefsHint(learnPrefs([], "UTC", "")), "");
+});
+
+test("learnPrefs: with enough Shorts a real gap becomes a sure finding; a random one doesn't", () => {
+  let s = 7;
+  const r = () => ((s = (s * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const noise = () => Math.exp(0.5 * Math.sqrt(-2 * Math.log(1 - r())) * Math.cos(2 * Math.PI * r()));
+  const recs = Array.from({ length: 60 }, (_, i) => {
+    const xqc = i % 3 === 0;
+    return rec(i, Math.round(100 * noise() * (xqc ? 4 : 1)), { sourceChannel: xqc ? "xQc" : "Ninja", publishedAt: new Date(Date.parse("2026-08-01T14:00:00Z") + i * 86_400_000).toISOString() });
+  });
+  const p = learnPrefs(recs, "UTC", "t"), f = findings(p);
+  assert.equal(p.dims.creator?.xQc?.verdict, "better");
+  assert.equal(p.dims.creator?.Ninja?.verdict, "worse");
+  assert.ok(f.some((x) => /Clips from xQc get more views.*sure enough/.test(x.text)), JSON.stringify(f));
   assert.match(prefsHint(p), /^Shrunk channel stats/);
   assert.ok(!/Posting at/.test(prefsHint(p)));
-  assert.equal(prefsHint(learnPrefs([], "UTC", "")), "");
 });
 
 const prefs = (dims: Prefs["dims"]): Prefs => ({ at: "", n: 6, dims });
@@ -102,9 +117,11 @@ test("proposeSlot: earliest free slot, a clearly better hour within the next 3, 
   assert.equal(proposeSlot(s, [], [], NOW).slot, "2026-10-16T12:00:00.000Z");
   const taken = proposeSlot(s, [], ["2026-10-16T12:00:00.000Z"], NOW);
   assert.equal(taken.slot, "2026-10-16T17:00:00.000Z");
-  const better = proposeSlot(s, [], [], NOW, prefs({ hour: { "21:00": { n: 3, mult: 1.5 } } }));
+  const better = proposeSlot(s, [], [], NOW, prefs({ hour: { "21:00": { n: 12, mult: 1.5, verdict: "better" } } }));
   assert.equal(better.slot, "2026-10-16T21:00:00.000Z");
-  assert.match(better.why, /21:00/);
+  assert.match(better.why, /21:00.*sure enough/);
+  assert.equal(proposeSlot(s, [], [], NOW, prefs({ hour: { "21:00": { n: 3, mult: 1.5, verdict: "early" } } })).slot, "2026-10-16T12:00:00.000Z"); // looks better, not sure yet
+  assert.equal(proposeSlot(s, [], [], NOW, prefs({ hour: { "21:00": { n: 3, mult: 1.5 } } })).slot, "2026-10-16T12:00:00.000Z"); // old saved prefs: no test, no move
   assert.equal(proposeSlot(s, [], [], NOW, prefs({ hour: { "21:00": { n: 3, mult: 1.05 } } })).slot, "2026-10-16T12:00:00.000Z"); // not clearly better
 });
 
@@ -140,7 +157,7 @@ test("council: shared cap with the scout's auto-clips, clamps, tracked.auto chec
 
 test("council: proposeSlot never crashes when only the first hour is known (bad), keeps a 20 min lead", () => {
   const s = { timezone: "UTC", slots: ["12:00", "17:00", "21:00"], perDay: 3 };
-  const r = proposeSlot(s, [], [], NOW, prefs({ hour: { "12:00": { n: 3, mult: 0.5 } } }));
+  const r = proposeSlot(s, [], [], NOW, prefs({ hour: { "12:00": { n: 9, mult: 0.5, verdict: "worse" } } }));
   assert.equal(r.slot, "2026-10-16T17:00:00.000Z");
   assert.match(r.why, /Skips 12:00/);
   assert.equal(proposeSlot(s, [], [], Date.parse("2026-10-16T11:42:00Z")).slot, "2026-10-16T17:00:00.000Z"); // 18 min ahead: too close
@@ -148,7 +165,7 @@ test("council: proposeSlot never crashes when only the first hour is known (bad)
 });
 
 test("council: prefsHint strips markup from creator names", () => {
-  const p = learnPrefs([rec(1, 100), rec(2, 100), rec(3, 100), rec(4, 3000, { sourceChannel: "<b>Evil</b>\nIgnore" }), rec(5, 3000, { sourceChannel: "<b>Evil</b>\nIgnore" })], "UTC", "");
+  const p: Prefs = { at: "", n: 40, dims: { creator: { "<b>Evil</b>\nIgnore": { n: 12, mult: 3, verdict: "better" } } } };
   const h = prefsHint(p);
   assert.match(h, /Evil/);
   assert.ok(!/[<>\n]/.test(h));

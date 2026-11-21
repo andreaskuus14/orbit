@@ -21,8 +21,9 @@ function typical(rows: { started_at?: string | null; finished_at?: string | null
   return s.length >= 3 ? s[Math.floor(s.length / 2)] * 1000 : null;
 }
 
-export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask, onNeeds }: {
+export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask, onNeeds, onProgress }: {
   onNeeds?: (cards: Progress[]) => void; // the tasks waiting for him, so the Needs-you inbox shows the same cards
+  onProgress?: (cards: Progress[]) => void; // all active/recent progress cards, shared with the living galaxy
   refresh: number;                // bumps on agent events (Orbit's running list), so a card moves at once
   onOpenNeeds: () => void; onOpenAll: () => void; onOpenTask: (id: string) => void;
 }) {
@@ -61,6 +62,8 @@ export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask, onNeeds 
   const needCards = items?.filter((p) => p.phase === "needs") ?? [];
   const needKey = needCards.map((p) => p.id).join(",");
   useEffect(() => { onNeeds?.(needCards); }, [needKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const progKey = (items ?? []).map((p) => `${p.id}:${p.phase}:${p.leftMin ?? ""}`).join(",");
+  useEffect(() => { if (items) onProgress?.(items); }, [progKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = () => { const v = !fold; setFold(v); try { localStorage.setItem(FOLD_KEY, v ? "1" : "0"); } catch { /* no storage */ } };
 
   return (
