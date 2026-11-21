@@ -3,14 +3,16 @@ import { evalRunId } from "./eval-run";
 import { BUILTIN_AGENTS, cancelTask, runTask } from "./agents";
 import { withSlot } from "./chains";
 import { interruptedPatch } from "./completion-pure";
-import { askClaude, createBudget, emit, recordUsage } from "./claude";
+import { SMART_MODEL, askClaude, createBudget, emit, recordUsage } from "./claude";
+import { gpuNow } from "./gpu-lock";
+import { GPU_WAIT, PILOT_PLAN_SYSTEM, PILOT_REPLAN_SYSTEM, acceptProposal, applyPilotReplan, chargeCalls, dayWait, pilotInput, pilotLine, pilotMove, pilotPlanPrompt, pilotSteps, recovery, replanPrompt, retryStep, setCalls, startPlan, waitCalls, type PilotMove } from "./pilot-pure";
 import { stopAllOn } from "./stop-all";
 import { PAUSED_MSG } from "./stop-all-pure";
 import { usageHardHold, usageHold } from "./usage-meter";
 import {
   MAX_OPEN, PLAN_SYSTEM, REFLECT_SYSTEM, addSample, createGoalBlocked, goalLine, isOpen, planningActive, unstartStep, applyReflection, applyTask, approvePlan, charge, cont, decideProposal, doneSteps, editPlan, finish,
   goalProblem, isLive, newGoal, nextMove, okStep, parseJson, pause, planPrompt, reflectPrompt, resume, setPlan, startStep, stepRequest, stop,
-  validateGoal, validateSteps, waitFor, type Goal,
+  today, validateGoal, validateSteps, waitFor, type Goal,
 } from "./goals-pure";
 import { markResumeDirty } from "./dirty-marks";
 
@@ -69,12 +71,16 @@ export async function listGoals(sb: SupabaseClient, userId: string): Promise<Goa
 export async function getGoal(sb: SupabaseClient, id: string) { return load(sb, id); }
 
 export async function createGoal(sb: SupabaseClient, userId: string, body: unknown): Promise<{ row: GoalRow } | { error: string }> {
-  const v = validateGoal(body, (await roster(sb, userId)).map((a) => a.slug));
+  const b = (body ?? {}) as Record<string, unknown>, slugs = (await roster(sb, userId)).map((a) => a.slug);
+  // Autopilot project: his plain words are the whole input (pilot-pure.ts); agents, budget and the call limit get safe defaults.
+  const pi = b.pilot === true ? pilotInput(b.ask ?? b.title, slugs, b.callsPerDay, today()) : null;
+  if (typeof pi === "string") return { error: pi };
+  const v = pi ? validateGoal(pi.input, slugs) : validateGoal(body, slugs);
   if (typeof v === "string") return { error: v };
   const { data: mine, error: countErr } = await sb.from("goals").select("status").eq("user_id", userId);
   if (countErr) return { error: countErr.message };
   if ((mine ?? []).filter((r) => isOpen(r.status)).length >= MAX_OPEN) return { error: `You already have ${MAX_OPEN} open goals; finish, stop or delete one first` };
-  const doc = newGoal(v), run = evalRunId(); // an eval run's goal carries its id (eval-run.ts cleanup)
+  const doc: Goal = { ...newGoal(v), ...(pi && { pilot: pi.pilot }) }, run = evalRunId(); // an eval run's goal carries its id (eval-run.ts cleanup)
   markResumeDirty();
   const { data, error } = await sb.from("goals").insert({ user_id: userId, title: doc.title, status: doc.status, doc: run ? { ...doc, eval: run } : doc }).select(COLS).single();
   if (error) return { error: error.message };
@@ -90,6 +96,7 @@ export async function draftPlan(sb: SupabaseClient, userId: string, id: string):
     if (d.status !== "draft") return "Only a draft goal can be (re)planned";
     if (planningActive(d)) return "A plan is already being drafted";
     if (!charge(d)) return "Today's run budget for this goal is used up";
+    if (d.pilot && !chargeCalls(d.pilot, 1, today())) return `Today's Claude-call limit for this project is used up (${d.pilot.callsPerDay}); press Redraft tomorrow`;
     d.planning = new Date().toISOString(); delete d.planError;
     return "";
   });
@@ -97,11 +104,16 @@ export async function draftPlan(sb: SupabaseClient, userId: string, id: string):
   const doc = started.row.doc;
   let out: string;
   try {
-    const r = await askClaude(planPrompt(doc, await roster(sb, userId)), PLAN_SYSTEM, { purpose: "goals.plan" });
-    await recordUsage(sb, userId, "goal.plan", r);
-    const steps = validateSteps(parseJson(r.text)?.steps, doc.agents);
+    const team = await roster(sb, userId);
+    // Autopilot: Opus plans the days (his request, so the owner lane); the plan starts at once, outside steps still wait for his OK.
+    const r = doc.pilot ? await askClaude(pilotPlanPrompt(doc, team, today()), PILOT_PLAN_SYSTEM, { purpose: "pilot.plan", model: SMART_MODEL, lane: "foreground" })
+      : await askClaude(planPrompt(doc, team), PLAN_SYSTEM, { purpose: "goals.plan" });
+    await recordUsage(sb, userId, doc.pilot ? "pilot.plan" : "goal.plan", r);
+    const raw = parseJson(r.text)?.steps;
+    const steps = doc.pilot ? pilotSteps(raw, doc.agents) : validateSteps(raw, doc.agents);
     out = typeof steps === "string" ? `The drafted plan wasn't usable (${steps}); press Redraft or write the steps yourself` : "";
-    await mutate(sb, id, (d) => { delete d.planning; if (out) { d.planError = out; return ""; } return setPlan(d, steps as Exclude<typeof steps, string>); });
+    await mutate(sb, id, (d) => { delete d.planning; if (out) { d.planError = out; return ""; } return d.pilot ? startPlan(d, steps as Exclude<ReturnType<typeof pilotSteps>, string>) : setPlan(d, steps as Exclude<typeof steps, string>); });
+    if (!out && doc.pilot) { await checkIn(sb, userId, id, doc.title, "Plan made: ORBIT has started"); void advance(sb, userId, id); return ""; }
   } catch (e) {
     out = `Planning failed: ${msg(e)}`;
     await mutate(sb, id, (d) => { delete d.planning; d.planError = out; return ""; });
@@ -129,7 +141,11 @@ export async function advance(sb: SupabaseClient, userId: string, id: string, ma
       const row = await load(sb, id);
       if (!row) return;
       await sampleMetric(sb, row).catch(() => {});
-      const doc = row.doc, move = nextMove(doc);
+      const doc = row.doc, move: PilotMove = doc.pilot ? pilotMove(doc, today(), gpuNow().busy) : nextMove(doc);
+      if (doc.pilot && move.do !== "run" && move.do !== "sync" && move.do !== "idle" && move.do !== "finish") {
+        if (await pilotStep(sb, userId, id, doc, move)) continue;
+        return;
+      }
       if (move.do === "idle" || move.do === "wait") return;
       if (move.do === "finish") {
         const r = await mutate(sb, id, (d) => (finish(d) ? "" : "no"));
@@ -148,13 +164,16 @@ export async function advance(sb: SupabaseClient, userId: string, id: string, ma
         return;
       }
       if (move.do === "sync") { if (!(await sync(sb, userId, id, doc, move.i))) return; continue; }
+      if (move.do !== "run") return;
       if (maxRuns-- <= 0) return;
       // run: charge today's budget, create the step's task, then run it in a shared agent slot.
-      const ch = await mutate(sb, id, (d) => (nextMove(d).do === "run" && charge(d) ? "" : "moved"));
+      const ch = await mutate(sb, id, (d) => (d.pilot
+        ? pilotMove(d, today(), gpuNow().busy).do === "run" && charge(d) && chargeCalls(d.pilot, d.budget.callsPerStep, today()) // the step's calls + its review, taken up front: a hard limit
+        : nextMove(d).do === "run" && charge(d)) ? "" : "moved");
       if ("error" in ch) continue;
       const fresh = ch.row.doc, s = fresh.steps[move.i]; // the doc as just charged: never a step list from before an edit
       const { data: task, error } = await sb.from("tasks").insert({
-        user_id: userId, agent: s.agent, title: `${STEP_TITLE}${move.i + 1}/${fresh.steps.length} · ${fresh.title}: ${s.what}`.slice(0, 200), request: stepRequest(fresh, move.i),
+        user_id: userId, agent: s.agent, title: `${STEP_TITLE}${move.i + 1}/${fresh.steps.length} · ${fresh.title}: ${s.what}`.slice(0, 200), request: `${stepRequest(fresh, move.i)}${s.meta ? `\nPlanet: ${s.meta.planet.toUpperCase()}${s.meta.gpu ? " (uses the GPU: one heavy job at a time)" : ""}` : ""}`.slice(0, 8000),
         status: "running", started_at: new Date().toISOString(), // never "queued": kickQueue must not start it a second time
       }).select("id").single();
       if (error) { await mutate(sb, id, (d) => { d.status = "blocked"; d.blocker = `Couldn't create the step task: ${error.message}`; return ""; }); return; }
@@ -195,15 +214,81 @@ async function sync(sb: SupabaseClient, userId: string, id: string, doc: Goal, i
   if ("error" in r || !what) return false; // still running (e.g. a Retry from Operations) or awaiting approval as before
   const title = doc.title;
   if (what === "waiting") { await checkIn(sb, userId, id, title, `Step ${i + 1} needs your approval in Operations`); return false; }
-  if (what === "failed") { await checkIn(sb, userId, id, title, `Blocked: step ${i + 1} failed`); return false; }
+  if (what === "failed") {
+    if (r.row.doc.pilot) { const m = recovery(r.row.doc, i, today()); return pilotStep(sb, userId, id, r.row.doc, m); } // retry / replan by itself
+    await checkIn(sb, userId, id, title, `Blocked: step ${i + 1} failed`); return false;
+  }
   try {
     const rr = await askClaude(reflectPrompt(r.row.doc, i), REFLECT_SYSTEM, { purpose: "goals.reflect" });
     await recordUsage(sb, userId, "goal.reflect", rr);
     await mutate(sb, id, (d) => { applyReflection(d, i, parseJson(rr.text)); if (d.metric.kind === "steps") addSample(d, doneSteps(d)); return ""; });
   } catch (e) { console.error("[orbit] goal reflection failed:", msg(e)); }
-  const after = await load(sb, id);
+  let after = await load(sb, id);
+  if (after?.doc.pilot && after.doc.proposal && (await mutate(sb, id, (d) => acceptProposal(d, today())), true)) after = await load(sb, id); // new info: the plan adapts by itself (bounded)
   await checkIn(sb, userId, id, title, after?.doc.proposal ? `Step ${i + 1} done; a plan change waits for your approval` : `Step ${i + 1} done: ${doc.steps[i].what}`);
   return true;
+}
+
+/** Autopilot moves that aren't "run a step" (pilot-pure pilotMove). True when the project moved on and the driver should loop. */
+async function pilotStep(sb: SupabaseClient, userId: string, id: string, doc: Goal, m: PilotMove): Promise<boolean> {
+  const title = doc.title, say = (t: string) => checkIn(sb, userId, id, title, t);
+  const waitOn = async (why: string, text?: string) => { const r = await mutate(sb, id, (d) => (waitFor(d, why) ? "" : "same")); if ("row" in r && text) await say(text); return false; };
+  switch (m.do) {
+    case "ask_ok": return waitOn(`your OK on step ${m.i + 1}`, `Step ${m.i + 1} needs your OK: ${doc.steps[m.i].what}`);
+    case "budget": return waitOn("tomorrow's run budget (open ORBIT or press Continue then)", "Daily run budget reached");
+    case "later": return waitOn(dayWait(m.day));
+    case "gpu": return waitOn(GPU_WAIT); // the step's own tools take the GPU lease; we only don't start it while another job holds it
+    case "calls": { const r = await mutate(sb, id, (d) => (waitCalls(d) ? "" : "same")); if ("row" in r) await say(`Today's Claude-call limit reached; it goes on tomorrow`); return false; }
+    case "accept": { const r = await mutate(sb, id, (d) => acceptProposal(d, today())); return "row" in r; }
+    case "retry": { const r = await mutate(sb, id, (d) => retryStep(d, m.i)); return "row" in r; }
+    case "replan": return pilotReplan(sb, userId, id, m.i);
+    case "stuck": case "blocked": {
+      const r = await mutate(sb, id, (d) => { if (!["approved", "running", "waiting", "blocked"].includes(d.status)) return "no"; if (d.status === "blocked" && d.blocker) return "same"; d.status = "blocked"; d.blocker ??= `Step ${m.i + 1} failed`; delete d.waitingFor; return ""; });
+      if ("row" in r) await say(`Stuck at step ${m.i + 1}: press Try again, or change the plan`);
+      return false;
+    }
+    default: return false;
+  }
+}
+
+/** One Opus call: replace the failed step and the rest. Counted against the project's daily call limit and its replan cap. */
+async function pilotReplan(sb: SupabaseClient, userId: string, id: string, i: number): Promise<boolean> {
+  const held = stopAllOn() ? "" : usageHold();
+  if (held) { await mutate(sb, id, (d) => (waitCalls(d, "the usage pacer (Claude capacity is kept for you)") ? "" : "same")); return false; } // waiting, not blocked: the scheduler tries again
+  if (stopAllOn()) return false;
+  const day = today();
+  const st = await mutate(sb, id, (d) => {
+    const p = d.pilot;
+    if (!p || d.steps[i]?.status !== "failed") return "moved";
+    if (p.replanning && Date.now() - Date.parse(p.replanning) < 5 * 60_000) return "busy";
+    if (!chargeCalls(p, 1, day)) return "calls";
+    p.replanning = new Date().toISOString(); d.status = "blocked"; d.blocker = `Step ${i + 1} failed; fixing the plan`;
+    return "";
+  });
+  if ("error" in st) {
+    if (st.error === "calls") await mutate(sb, id, (d) => (waitCalls(d) ? "" : "same"));
+    return false;
+  }
+  let err = "";
+  try {
+    const r = await askClaude(replanPrompt(st.row.doc, i, day), PILOT_REPLAN_SYSTEM, { purpose: "pilot.replan", model: SMART_MODEL });
+    await recordUsage(sb, userId, "pilot.replan", r);
+    const out = await mutate(sb, id, (d) => { const e = applyPilotReplan(d, i, parseJson(r.text), day); if (e && d.pilot) { delete d.pilot.replanning; err = e; d.blocker = `Step ${i + 1} failed. ${e}`; } return e === "The plan moved on" ? e : ""; });
+    if ("error" in out) return false;
+  } catch (e) {
+    err = `Replanning failed: ${msg(e)}`;
+    await mutate(sb, id, (d) => { if (d.pilot) delete d.pilot.replanning; d.blocker = `Step ${i + 1} failed. ${err}`; return ""; });
+  }
+  await checkIn(sb, userId, id, (await load(sb, id))?.doc.title ?? "Project", err ? `Stuck: ${err}` : "The plan changed after a failed step; going on");
+  return !err;
+}
+
+/** The morning brief's daily line per open autopilot project (no model call). */
+export async function pilotBrief(sb: SupabaseClient, userId: string, now = Date.now()): Promise<{ id: string; line: string }[]> {
+  const { leftText } = await import("./progress-pure");
+  const day = today(new Date(now));
+  return (await listGoals(sb, userId)).filter((r) => r.doc.pilot && !["done", "stopped"].includes(r.doc.status))
+    .map((r) => ({ id: r.id, line: pilotLine(r.doc, "en", day, now, leftText) }));
 }
 
 /** Stop-all: abort every goal driver (the same abort goalAction "stop" uses): a step waiting for a slot never starts, a running
@@ -221,7 +306,7 @@ export async function resumeGoals(sb: SupabaseClient, userId: string, maxRuns = 
   return error ? 1 : (data ?? []).length;
 }
 
-export type GoalAction = "approve" | "edit" | "redraft" | "ok" | "proposal" | "pause" | "resume" | "stop" | "continue" | "metric" | "delete" | "milestones" | "replan" | "phrase";
+export type GoalAction = "calls" | "approve" | "edit" | "redraft" | "ok" | "proposal" | "pause" | "resume" | "stop" | "continue" | "metric" | "delete" | "milestones" | "replan" | "phrase";
 
 /** The owner's clicks (POST /api/goals). Only here can a step be OK'd or a plan change approved. */
 export async function goalAction(sb: SupabaseClient, userId: string, id: string, action: GoalAction, body: Record<string, unknown>): Promise<{ row?: GoalRow; error?: string }> {
@@ -243,12 +328,13 @@ export async function goalAction(sb: SupabaseClient, userId: string, id: string,
   const r = await mutate(sb, id, (d) => {
     switch (action) {
       case "approve": return approvePlan(d, body.stepIds);
-      case "edit": { const st = validateSteps(body.steps, d.agents, 0); return typeof st === "string" ? st : editPlan(d, st, body.baseIds); }
+      case "edit": { const st = d.pilot ? pilotSteps(body.steps, d.agents, 0) : validateSteps(body.steps, d.agents, 0); return typeof st === "string" ? st : editPlan(d, st, body.baseIds); } // a project's edit keeps the outside / GPU gates
+      case "calls": return setCalls(d, body.callsPerDay);
       case "ok": return Number.isInteger(body.step) ? okStep(d, body.step as number, body.stepId) : "step is required";
       case "proposal": return decideProposal(d, body.accept === true);
       case "pause": return pause(d);
       case "resume": return resume(d);
-      case "continue": return cont(d);
+      case "continue": if (d.pilot) delete d.pilot.replanning; return cont(d); // also unsticks a replan a restart cut off
       case "metric": {
         if (d.metric.kind !== "manual") return "This goal's metric is measured automatically";
         const v = Number(body.value);
@@ -268,7 +354,7 @@ export async function goalAction(sb: SupabaseClient, userId: string, id: string,
       await sb.from("tasks").update({ status: "cancelled", finished_at: new Date().toISOString() }).eq("id", taskId).eq("status", "awaiting_approval");
     }
   }
-  if (["approve", "ok", "proposal", "resume", "continue", "edit"].includes(action)) void advance(sb, userId, id);
+  if (["approve", "ok", "proposal", "resume", "continue", "edit", "calls"].includes(action)) void advance(sb, userId, id);
   return { row: r.row };
 }
 
@@ -283,6 +369,11 @@ export async function runGoalTool(sb: SupabaseClient, userId: string, tool: "goa
     const blocked = operator ? "" : createGoalBlocked(question, tainted); // operator: decide() granted it (policy-pure operatorAllows)
     if (blocked) return `Error: ${blocked}`;
     // Only these fields from CORE: agents and budget stay at the safe defaults (the owner changes them in the UI).
+    if (input.autopilot === true || input.autopilot === "true") { // a project ORBIT runs by itself: plan → steps in order → replans; outside actions still wait for his click
+      const r = await createGoal(sb, userId, { pilot: true, ask: [input.title, input.why].filter((x) => typeof x === "string" && x).join(". ") });
+      if ("error" in r) return `Error: ${r.error}`;
+      return `Done: autopilot project "${r.row.doc.title}" started. Opus is making a plan of steps over the next days; ORBIT then runs them by itself within a daily limit of ${r.row.doc.pilot?.callsPerDay} Claude calls, and the whole project shows as one progress card on home. Anything that would publish, send, spend, sign up or delete waits for the user's own click. Tell them in one or two short sentences.`;
+    }
     const r = await createGoal(sb, userId, { title: input.title, why: input.why, metric: input.metric, deadline: input.deadline, agents: ["nova", "atlas", "forge"] });
     if ("error" in r) return `Error: ${r.error}`;
     return `Done: goal "${r.row.doc.title}" created as a draft. An agent is drafting a plan; nothing runs until the user reviews and approves it in Agents → 🎯 Goals. Tell them.`;

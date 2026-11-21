@@ -24,10 +24,10 @@ export type Progress = {
 
 const W = {
   en: { approve: "Approve", pick: "Pick one", retry: "Try again", open: "Open", see: "See result", start: "Getting started", finish: "Finishing up", plan: "Planning",
-    left: (m: number) => (m <= 1 ? "almost done" : `about ${m} min left`), failed: "Didn't work", waiting: "Waiting to start", held: "Paused by Stop-all", needs: "Needs you",
+    left: (m: number) => (m <= 1 ? "almost done" : m < 120 ? `about ${m} min left` : m < 2880 ? `about ${Math.round(m / 60)} h left` : `about ${Math.round(m / 1440)} days left`), failed: "Didn't work", waiting: "Waiting to start", held: "Paused by Stop-all", needs: "Needs you",
     line: (w: number, n: number, d: number) => [w && `Working on ${w} thing${w === 1 ? "" : "s"}`, n && `${n} need${n === 1 ? "s" : ""} you`, d && `${d} done today`].filter(Boolean).join(" · ") || "Nothing running. Tell ORBIT what you need." },
   et: { approve: "Kinnita", pick: "Vali üks", retry: "Proovi uuesti", open: "Ava", see: "Vaata tulemust", start: "Alustan", finish: "Lõpetan", plan: "Planeerin",
-    left: (m: number) => (m <= 1 ? "kohe valmis" : `umbes ${m} min veel`), failed: "Ei õnnestunud", waiting: "Ootab algust", held: "Peatatud (Peata kõik)", needs: "Vajab sind",
+    left: (m: number) => (m <= 1 ? "kohe valmis" : m < 120 ? `umbes ${m} min veel` : m < 2880 ? `umbes ${Math.round(m / 60)} h veel` : `umbes ${Math.round(m / 1440)} päeva veel`), failed: "Ei õnnestunud", waiting: "Ootab algust", held: "Peatatud (Peata kõik)", needs: "Vajab sind",
     line: (w: number, n: number, d: number) => [w && `Töös ${w}`, n && `${n} vajab sind`, d && `täna valmis ${d}`].filter(Boolean).join(" · ") || "Midagi ei käi. Ütle ORBITile, mida vajad." },
 } as const;
 export const words = (lang: Lang) => W[lang];
