@@ -55,6 +55,8 @@ import { autonomyLevels } from "./autonomy";
 import { skillDenied } from "./skills-pure";
 import { maxSteps, fallbackNote, sessionInput } from "./core-capability-pure";
 import { citedLinks, unseenLinks, unseenNote } from "./core-sources-pure";
+import { answerClaims, answerNote, answerSources } from "./factcheck-pure";
+import { checkClaimsLocal, coreBudgetMs } from "./factcheck";
 import { withHeadsUp } from "./capability-pure";
 import { coreEngine } from "./core-engine";
 import { randomUUID } from "node:crypto";
@@ -563,7 +565,18 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   // Web/news links the answer cites but nothing in this turn contained: say so instead of passing them as sources.
   const unseen = unseenLinks(wk.text, [prompt, attach?.block ?? "", ...evalTools.map((t) => t.output)]), cited = citedLinks(wk.text);
   if (cited) trace.push({ step: "sources", detail: unseen.length ? `${unseen.length} of ${cited} cited links not opened this turn: ${unseen.join(" ").slice(0, 300)}` : `${cited} cited links, all from this turn's tools or context`, ms: 0, ok: !unseen.length });
-  const text = (wk.text || `_(CORE stopped after ${steps.length} tool calls without writing an answer.)_`) + unseenNote(unseen) + fallbackNote(trace);
+  // Local fact check: each sentence citing a web link against what this turn read from that link (a note, never a rewrite).
+  let factNote = "";
+  const fClaims = cited ? answerClaims(wk.text) : [];
+  if (fClaims.length) {
+    const t = Date.now(), fc = await checkClaimsLocal(fClaims, answerSources(evalTools), coreBudgetMs());
+    if (fc) {
+      factNote = answerNote(fClaims, fc.v, lang);
+      const bad = [...fc.v.values()].filter((x) => x === "not_backed" || x === "contradicted").length, backed = [...fc.v.values()].filter((x) => x === "backed").length;
+      trace.push({ step: "check_facts", detail: `${backed} of ${fClaims.length} web claims backed by their source, ${bad} not backed`, ms: Date.now() - t, ok: !bad });
+    } else trace.push({ step: "check_facts", detail: "fact check skipped (off, no source text, or out of time)", ms: Date.now() - t, ok: true });
+  }
+  const text = (wk.text || `_(CORE stopped after ${steps.length} tool calls without writing an answer.)_`) + unseenNote(unseen) + factNote + fallbackNote(trace);
   const all = [...citations, ...wk.cites];
   // "What I used": built from the citations, trace and context refs already in hand (core-used-pure.ts); no model call, private items redacted
   const used = buildUsed({ citations: all, trace, privateTools: MODULE_PRIVATE, extras: { memories: [...byId.values()], context: ctxIn, files: attach ? attachmentNames(attach.block).filter((n) => !n.startsWith("Earlier attachments")) : [] } });

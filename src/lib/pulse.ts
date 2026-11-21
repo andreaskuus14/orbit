@@ -10,6 +10,8 @@ import { bingNewsSearchUrl, newsFeedQuery } from "./local-news-pure";
 import { BULK_BUDGET, newLookup } from "./web-ladder-pure";
 import { clusterEvents, due, evidenceOf, freshAfterRepair, independentSources, nextHealth } from "./news-intel-pure";
 import { readIntel, updateIntel } from "./news-intel";
+import { applyBriefing, briefingClaims, briefingNote, type Source } from "./factcheck-pure";
+import { briefingBudgetMs, checkClaimsLocal } from "./factcheck";
 import { dropPrivate } from "./private-pure";
 import { conditionalHeaders, validatorsFrom, type Validators } from "./feed-cache-pure";
 
@@ -269,18 +271,33 @@ async function briefing(sb: SupabaseClient, userId: string, kind: PulseKind, foc
     }
     if (!citations.length) throw new Error("Pulse's draft had no verifiable sources, so it was discarded");
 
+    // Local fact check: each cited sentence against the text of the articles it cites. Off, failed or out of time = draft as is.
+    let content = r.text, factDetail = "";
+    const claims = briefingClaims(content);
+    const srcs = new Map<string, Source>([...used.values()].map((a) => [a.id, { id: a.id, text: `${a.title}.\n${fullText.get(a.id) ?? a.summary}`, outlet: a.source, topic: a.topic }]));
+    const fc = claims.length ? await checkClaimsLocal(claims, srcs, briefingBudgetMs()) : null;
+    if (fc) {
+      const res = applyBriefing(content, claims, fc.v, srcs);
+      const checked = toCitations(res.content);
+      if (checked.length) {
+        const note = briefingNote(res);
+        content = res.content + (note ? `\n\n${note}` : ""); citations = checked;
+      }
+      factDetail = `, fact check ${res.backed} backed, ${res.notBacked} not backed, ${res.removed} removed, ${res.oneSource} one-source, ${res.unchecked} unchecked (${fc.ms} ms)`;
+    } else if (claims.length) factDetail = ", fact check skipped";
+
     const title = `${kind === "manual" && focus === "world" ? "World brief" : kind === "manual" && focus === "mine" ? "Your topics brief" : BRIEFING_TITLES[kind]} · ${new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`;
     // Store a readable copy in MEMORY so CORE can recall past briefings, with real links instead of ids.
-    const readable = numberCitations(r.text, citations.map((c) => c.id), "a") +
+    const readable = numberCitations(content, citations.map((c) => c.id), "a") +
       "\n\nSources:\n" + citations.map((c, i) => `[${i + 1}] ${c.title} — ${c.source ?? ""} ${c.published_at ?? ""}\n${c.url}`).join("\n");
     const { memory } = await createMemory(sb, userId, { kind: "research", title, content: readable, source: "pulse", tags: ["briefing", kind] });
 
     const { data: briefing, error: bErr } = await sb.from("briefings")
-      .insert({ user_id: userId, kind, title, content: r.text, citations, article_count: used.size, memory_id: memory.id })
+      .insert({ user_id: userId, kind, title, content, citations, article_count: used.size, memory_id: memory.id })
       .select("id, kind, title, content, citations, article_count, created_at").single();
     if (bErr) throw bErr;
 
-    const detail = `${used.size} articles, ${fullText.size} read in full, ${citations.length} cited, ${ingest.added} new, ${ingest.failures.length} feed errors`;
+    const detail = `${used.size} articles, ${fullText.size} read in full, ${citations.length} cited, ${ingest.added} new, ${ingest.failures.length} feed errors${factDetail}`;
     await finish("ok", detail);
     await emit(sb, userId, "pulse.completed", "intelligence", { kind, briefingId: briefing.id, model: MODEL });
     return { briefing, ingest };
