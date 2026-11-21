@@ -53,10 +53,10 @@ export async function contentHash(content: unknown): Promise<string> {
 export const spendContent = (fingerprint: string, credits: number) => ({ fingerprint, credits });
 /** Negotiator reply: the draft text and who approving emails it to (null = he copies it himself). A changed recipient needs a fresh approval. */
 export const negoContent = (id: string, text: string, to: string | null) => ({ id, text, to: to ? to.trim().toLowerCase() : null });
-/** Clip publish: the exact revision he approved (video, thumbnail, cut, title, edit settings incl. captions); any edit changes the hash.
- *  The description is approved by the publish click itself (he reads it in the form he submits). */
 /** Terminal level-3 command: the exact text and the folder it runs in (shell-session approveRun checks both again). */
 export const termContent = (id: string, command: string, cwd: string) => ({ id, command, cwd });
+/** Clip publish: the exact revision he approved (video, thumbnail, cut, title, edit settings incl. captions); any edit changes the hash.
+ *  The description is approved by the publish click itself (he reads it in the form he submits). */
 export const clipContent = (c: { video?: string; thumb?: string; start: number; end: number; title?: string; edit?: unknown }) =>
   ({ video: c.video ?? "", thumb: c.thumb ?? "", start: c.start, end: c.end, title: c.title ?? "", edit: c.edit ?? null });
 

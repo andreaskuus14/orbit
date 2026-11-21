@@ -32,7 +32,8 @@ const MAX_LEN = 2000;
 
 /* ---------- paths ---------- */
 
-/** Windows-or-POSIX absolute path → lowercase, forward slashes, "." and ".." resolved; null when it isn't absolute. */
+/** Windows-or-POSIX absolute path → lowercase, forward slashes, "." and ".." resolved; null when it isn't absolute.
+ *  Not pc-policy-pure normPath: that one refuses ".." outright (JARVIS gets whole paths); shell arguments like ../x must resolve against cwd. */
 export function normPath(p: string): string | null {
   let s = p.trim().replace(/\\/g, "/");
   if (!s || s.length > 1000 || s.includes("\0")) return null;
