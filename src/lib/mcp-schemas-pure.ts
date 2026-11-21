@@ -31,7 +31,7 @@ export const SCHEMAS: Record<string, Schema> = {
   terminal_run: S(["command"], { command: str, session: str, shell: en("powershell", "cmd", "bash"), cwd: str, wait_sec: num, timeout_sec: num }),
   // one lead, or {"leads": [up to 10]}: neither shape is required on its own
   lead_create: S([], { ...lead, leads: { type: "array", items: obj(lead, ["name", "source_url"]) } }),
-  create_goal: S(["title"], { title: str, why: str, deadline: { ...str, description: "YYYY-MM-DD" }, metric: obj({ kind: en("none", "manual", "steps", "youtube_subscribers"), target: num, how: str }) }),
+  create_goal: S(["title"], { title: str, why: str, autopilot: { type: "boolean", description: "true: an autopilot project ORBIT plans and runs by itself" }, deadline: { ...str, description: "YYYY-MM-DD" }, metric: obj({ kind: en("none", "manual", "steps", "youtube_subscribers"), target: num, how: str }) }),
   local_image_edit: S(["image", "instruction"], { image: str, instruction: str, name: str }),
   local_image: S(["prompt"], { prompt: str, aspect: en("16:9", "9:16", "1:1", "4:3", "3:4", "4:5"), name: str }),
   local_music: S(["prompt"], { prompt: str, seconds: num, name: str }),
