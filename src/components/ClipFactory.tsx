@@ -9,6 +9,7 @@ import { ACK_EVENT, ACK_KEY, failureGroups, isSkip, legacyAcked } from "@/lib/cl
 import ClipPicks from "./ClipPicks";
 import LearnedCard from "./LearnedCard";
 import AutopilotPanel from "./AutopilotPanel";
+import StudioIdeas from "./StudioIdeas";
 import StoryPanel from "./StoryPanel";
 import EngageCard, { DescribeButton } from "./EngageCard";
 import StudioCalendar from "./StudioCalendar";
@@ -417,6 +418,7 @@ export default function ClipFactory({ reduced, onClose, review, failed }: { redu
           <div id="cf-panel-autopilot" role="tabpanel" aria-labelledby="cf-tab-autopilot" hidden={shown !== "autopilot"} className="space-y-3">
             <AutoCard s={autoState} onChanged={autoChanged} onOpenFind={() => selectTab("find")}
               inbox={{ on: autoInbox, busy: !!busy.auto || autoInbox === null, toggle: (on) => void toggleAuto(on), layout: autoOpts && <LayoutChip o={autoOpts} onSave={(p) => void setAutoLayout(p)} />, note: <Note k="auto" /> }} />
+            <StudioIdeas active={shown === "autopilot"} />
             <AutopilotPanel active={shown === "autopilot"} rev={autoRev} onChanged={() => void load(true)} onReview={openReview} onOpenFind={() => selectTab("find")} />
           </div>
           <div id="cf-panel-story" role="tabpanel" aria-labelledby="cf-tab-story" hidden={shown !== "story"}><StoryPanel active={shown === "story"} seed={storySeed} onOpenClip={openClip} onChanged={() => void load(true)} /></div>
