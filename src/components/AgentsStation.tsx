@@ -35,7 +35,7 @@ import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { NightPlan, OPS_HREF, Scorecards, WorkerCards, type Deps, type ToolInfo } from "./Workforce";
 import { useT } from "./i18n";
 import { BackToSimple, PlanetHome, useManual } from "./PlanetHome";
-import { fromTask, sortProgress } from "@/lib/progress-pure";
+import { taskWork } from "@/lib/planet-page-pure";
 
 // AGENTS → a floating obsidian ring station (alien megastructure theme): each agent is a ship circling its docking lane,
 // glowing by status, plotted live on a holographic tactical map behind the station.
@@ -570,8 +570,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
           <><button className="chip mb-3" onClick={() => { setManage(false); loadAgents(); }}>← Station</button><AgentsPanel onOpenTask={(id) => onOpenTask?.(id)} /></>
         ) : !manual && !focusGoal && !radarUrl ? ( // AI-first home; the station tools sit behind "Manual tools"
           <PlanetHome planet="agents" onManual={() => setManual(true)} onOpenTask={(id) => onOpenTask?.(id)}
-            work={sortProgress(tasks.filter((x) => !x.parent_id && (x.status === "running" || x.status === "queued" || x.status === "awaiting_approval"
-              || (x.status === "failed" && Date.now() - Date.parse(x.finished_at ?? x.created_at) < 86_400_000))).slice(0, 6).map((x) => fromTask(x, lang, { nowMs: Date.now() })))}
+            work={taskWork(tasks, lang, Date.now())}
             results={tasks.filter((x) => x.status === "done" && !x.parent_id).slice(0, 6).map((x) => ({
               id: x.id, title: x.title, sub: `${(x.result ?? "").replace(/[#*_`>]/g, "").split(/\n+/).find((l) => l.trim())?.slice(0, 90) ?? ""}${x.finished_at ? ` · ${new Date(x.finished_at).toLocaleDateString()}` : ""}`,
               next: t("ph.seeResult"), open: () => onOpenTask?.(x.id),

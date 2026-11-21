@@ -85,3 +85,17 @@ test("vault rows: newest four files with size", () => {
   assert.deepEqual(rows.map((r) => r.title), ["f5.pdf", "f4.pdf", "f3.pdf", "f2.pdf"]);
   assert.match(rows[0].sub, /^Added .* · 3\.0 MB$/);
 });
+
+import { taskWork } from "../src/lib/planet-page-pure.ts";
+test("taskWork: running, queued and waiting tasks plus today's failures; no sub-tasks, no old failures, no done; needs-you first", () => {
+  const T = (id: string, status: string, o: Record<string, unknown> = {}) => ({ id, title: id, status, created_at: "2026-11-21T11:00:00Z", ...o });
+  const out = taskWork([
+    T("run", "running", { started_at: "2026-11-21T11:30:00Z" }), T("q", "queued"), T("ask", "awaiting_approval"),
+    T("child", "running", { parent_id: "run" }), T("done", "done"), T("oldfail", "failed", { finished_at: "2026-11-19T10:00:00Z" }),
+    T("newfail", "failed", { finished_at: "2026-11-21T10:00:00Z", error: "ETIMEDOUT" }),
+  ], "en", NOW);
+  assert.deepEqual(out.map((p) => p.id).sort(), ["ask", "newfail", "q", "run"]);
+  assert.equal(out[0].id, "ask");
+  assert.equal(out.find((p) => p.id === "ask")!.phase, "needs");
+  assert.equal(taskWork(Array.from({ length: 9 }, (_, i) => T(`r${i}`, "running")), "en", NOW).length, 6);
+});

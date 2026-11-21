@@ -3,7 +3,7 @@
 // state into the shared Progress model (progress-pure.ts) in plain words, and keeps internal names off the default screens.
 // Pure; tests in tests/planet-page.test.ts. Cards never approve anything: their button opens where the item's own Approve lives.
 import type { Lang } from "./i18n-pure.ts";
-import { fromStages, sortProgress, type Progress } from "./progress-pure.ts";
+import { fromStages, fromTask, sortProgress, type Progress, type TaskLike } from "./progress-pure.ts";
 
 const STAGE_WORDS = {
   clip: {
@@ -76,6 +76,13 @@ export function studioWork(jobs: ClipJobLike[], downloads: DownloadLike[], lang:
   }
   // A finished job that only waits for review isn't "needs" by itself (the review lives in Needs you); keep it as done with a button.
   return sortProgress(out.map((p) => (p.phase === "needs" ? { ...p, phase: "done" as const } : p)));
+}
+
+/** OPERATIONS / AGENTS: top-level agent tasks → "Working on it" cards: running, queued and waiting for him, plus what failed in the last day. */
+export function taskWork(tasks: (TaskLike & { parent_id?: string | null })[], lang: Lang, nowMs: number, max = 6): Progress[] {
+  const live = tasks.filter((x) => !x.parent_id && (["running", "queued", "awaiting_approval"].includes(x.status)
+    || (x.status === "failed" && nowMs - (Date.parse(x.finished_at ?? x.created_at) || 0) < DAY)));
+  return sortProgress(live.map((x) => fromTask(x, lang, { nowMs }))).slice(0, max);
 }
 
 /** INTELLIGENCE: the briefing job (GET /api/briefings job row) → one card while it runs or right after. */
