@@ -25,7 +25,7 @@ export const EFFECTS: Record<string, Effect> = {
   browse: "read", // read-only browser: non-GET requests blocked, submits/logins refused
   save_decision: "reversible", // one memory row (kind decision), Undo in OPERATIONS → Activity; only after his yes (policy-pure)
   watch_add: "reversible", watch_list: "read", watch_changes: "read", // page watch: a local record (remove it in INTELLIGENCE → Watches)
-  roblox_export: "reversible", roblox_lint: "read", // local Rojo project files, each export a git commit (git revert to undo)
+  roblox_export: "reversible", roblox_lint: "read", roblox_files: "read", roblox_read: "read", roblox_write: "reversible", roblox_undo: "reversible", // local Rojo project files, each export a git commit (git revert to undo)
   ws_inspire_image: "reversible", // reference words + a quoted draft; the spend is story.approve
   schedule_approved: "publish", // uploads only clips already approved by his click (status "approved")
   // owner-click actions
