@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { correctionTask, evalMark, evalTag, evalTagged, gradeRun, newRunId, parseRunId, passTable, summarize, validateTask, type EvalTask } from "../src/lib/eval-core-pure.ts";
+import { ORBIT_EXAM_TASKS } from "../evals/orbit-exam.ts";
 
 test("every golden task file is valid and ids are unique", () => {
   const dir = new URL("../evals/tasks/", import.meta.url);
@@ -9,6 +10,18 @@ test("every golden task file is valid and ids are unique", () => {
   assert.ok(files.length >= 10);
   const ids = files.map((f) => { const t = validateTask(JSON.parse(readFileSync(new URL(f, dir), "utf8"))); assert.equal(typeof t, "object", `${f}: ${t}`); return (t as EvalTask).id; });
   assert.equal(new Set(ids).size, ids.length);
+});
+
+test("the nightly exam has 100+ described cases across planets and LIFE cases stay local-only", () => {
+  assert.ok(ORBIT_EXAM_TASKS.length >= 100);
+  assert.ok(new Set(ORBIT_EXAM_TASKS.map((t) => t.id)).size === ORBIT_EXAM_TASKS.length);
+  for (const t of ORBIT_EXAM_TASKS) {
+    assert.ok(t.planet && t.good && t.forbidden, t.id);
+    assert.equal(typeof validateTask(t), "object", t.id);
+    if (t.planet === "LIFE") assert.equal(t.localOnly, true, t.id);
+    if (t.localOnly) assert.equal(t.planet, "LIFE", t.id);
+  }
+  assert.deepEqual([...new Set(ORBIT_EXAM_TASKS.map((t) => t.planet))].sort(), ["AGENTS", "ARCH", "BRIEFINGS", "BUSINESS", "CORE", "GAME DEV", "LIFE", "MEMORY", "OPERATIONS", "STUDIO", "VAULT"]);
 });
 
 test("validateTask refuses bad ids, sets, unknown tools and empty checks", () => {
@@ -41,6 +54,8 @@ test("graders: receipt, Choices line, tools, order, forbidden, T3, asking, files
   assert.equal(gradeRun(task({ mustAsk: true }), { answer: "Which Short do you mean? It goes out after your Approve click.", trace: [] }).ok, true);
   assert.equal(gradeRun(task({ mustAsk: true }), { answer: "Published.", trace: [] }).ok, false);
   assert.equal(gradeRun(task({ files: ["about.html"] }), run).ok, false);
+  assert.deepEqual(gradeRun(task({ answerContains: ["Built"], answerExcludes: ["published"] }), run).fails, []);
+  assert.deepEqual(gradeRun(task({ answerContains: ["ready"], answerExcludes: ["Built"] }), run).fails, ["answer missing: ready", "answer includes forbidden text: Built"]);
 });
 
 test("summary: pass@1 and pass^k per task", () => {

@@ -10,6 +10,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { correctionTask, gradeRun, handoffTaskId, newRunId, parseRunId, passTable, summarize, validateTask, type EvalTask } from "../src/lib/eval-core-pure.ts";
+import { ORBIT_EXAM_TASKS } from "../evals/orbit-exam.ts";
 
 const args = process.argv.slice(2);
 const opt = (k: string) => { const i = args.indexOf(`--${k}`); return i >= 0 ? args[i + 1] : undefined; };
@@ -47,6 +48,10 @@ const tasks: EvalTask[] = [...files("tasks").map((f) => {
 }), ...files("corrections").flatMap((f) => { // his kept corrections (lessons.ts); an unusable one is skipped, never fatal
   let t: EvalTask | string; try { t = correctionTask(JSON.parse(readFileSync(f, "utf8"))); } catch { return []; }
   return typeof t === "string" ? [] : [t];
+}), ...ORBIT_EXAM_TASKS.map((raw) => {
+  const t = validateTask(raw);
+  if (typeof t === "string") throw new Error(`ORBIT exam: ${t}`);
+  return t;
 })].filter((t) => (!opt("set") || t.set === opt("set")) && (!opt("only") || t.id === opt("only")));
 
 async function main() {
@@ -66,15 +71,20 @@ async function main() {
   if (engine) { const r = await api("/api/core/engine", { engine }); if (!r.ok) throw new Error(`could not switch engine: ${(await r.json().catch(() => ({}))).error ?? r.status}`); }
   const active = engine ?? was.engine;
   console.log(`eval ${runId}: ${tasks.length} tasks × ${trials} on engine ${active === "cli" ? "json" : active} at ${BASE} (remove its data: npm run eval -- --cleanup ${runId})`);
-  const rows: { id: string; set: string; trial: number; ok: boolean; fails: string[]; ms: number; answer: string }[] = [];
+  const rows: { id: string; set: string; planet?: string; trial: number; ok: boolean; fails: string[]; ms: number; answer: string; localOnly?: boolean }[] = [];
   try {
     for (const t of tasks) for (let k = 1; k <= trials; k++) {
       const t0 = Date.now();
+      if (t.localOnly) {
+        rows.push({ id: t.id, set: t.set, planet: t.planet, trial: k, ok: true, fails: [], ms: 0, answer: "", localOnly: true });
+        if (!args.includes("--json")) console.log(`LOCAL ${t.id} #${k} (not sent to a model)`);
+        continue;
+      }
       const r = await api("/api/core", { message: t.input, requestId: `eval-${t.id}-${k}-${t0}`, evalRun: runId }, 330_000).catch((e) => e as Error); // the route's own limit; longer work hands off and is followed below
       const j = r instanceof Error ? { error: r.message } : await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
       await followHandoff(j); // a turn handed to the background: grade its finished answer and full trace
       const g = j.error ? { ok: false, fails: [`turn failed: ${String(j.error).slice(0, 160)}`] } : gradeRun(t, { answer: String(j.answer ?? ""), trace: Array.isArray(j.trace) ? j.trace : [] });
-      rows.push({ id: t.id, set: t.set, trial: k, ...g, ms: Date.now() - t0, answer: String(j.answer ?? "").slice(0, 2000) });
+      rows.push({ id: t.id, set: t.set, planet: t.planet, trial: k, ...g, ms: Date.now() - t0, answer: String(j.answer ?? "").slice(0, 2000) });
       if (!args.includes("--json")) console.log(`${g.ok ? "PASS" : "FAIL"} ${t.id} #${k} ${((Date.now() - t0) / 1000).toFixed(0)}s${g.fails.length ? `: ${g.fails.join("; ")}` : ""}`);
     }
   } finally {

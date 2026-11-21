@@ -1,6 +1,13 @@
 import { requireUser } from "@/lib/supabase/server";
 import { parseRunId } from "@/lib/eval-core-pure";
 
+/** OPERATIONS card: score only, no prompts, answers or tool results. */
+export async function GET() {
+  const { res } = await requireUser();
+  if (res) return res;
+  return Response.json(await (await import("@/lib/orbit-exam")).orbitExamView());
+}
+
 /** `npm run eval -- --cleanup <runId|all>`: {cleanup: runId | "all"} deletes only the data eval runs tagged (eval-run.ts). */
 export async function POST(req: Request) {
   const { sb, user, res } = await requireUser();
