@@ -9,6 +9,8 @@ import { pushNotify } from "@/lib/remote-push";
 import { crmOf, loadCrm, logEvent, updateCrm } from "@/lib/prospect-crm";
 import { claimProblem, deliveryPlan, duplicateOf, EVENT_KINDS, LOST_REASONS, newCrm, touch, type EventKind, type LostReason } from "@/lib/prospect-crm-pure";
 import { withOptOut } from "@/lib/lead-loop-pure";
+import { closedProblem, draftFacts, isLinked } from "@/lib/registry-pure";
+import { peopleBlock } from "@/lib/registry";
 import { FOLLOWUP_SYSTEM, followupPrompt, FIND_SYSTEM, LANGS, OUTREACH_SYSTEM, RESEARCH_SYSTEM, findPrompt, funnel, isTemplate, outreachPrompt, parseDraft, parseFinds, researchPrompt, trimDossier, validatePatch, validateProspect, withDossier, type Lang, type Prospect } from "@/lib/business-pure";
 
 export const dynamic = "force-dynamic";
@@ -146,7 +148,12 @@ export async function POST(req: Request) {
       }
       try {
         const angle = isTemplate(b.angle) ? b.angle : "auto";
-        const r = await askClaude(followup ? followupPrompt(p, lang) : outreachPrompt(p, lang, angle), followup ? FOLLOWUP_SYSTEM : OUTREACH_SYSTEM, { lane: "foreground", purpose: followup ? "business.followup" : "business.outreach", timeoutMs: 90_000 });
+        const rec = (await loadCrm().catch(() => ({} as Record<string, never>)))[b.id as string]?.registry, reg = isLinked(rec) ? rec.info : null;
+        if (!followup && p.stage === "lead" && closedProblem(reg)) return fail(closedProblem(reg));
+        const ask = followup ? followupPrompt(p, lang) : outreachPrompt(p, lang, angle, draftFacts(reg, new Date().toISOString().slice(0, 10)));
+        const blocked = await peopleBlock(b.id as string, ask, p.name); // GDPR: registry board members never go to a model
+        if (blocked) return fail(blocked);
+        const r = await askClaude(ask, followup ? FOLLOWUP_SYSTEM : OUTREACH_SYSTEM, { lane: "foreground", purpose: followup ? "business.followup" : "business.outreach", timeoutMs: 90_000 });
         const parsed = followup ? { draft: r.text.trim().slice(0, 4000), template: null } : parseDraft(r.text, angle);
         const { template } = parsed, draft = parsed.draft && p.source != null ? withOptOut(parsed.draft, lang) : parsed.draft; // B8: tagged leads always carry the opt-out
         if (followup && draft === p.draft.trim()) return fail("CORE repeated the first draft; try again", 502);

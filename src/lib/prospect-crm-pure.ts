@@ -3,6 +3,7 @@
 // (prospect-crm.ts) keyed by prospect id, so no migration is needed. Tested in tests/prospect-crm.test.ts.
 
 import type { LeadLoop } from "./lead-loop-pure.ts";
+import { draftFacts, isLinked, type RegMatch } from "./registry-pure.ts";
 
 export const SOURCES = ["manual", "web-find", "lead-loop", "maps-import"] as const;
 export type Source = (typeof SOURCES)[number];
@@ -12,7 +13,8 @@ export type EventKind = (typeof EVENT_KINDS)[number];
 export type CrmEvent = { at: string; kind: EventKind; text?: string };
 export type Crm = { source: Source; verified: boolean; verifiedAt?: string; key: string; events: CrmEvent[]; opsProject?: string;
   /** Why it went to "Not now" (BUS08), his pick: feeds the conversion learning. */ lost?: { reason: LostReason; at: string };
-  /** B2 lead loop: no-website proof, demo and pitch stage (lead-loop-pure). Auto never sends to these. */ lead?: LeadLoop };
+  /** B2 lead loop: no-website proof, demo and pitch stage (lead-loop-pure). Auto never sends to these. */ lead?: LeadLoop;
+  /** e-Business Register match (registry-pure). Business facts only: board members live in registry/people.json, never here. */ registry?: RegMatch };
 export const LOST_REASONS = ["no-reply", "price", "timing", "not-a-fit", "went-elsewhere", "other"] as const;
 export type LostReason = (typeof LOST_REASONS)[number];
 export type Store = Record<string, Crm>;
@@ -87,8 +89,9 @@ export function deliveryPlan(p: { name: string; kind: string; fee: number }, agr
 }
 
 /** One BUSINESS prospect as the read-only list_prospects tool shows it to Closer, Outreach and Prospector. */
-export function prospectLine(p: { id: string; name: string; kind: string; contact: string; stage: string; notes: string; draft: string; updated_at: string }, c?: Crm): string {
+export function prospectLine(p: { id: string; name: string; kind: string; contact: string; stage: string; notes: string; draft: string; updated_at: string }, c?: Crm, today = new Date().toISOString().slice(0, 10)): string {
   const t = c ? touch(c.events) : null;
+  const reg = isLinked(c?.registry) ? draftFacts(c!.registry!.info, today) || (c!.registry!.info.status !== "active" ? `registry: ${c!.registry!.info.status}, do not pitch` : "") : "";
   const bits = [
     `stage ${p.stage}`,
     p.kind && `kind ${p.kind}`,
@@ -97,6 +100,7 @@ export function prospectLine(p: { id: string; name: string; kind: string; contac
     p.draft ? "draft ready (not sent)" : "no draft",
     c && `source ${c.source}`,
     `updated ${p.updated_at.slice(0, 10)}`,
+    reg,
   ].filter(Boolean);
   return `- [p:${p.id}] ${p.name}: ${bits.join("; ")}${p.notes ? `\n  notes: ${p.notes.replace(/\s+/g, " ").slice(0, 300)}` : ""}${p.draft ? `\n  draft: ${p.draft.replace(/\s+/g, " ").slice(0, 400)}` : ""}`;
 }

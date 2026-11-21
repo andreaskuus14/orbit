@@ -190,7 +190,9 @@ export async function runOne(sb: SupabaseClient, userId: string, t: NightTask, s
       const { data: p, error } = await sb.from("prospects").select("name, kind, notes, draft, stage").eq("user_id", userId).eq("id", t.ref).maybeSingle();
       if (error) throw error;
       if (!p || p.stage !== "contacted" || !p.draft?.trim()) return { ...base, status: "skipped", why: "No longer waiting for a follow-up", at: at() };
-      const r = await askClaude(followupPrompt(p, "English"), FOLLOWUP_SYSTEM, { lane: "background", purpose: "business.followup", timeoutMs: 90_000, signal });
+      const ask = followupPrompt(p, "English");
+      if (await import("./registry").then((m) => m.peopleBlock(t.ref, ask, p.name))) return { ...base, status: "skipped", why: "The text names a board member from the registry; names never go to the AI", at: at() }; // GDPR
+      const r = await askClaude(ask, FOLLOWUP_SYSTEM, { lane: "background", purpose: "business.followup", timeoutMs: 90_000, signal });
       await recordUsage(sb, userId, "business.followup", r);
       const draft = r.text.trim().slice(0, 4000);
       if (!draft || draft === p.draft.trim()) return { ...base, status: "failed", why: "The draft came back empty or repeated the first one", at: at() };

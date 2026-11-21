@@ -11,6 +11,8 @@ import { siteFromIdea } from "@/lib/site-idea";
 import { crmOf, loadCrm, logEvent, updateCrm } from "@/lib/prospect-crm";
 import { duplicateOf, newCrm } from "@/lib/prospect-crm-pure";
 import { validateProspect } from "@/lib/business-pure";
+import { closedProblem, draftFacts, isLinked } from "@/lib/registry-pure";
+import { matchIfIndexed, peopleBlock } from "@/lib/registry";
 import { FIE_WARNING, LEAD_SOURCE, MAPS_MAX, mapsDupe, MAPS_SOURCE, mapsNotes, parseMapsCsv, PITCH_SYSTEM, SEARCH_SYSTEM, combineTries, demoIdea, domainGuesses, domainUrls, fetchErrorState, finishPitch, honestyIssues, isNaturalPerson, nextStep, pageNames, parseCandidates, parseSearch, pitchProblems, pitchPrompt, scoreNoWebsite, searchPrompt, toCandidate, type Candidate, type Dns, type DnsState, type LeadLoop, type Search, type PitchLang } from "@/lib/lead-loop-pure";
 
 export const dynamic = "force-dynamic";
@@ -65,7 +67,7 @@ export async function POST(req: Request) {
     if (!parsed) return fail("Not a google-maps-scraper CSV: it needs the title and link columns");
     const { data: all, error: e1 } = await sb.from("prospects").select("id,name,contact,notes").limit(5000);
     if (e1) return fail(e1.message, 500);
-    const store = await loadCrm(), known = [...(all ?? [])], rows = [];
+    const store = await loadCrm(), known = [...(all ?? [])], rows: { name: string; notes: string; [k: string]: unknown }[] = [];
     let dupes = 0;
     for (const l of parsed.leads) {
       if (mapsDupe(known, l)) { dupes++; continue; }
@@ -82,6 +84,7 @@ export async function POST(req: Request) {
       await sb.from("prospects").delete().in("id", data.map((d) => d.id));
       return fail(`Couldn't save the leads: ${e instanceof Error ? e.message : "CRM store error"}`, 500);
     }
+    void matchIfIndexed(data.map((d) => ({ id: d.id, name: d.name, notes: rows.find((r) => r.name === d.name)?.notes ?? "" })));
     return Response.json({ saved: data.length, dupes, over: parsed.over, max: MAPS_MAX });
   }
   const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
@@ -112,12 +115,13 @@ export async function POST(req: Request) {
       if (error || !data) return fail(error?.message ?? "Couldn't save the lead", 500);
       await updateCrm((s) => { s[data.id] = { ...newCrm("lead-loop", p.name, ""), lead: { stage: "checked", confidence: verdict.confidence, evidence: verdict.evidence, ...(person && { person }) } }; });
       await emit(sb, user.id, "business.stage", "business", { prospect: data.id, to: data.stage });
+      void matchIfIndexed([{ id: data.id, name: data.name, notes: data.notes }]); // registry facts from the local index; no download
       return Response.json({ verdict, prospect: data, ...(person && { warning: FIE_WARNING }) });
     }
     if (typeof b.id !== "string" || !/^[0-9a-f-]{36}$/i.test(b.id)) return fail("id required");
     const { data: p } = await sb.from("prospects").select("id,name,kind,contact,notes,stage").eq("id", b.id).maybeSingle();
     if (!p) return fail("Not found", 404);
-    const lead = crmOf(await loadCrm(), p).lead;
+    const rec = crmOf(await loadCrm(), p), lead = rec.lead;
     if (!lead) return fail("Not a lead-loop lead");
     const city = /^City: (.+)$/m.exec(p.notes ?? "")?.[1] ?? "", c: Candidate = { name: p.name, city, category: p.kind ?? "" };
     if (b.action === "demo") {
@@ -132,9 +136,14 @@ export async function POST(req: Request) {
       if (p.stage !== "lead") return fail("Only a lead still To contact gets a first pitch");
       if (!lead.demo || lead.demo.issues?.length) return fail("Build a clean demo first");
       const lang: PitchLang = b.lang === "Estonian" ? "Estonian" : "English";
+      const reg = isLinked(rec.registry) ? rec.registry.info : null, closed = closedProblem(reg);
+      if (closed) return fail(closed);
+      const facts = draftFacts(reg, new Date().toISOString().slice(0, 10)); // field + years only; board names never reach the model
       let body = "", problems: string[] = [];
       for (let i = 0; i < 2; i++) { // one repair round with the lint's own words
-        const ask = pitchPrompt(c, lang) + (problems.length ? `\nYour last draft broke these rules, fix them:\n- ${problems.join("\n- ")}\nLast draft: ${body}` : "");
+        const ask = pitchPrompt(c, lang, facts) + (problems.length ? `\nYour last draft broke these rules, fix them:\n- ${problems.join("\n- ")}\nLast draft: ${body}` : "");
+        const blocked = await peopleBlock(p.id, ask, p.name); // GDPR: registry board members never go to a model
+        if (blocked) return fail(blocked);
         body = (await askClaude(ask, PITCH_SYSTEM, { lane: "foreground", purpose: "business.lead-pitch", timeoutMs: 90_000, signal: req.signal })).text.trim();
         problems = pitchProblems(body, p.name);
         if (!problems.length) break;
