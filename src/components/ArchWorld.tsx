@@ -27,6 +27,7 @@ import { quizCards } from "@/lib/study-pure";
 import { shadowOf } from "@/lib/arch-time-pure";
 import { SplatCloud, makeSplatWorker, type ScanData } from "./SplatCloud";
 import { ArchStudio } from "./ArchStudio";
+import { ArchDraw } from "./ArchDraw";
 import { DaylightPanel, DaylightRooms, type Daylight } from "./ArchDaylight";
 import { ArchEnergy } from "./ArchEnergy";
 import { ArchKit } from "./ArchKit";
@@ -494,6 +495,9 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
             <button className="chip" onClick={() => setConflict(null)}>{tr("arch.conflictDrop")}</button>
           </div>
         )}
+        {/* ARCH studio: sketch / picture / words → editable plan → 3D, walk with the sun, files (the planet's main action) */}
+        {!lesson && !scan && !ifc && <ArchDraw storeKey={project || "unassigned"} onWalk={() => { setSun((v) => ({ ...v, on: true })); if (!flat) setWalk(true); }}
+          onBuild={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setPreview(null); setRun((n) => n + 1); }} />}
   </div>);
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label={tr("arch.region")} style={{ background: bg }}>
