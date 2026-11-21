@@ -122,6 +122,20 @@ export async function renderPdfPages(bytes: Uint8Array, name: string, pages: num
   return r;
 }
 
+/** ARCH photo scan: 3-10 photos → 3DGS-layout PLY bytes + the report header (photo-scan.ts saves and notes it). Loopback only. */
+export async function photoScanCall(photos: File[], signal?: AbortSignal): Promise<{ ply: Uint8Array; report: string | null }> {
+  const u = base();
+  if (!u) throw new Error("ORBIT_LOCAL_AI_URL must point at this PC (http://127.0.0.1:<port>).");
+  if (!(await ping(u, 3000)) && !(await autostart(u))) throw new Error(NOT_RUNNING);
+  const f = new FormData();
+  for (const p of photos) f.append("photos", p);
+  const ms = 15 * MINUTE; // CPU fallback with 10 photos is ~1 min; this is only the stuck-service guard
+  const res = await fetch(`${u}/photo-scan`, { method: "POST", redirect: "error", body: f, signal: AbortSignal.any([AbortSignal.timeout(ms), ...(signal ? [signal] : [])]) })
+    .catch((e: unknown) => { throw new Error(e instanceof Error && e.name === "TimeoutError" ? `Local AI took longer than ${ms / MINUTE} minutes and was stopped waiting.` : signal?.aborted ? "Cancelled" : NOT_RUNNING); });
+  if (!res.ok) throw new Error(serviceError(res.status, await res.json().catch(() => null)));
+  return { ply: new Uint8Array(await res.arrayBuffer()), report: res.headers.get("x-orbit-report") };
+}
+
 /** CORE tools local_3d / local_tts / local_transcribe. Errors come back as "Error: ..." text (core.ts's convention). */
 export async function runLocalTool(tool: string, i: Record<string, unknown>): Promise<string> {
   try {

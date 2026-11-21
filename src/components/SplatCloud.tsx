@@ -14,6 +14,7 @@ export type ScanData = {
   name: string; tex: Float32Array; count: number; total: number; format: string;
   bounds: { lo: [number, number, number]; hi: [number, number, number] }; bytes?: Uint8Array | null;
   noteId?: string | null; note?: string; // the scan's MEMORY note (5.5: calibration and measurements live there)
+  measure?: boolean; // open with Measure on (a fresh photo scan: its size still has to be set)
 };
 type Reply = Omit<ScanData, "name"> & { order?: Float32Array; hit?: [number, number, number] | null; error?: string };
 export type SplatWorker = { call: (msg: Record<string, unknown>, transfer?: Transferable[]) => Promise<Reply>; stop: () => void };

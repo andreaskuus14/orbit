@@ -10,9 +10,10 @@
 #   setup.ps1 -Ifc        IFC models for ARCH: IfcOpenShell (~60 MB, CPU)
 #   setup.ps1 -Docs       document reading: Docling + its layout/table/OCR models (~1 GB)
 #   setup.ps1 -Extras     all three
+#   setup.ps1 -Scan       ARCH photo scan: Depth Anything 3 BASE (Apache-2.0, ~0.55 GB; ~1-2 GB GPU, CPU works)
 #   setup.ps1 -Dub        STUDIO bilingual dub: OpenVoice V2 voice converter (MIT) + Piper Estonian voice (~210 MB, CPU; needs the main setup's Kokoro)
 # Background cut-out: BiRefNet lite by default; -CutoutModel birefnet-general (~970 MB, cleaner, slower) or u2net. Also set ORBIT_CUTOUT_MODEL to match.
-param([ValidateSet("birefnet-general-lite", "birefnet-general", "u2net")][string]$CutoutModel = "birefnet-general-lite", [switch]$SkipClone, [switch]$Skip3D, [switch]$Captions, [switch]$Ifc, [switch]$Docs, [switch]$Extras, [switch]$Dub)
+param([ValidateSet("birefnet-general-lite", "birefnet-general", "u2net")][string]$CutoutModel = "birefnet-general-lite", [switch]$SkipClone, [switch]$Skip3D, [switch]$Captions, [switch]$Ifc, [switch]$Docs, [switch]$Extras, [switch]$Dub, [switch]$Scan)
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
 $Venv = Join-Path $Here ".venv"
@@ -43,6 +44,15 @@ $DubFiles = @(
   @{ Url = "https://huggingface.co/myshell-ai/OpenVoiceV2/resolve/$OpenVoiceRev/converter/config.json"; Out = "openvoice\config.json"; Sha = "9dfff60350b8c63f2c664efd92a61b2516efb22671466960f0e5dfebd881fa47" },
   @{ Url = "https://huggingface.co/rhasspy/piper-voices/resolve/$PiperRev/et/et_EE/news/medium/et_EE-news-medium.onnx"; Out = "piper\et_EE-news-medium.onnx"; Sha = "e4a55ec42364c5a2d060bf51ef7525b141b24cd56426f61a3702b44f68f5f21f" },
   @{ Url = "https://huggingface.co/rhasspy/piper-voices/resolve/$PiperRev/et/et_EE/news/medium/et_EE-news-medium.onnx.json"; Out = "piper\et_EE-news-medium.onnx.json"; Sha = "281235a43df750a5ca3edc0c752a74c3487e63609c53468a7fce1d4b93d161af" }
+)
+# ARCH photo scan: Depth Anything 3 code (Apache-2.0, pure-Python wheel, installed WITHOUT its long dependency list: ORBIT only
+# runs the model; server.py's photo_scan.py stands in for the unused export helpers) + addict (MIT) + the BASE weights. Never the
+# LARGE/GIANT weights or VGGT-1B: those are CC BY-NC (non-commercial).
+$ScanPkgs = @("depth-anything-3==0.1.1", "addict==2.4.0")
+$ScanRev = "f4a6c9b3c95e41c82048423d3493a81ec3fa810e"  # depth-anything/DA3-BASE, license apache-2.0
+$ScanFiles = @(
+  @{ Url = "https://huggingface.co/depth-anything/DA3-BASE/resolve/$ScanRev/model.safetensors"; Out = "da3-base\model.safetensors"; Sha = "e01067dc1659613083d9145a9a2547ccdbe6ccbbf83c4fe7b3e8a4e2bdae78b5" },
+  @{ Url = "https://huggingface.co/depth-anything/DA3-BASE/resolve/$ScanRev/config.json"; Out = "da3-base\config.json"; Sha = "5e34115ebc17bd2d8d43033c5f72e9446ac8833fd61d3fa160b7e67e0bb5b7b5" }
 )
 $Kokoro = @(
   @{ Name = "kokoro-v1.0.onnx"; Sha = "beb0d1848dee9a49da392cc3df26958d46cfa35d321edf434f52949153f0df3a" },
@@ -81,7 +91,7 @@ Step "Virtual environment ($Venv)"
 if (-not (Test-Path $Py)) { Run py @("-3.11", "-m", "venv", $Venv) }
 Run $Py @("-m", "pip", "install", "--upgrade", "pip==24.3.1", "setuptools==75.6.0", "wheel==0.45.1")
 
-if ($Captions -or $Ifc -or $Docs -or $Extras -or $Dub) {
+if ($Captions -or $Ifc -or $Docs -or $Extras -or $Dub -or $Scan) {
   # Only the optional modules: the main tools are left as they are. "torch==$TorchVer" in each install keeps pip from touching torch.
   $C = @("-c", (Join-Path $Here "constraints.txt"))
   # find_spec, not import: nothing on stderr (Windows PowerShell treats native stderr as an error under "Stop")
@@ -123,6 +133,33 @@ if ($Captions -or $Ifc -or $Docs -or $Extras -or $Dub) {
       if ((Get-FileHash $dest -Algorithm SHA256).Hash -ne $f.Sha) { Remove-Item $dest; throw "$($f.Out) was damaged while downloading (hash mismatch). Run setup.ps1 -Dub again." }
     }
     if (-not (Test-Path (Join-Path $Models "kokoro\kokoro-v1.0.onnx"))) { Warn "Kokoro isn't installed: run the main setup once, then -Dub again (English dubs use it)." }
+  }
+  if ($Scan) {
+    Step "Photo scan: Depth Anything 3 BASE (Apache-2.0, ~0.55 GB)"
+    if (-not (& $Has "torchvision")) { RunRetry $Py @("-m", "pip", "install", "torch==$TorchVer", "torchvision==$TorchVisionVer", "--index-url", "https://download.pytorch.org/whl/cu128") }
+    if (-not (& $Has "depth_anything_3")) {
+      RunRetry $Py (@("-m", "pip", "install", "--no-deps") + $ScanPkgs)
+      # what the model itself imports; all already pinned in constraints.txt for the main tools (a no-op when present)
+      RunRetry $Py (@("-m", "pip", "install", "omegaconf", "einops", "trimesh", "imageio", "scipy", "opencv-python-headless", "safetensors", "huggingface-hub", "pillow", "torch==$TorchVer") + $C)
+    }
+    foreach ($f in $ScanFiles) {
+      $dest = Join-Path $Models $f.Out
+      New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
+      if ((Test-Path $dest) -and (Get-FileHash $dest -Algorithm SHA256).Hash -eq $f.Sha) { continue }
+      for ($i = 1; $i -le 4; $i++) {
+        & curl.exe -L --fail --retry 5 --retry-delay 10 -C - -o "$dest.part" $f.Url
+        if ($LASTEXITCODE -eq 0) { break }
+        if ($i -eq 4) { throw "Download failed 4 times: $($f.Url). Run setup.ps1 -Scan again; it continues where it stopped." }
+        Warn "Download stopped (try $i of 4); retrying in 15 s"; Start-Sleep 15
+      }
+      if ((Get-FileHash "$dest.part" -Algorithm SHA256).Hash -ne $f.Sha) { Remove-Item "$dest.part"; throw "$($f.Out) was damaged while downloading (hash mismatch). Run setup.ps1 -Scan again." }
+      Move-Item -Force "$dest.part" $dest
+    }
+    Push-Location $Here
+    & $Py @("-c", "import photo_scan, torch; photo_scan._stub_unused_imports(); import depth_anything_3.api; print('Photo scan ready, on', 'GPU' if torch.cuda.is_available() else 'CPU')")
+    $ok = $LASTEXITCODE -eq 0
+    Pop-Location
+    if (-not $ok) { Warn "Depth Anything 3 did not load; the message above says why." }
   }
   Write-Host "`nDone. Restart the service (close its window, then run start.ps1) and check OPERATIONS → Local AI." -ForegroundColor Green
   exit 0

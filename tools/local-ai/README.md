@@ -17,6 +17,7 @@ Kokoro voiceover were run there on CPU (Linux); Picture to 3D and own-voice clon
 | IFC models *(optional, `-Ifc`)* | Opens an `.ifc` model: storeys, spaces with areas, element counts, materials, simple checks, spaces CSV | IfcOpenShell 0.9.0.post1 | CPU | LGPL-3.0 |
 | Bilingual dub *(optional, `-Dub`)* | STUDIO: says each line of an approved Short in English or Estonian **in your own voice** (from your consented sample in Settings) | A plain voice (Kokoro for English, Piper `et_EE-news-medium` for Estonian), then the OpenVoice V2 tone colour converter turns it into your voice | CPU (the converter is ~130 MB and stays off the GPU) | OpenVoice V2 code + weights MIT ("free for commercial use"); Piper voice MIT (TartuNLP data CC-BY); Piper runtime GPL-3.0; Kokoro Apache-2.0 |
 | Document reading *(optional, `-Docs`)* | PDF / Word / PowerPoint / scanned page → Markdown with tables, saved beside the original in VAULT | Docling 2.139.0 (layout + TableFormer + RapidOCR) | about 2 GB; CPU works | MIT |
+| Photo scan *(optional, `-Scan`)* | ARCH: 3-10 photos of a room, facade or object → a point cloud (`.ply` in VAULT) you walk around and measure; one known length (a door) sets the size | Depth Anything 3 BASE 0.12 B (`depth-anything-3` 0.1.1, weights pinned + SHA-256 checked) | estimated 1-2 GB for 10 photos (unmeasured; the model is 0.12 B); CPU works (8 photos: 27 s on a 2-core cloud CPU) | Apache-2.0 (code and these weights); addict MIT |
 
 Text to 3D inside Roblox does not need this service: ORBIT already asks Roblox Studio's own `generate_mesh` tool
 (GAME DEV → Assets → Text to 3D) through the Studio MCP bridge.
@@ -31,7 +32,7 @@ Text to 3D inside Roblox does not need this service: ORBIT already asks Roblox S
 
 ### Optional modules (add later; the main setup must have run once)
 
-`powershell -ExecutionPolicy Bypass -File tools\local-ai\setup.ps1 -Captions` (or `-Ifc`, `-Docs`, or `-Extras` for all three; `-Dub` for the bilingual dub).
+`powershell -ExecutionPolicy Bypass -File tools\local-ai\setup.ps1 -Captions` (or `-Ifc`, `-Docs`, or `-Extras` for all three; `-Dub` for the bilingual dub; `-Scan` for the ARCH photo scan).
 Only the chosen modules are installed; what's already there is skipped, torch is left alone, and every version is pinned
 (`constraints.txt`, resolved for Windows + Python 3.11 with torch 2.7.1). Restart `start.ps1` afterwards.
 
@@ -50,6 +51,24 @@ OPERATIONS → Local AI shows what is installed and running.
 Background cut-out uses BiRefNet lite and falls back to u2net if it fails to load or run. For the cleaner, heavier model run `setup.ps1 -CutoutModel birefnet-general` and set `ORBIT_CUTOUT_MODEL=birefnet-general` before `start.ps1` (`u2net` restores the old one). Never RMBG-2.0: its weights are non-commercial.
 
 If 3D runs out of GPU memory: close games/browser tabs using the GPU, or set `ORBIT_TRIPOSR_CHUNK=2048` before `start.ps1`.
+
+## Photo scan (ARCH)
+
+ARCH → Studio → **Photos to 3D scan**: pick 3-10 photos (on the phone, open ORBIT's ARCH page in the browser: Pick photos opens the
+camera roll), press Make 3D scan. The "Working on it" card shows the steps; when it is done, Open turns Measure on: click the top and
+bottom of a door, type its real height, and every length is in metres. One feed-forward pass of Depth Anything 3 BASE gives each
+photo's depth and camera; ORBIT lifts the sure pixels (top 60 % by the model's own confidence) into one point cloud, turns it upright
+from the cameras (phones are held level) and writes the same 3DGS `.ply` layout the Scaniverse import uses. The photos are not saved.
+
+Accuracy, measured honestly (2026-11-21, CPU, on a synthetic room with exact geometry, 4 × 2.6 × 5 m, rendered with Poly Haven CC0
+textures, 8 photos 640 × 480, sized on the door): single lengths read off one photo's area were within 0.1-2.3 % (room height
++0.9 %, door width +1.4 %, window 1.44 m → 1.47 m, wall 3.96 m → 4.02 m), one was +6.8 % (table length, seen at a steep angle).
+Across all photos together the median point sat 9 cm (90 % within 16 cm) from the true surface, cameras within 0.7° (median).
+With 5 photos spread too far apart the error doubled (median 19 cm, cameras 3.5°): overlap matters more than the count. Real
+phone photos were not tested (no GPU or Windows here); white walls without texture and mirrors/glass will be worse. "Up" was
+right to within 0.75°; when every photo faces the same way and tilts, the tilt stays in (the viewer's ↕ flip only fixes upside
+down). Not used on purpose: VGGT-1B and DA3 LARGE/GIANT (CC BY-NC), MASt3R/DUSt3R (CC BY-NC-SA), VGGT-1B-Commercial (gated
+behind a Meta login and no military use; also ~4x bigger). DA3METRIC-LARGE (Apache-2.0) could later guess metres without a door.
 
 ## Not included, and why
 

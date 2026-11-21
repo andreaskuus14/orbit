@@ -3,7 +3,8 @@
 Listens on 127.0.0.1 only. One job at a time and every GPU model is unloaded after its job, so a 6 GB laptop GPU
 never holds two models. Endpoints: /health, /image-to-3d, /remove-bg, /tts, /clone-tts, and the optional modules
 /transcribe (captions), /ifc-summary (IFC models), /doc-to-md (document reading), /render-pdf (PDF pages as pictures for OCR),
-/dub-line (STUDIO bilingual dub: one line in English or Estonian, in the owner's own voice); see README.md.
+/dub-line (STUDIO bilingual dub: one line in English or Estonian, in the owner's own voice), /photo-scan (ARCH: 3-10 photos ->
+a measurable point cloud, photo_scan.py); see README.md.
 
 UNTESTED ON A GPU: written and syntax-checked in a cloud box without CUDA or Windows. setup.ps1 installs what this imports.
 """
@@ -16,12 +17,15 @@ import io
 import os
 import sys
 import tempfile
+import json
 import threading
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
+
+import photo_scan  # numpy only at import; the model loads inside /photo-scan
 
 HERE = Path(__file__).resolve().parent
 MODELS = HERE / "models"
@@ -141,6 +145,7 @@ def installed() -> dict:
         "docs": has("docling") and (DOCLING_DIR / "ready.txt").is_file(),
         "dub": has("openvoice") and has("piper") and has("kokoro_onnx") and (OPENVOICE_DIR / "checkpoint.pth").is_file() and PIPER_ET.is_file()
         and (MODELS / "kokoro" / "kokoro-v1.0.onnx").is_file(),
+        "scan": photo_scan.installed(MODELS, has),
     }
 
 
@@ -623,6 +628,45 @@ def dub_line(sample: UploadFile = File(...), consent: str = Form(""), lang: str 
         if peak > 0.99:
             out = out * (0.95 / peak)
     return Response(wav_bytes(out, sr), media_type="audio/wav")
+
+
+@app.post("/photo-scan")
+def photo_scan_ep(photos: list[UploadFile] = File(...)):
+    """ARCH photo scan (setup.ps1 -Scan): 3-10 photos -> 3DGS-layout PLY; the report (views, points, size, cameras) is the
+    x-orbit-report header. Depth Anything 3 BASE, Apache-2.0. About 1 GB of GPU memory for 10 photos; CPU works (~30 s)."""
+    need(installed()["scan"], "Photo scan (Depth Anything 3)")
+    no = photo_scan.check_views(len(photos))
+    if no:
+        raise HTTPException(400, no)
+    datas = [read_capped(f, MAX_IMAGE, "photo") for f in photos]
+    with Busy():
+        from PIL import Image, ImageOps
+        imgs = []
+        for i, d in enumerate(datas):
+            try:
+                im = Image.open(io.BytesIO(d))
+                im = ImageOps.exif_transpose(im).convert("RGB")  # phone photos: honour the rotation flag
+            except Exception:
+                raise HTTPException(400, f"Photo {i + 1} isn't a picture ORBIT can read (use JPG, PNG or WebP).")
+            imgs.append(im)
+        no = photo_scan.check_shapes([im.size for im in imgs])
+        if no:
+            raise HTTPException(400, no)
+        dev = device()
+        model = None
+        try:
+            model = photo_scan.load_model(MODELS, dev)
+            pred = photo_scan.predict(model, imgs, dev)
+            ply, report = photo_scan.build(pred)
+        except Exception as e:
+            t = torch_mod()
+            if t is not None and isinstance(e, t.cuda.OutOfMemoryError):
+                raise HTTPException(507, "The GPU ran out of memory. Close games/browsers using the GPU, or use fewer photos.")
+            raise
+        finally:
+            del model
+    report["device"] = "GPU" if dev.startswith("cuda") else "CPU"
+    return Response(ply, media_type="application/octet-stream", headers={"x-orbit-report": json.dumps(report, separators=(",", ":"))})
 
 
 @app.exception_handler(HTTPException)

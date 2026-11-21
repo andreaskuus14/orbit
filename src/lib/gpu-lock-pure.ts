@@ -2,13 +2,13 @@
 // TRELLIS.2 3D, NVENC clip renders and later video/music. Heavy jobs take a lease first: strict FIFO, `slots` at a time (default 1).
 // A lease lasts `ttl` from its last heartbeat, so a job that hangs or forgot to release can't hold the GPU forever.
 
-export type GpuKind = "image" | "3d" | "render" | "video" | "music" | "transcribe" | "ocr";
+export type GpuKind = "image" | "3d" | "render" | "video" | "music" | "transcribe" | "ocr" | "scan";
 export type GpuHolder = { id: string; kind: GpuKind; since: number; until: number; ttl: number };
 export type GpuWaiter = { id: string; kind: GpuKind; since: number; deadline: number; ttl: number };
 export type GpuState = { slots: number; holders: GpuHolder[]; queue: GpuWaiter[] };
 export type GpuTick = { state: GpuState; granted: string[]; expired: GpuHolder[]; timedOut: string[] };
 
-const LABEL: Record<GpuKind, string> = { image: "picture", "3d": "3D model", render: "clip render", video: "video", music: "music", transcribe: "transcription", ocr: "document OCR" };
+const LABEL: Record<GpuKind, string> = { image: "picture", "3d": "3D model", render: "clip render", video: "video", music: "music", transcribe: "transcription", ocr: "document OCR", scan: "photo scan" };
 export const kindLabel = (k: GpuKind) => LABEL[k];
 
 /** ORBIT_GPU_SLOTS: heavy GPU jobs at once (1-4, default 1). */

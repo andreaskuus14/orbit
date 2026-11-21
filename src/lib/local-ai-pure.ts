@@ -14,7 +14,7 @@ export function serviceUrl(raw: string | undefined, def = DEFAULT_URL): string |
   return u.protocol === "http:" && LOOPBACK.has(u.hostname) && !u.username && !u.password ? u.origin : null;
 }
 
-export type ToolId = "image3d" | "removebg" | "tts" | "clone" | "captions" | "ifc" | "docs" | "dub";
+export type ToolId = "image3d" | "removebg" | "tts" | "clone" | "captions" | "ifc" | "docs" | "dub" | "scan";
 /** et: Estonian name and sentence (the optional modules have them; the UI falls back to English). */
 export type CatalogEntry = { id: ToolId | "images" | "text3d" | "motion"; name: string; what: string; model: string; vram: string; vramGb: number; license: string; where: string; setup: string; et?: { name: string; what: string } };
 /** Every local creative tool, in plain words. OPERATIONS → Local AI shows this list; vramGb 0 = runs on the CPU. */
@@ -40,6 +40,9 @@ export const CATALOG: CatalogEntry[] = [
     model: "OpenVoice V2 voice converter + Kokoro (English) + Piper et_EE (Estonian)", vram: "none (CPU)", vramGb: 0, license: "MIT (OpenVoice V2 code + weights, Piper voice), Apache-2.0 (Kokoro); Piper runtime GPL-3.0",
     where: "STUDIO → review queue → EN/ET version", setup: `${SETUP_CMD} -Dub`,
     et: { name: "Kakskeelne dubleerimine", what: "Teeb sinu kinnitatud Shortist inglis- või eestikeelse versiooni sinu enda häälega ja selle keele subtiitritega." } },
+  { id: "scan", name: "Photo scan", what: "Turns 3-10 photos of a room, a facade or an object into 3D points you can walk around and measure in ARCH. Tell it one real length (a door) and every length is in metres.",
+    model: "Depth Anything 3 BASE", vram: "estimated 1-2 GB for 10 photos (not measured yet); works on the CPU too (about 30 s)", vramGb: 2, license: "Apache-2.0 (code and these weights)", where: "ARCH → Studio → Photos to 3D scan", setup: `${SETUP_CMD} -Scan`,
+    et: { name: "Fotoskaneerimine", what: "Teeb 3-10 fotost (tuba, fassaad või ese) 3D-punktid, mida saad ARCHis vaadata ja mõõta. Ütle üks päris pikkus (uks) ja kõik pikkused on meetrites." } },
   { id: "images", name: "Pictures (unlimited)", what: "Makes realistic photos from a description: website pictures (used first, before the online free service) and pictures CORE saves in VAULT.",
     model: "SDXL-Lightning 4-step in ComfyUI (a separate service on 127.0.0.1:8188)", vram: "about 6 GB at 1024 px (fits 8 GB)", vramGb: 6, license: "CreativeML Open RAIL++-M (commercial use OK, no harmful uses)", where: "STUDIO → Websites → Generate locally; CORE's local_image", setup: "powershell -ExecutionPolicy Bypass -File tools\\comfyui\\setup.ps1" },
   { id: "text3d", name: "Text to 3D (Roblox)", what: "Describe an object and Roblox Studio generates a textured mesh in your place (Roblox's own Cube 3D model).",
@@ -49,10 +52,10 @@ export const CATALOG: CatalogEntry[] = [
 ];
 
 /** Optional modules: installed later with their own setup switch. */
-export const MODULES: ToolId[] = ["captions", "ifc", "docs", "dub"];
+export const MODULES: ToolId[] = ["captions", "ifc", "docs", "dub", "scan"];
 
 export type Health = { running: boolean; gpu: { name: string; vramGb: number } | null; busy: boolean; tools: Record<ToolId, boolean> };
-const NONE: Record<ToolId, boolean> = { image3d: false, removebg: false, tts: false, clone: false, captions: false, ifc: false, docs: false, dub: false };
+const NONE: Record<ToolId, boolean> = { image3d: false, removebg: false, tts: false, clone: false, captions: false, ifc: false, docs: false, dub: false, scan: false };
 /** server.py's /health JSON (null = unreachable) → what the UI shows. Anything odd counts as not running. */
 export function parseHealth(j: unknown): Health {
   const o = (j ?? {}) as { ok?: unknown; service?: unknown; gpu?: { name?: unknown; vramGb?: unknown } | null; busy?: unknown; tools?: Record<string, unknown> };
