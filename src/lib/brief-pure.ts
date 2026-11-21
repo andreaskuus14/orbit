@@ -39,6 +39,7 @@ export type BriefIn = {
   recap?: { id: string }; // yesterday's private recap reel in STUDIO (clips/recap.ts)
   loops?: { id: string; title: string; say: string }; // open loops from last night's scan (loops.ts loopsBrief)
   conflict?: { id: string; title: string; say: string }; // memories that disagree, "Which is right?" (entity-graph-pure contradictionBrief)
+  pilots?: { id: string; line: string }[]; // autopilot projects still open: one plain line each (pilot-pure pilotLine), newest first
   goalRisk?: { id: string; title: string; say: string }; // a goal whose weekly milestones are at risk / behind (goal-autopilot.ts goalRisk)
   school?: { id: string; title: string; say: string; detail?: string }; // heavy week / today's study blocks / next deadline (school-pure schoolBrief)
   review?: { id: string; say: string }; // the weekly review call he didn't pick up (review-call-pure missedReviewLine)
@@ -119,6 +120,11 @@ export function briefItems(x: BriefIn): BriefItem[] {
 
   if (x.review) add({ id: x.review.id, kind: "result", title: "Your weekly review", detail: "Missed call: tell ORBIT your top 3 for the week", say: x.review.say });
 
+  if (x.pilots?.length) { // the daily one-line update: one item, at most three projects in it
+    const ps = x.pilots.slice(0, 3);
+    add({ id: `pilots:${x.day}`, kind: "result", title: ps.length === 1 ? `Autopilot: ${ps[0].line}`.slice(0, 160) : `Autopilot: ${x.pilots.length} projects`, detail: ps.length === 1 ? undefined : ps.map((p) => p.line).join(" · ").slice(0, 300),
+      open: { goal: ps[0].id }, say: `On autopilot: ${ps.map((p) => p.line.replace(/[.\s]+$/, "")).join(". ")}.`.slice(0, 400) });
+  }
   if (x.goalRisk) add({ id: `goalrisk:${x.goalRisk.id}`, kind: "result", title: x.goalRisk.title, detail: "Weekly milestones", open: { goal: x.goalRisk.id }, say: x.goalRisk.say });
   if (x.loops) add({ id: x.loops.id, kind: "result", title: x.loops.title, detail: "Mission control → Open loops", open: { mission: true }, say: x.loops.say });
   if (x.conflict) add({ id: x.conflict.id, kind: "question", title: x.conflict.title, detail: "MEMORY → Which is right?", open: { panel: "memory" }, say: x.conflict.say });
