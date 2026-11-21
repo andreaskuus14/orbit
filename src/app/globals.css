@@ -991,3 +991,4 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .tour-card { position: fixed; pointer-events: auto; width: min(340px, calc(100vw - 24px)); padding: 1rem; border-radius: 16px; outline: none; }
 @media (prefers-reduced-motion: reduce) { .tour-ring { transition: none; } }
 @media (max-width: 640px) { .home-desk { bottom: calc(3.6rem + env(safe-area-inset-bottom, 0px)); max-height: 40dvh; } }
+.cmdbar[hidden] { display: none; }

@@ -854,7 +854,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </button>
       )}
 
-      <form onSubmit={runCommand} className="glass cmdbar" data-tour="ask" data-home={activityHome || undefined}>
+      <form onSubmit={runCommand} className="glass cmdbar" data-tour="ask" data-home={activityHome || undefined} hidden={panel === "core" || undefined /* CORE has its own box: one place to type */}>
         <div className="flex gap-2">
           {cmdMode === "task" && <button type="button" className="chip shrink-0" onClick={switchMode} title={t("cmd.modeTitle")}
             aria-label={t("cmd.modeAria", { mode: t("cmd.modeTask") })}>
