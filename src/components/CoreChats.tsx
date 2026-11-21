@@ -5,6 +5,28 @@ import { useDialogFocus } from "./useDialogFocus";
 import { useT } from "./i18n";
 import { CheckpointCard } from "./CheckpointCard";
 import { MAX_INSTRUCTIONS, MAX_PROJECT_NAME, MAX_TITLE, type Project } from "@/lib/core-chats-pure";
+import { searchQuery, titleHits } from "@/lib/core-chat-pure";
+
+type Hit = { id: string; title: string; snippet?: string };
+/** Search box state: titles filter at once, then the server's text search over messages replaces them (no model involved). */
+function useChatSearch(chats: ChatRow[]) {
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<Hit[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const term = searchQuery(q);
+  useEffect(() => {
+    if (!term) { setHits(null); setBusy(false); return; }
+    setHits(titleHits(chats, term.toLowerCase()));
+    setBusy(true);
+    const ac = new AbortController();
+    const t = setTimeout(() => {
+      fetch(`/api/core/chats?q=${encodeURIComponent(term)}`, { signal: ac.signal }).then((r) => r.json())
+        .then((j: { hits?: Hit[] }) => { if (Array.isArray(j.hits)) setHits(j.hits); }, () => {}).finally(() => { if (!ac.signal.aborted) setBusy(false); });
+    }, 180);
+    return () => { clearTimeout(t); ac.abort(); };
+  }, [term, chats]);
+  return { q, setQ, hits, busy };
+}
 
 export type ChatRow = { id: string; title: string; updated_at: string };
 type ListResp = { chats: ChatRow[]; projects: Project[]; map: Record<string, string> };
@@ -37,6 +59,7 @@ type Props = ReturnType<typeof useCoreChats> & {
 export function ChatSheet({ chats, projects, map, error, act, activeId, running = [], onOpen, onNew, onDeleted, onClose }: Props) {
   const { t } = useT();
   const [editing, setEditing] = useState<Project | "new" | null>(null);
+  const search = useChatSearch(chats);
   const navRef = useRef<HTMLElement>(null);
   useDialogFocus(navRef, true, onClose);
   const rename = (c: ChatRow) => {
@@ -63,7 +86,14 @@ export function ChatSheet({ chats, projects, map, error, act, activeId, running 
           <button type="button" className="btn flex-1" onClick={() => onNew(null)}>＋ New chat</button>
           <button type="button" className="chip" onClick={onClose} aria-label="Close chat list">Close</button>
         </div>
+        <input type="search" className="field mb-2 w-full text-sm" placeholder={t("chat.search")} aria-label={t("chat.search")} value={search.q}
+          onChange={(e) => search.setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && search.hits?.[0]) onOpen(search.hits[0].id); }} />
         {error && <p className="error mb-2" role="alert">{error}</p>}
+        {search.hits ? <ul className="space-y-0.5" aria-busy={search.busy} aria-label={t("chat.search")}>
+          {search.hits.map((h) => <li key={h.id}><button type="button" className="chat-hit text-sm" aria-current={h.id === activeId || undefined} onClick={() => onOpen(h.id)}>
+            <span className="block truncate">{h.title}</span>{h.snippet && <small>{h.snippet}</small>}</button></li>)}
+          {!search.hits.length && <li className="muted text-xs">{search.busy ? t("chat.searching") : t("chat.noHits")}</li>}
+        </ul> : <>
         <CheckpointCard chatId={activeId} />
 
         <div className="mt-3 flex items-center justify-between"><span className="h3">Projects</span>
@@ -114,6 +144,7 @@ export function ChatSheet({ chats, projects, map, error, act, activeId, running 
         <div className="h3 mt-4">Recents</div>
         {!recents.length && <p className="muted mt-1 text-xs">No chats yet. They save automatically.</p>}
         <ul className="mt-1">{recents.map(row)}</ul>
+        </>}
       </nav>
     </>
   );
