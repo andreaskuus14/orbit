@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, ty
 import { CAM_NAME, CAPTION_STYLES, CHANNEL_LINK_MSG, LAYOUT_NAME, REJECT_REASONS, bytes, channelLink, isJobActive, layoutText, mmss, parseClipUrl, rootClipId } from "@/lib/clips/format";
 import ReviewQueue from "./ReviewQueue";
 import { useWorldPaused } from "./world-paused";
+import { etagJson } from "./use-poll";
 import { useT } from "./i18n";
 import { ACK_EVENT, ACK_KEY, failureGroups, isSkip, legacyAcked } from "@/lib/clips/failure-alert-pure";
 import ClipPicks from "./ClipPicks";
@@ -189,7 +190,9 @@ export default function ClipFactory({ reduced, onClose, review, failed }: { redu
     const s = ++seq.current;
     if (!quiet) setLoading(true);
     try {
-      const json = await api<Data>(API);
+      const r = await etagJson<Data & { error?: string }>(API); // unchanged list: 304, same object, no re-render
+      if (!r.ok) throw new HttpError(r.json.error || `Request failed (${r.status})`, r.status);
+      const json = r.json as Data;
       if (s === seq.current) { setData(json); setErr(""); }
     } catch (e) { if (s === seq.current) setErr(e instanceof Error ? e.message : "Couldn't load the clip factory"); }
     finally { setLoading(false); } // unconditional: an edit bumps seq, which must not strand the spinner

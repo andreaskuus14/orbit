@@ -11,6 +11,7 @@ import { BULK_BUDGET, newLookup } from "./web-ladder-pure";
 import { clusterEvents, due, evidenceOf, freshAfterRepair, independentSources, nextHealth } from "./news-intel-pure";
 import { readIntel, updateIntel } from "./news-intel";
 import { dropPrivate } from "./private-pure";
+import { conditionalHeaders, validatorsFrom, type Validators } from "./feed-cache-pure";
 
 // Pulse — the News Intelligence Agent. Collects real articles from the user's feeds, de-duplicates,
 // groups them into events, and has Claude write a briefing that may only use (and must cite) those articles.
@@ -71,8 +72,12 @@ async function ensureFeeds(sb: SupabaseClient, userId: string): Promise<Feed[]> 
   return made ?? [];
 }
 
+// Conditional GETs (feed-cache-pure.ts): validators per feed URL, in memory (a restart just downloads each feed once more).
+const feedValidators = ((globalThis as unknown as { __orbitFeedValidators?: Map<string, Validators> }).__orbitFeedValidators ??= new Map<string, Validators>());
+
 /** Fetch every enabled feed and store new articles. Returns how many were new and which feeds failed. */
 export async function ingestFeeds(sb: SupabaseClient, userId: string) {
+  const conditional = process.env.ORBIT_FEED_CONDITIONAL !== "0";
   const health = (await readIntel()).health, now = Date.now();
   const feeds = (await ensureFeeds(sb, userId)).filter((f) => due(health[f.id], now)); // INT07: backing-off feeds wait their turn
   const setHealth = (id: string, r: Parameters<typeof nextHealth>[1]) => updateIntel((s) => { s.health[id] = nextHealth(s.health[id], r, Date.now()); });
@@ -82,11 +87,21 @@ export async function ingestFeeds(sb: SupabaseClient, userId: string) {
   const worker = async () => {
     for (let feed = queue.shift(); feed; feed = queue.shift()) {
       try {
-        let xml = "<rss>", parsed: ReturnType<typeof parseFeed>;
+        let xml = "<rss>", parsed: ReturnType<typeof parseFeed>, headers: Headers | null = null;
         const search = newsFeedQuery(feed.url); // a news-search feed: Bing first (publisher links), Google News last
         if (search) parsed = { title: feed.title ?? "", items: await newsSearch(search.q, search.window) };
         else {
-          try { const { res } = await safeFetch(feed.url, FEED_ACCEPT); xml = (await res.text()).slice(0, 3_000_000); }
+          const known = conditional ? feedValidators.get(feed.url) : undefined;
+          try {
+            const { res } = await safeFetch(feed.url, FEED_ACCEPT, undefined, undefined, undefined, undefined, false, { headers: conditionalHeaders(known), allow304: !!known });
+            if (res.status === 304 && known) { // unchanged since the last good ingest: every item is already stored, nothing to add
+              await setHealth(feed.id, { ok: true, items: known.items }).catch(() => undefined);
+              await sb.from("feeds").update({ last_fetched_at: new Date().toISOString(), last_error: null, title: feed.title ?? known.title }).eq("id", feed.id);
+              continue;
+            }
+            headers = res.headers;
+            xml = (await res.text()).slice(0, 3_000_000);
+          }
           catch (e) { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { feedKind: "fetch" }); }
           parsed = parseFeed(xml);
         }
@@ -104,6 +119,7 @@ export async function ingestFeeds(sb: SupabaseClient, userId: string) {
           if (error) throw error;
           added += data?.length ?? 0;
         }
+        if (conditional && headers) { const v = validatorsFrom(headers, parsed.items.length, parsed.title || null); if (v) feedValidators.set(feed.url, v); else feedValidators.delete(feed.url); } // only after the items are stored
         await setHealth(feed.id, { ok: true, items: parsed.items.length }).catch(() => undefined);
         await sb.from("feeds").update({ last_fetched_at: new Date().toISOString(), last_error: null, title: feed.title ?? (parsed.title || null) }).eq("id", feed.id);
       } catch (e) {

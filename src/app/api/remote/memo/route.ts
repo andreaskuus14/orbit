@@ -1,8 +1,7 @@
 import { deviceFromCookie, ownerClient, rateOk, remoteProblem } from "@/lib/remote";
 import { requireUser } from "@/lib/supabase/server";
 import { ASR_RATE, decodeAudioBody } from "@/lib/audio-pure";
-import { loadVoiceAsr, MAX_VOICE_QUEUE, voiceQueue } from "@/lib/voice-asr";
-import { transcribe } from "@/lib/voice-io";
+import { loadVoiceAsr, MAX_VOICE_QUEUE, transcribeSpeech, voiceQueue } from "@/lib/voice-asr";
 import { cleanWhisperText } from "@/components/voice/hear";
 import { MAX_MEMO_CHARS, MAX_MEMO_SEC } from "@/lib/memos-pure";
 import { fileMemo, listMemos, refileMemo, startMemo, undoMemo } from "@/lib/memos";
@@ -67,7 +66,7 @@ export async function POST(req: Request) {
       console.error("[memo] whisper load failed:", e instanceof Error ? e.message : e);
       return fail("Local Whisper isn't available on the PC", 503);
     }
-    const text = cleanWhisperText(await transcribe(d.audio)).trim().slice(0, MAX_MEMO_CHARS);
+    const text = cleanWhisperText(await transcribeSpeech(d.audio, "en")).trim().slice(0, MAX_MEMO_CHARS);
     if (!text) return fail("Didn't catch any words: try again closer to the mic", 422);
     return Response.json({ memo: await fileMemo(c.sb, c.userId, text, c.source, url.searchParams.get("keep") === "1" ? wav : undefined) });
   } catch (e) {

@@ -161,7 +161,7 @@ test("Chrome hands-free forwards Stop-all while ORBIT speaks instead of swallowi
         if (name === "./hear") return hear;
         if (name === "./wake") return wake;
         if (name === "./conversation") return conversation;
-        if (name === "./bus") return { recognizerFor: () => "chrome", whisperLang: () => "et", chromeLang: (l: string) => l, voiceContext: {}, VOICE_ASK: "orbit:voice-ask", VOICE_INTERRUPT: "orbit:voice-interrupt" };
+        if (name === "./bus") return { recognizerFor: () => "chrome", whisperLang: () => "et", voiceContext: {}, VOICE_ASK: "orbit:voice-ask", VOICE_INTERRUPT: "orbit:voice-interrupt" };
         if (name === "./speak") return { isSpeaking: () => speaking, spokenText: () => "Here is today's news." };
         if (name === "./useVoiceInput") return { getSpeechRecognition: () => Recognizer, alternatives: (r: any) => [r[0].transcript] };
         return {};
@@ -197,7 +197,7 @@ test("ORBIT mic forwards Stop-all with and without voice barge-in enabled", asyn
         if (name === "./hear") return hear;
         if (name === "./wake") return wake;
         if (name === "./conversation") return conversation;
-        if (name === "./bus") return { recognizerFor: () => "whisper", whisperLang: () => "et", chromeLang: (l: string) => l, voiceContext: {}, VOICE_ASK: "orbit:voice-ask", VOICE_INTERRUPT: "orbit:voice-interrupt" };
+        if (name === "./bus") return { recognizerFor: () => "whisper", whisperLang: () => "et", voiceContext: {}, VOICE_ASK: "orbit:voice-ask", VOICE_INTERRUPT: "orbit:voice-interrupt" };
         if (name === "./speak") return { isSpeaking: () => speaking, spokenText: () => "Here is today's news." };
         if (name === "./orbitmic") return { startOrbitMic: async (options: any) => { mic = options; return { stop: noop }; } };
         if (name === "./whisper") return { transcribeAudio: async () => text };

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { chromeLang, loadVoiceSettings, recognizerFor, voiceContext, whisperLang, WAKE_HEARING, CALL_ACTIVE, CORE_DONE, VOICE_ASK, VOICE_CONVERSATION, VOICE_INTERRUPT, type HandsFree } from "./bus";
+import { loadVoiceSettings, recognizerFor, voiceContext, whisperLang, WAKE_HEARING, CALL_ACTIVE, CORE_DONE, VOICE_ASK, VOICE_CONVERSATION, VOICE_INTERRUPT, type HandsFree } from "./bus";
 import { alternatives, getSpeechRecognition, speechErrorMessage, VOICE_LISTEN, VOICE_PAUSE, VOICE_RESUME, type SpeechRec } from "./useVoiceInput";
 import { extractWakeQuestion, isSleepCommand } from "./wake";
 import { correctTranscript, endpointDelay, finalJoiner, isEcho, mergeFinals, pickBestAlternative, shouldBargeIn, STOP_WORDS, turnWaitMs } from "./hear";
@@ -251,7 +251,7 @@ export function useWakeWord(mode: HandsFree, paused: boolean, lang: string) {
       if (!alive || !Ctor) return;
       const r = new Ctor();
       rec = r;
-      r.lang = chromeLang(lang);
+      r.lang = lang;
       r.continuous = true;
       r.interimResults = true; // interim lets us barge in on a spoken answer as soon as "Hey Orbit" is heard
       r.maxAlternatives = 5; // pickBestAlternative chooses (commands and the wake word win)

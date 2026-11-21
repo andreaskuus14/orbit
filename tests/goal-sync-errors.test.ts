@@ -40,6 +40,7 @@ function harness(taskResult: { data: unknown; error: unknown }) {
   vm.runInNewContext(source, { exports, AbortController, console: { error: (...args: unknown[]) => errors.push(args) }, require: (name: string) =>
     name === "./goals-pure" ? goals : name === "./stop-all" ? { stopAllOn: () => false }
       : name === "./usage-meter" ? { usageHold: () => false }
+      : name === "./dirty-marks" ? { markResumeDirty: () => {} }
       : name === "./claude" ? { emit: async () => { notifications++; }, askClaude: () => { throw Error("No model call expected"); } } : {},
   });
   return { taskResult, errors, row: () => row,

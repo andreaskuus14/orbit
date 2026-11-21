@@ -1,7 +1,6 @@
 import { decodeAudioBody, MAX_AUDIO_BYTES } from "@/lib/audio-pure";
 import { notePresence } from "@/lib/presence";
-import { loadVoiceAsr, MAX_VOICE_QUEUE, voiceQueue } from "@/lib/voice-asr";
-import { transcribe } from "@/lib/voice-io";
+import { loadVoiceAsr, MAX_VOICE_QUEUE, transcribeSpeech, voiceQueue } from "@/lib/voice-asr";
 import { cleanWhisperText } from "@/components/voice/hear";
 import { extractWakeQuestion, isSleepCommand } from "@/components/voice/wake";
 import { stopAllOn } from "@/lib/stop-all";
@@ -64,7 +63,7 @@ export async function POST(req: Request) {
   if ("error" in d) return fail(d.error);
   if (voiceQueue() > MAX_VOICE_QUEUE) return fail("Voice is busy", 429);
   try { await loadVoiceAsr("en"); } catch { return fail("Local speech recognition isn't available on the PC", 503); }
-  const heard = cleanWhisperText(await transcribe(d.audio)); // English, or Estonian once its model is in (voice-io.ts); replies speak in the same language (speakLine)
+  const heard = cleanWhisperText(await transcribeSpeech(d.audio));
   const armed = url.searchParams.get("armed") === "1";
   const say = async (text: string) => ({ type: "say", text, audio: await (await import("@/lib/call")).speakLine(text) });
 

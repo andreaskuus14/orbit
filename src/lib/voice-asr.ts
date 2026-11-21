@@ -2,15 +2,13 @@ import path from "node:path";
 import { studioRoot } from "./clips/factory";
 import { asrPipeline } from "./asr-pool";
 import { parakeetText, voicePlan, type VoiceEngine } from "./voice-asr-pure";
-import { asrPlan, guessLang, type VoiceLang } from "./voice-et-pure";
-import { etDead, etInstalled, prefetchEt, transcribeEt, warmEtAsr } from "./voice-et";
 
 // Voice input's Whisper: an English-only model (more accurate on accented English than the clip factory's multilingual
 // base). Same transformers.js runtime and model cache folder as the clip factory.
 const MODEL = process.env.ORBIT_VOICE_WHISPER_MODEL || "Xenova/whisper-small.en";
 // Estonian / auto-detect: the multilingual sibling, loaded only the first time someone asks for it (another ~1 GB in RAM).
 const MULTI = process.env.ORBIT_VOICE_WHISPER_MULTI_MODEL || "Xenova/whisper-small";
-export type { VoiceLang };
+export type VoiceLang = "en" | "et" | "auto";
 
 type Asr = (audio: Float32Array, o?: Record<string, unknown>) => Promise<{ text?: string } | { text?: string }[]>;
 type Picked = { engine: VoiceEngine; asr: Asr };
@@ -20,7 +18,7 @@ const g = globalThis as unknown as { __orbitVoiceAsr?: Partial<Record<"en" | "mu
 export const MAX_VOICE_QUEUE = 4;
 /** Transcriptions queued or running: past MAX_VOICE_QUEUE the route answers 429 instead of piling up stale audio. */
 export const voiceQueue = () => g.__orbitVoiceN ?? 0;
-export { parseVoiceLang } from "./voice-et-pure";
+export const parseVoiceLang = (q: string | null): VoiceLang => (q === "et" || q === "auto" ? q : "en");
 const modelsDir = () => path.join(studioRoot(), "models");
 
 // Parakeet TDT v3 in its own child process (clips/parakeet.ts, voice lane): auto-detects the language, so `lang` is ignored.
@@ -58,19 +56,8 @@ async function pickVoiceAsr(lang: VoiceLang): Promise<Picked> {
   return { engine: "whisper", asr: await loadWhisper(lang) };
 }
 
-/** The Estonian model (voice-et.ts) is on disk and its child hasn't given up. Asking for et/auto before that starts its download. */
-async function etReady(lang: VoiceLang): Promise<boolean> {
-  if (lang === "en" || etDead("asr")) return false;
-  if (await etInstalled("asr")) return true;
-  prefetchEt(); // ~230 MB once, in the background; Parakeet / Whisper answer meanwhile
-  return false;
-}
-
-/** Warms (and checks) the engine voice will use now. Estonian: the Estonian model when it's in, else the old path. */
-export async function loadVoiceAsr(lang: VoiceLang = "en"): Promise<unknown> {
-  if (lang === "et" && await etReady(lang)) { try { return await warmEtAsr(); } catch (e) { console.error("[orbit] Estonian ASR didn't load, using the fallback:", e instanceof Error ? e.message : e); } }
-  return pickVoiceAsr(lang === "auto" && await etReady(lang) ? "en" : lang).then((x) => x.asr);
-}
+/** Warms (and checks) the engine voice will use now. */
+export const loadVoiceAsr = (lang: VoiceLang = "en"): Promise<Asr> => pickVoiceAsr(lang).then((x) => x.asr);
 
 function loadWhisper(lang: VoiceLang): Promise<Asr> {
   const key = lang === "en" ? "en" : "multi", cache = (g.__orbitVoiceAsr ??= {});
@@ -81,42 +68,21 @@ function loadWhisper(lang: VoiceLang): Promise<Asr> {
   return p;
 }
 
-// The old path: Parakeet (any language) or Whisper (English-only, or multilingual for et/auto).
-async function transcribeBase(audio: Float32Array, lang: VoiceLang): Promise<string> {
-  let { engine, asr } = await pickVoiceAsr(lang);
-  if (engine === "parakeet") {
-    try { return ((await asr(audio)) as { text?: string }).text ?? ""; } catch (e) { // its child crashed or gave up: this utterance goes to Whisper
-      if (g.__orbitVoiceAsr) g.__orbitVoiceAsr.parakeet = undefined;
-      dropParakeet(e);
-      asr = await loadWhisper(lang);
-    }
-  }
-  // Over 30 s (voice memos): Whisper's window is 30 s, so transcribe in overlapping chunks.
-  const long = audio.length > 30 * 16000 ? { chunk_length_s: 30, stride_length_s: 5 } : undefined;
-  const out = await asr(audio, lang === "en" ? long : { task: "transcribe", ...(lang === "et" ? { language: "estonian" } : {}), ...long });
-  return (Array.isArray(out) ? out[0]?.text : out.text) ?? "";
-}
-
-const etOr = (audio: Float32Array, fallback: () => Promise<string>) => transcribeEt(audio).catch((e) => {
-  console.error("[orbit] Estonian ASR failed, using the fallback:", e instanceof Error ? e.message : e);
-  return fallback();
-});
-
-/** lang "et": the Estonian model. "auto": per utterance — with Parakeet, its transcript decides (Estonian → the Estonian model, which is
- *  far more accurate on Estonian: 7 % vs 19 % word errors on FLEURS); without it, the Estonian model first and English Whisper when that
- *  reads as English. Until the Estonian model is in, the old path. One at a time: parallel runs would each grab every CPU core. */
+/** One at a time: parallel runs would each grab every CPU core and all get slower. */
 export function transcribeSpeech(audio: Float32Array, lang: VoiceLang = "en"): Promise<string> {
   const run = async () => {
-    const plan = asrPlan(lang, await etReady(lang));
-    if (plan === "en") return transcribeBase(audio, lang);
-    if (plan === "et") return etOr(audio, () => transcribeBase(audio, "et"));
-    const first = await pickVoiceAsr("en");
-    if (first.engine === "parakeet") {
-      const text = await transcribeBase(audio, "en");
-      return guessLang(text) === "et" ? etOr(audio, async () => text) : text;
+    let { engine, asr } = await pickVoiceAsr(lang);
+    if (engine === "parakeet") {
+      try { return ((await asr(audio)) as { text?: string }).text ?? ""; } catch (e) { // its child crashed or gave up: this utterance goes to Whisper
+        if (g.__orbitVoiceAsr) g.__orbitVoiceAsr.parakeet = undefined;
+        dropParakeet(e);
+        asr = await loadWhisper(lang);
+      }
     }
-    const et = await etOr(audio, () => transcribeBase(audio, "auto"));
-    return guessLang(et) === "en" ? transcribeBase(audio, "en") : et;
+    // Over 30 s (voice memos): Whisper's window is 30 s, so transcribe in overlapping chunks.
+    const long = audio.length > 30 * 16000 ? { chunk_length_s: 30, stride_length_s: 5 } : undefined;
+    const out = await asr(audio, lang === "en" ? long : { task: "transcribe", ...(lang === "et" ? { language: "estonian" } : {}), ...long });
+    return (Array.isArray(out) ? out[0]?.text : out.text) ?? "";
   };
   g.__orbitVoiceN = voiceQueue() + 1;
   const p = (g.__orbitVoiceQ ?? Promise.resolve()).then(run, run).finally(() => { g.__orbitVoiceN = voiceQueue() - 1; });

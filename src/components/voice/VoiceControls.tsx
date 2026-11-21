@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { DEFAULT_VOICE, ET_VOICES, loadVoiceSettings, recognizerFor, saveVoiceSettings, voiceLevel, whisperLang, VOICE_ASK, VOICE_CONVERSATION, VOICE_INTERRUPT, type HandsFree, type VoiceSettings } from "./bus";
+import { DEFAULT_VOICE, loadVoiceSettings, recognizerFor, saveVoiceSettings, voiceLevel, whisperLang, VOICE_ASK, VOICE_CONVERSATION, VOICE_INTERRUPT, type HandsFree, type VoiceSettings } from "./bus";
 import { useT } from "../i18n";
 import { getSpeechRecognition, VOICE_PAUSE, VOICE_RESUME, type VoiceInput } from "./useVoiceInput";
 import type { Wake } from "./WakeWord";
@@ -221,8 +221,8 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
             {s.handsFree === "orbit" && <label className="voice-row"><input type="checkbox" checked={s.bargeByVoice} onChange={(e) => update({ bargeByVoice: e.target.checked })} /> Interrupt by voice (headphones). Off: only &ldquo;stop&rdquo; or &ldquo;Orbit, &hellip;&rdquo; cuts ORBIT off, so it can&rsquo;t interrupt itself through the speakers.</label>}
             {!whisperOk && <span className="muted text-[10px]">Local Whisper didn’t load on the server (see its log), so ORBIT mic and Local only are unavailable.</span>}
             <span className="muted text-[10px]">{s.handsFree === "chrome" ? "Chrome streams your microphone audio to Google’s speech service whenever this tab is visible and the window was used in the last minute, or while conversation mode is on."
-              : s.handsFree === "orbit" ? "Audio never leaves this PC. One open, echo-cancelled mic: talk over ORBIT to interrupt it, it answers sooner after a finished sentence. English and Estonian (language: Eesti or auto). The first use downloads the model; the first Estonian use downloads ~230 more MB in the background."
-              : s.handsFree === "local" ? "Audio never leaves this PC. Say “Orbit, …” in one go; ORBIT stops listening while it talks (click the mic to interrupt). English and Estonian (language: Eesti or auto); the first use downloads the model (Estonian: ~230 more MB, in the background)."
+              : s.handsFree === "orbit" ? "Audio never leaves this PC. One open, echo-cancelled mic: talk over ORBIT to interrupt it, it answers sooner after a finished sentence. English, or Estonian with the language set to Eesti. The first use downloads the model; the first Estonian use downloads another ~1 GB model and voice pauses until it's done."
+              : s.handsFree === "local" ? "Audio never leaves this PC. Say “Orbit, …” in one go; ORBIT stops listening while it talks (click the mic to interrupt). English, or Estonian with the language set to Eesti; the first use downloads the model (Estonian: another ~1 GB; voice pauses until it's done)."
               : "ORBIT only listens when you click the mic (Ctrl+M)."}</span>
           </label>
           <label className="voice-col">Question transcription
@@ -234,14 +234,12 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
           </label>
           <p className="muted text-[10px] voice-note">Local means the audio stays on this PC. Your words (text) still go to Claude to answer; memories are stored in your Supabase.</p>
           <label className="voice-col">Language (Chrome)
-            <select className="field" value={s.lang} onChange={(e) => { update({ lang: e.target.value }); if (whisperLang(e.target.value) !== "en") void fetch("/api/voice/speak?warm=1").catch(() => {}); }}>
+            <select className="field" value={s.lang} onChange={(e) => update({ lang: e.target.value })}>
               <option value="en-US">English (US)</option>
               <option value="en-GB">English (UK)</option>
               <option value="en-IE">English (Ireland)</option>
               <option value="et-EE">Eesti</option>
-              <option value="auto">English + Eesti (auto)</option>
             </select>
-            {s.lang !== "en-US" && s.lang !== "en-GB" && s.lang !== "en-IE" && <span className="muted text-[10px]">Eesti on this PC: the first use downloads ~230 MB (listening and the Estonian voice). Auto picks the language for each sentence; Chrome listens in English.</span>}
           </label>
           <label className="voice-col">Conversation mode (&ldquo;Orbit, let&rsquo;s talk&rdquo;)
             <select className="field" value={s.conversation} onChange={(e) => update({ conversation: e.target.value === "once" ? "once" : "stay" })}>
@@ -266,11 +264,6 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
                 <option value="kokoro:am_michael">Michael (US)</option>
               </optgroup>
               {voices.map((v) => <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>)}
-            </select>
-          </label>
-          <label className="voice-col">Estonian voice
-            <select className="field" value={s.etVoice} onChange={(e) => update({ etVoice: e.target.value })}>
-              {ET_VOICES.map((v) => <option key={v} value={v}>{v}</option>)}
             </select>
           </label>
           <label className="voice-col">Speed <span className="num">{s.rate.toFixed(2)}×</span>

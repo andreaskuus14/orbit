@@ -11,6 +11,7 @@ import {
 } from "./missions-pure";
 import { capabilityStart } from "./capability";
 import { noteWrite } from "./durable";
+import { markResumeDirty } from "./dirty-marks";
 
 // MISSIONS runner (logic: missions-pure.ts). One row per mission in public.missions; its steps are an agent-team chain whose parent title
 // starts "Mission: " (so the Teams resume loop never drives it: only this file does, with the pause gate). reconcile() re-reads the chain
@@ -25,6 +26,7 @@ const COLS = "id, chain_id, version, doc, created_at";
 const now = () => new Date().toISOString();
 
 async function save(sb: SupabaseClient, row: Row, doc: MissionDoc): Promise<Row | null> {
+  markResumeDirty(); // scheduler resume gate
   const { data, error } = await sb.from("missions").update({ doc, status: doc.status, version: row.version + 1, updated_at: now() })
     .eq("id", row.id).eq("version", row.version).select(COLS).maybeSingle(); // compare-and-swap: a concurrent change wins, we re-read next time
   noteWrite("missions doc", error ? error.message : undefined); // a failed save is named in Doctor / Needs-you (callers already treat null as not saved)
@@ -43,6 +45,7 @@ export async function createMission(sb: SupabaseClient, userId: string, body: un
   // Saved workflow: the contract is the server's own constant, never taken from the request body.
   const wf = (body as { workflow?: unknown } | null)?.workflow === RESEARCH_PILOT ? { workflow: RESEARCH_PILOT, contract: PILOT_CONTRACT, metrics: { startedAt: now(), interventions: 0 } } : {};
   const fresh = () => newDoc(m.objective, m.constraints, now(), { acceptance: m.acceptance, assumptions: m.assumptions, ...(m.brief && { brief: m.brief }), effort: plan(m.steps, MAX_RETRIES), ...wf });
+  markResumeDirty();
   const { data, error } = await sb.from("missions").insert({ user_id: userId, chain_id: c.chainId, status: "queued", doc: cap.headsUp ? logged(fresh(), now(), cap.headsUp) : fresh() }).select(COLS).single();
   if (error) { await cancelChain(sb, c.chainId); return { error: error.message }; }
   await reconcile(sb, userId, data as Row);
@@ -196,14 +199,16 @@ export async function listMissions(sb: SupabaseClient, userId: string): Promise<
 
 /** Scheduler tick: keep this user's open missions moving (after approvals and restarts). */
 const resuming: Set<string> = ((globalThis as unknown as { __orbitMissionResume?: Set<string> }).__orbitMissionResume ??= new Set()); // survives a hot reload, like the goal drivers
-export async function resumeMissions(sb: SupabaseClient, userId: string) {
-  if (resuming.has(userId)) return; // a slow pass from the last tick (or an approval) is still going: never two at once
+/** Returns how many open missions it found (1 when unknown: a pass already running, or a failed read), for the scheduler's idle gate. */
+export async function resumeMissions(sb: SupabaseClient, userId: string): Promise<number> {
+  if (resuming.has(userId)) return 1; // a slow pass from the last tick (or an approval) is still going: never two at once
   resuming.add(userId);
-  try { await resumePass(sb, userId); } finally { resuming.delete(userId); }
+  try { return await resumePass(sb, userId); } finally { resuming.delete(userId); }
 }
-async function resumePass(sb: SupabaseClient, userId: string) {
-  const { data } = await sb.from("missions").select(COLS).eq("user_id", userId).in("status", ["queued", "running", "waiting-approval"]);
+async function resumePass(sb: SupabaseClient, userId: string): Promise<number> {
+  const { data, error } = await sb.from("missions").select(COLS).eq("user_id", userId).in("status", ["queued", "running", "waiting-approval"]);
   for (const r of (data ?? []) as Row[]) await reconcile(sb, userId, r).catch((e) => console.error("[orbit] mission resume failed:", r.id, e instanceof Error ? e.message : e));
+  return error ? 1 : (data ?? []).length;
 }
 
 /** Owner buttons: pause / resume / cancel / retry. Approvals are not here: they stay in the existing approval flow. */
