@@ -1,13 +1,16 @@
 // scrape_page disk side: robots.txt (via safeFetch), the per-domain gap, then the Scrapling helper (tools/scrapling/fetch.py) in its
 // own process with a hard timeout. Rules: scrape-pure.ts.
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { safeFetch } from "./memory";
 import { logActivity } from "./activity";
 import { parseStealthDomains, robotsAllows, stealthLog, stealthRefusal, waitMs, type Mode } from "./scrape-pure";
 
 const last = new Map<string, number>(); // domain → last request time (this server process)
-const PY = process.env.ORBIT_PYTHON || (process.platform === "win32" ? "python" : "python3");
+// tools/scrapling/setup.ps1 installs Scrapling into its own venv; ORBIT_PYTHON overrides, the system Python is the last resort.
+const VENV = path.join(process.cwd(), "tools", "scrapling", ".venv", ...(process.platform === "win32" ? ["Scripts", "python.exe"] : ["bin", "python"]));
+const PY = process.env.ORBIT_PYTHON || (existsSync(VENV) ? VENV : process.platform === "win32" ? "python" : "python3");
 const HELPER = path.join(process.cwd(), "tools", "scrapling", "fetch.py");
 
 async function robotsOk(url: URL): Promise<boolean> {
@@ -16,7 +19,8 @@ async function robotsOk(url: URL): Promise<boolean> {
 }
 
 export type Scraped = { url: string; title: string; text: string; status: number } | { error: string };
-export async function scrapePage(raw: string, mode: Mode, select?: string): Promise<Scraped> {
+/** timeoutMs: the helper's hard limit (default 30 s fast, 90 s browser/stealth); the web ladder passes its rung budget. */
+export async function scrapePage(raw: string, mode: Mode, select?: string, timeoutMs?: number): Promise<Scraped> {
   let url: URL;
   try { url = new URL(raw); } catch { return { error: "not a URL" }; }
   if (!/^https?:$/.test(url.protocol)) return { error: "only http(s) addresses" };
@@ -27,10 +31,10 @@ export async function scrapePage(raw: string, mode: Mode, select?: string): Prom
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   last.set(host, Date.now());
   const out = await new Promise<Scraped>((resolve) => {
-    const p = spawn(PY, [HELPER], { stdio: ["pipe", "pipe", "pipe"], timeout: mode === "fast" ? 30_000 : 90_000 });
+    const p = spawn(PY, [HELPER], { stdio: ["pipe", "pipe", "pipe"], timeout: timeoutMs ?? (mode === "fast" ? 30_000 : 90_000), windowsHide: true });
     let so = "", se = "";
     p.stdout.on("data", (d) => (so += d)); p.stderr.on("data", (d) => (se = (se + d).slice(-2000)));
-    p.on("error", (e) => resolve({ error: `Scrapling isn't installed (${e.message}). Run: pip install "scrapling[fetchers]" && scrapling install` }));
+    p.on("error", (e) => resolve({ error: `Scrapling isn't installed (${e.message}). Run once: powershell -File tools\\scrapling\\setup.ps1` }));
     p.on("close", (code) => { try { resolve(JSON.parse(so.trim().split("\n").pop() ?? "")); } catch { resolve({ error: `the helper exited ${code}: ${se.slice(-300) || "no output"}` }); } });
     p.stdin.end(JSON.stringify({ url: url.toString(), mode, ...(select ? { select } : {}) }));
   });

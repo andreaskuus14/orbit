@@ -1,3 +1,4 @@
+import { ladderRead } from "@/lib/web-ladder";
 import { requireUser } from "@/lib/supabase/server";
 import { captureMemory, searchMemories, fetchPage, KINDS, MEMORY_COLUMNS, type Kind } from "@/lib/memory";
 import { cleanTags, str } from "@/lib/pure";
@@ -40,7 +41,8 @@ export async function POST(req: Request) {
     if (url) {
       let parsed: URL;
       try { parsed = new URL(url); } catch { return Response.json({ error: "Invalid URL" }, { status: 400 }); }
-      const page = await fetchPage(parsed.toString());
+      // The web ladder (fetch → scraper → browser) first; fetchPage for a tiny or plain page the ladder found too short.
+      const page = (await ladderRead(parsed.toString(), { maxChars: 50_000 })).page ?? await fetchPage(parsed.toString());
       title ||= page.title;
       content = content ? `${content}\n\n---\n${page.text}` : page.text;
       source = "url";

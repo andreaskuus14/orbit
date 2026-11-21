@@ -149,7 +149,7 @@ export function parseFeed(xml: string): { title: string; items: FeedItem[] } {
     if (!title || !/^https?:\/\//i.test(url)) continue;
     const published = tag(b, "pubDate") ?? tag(b, "published") ?? tag(b, "updated") ?? tag(b, "dc:date");
     const summary = plain(tag(b, "description") ?? tag(b, "summary") ?? tag(b, "content") ?? "").slice(0, 600);
-    const source = tag(b, "source");
+    const source = tag(b, "source") ?? tag(b, "News:Source"); // News:Source: Bing News RSS
     items.push({ title, url, published: published && !isNaN(Date.parse(published)) ? new Date(published).toISOString() : null, summary, source: source ? plain(source) : null });
   }
   return { title: plain(tag(head, "title") ?? ""), items };

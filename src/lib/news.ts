@@ -1,13 +1,15 @@
 import { safeFetch } from "./memory";
-import { bareHeadline, bingNewsUrl, decodeGoogleNewsId, hostMatchesSource, extractArticle, extractLinks, parseFeed, sameHeadline } from "./pure";
-import { renderPage } from "./browser";
-import { googleNewsSearchUrl, googleNewsTopUrl, isEditionOf, LOCAL_FEEDS } from "./local-news-pure";
+import { bareHeadline, bingNewsUrl, decodeGoogleNewsId, hostMatchesSource, parseFeed, sameHeadline } from "./pure";
+import { ladderRead, UA, type Lookup, type Page } from "./web-ladder";
+import { bingNewsSearchUrl, googleNewsSearchUrl, googleNewsTopUrl, isEditionOf, LOCAL_FEEDS } from "./local-news-pure";
 import { createTtlCache, envOn } from "./ttl-cache-pure";
+import type { FeedItem } from "./pure";
+
+const googleTopicUrl = (q: string, window: string) => `https://news.google.com/rss/search?q=${encodeURIComponent(`${q} when:${window}`)}&hl=en-US&gl=US&ceid=US:en`;
 
 // Turning news links into readable full articles. Google News RSS wraps every link in a news.google.com
 // redirect; we unwrap it (old ids decode locally, new ids go through the same endpoint Google's own page uses).
 
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36";
 const g = globalThis as unknown as { __orbitGnCache?: Map<string, string> };
 const cache = (g.__orbitGnCache ??= new Map());
 
@@ -57,6 +59,7 @@ export type NewsHint = { title: string; source?: string | null };
 export async function resolveNewsUrl(url: string, hint?: NewsHint): Promise<string> {
   let u: URL;
   try { u = new URL(url); } catch { return url; }
+  if (/(^|\.)bing\.com$/.test(u.hostname)) return bingNewsUrl(url) ?? url;
   if (u.hostname !== "news.google.com") return url;
   const id = u.pathname.match(/\/(?:rss\/)?articles\/([^/?#]+)/)?.[1];
   if (!id) return url;
@@ -73,44 +76,38 @@ export async function resolveNewsUrl(url: string, hint?: NewsHint): Promise<stri
   return real ?? url;
 }
 
-/** Full text of a web page or news article (main content only). Plain download first; if that gets
- *  nothing readable (JavaScript-built page, bot wall), the hidden browser loads it. Null if both fail. */
-export type Page = { url: string; title: string; text: string; links: { text: string; url: string }[] };
+/** Full text of a web page or news article (main content only), read through the web ladder (web-ladder.ts: fetch → Scrapling
+ *  → headless browser, each only when the one before got nothing readable). Null if no rung could read it. Pass a shared
+ *  `lookup` to keep many reads inside one page cap and time budget; page.via says which rung succeeded. */
+export type { Page } from "./web-ladder";
 // Article text cache: the morning/midday/evening briefings and the citation check re-read many of the same top stories.
 // A published article doesn't change within hours; only readable results are kept (a failure is retried). ORBIT_ARTICLE_CACHE=0 = off.
 const AC = globalThis as unknown as { __orbitArticles?: ReturnType<typeof createTtlCache<Page | null>> };
 const articles = (AC.__orbitArticles ??= createTtlCache<Page | null>({ max: 400, ttlMs: 6 * 3_600_000 }));
-export async function readArticle(url: string, maxChars = 4000, useBrowser = true, hint?: NewsHint): Promise<Page | null> {
+export async function readArticle(url: string, maxChars = 4000, o: { hint?: NewsHint; lookup?: Lookup } = {}): Promise<Page | null> {
+  const readArticleNow = async () => (await ladderRead(url, { maxChars, hint: o.hint, lookup: o.lookup })).page;
   // Long reads (an agent's read_url, 40k) always go live: a page it opens may be a price or status that just changed.
-  if (maxChars > 4000 || !envOn(process.env.ORBIT_ARTICLE_CACHE)) return readArticleNow(url, maxChars, useBrowser, hint);
-  const p = await articles.memo(`${maxChars}|${useBrowser ? 1 : 0}|${url}`, () => readArticleNow(url, maxChars, useBrowser, hint));
+  if (maxChars > 4000 || !envOn(process.env.ORBIT_ARTICLE_CACHE)) return readArticleNow();
+  const p = await articles.memo(`${maxChars}|${url}`, readArticleNow);
   return p && { ...p, links: [...p.links] }; // a copy: callers may rewrite fields
 }
-async function readArticleNow(url: string, maxChars: number, useBrowser: boolean, hint?: NewsHint): Promise<Page | null> {
-  let real = url;
-  let plain: Page | null = null;
-  try {
-    real = await resolveNewsUrl(url, hint);
-    if (new URL(real).hostname === "news.google.com") return null;
-    const { res, url: finalUrl } = await safeFetch(real, "text/html", UA);
-    if ((res.headers.get("content-type") ?? "").includes("html")) {
-      const html = await res.text(); // capped at 3 MB while downloading (safeFetch)
-      const art = extractArticle(html, maxChars);
-      if (art.text.length >= 300) plain = { url: finalUrl.toString(), title: art.title, text: art.text, links: extractLinks(html, finalUrl.toString()) };
-    }
-  } catch {
-    /* fall through to the browser */
-  }
-  // A short plain result is often just a nav bar or cookie notice around a JavaScript-built page: try the browser too.
-  if (!useBrowser || (plain && plain.text.length >= Math.min(1500, maxChars))) return plain;
-  const page = await renderPage(real, UA);
-  if (!page) return plain;
-  const art = extractArticle(page.html, maxChars);
-  // Some apps (charts, dashboards) don't use paragraphs at all: fall back to the visible text.
-  const visible = page.text.replace(/\n{3,}/g, "\n\n").trim().slice(0, maxChars);
-  const text = art.text.length >= Math.min(1500, maxChars) || art.text.length >= visible.length ? art.text : visible;
-  if (text.length < 150 || (plain && plain.text.length >= text.length)) return plain;
-  return { url: page.url, title: art.title, text, links: extractLinks(page.html, page.url) };
+
+/** News search for every ORBIT news lookup: Bing News RSS (publisher links, no unwrapping), then Google News only as the
+ *  last-resort fallback when Bing returns nothing. cc/lang: that country's market. Items carry the publisher URL. */
+export async function newsSearch(q: string, window = "7d", cc?: string, lang?: string): Promise<FeedItem[]> {
+  const fromBing = async () => {
+    const { res } = await safeFetch(bingNewsSearchUrl(q, window, cc, lang), RSS, UA);
+    return parseFeed((await res.text()).slice(0, 2_000_000)).items.flatMap((it): FeedItem[] => {
+      const real = bingNewsUrl(it.url);
+      return real ? [{ ...it, url: real, source: it.source ?? new URL(real).hostname.replace(/^www\./, "") }] : [];
+    });
+  };
+  const items = await fromBing().catch(() => [] as FeedItem[]);
+  if (items.length) return items;
+  try { // last resort: Google News (its links are unwrapped by the ladder when read)
+    const { res } = await safeFetch(cc && lang ? googleNewsSearchUrl(q, cc, lang, window) : googleTopicUrl(q, window), RSS);
+    return parseFeed((await res.text()).slice(0, 2_000_000)).items.map((it) => ({ ...it, title: it.source && it.title.endsWith(` - ${it.source}`) ? it.title.slice(0, -(it.source.length + 3)) : it.title }));
+  } catch { return []; }
 }
 
 /* ---------- local news per country ---------- */
@@ -135,17 +132,21 @@ async function feedItems(url: string, fallbackSource: string | null, cc?: string
   } catch { return []; } // one feed down must not blank the rest
 }
 
-/** Local headlines for a country (ISO2): its Google News edition (top stories, or a search when q is given) plus
- *  curated native feeds. Newest first, cached 10 min. Feed text is untrusted data: parseFeed strips HTML. */
-export async function localNews(cc: string, lang: string, q = "", hours = 0): Promise<LocalItem[]> {
-  const key = `${cc}|${lang}|${q}|${hours}`;
+/** Local headlines for a country (ISO2): curated native feeds plus a Bing News search in the country's market and language (the
+ *  query, or the country's name for top headlines); its Google News edition only when both come back empty. Newest first, cached
+ *  10 min. Feed text is untrusted data: parseFeed strips HTML. */
+export async function localNews(cc: string, lang: string, q = "", hours = 0, name = ""): Promise<LocalItem[]> {
+  const key = `${cc}|${lang}|${q}|${hours}|${name}`;
   const hit = localCache.get(key);
   // Empty results (outage, or no edition and no native feeds) are kept 1 min so we neither hammer nor pin them.
   if (hit && Date.now() - hit.at < (hit.items.length ? 10 * 60_000 : 60_000)) return hit.items;
   const words = q.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2);
   const native = (LOCAL_FEEDS[cc] ?? []).map((f) => feedItems(f.url, f.title));
-  const google = feedItems(q ? googleNewsSearchUrl(q, cc, lang, hours ? `${hours}h` : "7d") : googleNewsTopUrl(cc, lang), null, q ? undefined : cc);
-  const lists = await Promise.all([google, ...native]);
+  const window = hours ? `${hours}h` : "7d", bq = q || name;
+  const bing = bq ? newsSearchBingOnly(bq, window, cc, lang) : Promise.resolve([] as LocalItem[]);
+  let lists = await Promise.all([bing, ...native]);
+  // Last resort: the Google News edition (top stories, or a search when q is given).
+  if (!lists.some((l) => l.length)) lists = [await feedItems(q ? googleNewsSearchUrl(q, cc, lang, window) : googleNewsTopUrl(cc, lang), null, q ? undefined : cc)];
   const since = hours ? Date.now() - hours * 3600_000 : 0;
   const seen = new Set<string>();
   const items = lists.flatMap((l, i) => (i && words.length ? l.filter((it) => words.some((w) => `${it.title} ${it.summary}`.toLowerCase().includes(w))) : l))
@@ -156,4 +157,14 @@ export async function localNews(cc: string, lang: string, q = "", hours = 0): Pr
   if (localCache.size > 200) localCache.clear();
   localCache.set(key, { at: Date.now(), items });
   return items;
+}
+
+async function newsSearchBingOnly(q: string, window: string, cc: string, lang: string): Promise<LocalItem[]> {
+  try {
+    const { res } = await safeFetch(bingNewsSearchUrl(q, window, cc, lang), RSS, UA);
+    return parseFeed((await res.text()).slice(0, 2_000_000)).items.slice(0, 30).flatMap((it) => {
+      const real = bingNewsUrl(it.url);
+      return real ? [{ title: it.title, url: real, source: it.source ?? new URL(real).hostname.replace(/^www\./, ""), published_at: it.published, summary: it.summary }] : [];
+    });
+  } catch { return []; }
 }

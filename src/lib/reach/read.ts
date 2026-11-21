@@ -1,4 +1,5 @@
 import { fetchPage, safeFetch } from "../memory";
+import { ladderRead } from "../web-ladder";
 import { JINA, httpsUrl, jinaSafe } from "./pure";
 import { UA, polite } from "./net";
 
@@ -8,7 +9,7 @@ export async function readUrl(url: string, maxChars = 8000): Promise<{ title: st
   const u = httpsUrl(url.startsWith("http://") ? url.replace(/^http:/, "https:") : url);
   if (!u) throw new Error("Only public https links can be read");
   let direct: Awaited<ReturnType<typeof fetchPage>> | null = null, err: unknown = null;
-  try { direct = await fetchPage(u); } catch (e) { err = e; }
+  try { direct = (await ladderRead(u, { maxChars })).page ?? await fetchPage(u); } catch (e) { err = e; } // the web ladder: fetch → scraper → browser
   if (direct && direct.text.trim().length >= 300) return { ...direct, text: direct.text.slice(0, maxChars), via: "direct" };
   if (err instanceof Error && /not publicly reachable/.test(err.message)) throw err; // never hand a private address to a third party
   const ju = JINA(u.split("#")[0]); // fragments (e.g. #access_token=) stay local

@@ -45,6 +45,8 @@ orbit-launcher.log.1
 
 # tools/trials: venv, recorded clips, results
 /tools/trials/.venv/
+# tools/scrapling: venv (setup.ps1)
+/tools/scrapling/.venv/
 /tools/trials/clips/**
 !/tools/trials/clips/**/
 !/tools/trials/clips/**/.gitkeep

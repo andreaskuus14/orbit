@@ -2,10 +2,10 @@
 // Built only from data the turn already has (citations + trace + context refs); no model call. Private items (journal/LIFE
 // memories, private module reads) never show a title or text: only "a private note". Pure: server, tests and browser.
 
-export type UsedItem = { kind: "memory" | "file" | "tool" | "web" | "fact" | "private"; title?: string; n?: number; ageDays?: number };
+export type UsedItem = { kind: "memory" | "file" | "tool" | "web" | "fact" | "private"; title?: string; n?: number; ageDays?: number; via?: string }; // via: "2 fetch · 1 browser" (web-ladder rungs)
 export type Used = { items: UsedItem[]; shown: UsedItem[]; more: number };
 type Cite = { id: string; title: string; kind: string; at?: string };
-type Step = { step: string; ok?: boolean };
+type Step = { step: string; ok?: boolean; via?: string[] };
 export type UsedExtras = {
   memories?: { id: string; title: string; kind: string; created_at?: string; updated_at?: string }[]; // everything that went into the prompt
   files?: string[]; // attached file names
@@ -17,6 +17,7 @@ const DAY = 86_400_000;
 // Steps that are the engine's own bookkeeping, not something the answer drew on.
 const META = new Set(["search_memory", "think", "review", "fallback", "reflex", "local", "verify", "error", "budget", "cancelled", "answer_eval", "sources", "route", "native", "receipt", "navigate", "used"]);
 const PAGES = new Set(["fetch_url", "read_url"]), SEARCHES = new Set(["web_search", "read_news"]);
+const RUNG_NAMES = ["fetch", "scraper", "browser"]; // web-ladder-pure RUNGS (kept local: this file is shipped to the browser)
 const isPrivateKind = (k: string) => /^(journal|life)/i.test(k);
 const clip = (s: string, n: number) => { const x = s.replace(/\s+/g, " ").trim(); return x.length > n ? x.slice(0, n - 1) + "…" : x; };
 const ageOf = (at: string | undefined, now: number) => { const t = at ? Date.parse(at) : NaN; return Number.isFinite(t) ? Math.max(0, Math.floor((now - t) / DAY)) : undefined; };
@@ -45,9 +46,13 @@ export function buildUsed(x: { citations?: Cite[]; trace?: Step[]; privateTools?
   for (const m of x.extras?.memories ?? []) memory(m.id, m.title, m.kind, m.updated_at ?? m.created_at);
   // trace: private module reads, web pages/searches, other tools
   let pages = 0, searches = 0;
+  const rungs: string[] = [];
   const tools = new Map<string, number>();
   for (const s of x.trace ?? []) {
     if (s.ok === false || META.has(s.step)) continue;
+    const via = !priv.has(s.step) && Array.isArray(s.via) ? s.via.filter((r) => RUNG_NAMES.includes(r)) : [];
+    rungs.push(...via);
+    if (SEARCHES.has(s.step)) pages += via.length; // pages a search opened (web_search's top links, read_news articles)
     if (priv.has(s.step)) privateN++;
     else if (PAGES.has(s.step)) pages++;
     else if (SEARCHES.has(s.step)) searches++;
@@ -57,7 +62,8 @@ export function buildUsed(x: { citations?: Cite[]; trace?: Step[]; privateTools?
   for (const k of x.extras?.context ?? []) items.push({ kind: "fact", title: k });
   for (const f of [...new Set(x.extras?.files ?? [])]) items.push({ kind: "file", title: clip(f, 48) });
   for (const [name, n] of tools) if (!items.some((i) => i.kind === "tool" && i.title === name)) items.push({ kind: "tool", title: name, ...(n > 1 && { n }) });
-  if (pages) items.push({ kind: "web", title: "pages", n: pages });
+  const via = RUNG_NAMES.filter((r) => rungs.includes(r)).map((r) => `${rungs.filter((x) => x === r).length} ${r}`).join(" · ");
+  if (pages) items.push({ kind: "web", title: "pages", n: pages, ...(via && { via }) });
   if (searches) items.push({ kind: "web", title: "searches", n: searches });
   // "memory" items first, then the rest in order (private right after the memories, so it is never capped out of sight by tools)
   return { items, shown: items.slice(0, USED_CAP), more: Math.max(0, items.length - USED_CAP) };
@@ -73,7 +79,7 @@ export function usedItemText(i: UsedItem, t: T): string {
   }
   if (i.kind === "file") return `${t("used.file")}: ${i.title}`;
   if (i.kind === "fact") return `${t("used.factLabel")}: ${t(`used.fact.${i.title}`)}`;
-  if (i.kind === "web") { const n = i.n ?? 1; return t(i.title === "searches" ? (n === 1 ? "used.search1" : "used.searches") : (n === 1 ? "used.page1" : "used.pages"), { n }); }
+  if (i.kind === "web") { const n = i.n ?? 1; return t(i.title === "searches" ? (n === 1 ? "used.search1" : "used.searches") : (n === 1 ? "used.page1" : "used.pages"), { n }) + (i.via ? ` (${i.via})` : ""); }
   return `${t("used.tool")}: ${i.title!.replace(/_/g, " ")}${i.n ? ` ×${i.n}` : ""}`;
 }
 /** The compact line (≤6 items + "+N more"), or the full list when `full`. "" when there is nothing to show. */

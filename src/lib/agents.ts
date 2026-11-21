@@ -6,9 +6,10 @@ import { createClipStore } from "./clip-store-pure";
 import { isCurrent, scopeTags } from "./memory-types-pure";
 import { STALLED, raceStall, stalledMsg } from "./stall-pure";
 import { askClaude, recordUsage, emit, reviewDraft, MODEL, SMART_MODEL, FAST_MODEL, createBudget, chargeCall, stopKind, stoppedReport, BudgetError, type Budget } from "./claude";
-import { createMemory, searchMemories, fetchPage, safeFetch, MEMORY_COLUMNS, KINDS, type Kind } from "./memory";
-import { runPulse, topicFeedUrl } from "./pulse";
-import { localNews, readArticle, resolveNewsUrl } from "./news";
+import { createMemory, searchMemories, fetchPage, MEMORY_COLUMNS, KINDS, type Kind } from "./memory";
+import { runPulse } from "./pulse";
+import { localNews, newsSearch } from "./news";
+import { ladderRead, newLookup, viaLine, withLadderPages } from "./web-ladder";
 import { scrapePage } from "./scrape";
 import { parseMode } from "./scrape-pure";
 import { findCountry } from "./countries-pure";
@@ -28,7 +29,7 @@ import { MigrationBlocked, refuse, requireMigration } from "./migration-guard";
 import { verifyRow } from "./completion";
 import { BUILTIN_AGENTS, BUILTIN_ONLY_TOOLS, delegateProblem, pickFair, selfCheck, fixPrompt, type AgentDef, type Tier } from "./agent-defs-pure";
 import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
-import { noteToolResult, newsHours, parseAgentReply, parseFeed, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
+import { noteToolResult, newsHours, parseAgentReply, cleanTags, toOrQuery, validateAutomation, describeTrigger } from "./pure";
 import { dropPrivate } from "./private-pure";
 
 // ORBIT's agent workforce. Each agent is Claude (via Claude Code) with its own instructions and an allow-list of
@@ -38,7 +39,7 @@ import { dropPrivate } from "./private-pure";
 export { BUILTIN_AGENTS, type AgentDef };
 const TIER_MODEL: Record<Tier, string | undefined> = { smart: SMART_MODEL, main: undefined, fast: FAST_MODEL }; // undefined = MODEL
 const TIER_JOB: Record<Tier, JobKind> = { smart: "plan", main: "build", fast: "search" };
-export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; url?: string; at?: string; evidence?: string }; // url/at/evidence: step "source", a page actually read (full URL, not the 160-char detail)
+export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; url?: string; at?: string; evidence?: string; via?: string }; // via: the web-ladder rung that read a "source" page // url/at/evidence: step "source", a page actually read (full URL, not the 160-char detail)
 export type PendingAction = { tool: string; input: Record<string, unknown>; status: "pending" | "attempting" | "approved" | "rejected" | "failed" | "uncertain"; note?: string; evidence?: WriteEvidence[]; attempt?: string };
 type Task = { id: string; agent: string; title: string; request: string; parent_id: string | null; project_id: string | null };
 // pages: full texts read during the task, reused by the verification stage.
@@ -95,15 +96,12 @@ export const TOOLS: Record<string, Tool> = {
     },
   },
   news_search: {
-    description: "Search recent news (Google News, last 7 days). Returns headlines with source, date and link.",
+    description: "Search recent news (Bing News; Google News only if Bing has nothing; last 7 days). Returns headlines with source, date and publisher link.",
     input: '{"query": string}',
     run: async (_, i) => {
       const q = s(i.query, 200);
       if (!q) return "Error: query is required";
-      const { res } = await safeFetch(topicFeedUrl(q), "application/rss+xml, application/xml, text/xml");
-      const items = parseFeed((await res.text()).slice(0, 2_000_000)).items.slice(0, 10);
-      // Publisher links, not Google redirects (agents cite these); unresolvable ones stay as they are.
-      await Promise.all(items.map(async (it) => { it.url = await resolveNewsUrl(it.url, { title: it.title, source: it.source }).catch(() => it.url); }));
+      const items = (await newsSearch(q, "7d")).slice(0, 10); // publisher links (agents cite these); fetch_url opens them through the ladder
       return items.map((it, n) => `${n + 1}. ${it.title} — ${it.source ?? "unknown"}, ${it.published ?? "date unknown"}\n   ${it.url}${it.summary ? `\n   ${it.summary.slice(0, 200)}` : ""}`).join("\n") || "No results.";
     },
   },
@@ -120,20 +118,21 @@ export const TOOLS: Record<string, Tool> = {
     },
   },
   fetch_url: {
-    description: "Read a web page or news article in full (Google News links are unwrapped to the publisher). Use on links from news_search.",
+    description: "Read a web page or news article in full. Opens it through ORBIT's reading ladder: plain fetch, then the scraper, then a headless browser for JavaScript-built or blocking pages (news links are unwrapped to the publisher). Use on links from news_search or web_search.",
     input: '{"url": string}',
     run: async ({ pages, priv, links, task }, i) => {
       const url = s(i.url, 2000);
       // With private data in the task a URL could carry it out (?q=<secret>): links the news tools found pass; any other URL is checked for the task's text.
       const hit = priv && !links?.has(url) ? outboundLeak(url, [task.request ?? ""]) : "";
       if (hit) return `Error: this URL would send private text from the task out ("${hit.slice(0, 80)}"); open a public URL without it.`;
-      const art = await readArticle(url, 40_000); // long pages are clipped per step with a read_more pointer
+      const { page: art, record } = await ladderRead(url, { maxChars: 40_000 }); // long pages are clipped per step with a read_more pointer
       if (art) pages.set(art.url, art);
-      if (art) return `TITLE: ${art.title}\nURL: ${art.url}\n\n${art.text}${art.links.length ? `\n\nLINKS ON THIS PAGE (for citing or reading further):\n${art.links.map((l) => `- ${l.text} — ${l.url}`).join("\n")}` : ""}`;
-      if (new URL(url).hostname === "news.google.com") return "Error: couldn't open this article (blocked, paywalled or not unwrappable). Try another source.";
-      const page = await fetchPage(url);
+      if (art) return `TITLE: ${art.title}\nURL: ${art.url}\n${viaLine(record)}\n\n${art.text}${art.links.length ? `\n\nLINKS ON THIS PAGE (for citing or reading further):\n${art.links.map((l) => `- ${l.text} — ${l.url}`).join("\n")}` : ""}`;
+      if (new URL(url).hostname === "news.google.com" || record.tried.some((a) => a.reason === "dead" || a.reason === "login" || a.reason === "captcha" || a.reason === "blocked" && a.verdict === "stop"))
+        return `Error: couldn't open this page (${viaLine(record)}). Try another source.`;
+      const page = await fetchPage(url); // a tiny page (under the ladder's readable minimum) still comes back as it is
       pages.set(page.url, page);
-      return `TITLE: ${page.title}\nURL: ${page.url}\n\n${page.text.slice(0, 40_000)}`;
+      return `TITLE: ${page.title}\nURL: ${page.url}\nREAD VIA: fetch\n\n${page.text.slice(0, 40_000)}`;
     },
   },
   scrape_page: {
@@ -158,9 +157,9 @@ export const TOOLS: Record<string, Tool> = {
       const hit = priv ? outboundLeak(q.query, [task.request ?? ""]) : "";
       if (hit) return `Error: this search would send private text from the task out ("${hit.slice(0, 80)}"); search with public words only.`;
       if (budget && signal) chargeCall(budget, signal); // an isolated Claude call with only the read-only web tools (core-web-pure)
-      const r = await askClaude(`Search: ${q.query}`, WEB_SEARCH_SYSTEM, { signal, web: true, purpose: "agent.web_search", timeoutMs: 150_000 });
+      const r = await askClaude(`Search: ${q.query}`, WEB_SEARCH_SYSTEM, { signal, web: "search", purpose: "agent.web_search", timeoutMs: 150_000 });
       await recordUsage(sb, userId, "agent.web_search", r);
-      return r.text || "No results.";
+      return r.text ? await withLadderPages(r.text, 45_000) : "No results."; // the top cited pages, opened through the ladder
     },
   },
   vault_search: {
@@ -195,7 +194,7 @@ export const TOOLS: Record<string, Tool> = {
     },
   },
   read_news: {
-    description: "Search the news AND read the top articles in full in one step. Best tool for 'what's happening with X'. Set hours (1-48) for fresh news, e.g. 1 for 'the last hour' (query can be general like \"news\"). Set country (ISO 3166-1 alpha-2 like \"EE\", or the English name) for that country's LOCAL press in its own language (its Google News edition + native outlets); with country, query may be empty for top local headlines, or name local services/events (e.g. \"free events Tallinn\"). Returns full text with publisher links and publication times.",
+    description: "Search the news AND read the top articles in full in one step. Best tool for 'what's happening with X'. Set hours (1-48) for fresh news, e.g. 1 for 'the last hour' (query can be general like \"news\"). Set country (ISO 3166-1 alpha-2 like \"EE\", or the English name) for that country's LOCAL press in its own language (its native outlets + Bing News in its market; Google News only as a fallback); with country, query may be empty for top local headlines, or name local services/events (e.g. \"free events Tallinn\"). Returns full text with publisher links and publication times.",
     input: '{"query": string, "hours"?: number, "country"?: string}',
     run: async ({ pages }, i) => {
       const home = typeof i.country === "string" ? findCountry(i.country.slice(0, 60), displayName) : null;
@@ -203,10 +202,10 @@ export const TOOLS: Record<string, Tool> = {
       const q = s(i.query, 200) || (i.hours && !home ? "news" : "");
       if (!q && !home) return "Error: query is required";
       const hours = newsHours(i.hours);
-      const local = async (query: string) => (await localNews(home!.iso2, home!.lang, query, hours)).map((it) => ({ title: it.title, url: it.url, source: it.source, published: it.published_at, summary: it.summary }));
+      const local = async (query: string) => (await localNews(home!.iso2, home!.lang, query, hours, displayName(home!.name))).map((it) => ({ title: it.title, url: it.url, source: it.source, published: it.published_at, summary: it.summary }));
       let items = home
         ? await local(q)
-        : parseFeed((await (await safeFetch(topicFeedUrl(q, hours ? `${hours}h` : "7d"), "application/rss+xml, application/xml, text/xml")).res.text()).slice(0, 2_000_000)).items;
+        : await newsSearch(q, hours ? `${hours}h` : "7d");
       // No Google News edition for this country and no query: fall back to news about it by name.
       if (home && !items.length && !q) items = await local(`"${displayName(home.name)}"`);
       if (home && !items.length) return `No local headlines found for ${displayName(home.name)}${q ? ` and "${q}"` : ""}${hours ? ` in the last ${hours} h` : ""}. Try a broader query or more hours.`;
@@ -217,12 +216,13 @@ export const TOOLS: Record<string, Tool> = {
         if (!items.length) return `No headlines published in the last ${hours} h for "${q || "local news"}". Try a broader query or more hours.`;
       }
       items = items.slice(0, 8);
-      const out: string[] = [];
+      const out: string[] = [], lookup = newLookup(); // one page cap + time budget for the whole read_news call
       for (const it of items) {
         if (out.length >= 3) break;
-        const art = await readArticle(it.url, 2500, true, { title: it.title, source: it.source });
+        const { page: art, record } = await ladderRead(it.url, { maxChars: 2500, hint: { title: it.title, source: it.source }, lookup });
+        if (record.tried.some((a) => a.reason === "budget")) break;
         if (art) pages.set(art.url, art);
-        if (art) out.push(`### ${it.title} — ${it.source ?? ""}, ${it.published ?? ""}\nURL: ${art.url}\n${art.text}`);
+        if (art) out.push(`### ${it.title} — ${it.source ?? ""}, ${it.published ?? ""}\nURL: ${art.url}\n${viaLine(record)}\n${art.text}`);
       }
       const rest = items.map((it) => `- ${it.title} — ${it.source ?? ""}, ${it.published ?? ""}`).join("\n");
       return `${out.length ? out.join("\n\n") : "(No article could be opened in full; headlines only.)"}\n\nOTHER HEADLINES:\n${rest}`;
@@ -657,7 +657,7 @@ async function runTaskInner(sb: SupabaseClient, userId: string, taskId: string, 
         noteToolResult(ctx, reply.tool, out);
         seen += `\n${out}`;
         const had = new Set(trace.filter((t) => t.step === "source").map((t) => t.url));
-        for (const p of ctx.pages.values()) if (!had.has(p.url)) trace.push({ step: "source", detail: p.url.slice(0, 300), ms: 0, ok: true, url: p.url, at: new Date().toISOString(), evidence: (p.text ?? "").slice(0, EVIDENCE_CHARS) });
+        for (const p of ctx.pages.values()) if (!had.has(p.url)) trace.push({ step: "source", detail: p.url.slice(0, 300), ms: 0, ok: true, url: p.url, at: new Date().toISOString(), evidence: (p.text ?? "").slice(0, EVIDENCE_CHARS), ...("via" in p && typeof p.via === "string" && { via: p.via }) });
       }
       trace.push({ step: reply.tool, detail: `${JSON.stringify(reply.input ?? {}).slice(0, 160)} → ${out.slice(0, 160)}`, ms: Date.now() - t0, ok: !out.startsWith("Error:") });
       transcript.push(`STEP ${step + 1}: you called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 500)}\nRESULT:\n${(reply.tool === "read_more" ? out : clips.clip(out)).slice(0, 6000)}`); // read_more output already carries its own pointer

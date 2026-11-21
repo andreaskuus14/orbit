@@ -5,7 +5,9 @@ import { routeFast } from "./model-routing-pure.ts";
 import { createMemory, safeFetch } from "./memory";
 import { asJob } from "./crash-log";
 import { parseFeed, normalizeUrl, parseCitations, numberCitations, type BriefingKind } from "./pure";
-import { readArticle } from "./news";
+import { newsSearch, readArticle } from "./news";
+import { bingNewsSearchUrl, newsFeedQuery } from "./local-news-pure";
+import { BULK_BUDGET, newLookup } from "./web-ladder-pure";
 import { clusterEvents, due, evidenceOf, freshAfterRepair, independentSources, nextHealth } from "./news-intel-pure";
 import { readIntel, updateIntel } from "./news-intel";
 import { dropPrivate } from "./private-pure";
@@ -28,7 +30,7 @@ const FEED_ACCEPT = "application/rss+xml, application/atom+xml, application/xml,
 export type Focus = "all" | "world" | "mine";
 // Topics that count as "world" news (wars & conflict, economy & markets, politics).
 export const WORLD_TOPICS = ["world", "economy", "politics"];
-// Major outlets with direct article links (readable in full), plus Google News searches to widen coverage.
+// Major outlets with direct article links (readable in full), plus Bing News searches to widen coverage.
 export const WORLD_PACK: { url: string; title: string; topic: string }[] = [
   { url: "https://feeds.bbci.co.uk/news/world/rss.xml", title: "BBC World", topic: "world" },
   { url: "https://feeds.bbci.co.uk/news/business/rss.xml", title: "BBC Business", topic: "economy" },
@@ -43,13 +45,13 @@ export const WORLD_PACK: { url: string; title: string; topic: string }[] = [
   { url: topicGoogle("global economy OR markets OR inflation OR central bank"), title: "News: global economy", topic: "economy" },
   { url: topicGoogle("election OR government OR parliament"), title: "News: politics", topic: "politics" },
 ];
-function topicGoogle(q: string) {
-  return `https://news.google.com/rss/search?q=${encodeURIComponent(`${q} when:2d`)}&hl=en-US&gl=US&ceid=US:en`;
+function topicGoogle(q: string) { // name kept for the pack's history: now a Bing News search (Google only as ingest's fallback)
+  return bingNewsSearchUrl(q, "2d");
 }
 
-// window: Google News' own time filter ("1h", "12h", "7d").
-export const topicFeedUrl = (topic: string, window = "7d") =>
-  `https://news.google.com/rss/search?q=${encodeURIComponent(`${topic} when:${window}`)}&hl=en-US&gl=US&ceid=US:en`;
+// A topic's news-search feed (Bing News RSS; window "1h", "12h", "7d"). Ingest runs these through newsSearch, which falls
+// back to Google News only when Bing returns nothing; old stored Google News feed URLs are read the same way.
+export const topicFeedUrl = (topic: string, window = "7d") => bingNewsSearchUrl(topic, window);
 
 type Feed = { id: string; url: string; title: string | null; topic: string | null };
 type ArticleRow = ArticleCitation & { summary: string; topic: string | null };
@@ -80,10 +82,14 @@ export async function ingestFeeds(sb: SupabaseClient, userId: string) {
   const worker = async () => {
     for (let feed = queue.shift(); feed; feed = queue.shift()) {
       try {
-        let xml: string;
-        try { const { res } = await safeFetch(feed.url, FEED_ACCEPT); xml = (await res.text()).slice(0, 3_000_000); }
-        catch (e) { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { feedKind: "fetch" }); }
-        const parsed = parseFeed(xml);
+        let xml = "<rss>", parsed: ReturnType<typeof parseFeed>;
+        const search = newsFeedQuery(feed.url); // a news-search feed: Bing first (publisher links), Google News last
+        if (search) parsed = { title: feed.title ?? "", items: await newsSearch(search.q, search.window) };
+        else {
+          try { const { res } = await safeFetch(feed.url, FEED_ACCEPT); xml = (await res.text()).slice(0, 3_000_000); }
+          catch (e) { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { feedKind: "fetch" }); }
+          parsed = parseFeed(xml);
+        }
         if (!parsed.items.length && !/<(rss|feed|rdf)[\s>]/i.test(xml)) throw Object.assign(new Error("Not an RSS or Atom feed"), { feedKind: "parse" });
         const rows = freshAfterRepair(parsed.items, health[feed.id]).slice(0, 60).map((it) => {
           const source = it.source ?? feed.title ?? new URL(it.url).hostname;
@@ -193,10 +199,11 @@ async function briefing(sb: SupabaseClient, userId: string, kind: PulseKind, foc
     const fullText = new Map<string, string>(), readUrl = new Map<string, string>(); // readUrl: the exact page each passage came from
     const readTop = clusters.slice(0, kind === "weekly" ? 14 : 12);
     let cursor = 0;
+    const lookup = newLookup(BULK_BUDGET); // the whole briefing's reading: page cap + time budget across all workers
     await Promise.all(Array.from({ length: 4 }, async () => {
       for (let c = cursor++; c < readTop.length; c = cursor++) {
         for (const a of readTop[c].slice(0, 3)) {
-          const art = await readArticle(a.url, 2500, false, { title: a.title, source: a.source }); // bulk: plain downloads only, keeps briefings fast
+          const art = await readArticle(a.url, 2500, { hint: { title: a.title, source: a.source }, lookup }); // the full ladder, within the briefing's budget
           if (!art) continue;
           fullText.set(a.id, art.text); readUrl.set(a.id, art.url);
           if (art.url !== a.url) {
