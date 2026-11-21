@@ -58,3 +58,8 @@ orbit-launcher.log.1
 !/tools/trials/results/.gitkeep
 /tools/trellis/smoke-output.glb
 .cache/
+
+# journal key / backups (tools/backup): never commit
+*.key
+*.ojb
+restic.pass

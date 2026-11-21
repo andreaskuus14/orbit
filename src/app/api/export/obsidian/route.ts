@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/supabase/server";
 import { MEMORY_COLUMNS } from "@/lib/memory-search";
 import { vault, type Link, type Mem, type Project } from "@/lib/obsidian-pure";
 import { zipStore } from "@/lib/zip-pure";
+import { openMemory } from "@/lib/life-journal";
 
 /** ORBIT as an Obsidian vault (.zip of linked Markdown notes). ?journal=1 includes journal entries (left out by default). */
 export async function GET(req: Request) {
@@ -18,7 +19,10 @@ export async function GET(req: Request) {
   try {
     const [memories, links, projects] = await Promise.all([all<Mem>("memories", MEMORY_COLUMNS), all<Link>("memory_links", "from_id, to_id, status, created_at"), all<Project>("projects", "id, name, description, status, created_at")]);
     const exportedAt = new Date().toISOString();
-    const files = vault({ memories, links, projects, includeJournal: new URL(req.url).searchParams.get("journal") === "1", exportedAt });
+    const includeJournal = new URL(req.url).searchParams.get("journal") === "1";
+    // ?journal=1 is the owner's explicit download: journal rows are opened (life-journal.ts); otherwise they are left out unread.
+    const mems = includeJournal ? memories.map((m) => openMemory(m as Mem & { created_at: string }, user.id)) : memories.filter((m) => m.kind !== "journal");
+    const files = vault({ memories: mems, links, projects, includeJournal, exportedAt });
     const enc = new TextEncoder(), zip = zipStore(Object.entries(files).map(([path, text]) => ({ path: `ORBIT vault/${path}`, bytes: enc.encode(text) })));
     return new Response(new Uint8Array(zip), { headers: { "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="orbit-obsidian-${exportedAt.slice(0, 10)}.zip"` } });
   } catch (e) {

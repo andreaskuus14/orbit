@@ -18,6 +18,11 @@ export async function POST(req: Request) {
   if (error) return Response.json({ error: error.message }, { status: 500 });
   let done = 0, failed = 0;
   for (const m of data ?? []) {
+    if (m.kind === "journal") { // journal text never goes to a model, the local embedder included: drop any old vector
+      const { error: upErr } = await sb.from("memories").update({ embedding: null }).eq("id", m.id);
+      if (upErr) failed++; else done++;
+      continue;
+    }
     const e = await embed(`${m.title}\n\n${m.content}`, "document", m); // kind + tags: private rows stay on the local model
     if (!e) { failed++; continue; }
     const { error: upErr } = await sb.from("memories").update({ embedding: JSON.stringify(e) }).eq("id", m.id);

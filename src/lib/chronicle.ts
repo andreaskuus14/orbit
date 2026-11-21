@@ -39,7 +39,8 @@ export async function gather(sb: SupabaseClient, userId: string, includePrivate:
   ]);
   return {
     now, includePrivate, events: fromRows(events.reverse()),
-    memories: (includePrivate ? memories : dropPrivate(memories)).map((m) => ({ ...m, title: m.title ?? "", tags: m.tags ?? [] })),
+    // journal titles are encrypted at rest: the timeline shows "Journal entry"
+    memories: (includePrivate ? memories : dropPrivate(memories)).map((m) => ({ ...m, title: m.kind === "journal" ? "Journal entry" : m.title ?? "", tags: m.tags ?? [] })),
     goals: goals.map((r) => ({ id: r.id, title: r.doc.title, status: r.doc.status, updatedAt: r.updated_at, steps: r.doc.steps.map((s) => ({ id: s.id, what: s.what })) })),
     clips: jobs.flatMap((j) => j.clips.map((c) => ({ job: j.id, id: c.id, title: c.publish?.title ?? c.title, ...(c.publish?.status === "done" ? { publishedAt: c.publish.at } : {}) }))),
     dev: dev.map((s) => ({ id: s.id, start: s.start, line: `Roblox dev · ${s.line}` })),

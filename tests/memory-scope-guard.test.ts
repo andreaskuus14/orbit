@@ -13,6 +13,8 @@ const OWNER_ONLY = new Set([
   "src/lib/chronicle.ts", "src/lib/memory-hygiene.ts", "src/lib/reflect.ts", // owner timeline; owner's dedupe suggestions; title dedupe
   "src/lib/memory-pack.ts", // filtered by packable() in memory-pack-pure.ts (currentOnly + project/chat/journal guard)
   "src/app/api/search/route.ts", // owner's own search (includeJournal: unfiltered by design)
+  "src/lib/life-journal.ts", // LIFE → Journal for the owner only (opens encrypted journal rows; never to a model)
+  "src/lib/doctor.ts", // journal check: counts rows still in plain text, no text leaves the function
 ]);
 const walk = (d: string): string[] => readdirSync(d).flatMap((f) => { const p = path.join(d, f); return statSync(p).isDirectory() ? walk(p) : /\.tsx?$/.test(f) ? [p] : []; });
 const READ = /from\("memories"\)\s*\.select\(\s*(?:MEMORY_COLUMNS|"[^"]*\b(?:title|content)\b[^"]*")/;

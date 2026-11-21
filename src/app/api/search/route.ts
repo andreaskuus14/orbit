@@ -2,7 +2,8 @@ import { requireUser } from "@/lib/supabase/server";
 import { searchMemories } from "@/lib/memory";
 import { searchVault } from "@/lib/vault";
 import { exportLife } from "@/lib/life";
-import { journalHits, likePattern, rankHits, snip, vaultSource, type SearchHit, type SearchSource } from "@/lib/search-pure";
+import { journalSearch } from "@/lib/life-journal";
+import { likePattern, rankHits, snip, vaultSource, type SearchHit, type SearchSource } from "@/lib/search-pure";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 const PER = 10;
 
 export async function GET(req: Request) {
-  const { sb, res } = await requireUser();
+  const { sb, user, res } = await requireUser();
   if (res) return res;
   const q = new URL(req.url).searchParams.get("q")?.trim().slice(0, 200) ?? "";
   const like = likePattern(q);
@@ -27,10 +28,11 @@ export async function GET(req: Request) {
   const s = (v: unknown) => (typeof v === "string" ? v : "");
 
   const sources: [SearchSource[], () => Promise<SearchHit[]>][] = [
-    [["memory", "journal"], async () => (await searchMemories(sb, q, PER, undefined, { includeJournal: true })).results.map((m: Row): SearchHit => ({
-      source: m.kind === "journal" ? "journal" : "memory", id: s(m.id), title: s(m.title) || "(untitled)", snippet: snip(s(m.content), q), at: s(m.updated_at) || s(m.created_at), open: { memory: s(m.id) },
+    // Journal rows are encrypted at rest (journal-crypt-pure.ts): they are matched in journalSearch, never here.
+    [["memory"], async () => (await searchMemories(sb, q, PER)).results.filter((m: Row) => m.kind !== "journal").map((m: Row): SearchHit => ({
+      source: "memory", id: s(m.id), title: s(m.title) || "(untitled)", snippet: snip(s(m.content), q), at: s(m.updated_at) || s(m.created_at), open: { memory: s(m.id) },
     }))],
-    [["journal"], async () => journalHits((await exportLife()).journal, q)],
+    [["journal"], async () => journalSearch(sb, user.id, (await exportLife()).journal, q)],
     [["note", "file"], async () => (await searchVault(q, PER)).map((f): SearchHit => ({
       source: vaultSource(f.name), id: f.name, title: f.name, snippet: f.snippet, open: { nav: { panel: "vault" } },
     }))],

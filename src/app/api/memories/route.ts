@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/supabase/server";
 import { captureMemory, searchMemories, fetchPage, KINDS, MEMORY_COLUMNS, type Kind } from "@/lib/memory";
 import { cleanTags, str } from "@/lib/pure";
 import { readVaultText } from "@/lib/vault";
+import { redactJournalRow } from "@/lib/journal-crypt-pure";
 
 const CHOICES = ["keep", "merge", "update"] as const;
 
@@ -11,10 +12,11 @@ export async function GET(req: Request) {
   if (res) return res;
   const q = new URL(req.url).searchParams.get("q")?.trim();
   try {
-    if (q) return Response.json(await searchMemories(sb, q.slice(0, 500), 30, undefined, { includeJournal: true }));
+    // Journal rows are encrypted at rest and shown here only as "Journal entry · <day>" (read in LIFE → Journal).
+    if (q) { const r = await searchMemories(sb, q.slice(0, 500), 30, undefined, { includeJournal: true }); return Response.json({ ...r, results: r.results.map(redactJournalRow) }); }
     const { data, error } = await sb.from("memories").select(MEMORY_COLUMNS).order("created_at", { ascending: false }).limit(200);
     if (error) throw error;
-    return Response.json({ results: data, mode: "list" });
+    return Response.json({ results: (data ?? []).map(redactJournalRow), mode: "list" });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Search failed" }, { status: 500 });
   }

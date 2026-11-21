@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { emit } from "@/lib/claude";
-import { ackReminder, addHabit, addReminder, checkHabit, getDue, getLife, logFocus, markFired, removeHabit, removeReminder, saveJournal, setHabitNudge, setHabitPlan, setLiveFocus } from "@/lib/life";
+import { LOCKED_TEXT, journalNotes, openLifeJournal } from "@/lib/life-journal";
+import { ackReminder, addHabit, addReminder, checkHabit, getDue, getLifeForOwner, logFocus, markFired, removeHabit, removeReminder, saveJournal, setHabitNudge, setHabitPlan, setLiveFocus } from "@/lib/life";
 import { getWeekReview } from "@/lib/life-week";
 import { takeHabitToasts } from "@/lib/habit-nudge";
 import { restoreFocusTimer } from "@/lib/focus-timer-pure";
@@ -15,11 +16,13 @@ export const dynamic = "force-dynamic";
 // ?due=1 also drains in-app habit nudges ({ habits }) from habit-nudge.ts.
 
 export async function GET(req: Request) {
-  const { res } = await requireUser();
+  const { sb, user, res } = await requireUser();
   if (res) return res;
   if (new URL(req.url).searchParams.get("week") === "1") return Response.json(await getWeekReview());
   if (new URL(req.url).searchParams.get("due") === "1") return Response.json({ due: await getDue(), habits: takeHabitToasts() });
-  return Response.json(await getLife());
+  // The journal is stored encrypted; this owner-only response is where it is opened (never for a model: life-journal.ts).
+  const [st, notes] = await Promise.all([getLifeForOwner(openLifeJournal), journalNotes(sb, user.id).catch(() => [])]);
+  return Response.json({ ...st, notes });
 }
 
 const str = (v: unknown, max: number) => (typeof v === "string" && v.length <= max ? v : null);
@@ -87,6 +90,7 @@ export async function POST(req: Request) {
     case "journal": {
       const text = str(b.text, 2000);
       if (text === null) return bad("Journal entry must be at most 2000 characters");
+      if (text.includes(LOCKED_TEXT)) return Response.json({ error: "This day is encrypted with a key this PC doesn't have: restore the key first" }, { status: 409 });
       return out(await saveJournal(text, date));
     }
     default:
