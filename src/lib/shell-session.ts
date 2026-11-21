@@ -25,7 +25,7 @@ const WINDOWS = process.platform === "win32";
 type Session = { id: string; name: string; shell: Shell; cwd: string; env: Record<string, string>; runs: Run[]; proc: ChildProcess | null; createdAt: string };
 type Store = { sessions: Map<string, Session>; procs: Map<string, ChildProcess>; done: Map<string, Promise<void>>; seq: number };
 const g = globalThis as unknown as { __orbitTerm?: Store };
-const S = (g.__orbitTerm ??= { sessions: new Map(), procs: new Map(), done: new Map(), seq: 0 });
+const S: Store = (g.__orbitTerm ??= { sessions: new Map(), procs: new Map(), done: new Map(), seq: 0 });
 
 const snapRoot = () => path.join(orbitDataDir(), "terminal-snapshots");
 const newId = (p: string) => `${p}${Date.now().toString(36)}${(S.seq++ % 1296).toString(36).padStart(2, "0")}${Math.random().toString(36).slice(2, 6)}`;
