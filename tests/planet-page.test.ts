@@ -68,3 +68,20 @@ test("plainError swaps internal names and hides paths", () => {
 test("examples trims and keeps three", () => {
   assert.deepEqual(examples([" a ", "", "b", "c", "d"]), ["a", "b", "c"]);
 });
+
+import { businessRows, vaultRows } from "../src/lib/planet-page-pure.ts";
+test("business rows: newest first, where it stands and the next step, deep link to the client", () => {
+  const rows = businessRows([
+    { id: "a", name: "Kohvik", stage: "lead", draft: "", updated_at: "2026-11-20T10:00:00Z" },
+    { id: "b", name: "Pood", stage: "replied", updated_at: "2026-11-21T10:00:00Z" },
+  ], "en");
+  assert.deepEqual(rows.map((r) => r.id), ["b", "a"]);
+  assert.equal(rows[0].sub, "Replied · Next: Answer them");
+  assert.equal(rows[1].sub, "To contact · Next: Let ORBIT write a first message");
+  assert.equal(rows[1].link, "#o=business&k=client&id=a");
+});
+test("vault rows: newest four files with size", () => {
+  const rows = vaultRows([1, 2, 3, 4, 5].map((i) => ({ name: `f${i}.pdf`, size: i * 600_000, mtime: Date.parse(`2026-11-0${i}T10:00:00Z`) })), "en");
+  assert.deepEqual(rows.map((r) => r.title), ["f5.pdf", "f4.pdf", "f3.pdf", "f2.pdf"]);
+  assert.match(rows[0].sub, /^Added .* · 3\.0 MB$/);
+});

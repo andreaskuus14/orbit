@@ -2,7 +2,7 @@
    no glows, sheens or scan lines. Only this page and the panel holding it; the rest of the app keeps its own look. */
 .page { display: flex; flex-direction: column; gap: 1rem; color: #e6edf5; font-size: 0.9rem; line-height: 1.45; }
 .what { font-size: 1rem; line-height: 1.5; color: #f1f5f9; }
-.main { width: 100%; padding: 0.7rem 1rem; font-size: 1rem; }
+.page .main { width: 100%; padding: 0.7rem 1rem; font-size: 0.95rem; }
 .ask { display: flex; gap: 0.5rem; }
 .ask :global(.field) { flex: 1; min-width: 0; }
 .block { display: flex; flex-direction: column; gap: 0.5rem; }
@@ -23,7 +23,7 @@
 /* Calm surfaces inside the page: flat cards and chips, one border colour, no gradients or inner glows. */
 .page :global(.card) { background: #111a2b; border: 1px solid rgba(148, 163, 184, 0.16); box-shadow: none; border-radius: 12px; }
 .page :global(.chip) { background: #16213a; border-color: rgba(148, 163, 184, 0.25); box-shadow: none; }
-.page :global(.btn) { box-shadow: none; }
+.page :global(.btn) { box-shadow: none; font-size: 0.85rem; }
 /* Plain readable text: no all-caps, wide-spaced mono labels on the simple page. */
 .page :global(:is(.chip, .btn, .link, .h3)) { text-transform: none; letter-spacing: normal; font-family: inherit; }
 .page :global(.btn:hover:not(:disabled)) { box-shadow: none; filter: brightness(1.1); }
