@@ -8,7 +8,7 @@ import { fromTask, sortProgress, statusLine, type Progress } from "@/lib/progres
 import { STOP_ALL_EVENT, STOP_ALL_REQUEST_EVENT, type StopAllDetail } from "@/lib/stop-all-pure";
 import { runSeconds } from "@/lib/task-line-pure";
 import { usePoll, sharedJson } from "./use-poll";
-import { ProgressList } from "./ProgressCard";
+import { ProgressList, openProgress } from "./ProgressCard";
 import { useT } from "./i18n";
 
 const COLS = "id,title,status,result,error,created_at,started_at,finished_at,trace,pending";
@@ -31,6 +31,7 @@ export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask, onNeeds 
   const [rows, setRows] = useState<Parameters<typeof fromTask>[0][] | null>(null);
   const [failed, setFailed] = useState(false);
   const [needs, setNeeds] = useState<number | null>(null);
+  const [pilots, setPilots] = useState<Progress[]>([]); // autopilot projects: one card each (api/goals?cards=1, pilot-pure fromPilot)
   const [stopAll, setStopAll] = useState(false);
   const [fold, setFold] = useState(false);
   useEffect(() => { try { setFold(localStorage.getItem(FOLD_KEY) === "1"); } catch { /* no storage */ } }, []);
@@ -45,13 +46,15 @@ export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask, onNeeds 
     void sb.from("tasks").select(COLS).is("parent_id", null).or(`status.in.(running,awaiting_approval,queued),finished_at.gte.${since}`)
       .order("created_at", { ascending: false }).limit(12)
       .then(({ data, error }) => { if (error || !data) { setFailed(true); return; } setFailed(false); setRows(data as Parameters<typeof fromTask>[0][]); }, () => setFailed(true));
+    void sharedJson<{ cards?: Progress[] }>(`/api/goals?cards=1&lang=${lang}`).then((j) => setPilots(Array.isArray(j?.cards) ? j.cards : []));
     void sharedJson<{ items?: unknown[] }>(`/api/needs-you?lang=${lang}`).then((j) => setNeeds(j?.items ? j.items.length : null));
   }, [sb, lang]);
   usePoll(load, 20_000);
   useEffect(() => { if (refresh) load(); }, [refresh]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const nowMs = Date.now();
-  const items: Progress[] | null = rows ? sortProgress(rows.map((r) => fromTask(r, lang, { nowMs, typicalMs: typical(rows), stopAll }))) : null;
+  // A project's own step tasks are already on its card, so they don't get cards of their own.
+  const items: Progress[] | null = rows ? sortProgress([...pilots, ...rows.filter((r) => !(/^Goal step /.test(r.title) && pilots.some((p) => r.title.includes(` · ${p.title.replace(/^🧭 /, "")}:`)))).map((r) => fromTask(r, lang, { nowMs, typicalMs: typical(rows), stopAll }))]) : null;
   // Needs-you items that aren't tasks (approvals, blockers…) add to the count; tasks waiting for him are already in the list.
   const needN = Math.max(needs ?? 0, items?.filter((p) => p.phase === "needs").length ?? 0);
   const line = items ? statusLine(items, lang, nowMs, needN) : t("common.loading");
@@ -71,7 +74,7 @@ export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask, onNeeds 
       </header>
       {!fold && <div id="home-desk-list" className="mt-2">
         {failed && <p className="error text-sm" role="alert">{t("home.loadFailed")}</p>}
-        {!failed && <ProgressList items={items} max={SHOWN} empty={t("home.empty")} onOpen={(p) => onOpenTask(p.id)} />}
+        {!failed && <ProgressList items={items} max={SHOWN} empty={t("home.empty")} onOpen={(p) => (p.id.startsWith("pilot:") ? openProgress(p.result?.open || p.action?.open || `#o=agents&k=goal&id=${encodeURIComponent(p.id.slice(6))}`) : onOpenTask(p.id))} />}
         {items && items.length > SHOWN && <button type="button" className="link mt-1 text-xs" onClick={onOpenAll}>{t("home.all", { n: items.length })}</button>}
       </div>}
     </section>

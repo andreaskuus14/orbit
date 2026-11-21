@@ -1,6 +1,6 @@
-// The local brain's IO: Ollama on this PC (rules: local-model-pure.ts). Used by claude.ts for the offline fallback and by vault intake.
+// The local brain's IO: Ollama on this PC (rules: local-model-pure.ts). Used by claude.ts for the offline fallback, by CORE's offline turn with tools (offline-tools.ts) and by vault intake.
 // This file must never import claude.ts, and no journal/LIFE text may reach it (AGENTS.md rule 6; tests/local-llm.test.ts, tests/life-planning.test.ts).
-import { OLLAMA_URL, TIGHT_VRAM_MB, installedModels, localModelName, localStatus, ollamaAnswer, ollamaRequest, pickLocalModel, type LocalPick, type LocalStatus } from "./local-model-pure.ts";
+import { OLLAMA_URL, TIGHT_VRAM_MB, installedModels, localModelName, localStatus, ollamaAnswer, ollamaRequest, ollamaToolReply, ollamaToolRequest, pickLocalModel, type LocalPick, type LocalStatus, type OllamaMsg, type OllamaTool } from "./local-model-pure.ts";
 import { gpuNow } from "./gpu-lock.ts";
 
 /** The configured model (ORBIT_LOCAL_LLM_MODEL); resolveLocalModel() says which installed one actually answers. */
@@ -58,6 +58,17 @@ export async function chatLocal(prompt: string, system: string, o: { signal?: Ab
   });
   if (!res.ok) throw new Error(`Local model (Ollama) answered ${res.status}`);
   return { ...ollamaAnswer(await res.json()), ms: Date.now() - t0, local: true as const, model: pick.model };
+}
+
+/** One Ollama chat call with native tool calling (no streaming), for CORE's offline turn (offline-tools.ts). model: pick it once per turn. */
+export async function chatLocalTools(model: string, messages: OllamaMsg[], tools: OllamaTool[], o: { signal?: AbortSignal; timeoutMs?: number; numCtx?: number } = {}) {
+  const ms = o.timeoutMs ?? 60_000;
+  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: "POST", redirect: "error", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ollamaToolRequest(model, messages, tools, o.numCtx)),
+    signal: o.signal ? AbortSignal.any([o.signal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms),
+  });
+  if (!res.ok) throw new Error(`Local model (Ollama) answered ${res.status}${await res.text().then((t) => (t ? `: ${t.slice(0, 200)}` : ""), () => "")}`);
+  return ollamaToolReply(await res.json());
 }
 
 const tags = () => fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) }).then((r) => (r.ok ? r.json() : null), () => null);

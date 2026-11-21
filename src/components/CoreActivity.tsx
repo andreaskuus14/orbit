@@ -36,8 +36,8 @@ export function CoreActivity({ rows, running, streaming = false, since = 0, tota
   const current = streaming ? t("live.writing") : rows.length ? label(rows.at(-1)!) : t("live.connecting");
   const phase = coreRunPhase(rows, streaming, taskId);
   const labels = lang === "et"
-    ? { project: "Projekt", fast: "Kiire mudel", smart: "Põhimudel", deep: "Süvamudel", local: "Kohalik mudel", background: "Taustatöö", tool: "Tööriist töös", answering: "Vastab", working: "Valmistab vastust" }
-    : { project: "Project", fast: "Fast model", smart: "Main model", deep: "Deep model", local: "Local model", background: "Working in background", tool: "Using a tool", answering: "Answering", working: "Preparing an answer" };
+    ? { project: "Projekt", fast: "Kiire mudel", smart: "Põhimudel", deep: "Süvamudel", local: "Võrguta režiim (kohalik mudel)", background: "Taustatöö", tool: "Tööriist töös", answering: "Vastab", working: "Valmistab vastust" }
+    : { project: "Project", fast: "Fast model", smart: "Main model", deep: "Deep model", local: "Offline mode (local model)", background: "Working in background", tool: "Using a tool", answering: "Answering", working: "Preparing an answer" };
   return <div className="core-activity" aria-label={t("live.aria")}>
     <p className="core-activity-hint break-words" role="status">
       {labels[phase]}{route && <> · {labels[route]}</>}{projectName && <> · {labels.project} <b>{projectName}</b></>}

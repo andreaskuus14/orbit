@@ -65,7 +65,7 @@ async function projectTasks(sb: SupabaseClient, userId: string, now: number): Pr
 /** The deterministic brief for now (no AI call). */
 export async function composeToday(sb: SupabaseClient, userId: string, now = Date.now()): Promise<Brief> {
   const day = localDay(new Date(now)), hour = new Date(now).getHours();
-  const [u, m, rem, rep, les, dl, hl, ds, ct, eps, pl, study, sc, gr, rc, hw, rv, lp, cf, ny, wt, pj, nr] = await Promise.all([
+  const [u, m, rem, rep, les, dl, hl, ds, ct, eps, pl, study, sc, gr, rc, hw, rv, lp, cf, ny, wt, pj, nr, pil] = await Promise.all([
     load().then((s) => s.users[userId] ?? {}),
     import("./morning").then((x) => x.getMorning(sb, userId, now)),
     within(import("./remote").then((x) => x.pendingApprovals(sb))).catch(() => []),
@@ -89,6 +89,7 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
     within(Promise.all([import("./pagewatch"), import("./pagewatch-pure")]).then(async ([w, p]) => p.briefWatch(await w.watchStore(), now))).catch(() => ({ changes: [], more: 0, failed: [], unreadable: true })), // unreadable says so, never "no change"
     within(projectTasks(sb, userId, now)).catch(() => null), // null: the card says it couldn't be read
     within(import("./night-repair").then((x) => x.repairBriefLine(now))).catch(() => null), // what last night's repair prepared
+    within(import("./goals").then((x) => x.pilotBrief(sb, userId, now))).catch(() => []), // autopilot projects: one line each
   ]);
   const weather = pl ? await within(import("./weather").then((x) => x.briefWeather(pl, now)), 6000).catch(() => null) : null; // no saved place → none
   const inv = await within(import("./invoices").then((x) => x.allInvoices())).catch(() => []); // overdue reminders waiting for his approve
@@ -102,7 +103,7 @@ export async function composeToday(sb: SupabaseClient, userId: string, now = Dat
   return composeBrief({
     day, hour, life: !!u.life, morning: m,
     decisions, place, ...(weather && { weather }),
-    replies: rep, deal, ...(wt && { watch: wt }), ...(hl && { health: hl }), ...(nr && { repair: nr }), ...(ds && { devSession: ds }), ...(sc && { school: sc }), ...(gr && { goalRisk: gr }), ...(rc && { recap: rc }), ...(rv && { review: rv }), ...(lp && { loops: lp }), ...(cf && { conflict: cf }), lesson: lesson && { id: lesson.id, text: lesson.text }, study,
+    replies: rep, deal, ...(wt && { watch: wt }), ...(hl && { health: hl }), ...(nr && { repair: nr }), ...(ds && { devSession: ds }), ...(sc && { school: sc }), ...(gr && { goalRisk: gr }), ...(pil.length && { pilots: pil }), ...(rc && { recap: rc }), ...(rv && { review: rv }), ...(lp && { loops: lp }), ...(cf && { conflict: cf }), lesson: lesson && { id: lesson.id, text: lesson.text }, study,
     echo: { short: briefEcho(eps, "short", now, (m.studio?.yesterday ?? []).map((y) => y.title)), reply: briefEcho(eps, "reply", now, rep.map((r) => r.name)) },
     lead: leadItems(morningPicks(ny)), habits: hw, snoozed: Object.entries(u.snoozed ?? {}).filter(([, until]) => until > day).map(([id]) => id),
     projects: pj,
