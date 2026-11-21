@@ -109,6 +109,8 @@ export async function captureMemory(sb: SupabaseClient, userId: string, input: M
     const { error } = await sb.from("memories").update({ content: plan.content, tags: [...new Set([...cur.tags, ...keys])], embedding: e ? JSON.stringify(e) : null }).eq("id", cur.id);
     if (error) throw error;
     await emit(sb, userId, "memory.updated", "memory", { id: cur.id });
+    const st = (content: string, tg: string[]) => ({ kind: input.kind, title: cur.title, content, tags: tg, source: input.source ?? null });
+    void import("./time-machine").then((m) => m.recordMemoryEdit(cur.id, st(cur.content, cur.tags), st(plan.content!, [...new Set([...cur.tags, ...keys])]), `Merged a new note into it${input.source ? ` (${input.source})` : ""}`)).catch(() => {}); // TIME MACHINE: Undo puts the old text back
   }
   return { memory: { id: cur.id, title: cur.title }, embedded: true, suggested: 0, duplicate: dup, changed: plan.content !== null };
 }

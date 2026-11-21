@@ -99,7 +99,7 @@ export async function runVideoTool(i: Record<string, unknown>): Promise<string> 
       picture = await new Response(stream).blob();
     }
     const bytes = await generateVideo(r, picture);
-    const saved = await saveUpload(new File([bytes as BlobPart], assetName(r.name || r.prompt.slice(0, 40), "mp4", "video"), { type: "video/mp4" }));
+    const saved = await saveUpload(new File([bytes as BlobPart], assetName(r.name || r.prompt.slice(0, 40), "mp4", "video"), { type: "video/mp4" }), { made: "Video made" });
     return `${note ? `${note} ` : ""}Saved the video as "${saved}" in VAULT (${r.image ? "image to video" : "text to video"}, about ${r.seconds} s, made on his PC with Wan 2.2 in ComfyUI; free, nothing uploaded; silent, no sound). Show it with vault_read or tell him where it is.`;
   } catch (e) { return `Error: ${e instanceof Error ? e.message : String(e)}`; }
 }

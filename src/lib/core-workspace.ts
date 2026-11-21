@@ -213,25 +213,30 @@ export async function runWsTool(userId: string, tool: WsTool, input: Record<stri
         const lines: string[] = [];
         let failed = false;
         const written: WriteEvidence[] = [];
+        const tm: { path: string; before: Uint8Array | null; after: string }[] = []; // TIME MACHINE: each file's bytes before, for Undo
         for (const f of files as { path?: unknown; content?: unknown }[]) {
           const p = typeof f?.path === "string" ? f.path.trim() : "";
           // Version guard (roadmap 23): a file this chat's checkpoint pinned at a revision must not have changed since, unless read or written this answer.
           const pinned = basis.filter((b) => b.ref === `file:${c.slug}/${p}`);
           const g = pinned.length && !touched(p) ? await guardNow(userId, pinned) : { ok: true as const };
           if (!g.ok) { failed = true; lines.push(`- ${p}: Error: ${g.explain} Read it with ws_read first, then rewrite from the current version or tell the user what changed.`); continue; }
+          const prev = await ws.readWsFile(userId, c.slug, p);
           const r = await ws.writeWsFile(userId, c.slug, p, typeof f?.content === "string" ? f.content : "");
           if ("error" in r) failed = true;
           else {
+            tm.push({ path: r.path, before: prev ? prev.bytes : null, after: typeof f?.content === "string" ? f.content : "" });
             written.push({ kind: "file", id: c.slug, path: r.path, bytes: r.bytes, rev: fileRev(sha256(typeof f?.content === "string" ? f.content : ""), Date.now()) });
             await ws.markOwn(userId, c.slug, r.path, typeof f?.content === "string" ? f.content : ""); // ws_write only runs untainted (or his build's public research)
           }
           lines.push("error" in r ? `- ${p || "(no path)"}: Error: ${r.error}` : `- ${r.path} ${r.created ? "created" : "updated"} (${kb(r.bytes)})`);
         }
+        const tmId = tm.length ? await (await import("./time-machine.ts")).recordWsWrites(c.slug, tm, `CORE: ${question.slice(0, 120)}`) : null;
+        const undoLine = tmId ? `\nUndo: [tm:${tmId}]` : ""; // last line: activity-pure undoOf reads it (OPERATIONS → Time machine)
         const all = await ws.listFiles(userId, c.slug), hasIndex = all?.some((f) => f.path === "index.html");
         if (all?.some((f) => f.path === "server.mjs")) { // full-stack: the check is ws_run's smoke check + the lint, against the running server
           const plan = all.some((f) => f.path === "plan.md") ? `\n${siteStepHint(all.map((f) => f.path), (await ws.readWsFile(userId, c.slug, "plan.md"))?.text ?? "Type: fullstack")}` : "";
           for (const e of written) onEvidence?.({ ...e, check: "Not checked yet: run ws_run to start the server and smoke-check it" });
-          return `${failed ? "Error: workspace write is incomplete. Some files failed; report the partial result.\n" : ""}Workspace ${c.slug}:\n${lines.join("\n")}\nFull-stack workspace: call ws_run {"workspace": "${c.slug}"} now to (re)start the server and run the check.${plan}`;
+          return `${failed ? "Error: workspace write is incomplete. Some files failed; report the partial result.\n" : ""}Workspace ${c.slug}:\n${lines.join("\n")}\nFull-stack workspace: call ws_run {"workspace": "${c.slug}"} now to (re)start the server and run the check.${plan}${undoLine}`;
         }
         const check = hasIndex ? await siteCheck(userId, c.slug, priorWrites, question) : "";
         const paths = ((await ws.listFiles(userId, c.slug)) ?? []).map((f) => f.path);
@@ -239,7 +244,7 @@ export async function runWsTool(userId: string, tool: WsTool, input: Record<stri
         const guide = guideDue(paths, written.map((e) => e.path ?? "")) ? `\n${SITE_GUIDE}` : "";
         const next = paths.includes("plan.md") ? `\n${siteStepHint(paths, (await ws.readWsFile(userId, c.slug, "plan.md"))?.text ?? "")}` : guide ? `\n${UNPLANNED_HINT}` : "";
         for (const e of written) onEvidence?.({ ...e, check: verifiedLine(check) });
-        return `${failed ? "Error: workspace write is incomplete. Some files failed; report the partial result.\n" : ""}Workspace ${c.slug}:\n${lines.join("\n")}\n${hasIndex ? "" : "index.html isn't there yet; "}Preview link: ${await ws.previewUrl(userId, c.slug)}${check}${next}${guide}`;
+        return `${failed ? "Error: workspace write is incomplete. Some files failed; report the partial result.\n" : ""}Workspace ${c.slug}:\n${lines.join("\n")}\n${hasIndex ? "" : "index.html isn't there yet; "}Preview link: ${await ws.previewUrl(userId, c.slug)}${check}${next}${guide}${undoLine}`;
       }
       case "ws_run":
       case "ws_stop": {

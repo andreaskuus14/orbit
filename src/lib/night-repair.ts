@@ -207,6 +207,7 @@ async function attempt(s: Signal, key: string, base: string, baseDir: string, ni
     keepBranch = true;
     await done("waiting");
     logActivity({ area: "system", title: `Night repair prepared: ${p.title}`, detail: `${p.branch}${p.pr ? ` · PR #${p.pr.number}` : " · local branch"} · waits for your approve` });
+    if (p.commit) void import("./time-machine").then((m) => m.recordBranch(p.branch, p.commit!, `Night repair: ${p.title.slice(0, 120)}`)).catch(() => {}); // TIME MACHINE: Undo puts the branch away (approve then refuses), Undo again brings it back
   } catch (e) {
     await done(signal.aborted ? "discarded" : "failed", signal.aborted ? "Stop-all" : msg(e));
   } finally {

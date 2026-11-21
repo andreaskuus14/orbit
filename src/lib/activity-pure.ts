@@ -10,7 +10,7 @@ export type ActArea = (typeof ACT_AREAS)[number];
 export type ActLink = { task?: string; panel?: string };
 /** How to reverse an autonomous action: delete the memory it saved, rename a VAULT file back (`to` = its old name), or put back
  *  an ORGANIZE write's saved before-state (`op`: core-operator.ts undoOp). */
-export type ActUndo = { kind: "memory"; id: string } | { kind: "vault-rename"; id: string; to: string } | { kind: "op"; id: string } | { kind: "pc"; id: string } | { kind: "term"; id: string }; // pc: a level-2 PC action (jarvis.ts undoPc); term: a terminal snapshot (shell-session.ts undoSnapshot)
+export type ActUndo = { kind: "memory"; id: string } | { kind: "vault-rename"; id: string; to: string } | { kind: "op"; id: string } | { kind: "pc"; id: string } | { kind: "term"; id: string } | { kind: "tm"; id: string }; // tm: a time-machine record (time-machine.ts, redo-able); pc: a level-2 PC action (jarvis.ts undoPc); term: a terminal snapshot (shell-session.ts undoSnapshot)
 /** undid: the undoKey() of the action this line reversed. receipt: the finished work's proof status (receipt-pure.ts). */
 export type ActItem = { at: string; area: ActArea; title: string; detail?: string; link?: ActLink; undo?: ActUndo; undid?: string; receipt?: ReceiptStatus };
 export const ACT_MAX = 5000; // lines kept in activity.jsonl
@@ -106,6 +106,7 @@ export function cleanUndo(u: unknown): ActUndo | undefined {
   if (kind === "op" && OP_ID.test(id)) return { kind, id };
   if (kind === "pc" && /^pc-[\w-]{6,64}$/.test(id)) return { kind, id };
   if (kind === "term" && /^t[0-9a-z]{6,40}$/.test(id)) return { kind, id };
+  if (kind === "tm" && /^tm[0-9a-z]{8,40}$/.test(id)) return { kind, id };
   if (kind === "vault-rename" && typeof to === "string" && to.trim() && to.length <= 300) return { kind, id, to };
   return undefined;
 }
@@ -114,6 +115,8 @@ export const undoKey = (u: ActUndo) => `${u.kind}:${u.id}${u.kind === "vault-ren
 export const undoOf = (tool: string, out: string): { undo?: ActUndo } => {
   const op = isOpsTool(tool) && out.startsWith("Done:") ? receiptId(out.split("\n")[0]) : undefined;
   if (op) return { undo: { kind: "op", id: op } };
+  const tm = (tool === "ws_write" || tool === "ws_edit") ? out.match(/\[tm:(tm[0-9a-z]{8,40})\]\s*$/)?.[1] : undefined; // the time machine's record of the files it wrote
+  if (tm) return { undo: { kind: "tm", id: tm } };
   const id = tool === "save_memory" && out.startsWith("Saved memory") ? out.match(/\[m:([\w-]{1,64})\]/)?.[1] : undefined;
   return id ? { undo: { kind: "memory", id } } : {};
 };
