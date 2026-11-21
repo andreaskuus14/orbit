@@ -28,7 +28,7 @@ export function sessionInput(prompt: string, transcript: string, resumed: boolea
 /** What the user is told when a CORE turn fails: says plainly whether it was the login, a usage limit, a timeout or Claude being missing. */
 export function describeFailure(msg: string): string {
   const m = msg.slice(0, 400);
-  if (/usage limit|hit your limit|rate_limit|API Error: 429|rate limit (?:reached|exceeded)/i.test(m)) return `Claude usage limit reached, so CORE could not answer. ${m.match(/resets?[^.\n]*/i)?.[0] ?? "Try again later."}`.trim();
+  if (/usage limit|session limit|hit your (?:\S+\s+)?limit|rate_limit|API Error: 429|rate limit (?:reached|exceeded)/i.test(m)) return `Claude usage limit reached, so CORE could not answer. ${m.match(/resets?[^.\n]*/i)?.[0] ?? "Try again later."}`.trim();
   if (loginFailed(m) || /authentication|unauthori[sz]ed|401/i.test(m)) return "Claude login expired or missing on the ORBIT PC: run `claude` there and sign in again (/login). CORE did not answer.";
   if (/timed out/i.test(m)) return `${m} CORE did not finish; nothing after the last completed step was done.`;
   if (/Could not start|ENOENT/i.test(m)) return `Claude Code is not reachable: ${m}`;

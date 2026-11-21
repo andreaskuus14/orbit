@@ -71,9 +71,11 @@ export function wsWriteBlocked(question: string, tainted: boolean, gate: WsGate 
 /** The workspace a held-back write offers to build, from that tool call's refusal text (trace detail or step), else null. */
 export const wsConfirmOffer = (text: string): string | null => text.match(/confirm build "([a-z0-9-]{1,40})"/)?.[1] ?? null;
 
+// Direct imperative build without repeating "site/demo" ("build it now", "just build it", "ehita see kohe"). Never bare "yes" or "rebuild it".
+const DIRECT_BUILD = /\b(?:build|create|scaffold)\s+(?:it|that|this)\b|\bmake\s+(?:it|that|this)\s+(?:now|already|at once|right now)\b|(?<!\p{L})ehita\s+(?:see|seda)(?:\s+(?:kohe|ära|valmis))?(?!\p{L})/iu;
 /** The owner's own message explicitly asks to build/write files or a site (not a go-ahead, question or "don't"). */
 export function explicitBuild(question: string): boolean {
   const q = question.toLowerCase();
   if (/\b(?:don'?t|do not|never|stop|cancel|not now)\b/.test(q) || ET_NOT.test(q) || /^\s*(?:how|what|why|which|when|where|explain)\b/.test(q) || etQuestion(q)) return false;
-  return (VERB.test(q) || VERB_ET.test(q)) && (THING.test(q) || THING_ET.test(q));
+  return ((VERB.test(q) || VERB_ET.test(q)) && (THING.test(q) || THING_ET.test(q))) || DIRECT_BUILD.test(q);
 }

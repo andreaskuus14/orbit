@@ -36,7 +36,7 @@ export function failureReason(t: WorkTask): { reason: string; next: string } {
   if (unsure(t.pending)) return { reason: `${UNRECORDED}. ${reason}`.slice(0, 200), next: CHECK_FIRST }; // never "safe to retry"
   const r = `${err} ${failedStep}`;
   const next = /interrupted|restarted/i.test(r) ? "ORBIT restarted during it: Retry"
-    : /usage limit|rate limit|quota|limit reached/i.test(r) ? "Wait until Claude's limit resets, then Retry"
+    : /usage limit|session limit|hit your (?:\S+\s+)?limit|rate limit|quota|limit reached/i.test(r) ? "Wait until Claude's limit resets, then Retry"
     : /stop-?all|stopped by you/i.test(r) ? "Stopped by Stop-all: Retry when you're ready"
     : /timed? ?out|timeout|ran out of time/i.test(r) ? "It ran out of time: Retry, or split the request"
     : failedStep ? "Some of its steps didn't check out: open it to see which"

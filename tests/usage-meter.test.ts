@@ -52,6 +52,9 @@ test("parseLimitError reads the CLI's limit messages", () => {
   const nine = parseLimitError("You've hit your limit · resets 9am (Europe/Tallinn)", NOW)!; // 9am already passed today → tomorrow
   assert.equal(new Date(nine).getDate(), 19);
   assert.equal(new Date(nine).getHours(), 9);
+  const eleven = parseLimitError("You've hit your session limit · resets 11am (Europe/Tallinn)", NOW)!; // newer CLI wording
+  assert.equal(new Date(eleven).getDate(), 19);
+  assert.equal(new Date(eleven).getHours(), 11);
   const mon = parseLimitError("Weekly limit reached ∙ resets Mon 10am", NOW)!; // 2026-10-18 is a Sunday
   assert.equal(new Date(mon).getDay(), 1);
   assert.equal(new Date(mon).getDate(), 19);
@@ -83,6 +86,7 @@ test("stream-json result line carries turns, cost and cache tokens when present"
 test("isLimitAnswer: a short limit notice returned as the answer counts as a failure", () => {
   assert.equal(isLimitAnswer("Claude AI usage limit reached|1760800000"), true);
   assert.equal(isLimitAnswer("You've hit your limit · resets 3pm"), true);
+  assert.equal(isLimitAnswer("You've hit your session limit · resets 11am (Europe/Tallinn)"), true);
   assert.equal(isLimitAnswer("Here is your plan for the week."), false);
   assert.equal(isLimitAnswer("x".repeat(400) + " hit your limit"), false); // long real answers are never mistaken for one
 });
