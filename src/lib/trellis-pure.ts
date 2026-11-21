@@ -5,7 +5,8 @@ import { serviceUrl } from "./local-ai-pure.ts";
 
 export const TRELLIS_URL = "http://127.0.0.1:8189";
 export const TRELLIS_SETUP = "powershell -ExecutionPolicy Bypass -File tools\\trellis\\setup.ps1";
-export const trellisNotRunning = () => `TRELLIS.2 isn't installed or couldn't start: run ${TRELLIS_SETUP} once (ORBIT then starts it by itself; log: tools/trellis/service.log). Until then use quality "fast" (TripoSR).`;
+export const DRAFT_SETUP = `${TRELLIS_SETUP} -Draft`;
+export const trellisNotRunning = (q: Quality = "best") => `${q === "draft" ? "The draft 3D model (Pixal3D)" : "TRELLIS.2"} isn't installed or couldn't start: run ${q === "draft" ? DRAFT_SETUP : TRELLIS_SETUP} once (ORBIT then starts it by itself; log: tools/trellis/service.log). Until then use quality "fast" (TripoSR).`;
 /** ORBIT_TRELLIS_URL → origin, or null unless it is plain http on this PC (pictures never leave the PC). */
 export const trellisUrl = (raw: string | undefined) => serviceUrl(raw, TRELLIS_URL);
 
@@ -24,9 +25,24 @@ export const FILES = {
 /** Remesh grid before decimating: 384³ (~250k faces) instead of the template's 768 so the field fits next to an 8 GB card. */
 export const REMESH_RESOLUTION = 384;
 
-export type Quality = "fast" | "best";
-/** local_3d's quality: "best" = TRELLIS.2 (textured, ~2 min), anything else = TripoSR (seconds, rough). */
-export const qualityOf = (raw: unknown): Quality => (String(raw ?? "").trim().toLowerCase() === "best" ? "best" : "fast");
+/** Draft = Pixal3D (TencentARC, MIT; built on TRELLIS.2) in the same ComfyUI: shape only at 512, no texture, fewer steps.
+ * A grey blocking mesh to place and scale in Roblox; "best" stays TRELLIS.2. Not yet measured on the RTX 5060 Laptop. */
+export const DRAFT_MODEL = { name: "Pixal3D", format: "int8 (Comfy-Org)", license: "MIT (Pixal3D, MoGe) + Apache-2.0 (NAF) + DINOv3 License (image encoder; commercial use allowed)" } as const;
+/** Extra files setup.ps1 -Draft downloads (pinned + SHA-256 checked there). The shape VAE and BiRefNet are the same files as FILES'. */
+export const DRAFT_FILES = {
+  unet: "pixal3d_int8_convrot.safetensors", dino: "dino_v3_L_naf_fp32.safetensors", moge: "moge_2_vitl_normal_fp16.safetensors",
+  shapeVae: FILES.shapeVae, bgModel: FILES.bgModel,
+} as const;
+/** Draft knobs: fewer sampler steps than the template (structure 12, shape 20), a coarser remesh and a lighter mesh than best. */
+export const DRAFT = { structureSteps: 8, shapeSteps: 12, remesh: 256, faces: 10_000 } as const;
+
+export type Quality = "fast" | "draft" | "best";
+/** local_3d's quality: "best" = TRELLIS.2 (textured, minutes); "draft" (also "quick", "blocking") = Pixal3D grey blocking mesh
+ * (well under a minute is the aim); anything else = TripoSR (seconds, rough, not capped for Roblox). */
+export function qualityOf(raw: unknown): Quality {
+  const q = String(raw ?? "").trim().toLowerCase();
+  return q === "best" ? "best" : /^(draft|quick|blocking|block|blockout)$/.test(q) ? "draft" : "fast";
+}
 
 /** Output prefix ComfyUI saves under (output/orbit3d/<job>_00001_.glb). Job ids are ORBIT-made, so plain characters only. */
 export const jobPrefix = (job: string) => `orbit3d/${job.replace(/[^\w-]/g, "").slice(0, 40) || "job"}`;
@@ -83,24 +99,70 @@ export function workflow({ image, seed, job }: WorkflowIn): Graph {
   };
 }
 
+/** Draft graph, following the same template's Pixal3D branch but stopping after shape 512 (the "pure-512" pipeline; the
+ * texture pass and the 1024 upsample are skipped): background cut → crop (pad 1.1, as Pixal3D wants) → MoGe camera angle →
+ * Pixal3D conditioning (DINOv3 + NAF) → structure → shape 512 → decode → remesh → decimate to DRAFT.faces → .glb under orbit3d/.
+ * No texture, so Roblox's 1024 px limit holds trivially; colour it in Studio. */
+export function draftWorkflow({ image, seed, job }: WorkflowIn): Graph {
+  const ks = (model: string, cond: string, latent: [string, number], steps: number) => ({
+    class_type: "KSampler", inputs: { model: [model, 0], positive: [cond, 0], negative: [cond, 1], latent_image: latent, seed, steps, cfg: 7.5, sampler_name: "euler", scheduler: "normal", denoise: 1 } });
+  return {
+    "1": { class_type: "LoadImage", inputs: { image } },
+    "2": { class_type: "LoadBackgroundRemovalModel", inputs: { bg_removal_name: DRAFT_FILES.bgModel } },
+    "3": { class_type: "RemoveBackground", inputs: { bg_removal_model: ["2", 0], image: ["1", 0] } },
+    "4": { class_type: "ImageCropToMask", inputs: { images: ["1", 0], masks: ["3", 0], width: 1024, height: 1024, pad_factor: 1.1, grow_mask: 0, background: "#000000" } },
+    // camera angle from the picture (MoGe), as the template does; Pixal3D lines the shape up with the picture through it
+    "5": { class_type: "LoadMoGeModel", inputs: { model_name: DRAFT_FILES.moge } },
+    "6": { class_type: "MoGeInference", inputs: { moge_model: ["5", 0], image: ["4", 0], resolution_level: 9, fov_x_degrees: 0, batch_size: 1, force_projection: true, apply_mask: true, refine_steps: 3 } },
+    "7": { class_type: "MoGeGeometryToFOV", inputs: { moge_geometry: ["6", 0], axis: "horizontal", unit: "degrees" } },
+    "8": { class_type: "CLIPVisionLoader", inputs: { clip_name: DRAFT_FILES.dino } },
+    "9": { class_type: "Pixal3DConditioning", inputs: { clip_vision_model: ["8", 0], image: ["4", 0], camera_angle_x: ["7", 0] } },
+    // model + the template's CFG patches (same as best)
+    "10": { class_type: "UNETLoader", inputs: { unet_name: DRAFT_FILES.unet, weight_dtype: "default" } },
+    "11": { class_type: "VAELoader", inputs: { vae_name: DRAFT_FILES.shapeVae } },
+    "13": { class_type: "CFGOverride", inputs: { model: ["10", 0], cfg: 1, start_percent: 0.667, end_percent: 1 } },
+    "14": { class_type: "RescaleCFG", inputs: { model: ["13", 0], multiplier: 0.7 } },
+    "15": { class_type: "ModelSamplingSD3", inputs: { model: ["14", 0], shift: 5 } },
+    "16": { class_type: "CFGOverride", inputs: { model: ["10", 0], cfg: 1, start_percent: 0.769, end_percent: 1 } },
+    "17": { class_type: "RescaleCFG", inputs: { model: ["16", 0], multiplier: 0.5 } },
+    // structure → shape 512 → decode (coord resolution 32 → a 512 mesh)
+    "20": { class_type: "EmptyTrellis2LatentStructure", inputs: { batch_size: 1 } },
+    "21": ks("15", "9", ["20", 0], DRAFT.structureSteps),
+    "22": { class_type: "VaeDecodeStructureTrellis2", inputs: { samples: ["21", 0], vae: ["11", 0], resolution: "32" } },
+    "23": { class_type: "Trellis2ShapeStage", inputs: { positive: ["9", 0], negative: ["9", 1], voxel: ["22", 0] } },
+    "24": ks("17", "23", ["23", 2], DRAFT.shapeSteps),
+    "27": { class_type: "VaeDecodeShapeTrellis", inputs: { samples: ["24", 0], vae: ["11", 0] } },
+    // Roblox-sized mesh
+    "40": { class_type: "RemeshMesh", inputs: { mesh: ["27", 0], resolution: DRAFT.remesh, sign_mode: "solid", "sign_mode.fill": 20, "sign_mode.qef": false,
+      band: 1, project_back: 0, fix_poles: false, smooth_iters: 10, drop_small_components: 0.01, precluster_max_verts: 20_000_000 } },
+    "41": { class_type: "DecimateMesh", inputs: { mesh: ["40", 0], target_face_count: DRAFT.faces, placement_mode: "midpoint" } },
+    "45": { class_type: "MeshSmoothNormals", inputs: { mesh: ["41", 0], crease_angle: 180 } },
+    "46": { class_type: "SaveGLB", inputs: { mesh: ["45", 0], filename_prefix: jobPrefix(job) } },
+  };
+}
+
+/** The graph for a quality ("fast" isn't ComfyUI: TripoSR in tools/local-ai). */
+export const graphFor = (q: Quality, w: WorkflowIn) => (q === "draft" ? draftWorkflow(w) : workflow(w));
+const label = (q: Quality) => (q === "draft" ? "Pixal3D (draft)" : "TRELLIS.2");
+
 /** POST /prompt reply → prompt id, or ComfyUI's error (missing node pack = setup not finished). */
-export function parseQueued(j: unknown): { id: string } | { error: string } {
+export function parseQueued(j: unknown, q: Quality = "best"): { id: string } | { error: string } {
   const o = (j ?? {}) as { prompt_id?: unknown; error?: { message?: unknown; details?: unknown } | string; node_errors?: Record<string, { errors?: { message?: string; details?: string }[] }> };
   if (typeof o.prompt_id === "string" && o.prompt_id && !Object.keys(o.node_errors ?? {}).length) return { id: o.prompt_id };
   const node = Object.values(o.node_errors ?? {}).flatMap((n) => n.errors ?? []).map((e) => [e.message, e.details].filter(Boolean).join(": "))[0];
   const top = typeof o.error === "string" ? o.error : [o.error?.message, o.error?.details].filter((x) => typeof x === "string" && x).join(": ");
   const msg = (node || top || "ComfyUI refused the job").slice(0, 300);
-  return { error: /class_type|does not exist|not found|Trellis2|safetensors/i.test(msg) ? `TRELLIS.2 isn't fully set up (${msg}). Run ${TRELLIS_SETUP} again.` : msg };
+  return { error: /class_type|does not exist|not found|Trellis2|Pixal3D|MoGe|safetensors/i.test(msg) ? `${label(q)} isn't fully set up (${msg}). Run ${q === "draft" ? DRAFT_SETUP : TRELLIS_SETUP} again.` : msg };
 }
 
 /** GET /history/<id> → still running, failed or finished (the export node writes the file; it has no image output). */
-export function parseRun(j: unknown, id: string): { state: "pending" } | { state: "error"; error: string } | { state: "done" } {
+export function parseRun(j: unknown, id: string, q: Quality = "best"): { state: "pending" } | { state: "error"; error: string } | { state: "done" } {
   const h = ((j ?? {}) as Record<string, { status?: { status_str?: string; completed?: boolean; messages?: [string, { exception_message?: string }][] } }>)[id];
   if (!h) return { state: "pending" };
   if (h.status?.status_str === "error") {
     const ex = h.status.messages?.find((m) => m[0] === "execution_error")?.[1]?.exception_message ?? "";
     const oom = /out of memory|CUDA|allocat/i.test(ex);
-    return { state: "error", error: `TRELLIS.2 failed: ${(ex || "execution error").trim().slice(0, 240)}${oom ? " (the GPU ran out of memory: close games, ComfyUI pictures or other AI tools and try again)" : ""}` };
+    return { state: "error", error: `${label(q)} failed: ${(ex || "execution error").trim().slice(0, 240)}${oom ? " (the GPU ran out of memory: close games, ComfyUI pictures or other AI tools and try again)" : ""}` };
   }
   return h.status?.completed ? { state: "done" } : { state: "pending" };
 }

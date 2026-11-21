@@ -57,6 +57,7 @@ orbit-launcher.log.1
 /tools/trials/results/*
 !/tools/trials/results/.gitkeep
 /tools/trellis/smoke-output.glb
+/tools/trellis/smoke-output-draft.glb
 .cache/
 
 # journal key / backups (tools/backup): never commit

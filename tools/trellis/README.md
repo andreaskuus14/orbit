@@ -1,7 +1,8 @@
 # ORBIT best-quality picture → 3D (TRELLIS.2)
 
-CORE's `local_3d` with `"quality": "best"` turns one VAULT picture into a textured `.glb` sized for Roblox. `"fast"` (the default)
-still uses TripoSR from `tools/local-ai`.
+CORE's `local_3d` with `"quality": "best"` turns one VAULT picture into a textured `.glb` sized for Roblox. `"draft"` (CORE picks it
+when he says quick, draft or blocking) makes a grey blocking mesh with Pixal3D in the same ComfyUI (see **Draft** below). `"fast"`
+(no quality given) still uses TripoSR from `tools/local-ai`.
 
 **Status (2026-11-20): switched to ComfyUI's native TRELLIS.2 nodes so the output can be used commercially. Not yet run on the
 RTX 5060 Laptop.** The graph was checked against a real ComfyUI v0.46.0 (CPU, placeholder model files): it passes ComfyUI's
@@ -22,9 +23,26 @@ earns money.**
 | VRAM / speed | **unmeasured.** Diffusion model 5.3 GB int8, run with `--lowvram`; ComfyUI unloads it before the mesh steps |
 | Where | separate ComfyUI on `127.0.0.1:8189`, own Python 3.12 + PyTorch 2.10 CUDA 13.0 in `tools/trellis/env` |
 
-Not used on purpose: Hunyuan3D (its license excludes the EU) and RMBG-2.0 (non-commercial weights). Pixal3D (built on
-TRELLIS.2, "generally better" alignment with the picture) is also native in this ComfyUI and its weights are MIT and no
-longer gated (checked 2026-11-20), but it isn't wired in yet: it needs a 5.6 GB model plus MoGe (MIT) for the camera angle.
+Not used on purpose: Hunyuan3D (its license excludes the EU) and RMBG-2.0 (non-commercial weights).
+
+## Draft (Pixal3D): quick grey blocking mesh
+
+**Status (2026-11-21): written in a cloud box, not yet run on the GPU.** The graph passes a real ComfyUI v0.46.0's validation
+(CPU, placeholder model files, no node errors), and its mesh tail (remesh → decimate → normals → SaveGLB) was run on CPU on a
+stand-in mesh: 10,000 triangles, valid `.glb`, grey non-metal material.
+
+| | |
+|---|---|
+| Model | [TencentARC/Pixal3D](https://huggingface.co/TencentARC/Pixal3D) (built on TRELLIS.2, lines the shape up with the picture), int8 by [Comfy-Org](https://huggingface.co/Comfy-Org/Pixal3D); [MoGe-2](https://huggingface.co/Comfy-Org/MoGe) reads the camera angle |
+| Graph | `draftWorkflow` in `src/lib/trellis-pure.ts`, the Pixal3D branch of the same template, cut down: background cut → MoGe angle → Pixal3D conditioning → structure (8 steps, template 12) → shape at 512 (12 steps, template 20) → decode → remesh 256 → decimate to 10,000 triangles → `.glb` |
+| Skipped for speed | the 1024 upsample, the texture pass, UV unwrap and baking. **No texture**: the mesh is plain grey; colour it in Roblox Studio, or ask for `best` |
+| Output | same path pattern as best (`output/orbit3d/<job>_00001_.glb`), max 10,000 triangles (Roblox limit 20,000), no texture (so the 1024 px limit holds) |
+| Extra download | ~7.5 GB: `pixal3d_int8_convrot` 5.58 GB, `dino_v3_L_naf_fp32` 1.22 GB, `moge_2_vitl_normal_fp16` 0.66 GB. Shape VAE and BiRefNet are the same files best uses (same SHA-256), so they aren't downloaded twice |
+| VRAM / speed | **estimate, unmeasured.** The int8 file holds all four Pixal3D stages (5.6 GB); with `--lowvram` ComfyUI streams what doesn't fit. Expected peak ~6-7 GB on the 8 GB card. Aim: well under a minute once the model is loaded (TRELLIS.2's paper gives ~3 s for a 512 shape on an H100; a laptop RTX 5060 is many times slower, and the first run reads 7 GB from disk). The DINOv3+NAF encoder always builds its 1024 features too (inside the node), which costs some seconds |
+
+Set up: `powershell -ExecutionPolicy Bypass -File tools\trellis\setup.ps1 -Draft` (installs best too if it isn't there yet;
+re-running skips finished parts). Check: `node --experimental-strip-types tools\trellis\smoke.ts --draft` (run it twice; the
+second time is the real speed). Then ask CORE: "quick draft 3D model of <VAULT picture>".
 
 ## Setup (once)
 
@@ -40,8 +58,8 @@ the previous setup can be deleted.
 
 ## Licenses
 
-Everything `setup.ps1` installs, and whether the result may be used in a game that earns money. Checked 2026-11-20 (license
-files, Hugging Face model cards and PyPI metadata). Not legal advice.
+Everything `setup.ps1` installs, and whether the result may be used in a game that earns money. Checked 2026-11-20, draft rows
+2026-11-21 (license files, NOTICE, Hugging Face model cards and PyPI metadata). Not legal advice.
 
 **Models (these shape the output)**
 
@@ -51,6 +69,9 @@ files, Hugging Face model cards and PyPI metadata). Not legal advice.
 | [Comfy-Org/TRELLIS.2](https://huggingface.co/Comfy-Org/TRELLIS.2) repackaged weights (int8 model, shape/texture VAEs) | MIT | yes |
 | DINOv3 ViT-L image encoder (`dino_v3_vit_l.safetensors`, same repo) | [Meta DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md) | yes: worldwide, royalty-free. Not MIT/Apache: it forbids military, ITAR and sanctioned uses and asks redistributors to pass the license on. Every TRELLIS.2 and Pixal3D setup uses it |
 | [BiRefNet](https://github.com/ZhengPeng7/BiRefNet) background cut ([Comfy-Org/BiRefNet](https://huggingface.co/Comfy-Org/BiRefNet)) | MIT | yes |
+| Draft: [Pixal3D](https://huggingface.co/TencentARC/Pixal3D) and [Comfy-Org/Pixal3D](https://huggingface.co/Comfy-Org/Pixal3D) int8 | MIT, not gated (checked 2026-11-21). Its NOTICE lists TRELLIS.2, Direct3D-S2, MoGe (MIT) and DINOv2 (Apache-2.0), with no extra limits | yes |
+| Draft: `dino_v3_L_naf_fp32` (Comfy-Org/Pixal3D) = DINOv3 ViT-L + [NAF](https://github.com/valeoai/NAF) upsampler | DINOv3 License (as above) + Apache-2.0 (NAF) | yes |
+| Draft: [MoGe-2 ViT-L normal](https://huggingface.co/Ruicheng/moge-2-vitl-normal) ([Comfy-Org/MoGe](https://huggingface.co/Comfy-Org/MoGe)) | MIT (its LICENSE also carries Apache-2.0 for DINOv2 code) | yes |
 
 **Software (runs the models; the meshes it writes are not covered by these licenses)**
 

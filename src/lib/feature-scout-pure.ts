@@ -123,7 +123,7 @@ export function areaOf(r: Pick<Raw, "name" | "what" | "tags">): AreaId | null {
 export type InUse = { name: string; slug: string; area: AreaId };
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/^-|-$/g, "");
 const AREA_OF_TOOL: Record<string, AreaId> = { image3d: "image3d", removebg: "cutout", tts: "voice", clone: "voice", dub: "voice", captions: "captions", ifc: "arch", docs: "docs", images: "pictures", text3d: "image3d", motion: "gamedev" };
-/** Models ORBIT already runs: OPERATIONS → Local AI's catalog, the Ollama brain, OCR, Parakeet, FLUX.2 klein, TRELLIS.2, embeddings, reranker. */
+/** Models ORBIT already runs: OPERATIONS → Local AI's catalog, the Ollama brain, OCR, Parakeet, FLUX.2 klein, TRELLIS.2, Pixal3D, embeddings, reranker. */
 export const IN_USE: InUse[] = ([
   ...CATALOG.flatMap((c) => c.model.split(/\s(?:via|in|\()\s?|,/)[0].split(/ \/ | or /).map((m) => ({ name: m.trim(), slug: slug(m), area: AREA_OF_TOOL[c.id] ?? "core" }))),
   { name: DEFAULT_LOCAL_MODEL, slug: slug(DEFAULT_LOCAL_MODEL), area: "core" as AreaId }, { name: SMALL_LOCAL_MODEL, slug: slug(SMALL_LOCAL_MODEL), area: "core" as AreaId },
@@ -131,6 +131,7 @@ export const IN_USE: InUse[] = ([
   { name: "Parakeet TDT 0.6B v3", slug: slug(PARAKEET.dir.replace(/-int8$/, "")), area: "captions" },
   { name: "FLUX.2 klein 4B", slug: "flux.2-klein-4b", area: "pictures" },
   { name: "TRELLIS.2", slug: "trellis.2", area: "image3d" },
+  { name: "Pixal3D", slug: "pixal3d", area: "image3d" },
   { name: "EmbeddingGemma 300M", slug: "embeddinggemma-300m", area: "memory" },
   { name: "Qwen3-Reranker 0.6B", slug: "qwen3-reranker-0.6b", area: "memory" },
 ] as InUse[]).filter((m) => m.slug.length >= 3);

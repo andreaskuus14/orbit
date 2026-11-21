@@ -1,12 +1,14 @@
 // Smoke test for the TRELLIS.2 service, without ORBIT running: picture → .glb through the exact graph ORBIT sends.
-//   node --experimental-strip-types tools/trellis/smoke.ts [picture.png]
+//   node --experimental-strip-types tools/trellis/smoke.ts [--draft] [picture.png]   (--draft: the Pixal3D blocking-mesh graph)
 // Needs tools\trellis\start.ps1 running (or ORBIT's autostart); waits up to 5 min for it to come up. Writes tools/trellis/smoke-output.glb and prints
 // time, size and triangle count (must be <= 20,000 for Roblox).
 import { readFileSync, writeFileSync } from "node:fs";
-import { ROBLOX, glbMaterials, isGlb, outputRef, parseQueued, parseRun, robloxMaterials, workflow } from "../../src/lib/trellis-pure.ts";
+import { ROBLOX, glbMaterials, graphFor, isGlb, outputRef, parseQueued, parseRun, robloxMaterials } from "../../src/lib/trellis-pure.ts";
 
 const u = "http://127.0.0.1:8189";
-const pic = process.argv[2] ?? new URL("./smoke-test.png", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+const args = process.argv.slice(2);
+const quality = args.includes("--draft") ? "draft" : "best";
+const pic = args.find((a) => !a.startsWith("--")) ?? new URL("./smoke-test.png", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 const t0 = Date.now();
 const sec = () => `${Math.round((Date.now() - t0) / 1000)} s`;
 
@@ -33,16 +35,16 @@ const ur = await fetch(`${u}/upload/image`, { method: "POST", body: up }).catch(
 if (!ur?.ok) { console.error(`FAIL: TRELLIS.2 isn't running on ${u}. Start tools\\trellis\\start.ps1 first.`); process.exit(1); }
 const name = ((await ur.json()) as { name: string }).name;
 const job = `smoke${Date.now().toString(36)}`;
-const q = parseQueued(await (await fetch(`${u}/prompt`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: workflow({ image: name, seed: 42, job }), client_id: "orbit-smoke" }) })).json());
+const q = parseQueued(await (await fetch(`${u}/prompt`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: graphFor(quality, { image: name, seed: 42, job }), client_id: "orbit-smoke" }) })).json(), quality);
 if ("error" in q) { console.error(`FAIL (queue): ${q.error}`); process.exit(1); }
-console.log(`queued ${q.id}; the first run downloads ~10 GB of model files...`);
+console.log(`queued ${q.id} (${quality}); the first run loads the model files from disk, so it is slower...`);
 const limit = 45 * 60_000; // first run downloads ~9 GB; a normal job is a few minutes
 for (;;) {
   await new Promise((r) => setTimeout(r, 5000));
   if (Date.now() - t0 > limit) { await fetch(`${u}/interrupt`, { method: "POST" }).catch(() => {}); console.error(`FAIL: no result after ${sec()}. Check the TRELLIS.2 window for the error.`); process.exit(1); }
   const res = await fetch(`${u}/history/${q.id}`).catch(() => null);
   if (!res) { console.error(`FAIL after ${sec()}: the TRELLIS.2 server stopped. Check its window for the error.`); process.exit(1); }
-  const h = parseRun(await res.json(), q.id);
+  const h = parseRun(await res.json(), q.id, quality);
   if (h.state === "error") { console.error(`FAIL after ${sec()}: ${h.error}`); process.exit(1); }
   if (h.state === "done") break;
   if ((Date.now() - t0) % 60_000 < 5000) console.log(`still working (${sec()})`);
@@ -53,8 +55,8 @@ if (!r.ok || !isGlb(raw)) { console.error(`FAIL: finished but no .glb came back 
 const glb = robloxMaterials(raw); // same step ORBIT applies
 const mat = glbMaterials(glb)[0]?.pbrMetallicRoughness ?? {};
 console.log(`material: metallic ${mat.metallicFactor}, roughness ${mat.roughnessFactor}`);
-const out = new URL("./smoke-output.glb", import.meta.url);
+const out = new URL(quality === "draft" ? "./smoke-output-draft.glb" : "./smoke-output.glb", import.meta.url);
 writeFileSync(out, glb);
 const tris = triangles(glb);
 console.log(`${tris <= ROBLOX.maxFaces ? "PASS" : "FAIL"}: ${sec()}, ${(glb.length / 1e6).toFixed(1)} MB, ${tris} triangles (Roblox max ${ROBLOX.maxFaces}). Saved ${out.pathname}`);
-console.log("Last check is yours: Roblox Studio > Import 3D > tools\\trellis\\smoke-output.glb");
+console.log(`Last check is yours: Roblox Studio > Import 3D > tools\\trellis\\${quality === "draft" ? "smoke-output-draft.glb" : "smoke-output.glb"}${quality === "draft" ? " (draft goal: well under a minute once the model is loaded; run it twice and read the second time)" : ""}`);

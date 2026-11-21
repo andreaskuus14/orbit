@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FILES, ROBLOX, TARGET_FACES, glbMaterials, isGlb, robloxMaterials, jobPrefix, outputRef, parseQueued, parseRun, qualityOf, trellisUrl, workflow } from "../src/lib/trellis-pure.ts";
+import { DRAFT, DRAFT_FILES, FILES, ROBLOX, TARGET_FACES, draftWorkflow, glbMaterials, graphFor, isGlb, robloxMaterials, jobPrefix, outputRef, parseQueued, parseRun, qualityOf, trellisNotRunning, trellisUrl, workflow } from "../src/lib/trellis-pure.ts";
 
 test("workflow: native ComfyUI nodes only, background cut, mesh capped to Roblox limits, glb export under orbit3d/", () => {
   const w = workflow({ image: "pet.png", seed: 42, job: "j123" });
@@ -34,10 +34,50 @@ test("job prefix and output: plain characters only; ComfyUI's first counter file
   assert.deepEqual(outputRef("j1"), { filename: "j1_00001_.glb", subfolder: "orbit3d", type: "output" });
 });
 
-test("quality: only an explicit best picks TRELLIS.2", () => {
+test("quality: explicit best → TRELLIS.2, draft/quick/blocking → Pixal3D, the rest → TripoSR", () => {
   assert.equal(qualityOf("best"), "best");
   assert.equal(qualityOf(" BEST "), "best");
-  for (const q of [undefined, "", "fast", "high", 1]) assert.equal(qualityOf(q), "fast");
+  for (const q of ["draft", " Draft ", "quick", "blocking", "blockout"]) assert.equal(qualityOf(q), "draft");
+  for (const q of [undefined, "", "fast", "high", "drafty", 1]) assert.equal(qualityOf(q), "fast");
+});
+
+test("draft workflow: Pixal3D shape 512 only, no texture, capped for Roblox, same output path", () => {
+  const w = draftWorkflow({ image: "pet.png", seed: 7, job: "j9" });
+  const by = (t: string) => Object.entries(w).filter(([, n]) => n.class_type === t);
+  const one = (t: string) => { const m = by(t); assert.equal(m.length, 1, t); return m[0]; };
+  for (const n of Object.values(w)) assert.ok(!/_GGUF$|Rasteriz/i.test(n.class_type), n.class_type);
+  assert.equal(one("UNETLoader")[1].inputs.unet_name, DRAFT_FILES.unet);
+  assert.equal(one("CLIPVisionLoader")[1].inputs.clip_name, DRAFT_FILES.dino);
+  assert.equal(one("LoadMoGeModel")[1].inputs.model_name, DRAFT_FILES.moge);
+  assert.equal(DRAFT_FILES.shapeVae, FILES.shapeVae); // byte-identical file, downloaded once
+  const [cropId, crop] = one("ImageCropToMask");
+  assert.equal(crop.inputs.pad_factor, 1.1);
+  const [fovId] = one("MoGeGeometryToFOV");
+  const [condId, cond] = one("Pixal3DConditioning");
+  assert.deepEqual([cond.inputs.image, cond.inputs.camera_angle_x], [[cropId, 0], [fovId, 0]]);
+  assert.equal(by("Trellis2Conditioning").length, 0);
+  // the fast path: one structure pass + one shape pass at 512; no upsample, texture or bake
+  for (const t of ["Trellis2UpsampleStage", "Trellis2TextureStage", "VaeDecodeTextureTrellis", "UnwrapMesh", "BakeTextureFromVoxel", "ApplyTextureToMesh"]) assert.equal(by(t).length, 0, t);
+  const ks = by("KSampler");
+  assert.deepEqual(ks.map(([, k]) => k.inputs.steps).sort(), [DRAFT.shapeSteps, DRAFT.structureSteps].sort());
+  for (const [, k] of ks) assert.equal(k.inputs.seed, 7);
+  assert.equal(one("VaeDecodeStructureTrellis2")[1].inputs.resolution, "32"); // → Trellis2ShapeStage picks shape_512
+  assert.deepEqual(one("Trellis2ShapeStage")[1].inputs.positive, [condId, 0]);
+  const [, dec] = one("DecimateMesh");
+  assert.ok(Number(dec.inputs.target_face_count) <= TARGET_FACES && TARGET_FACES < ROBLOX.maxFaces);
+  assert.equal(one("SaveGLB")[1].inputs.filename_prefix, "orbit3d/j9");
+  for (const n of Object.values(w)) for (const v of Object.values(n.inputs)) if (Array.isArray(v)) assert.ok(w[String(v[0])], `missing node ${v[0]}`);
+  assert.deepEqual(graphFor("draft", { image: "a.png", seed: 1, job: "x" }), draftWorkflow({ image: "a.png", seed: 1, job: "x" }));
+  assert.deepEqual(graphFor("best", { image: "a.png", seed: 1, job: "x" }), workflow({ image: "a.png", seed: 1, job: "x" }));
+});
+
+test("draft errors point at setup.ps1 -Draft", () => {
+  const e = parseQueued({ prompt_id: "x", node_errors: { "10": { errors: [{ message: "Value not in list", details: "unet_name: 'pixal3d_int8_convrot.safetensors' not in []" }] } } }, "draft");
+  assert.ok("error" in e && e.error.includes("setup.ps1 -Draft") && e.error.startsWith("Pixal3D"));
+  const r = parseRun({ a: { status: { status_str: "error", messages: [["execution_error", { exception_message: "CUDA out of memory" }]] } } }, "a", "draft");
+  assert.ok(r.state === "error" && r.error.startsWith("Pixal3D (draft) failed") && r.error.includes("ran out of memory"));
+  assert.ok(trellisNotRunning("draft").includes("setup.ps1 -Draft"));
+  assert.ok(!trellisNotRunning().includes("-Draft"));
 });
 
 test("url: this PC only", () => {
