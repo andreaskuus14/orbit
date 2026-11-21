@@ -103,8 +103,11 @@ async function tick(sb: SupabaseClient) {
     if (allows("memory", "background").ok) void import("./episodes").then((m) => m.maybeEpisodes(sb, (users ?? []).map((u) => u.id)));
     // Night shift (night.ts): in its window while the owner is idle, a bounded queue of safe work; not awaited. Re-checks Stop-all/usageHold per step.
     if (!limited) await maybeNightShift(sb, (users ?? []).map((u) => u.id));
-    // Night repair (night-repair.ts): once a night in the same window, inside the usage pacer, up to 3 gated code patches that wait for his Approve. Not awaited; never throws.
-    if (!limited) void import("./night-repair").then((m) => m.maybeNightRepair(sb, (users ?? []).map((u) => u.id)));
+    // ORBIT exam: one run per Tallinn night; serial real CORE requests, synthetic inputs only, LIFE cases never enter a model.
+    const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Tallinn", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
+    if (!limited && hour >= 2 && hour < 6) void import("./orbit-exam").then((m) => m.maybeOrbitExam(sb, (users ?? []).map((u) => u.id))).catch((e) => console.error("[orbit] nightly exam failed:", e instanceof Error ? e.message : e));
+    // Night repair and the 100-task exam share the model lane; defer repair while the exam is active.
+    if (!limited) void import("./orbit-exam").then(async (exam) => { if (!exam.orbitExamRunning()) await import("./night-repair").then((m) => m.maybeNightRepair(sb, (users ?? []).map((u) => u.id))); });
     // Weekly BUSINESS niche scout (background lane, read-only web tools); not awaited: a run takes minutes. It re-checks Stop-all and usageHold itself.
     if (!limited && allows("research", "background").ok) void maybeWeeklyScout().catch((e) => console.error("[orbit] niche scout check failed:", e instanceof Error ? e.message : e));
     // Weekly YouTube outlier finder → IDEA RADAR (outliers.ts): read-only, scout quota share; quietly nothing without YOUTUBE_API_KEY. Not awaited; never throws.
