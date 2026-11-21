@@ -105,6 +105,7 @@ export const APPROVAL_PATHS: Record<string, string> = {
 export const UI_APPROVALS: Record<string, string> = {
   "business.send": 'POST /api/business {action:"send", id, seen}: the draft stamp the owner read; Resend Idempotency-Key orbit-<id>-<seen>',
   "story.approve": 'POST /api/studio/clips/story {action:"approve", id, credits}: the credits quote the owner accepted; refused under Stop-all or past ORBIT_HIGGSFIELD_WEEKLY_CAP (also for CORE\'s higgsfield_draft jobs)',
+  "kaggle.upload": 'POST /api/kaggle {action:"approve", id, seen}: the exact script and files of one GPU job (kaggle-pure kaggleContent); refused under Stop-all, with ORBIT_KAGGLE=0, while another Kaggle job runs or when too few weekly hours are left',
   "studio.schedule": 'POST /api/studio/clips/schedule: only clips with the owner\'s Approve click (status "approved")',
   "studio.publish": 'POST /api/studio/clips/<job>/<clip>/publish: only a clip with status "approved"',
 };
