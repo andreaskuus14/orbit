@@ -10,6 +10,9 @@ import { daily, forecast, type Forecast } from "@/lib/forecast-pure";
 import { EVIDENCE, EVIDENCE_KINDS, type EvidenceKind } from "@/lib/goal-autopilot-pure";
 import type { GoalTrack } from "@/lib/goal-autopilot";
 import { useT } from "./i18n";
+import { ProgressCard } from "./ProgressCard";
+import type { Progress } from "@/lib/progress-pure";
+import { MAX_CALLS, MIN_CALLS } from "@/lib/pilot-pure";
 import { localDay } from "@/lib/morning-pure";
 
 // 🎯 GOALS in the Agents Station: list, new-goal form, goal detail (plan editor, step timeline, metric sparkline, learned, log).
@@ -17,7 +20,7 @@ import { localDay } from "@/lib/morning-pure";
 // rendered as React text only.
 
 type Roster = { slug: string; name: string; color: string }[];
-export type GoalView = Goal & { id: string; createdAt: string; updatedAt: string; progress: { now: number | null; target: number | null; pct: number | null }; runsLeft: number; track?: GoalTrack };
+export type GoalView = Goal & { card?: Progress; id: string; createdAt: string; updatedAt: string; progress: { now: number | null; target: number | null; pct: number | null }; runsLeft: number; track?: GoalTrack };
 type Edit = StepDraft & { key: number };
 let nextKey = 1;
 const METRICS: { kind: MetricKind; label: string }[] = [
@@ -116,7 +119,8 @@ export default function GoalsPanel({ agents, visible, onOpenTask, focusId }: { a
   const [court, setCourt] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const load = useCallback(() => { api<{ goals: GoalView[] }>("/api/goals").then((r) => { setGoals(r.goals); setErr(""); }).catch((e) => setErr(e.message)); }, []);
+  const { lang } = useT();
+  const load = useCallback(() => { api<{ goals: GoalView[] }>(`/api/goals?lang=${lang}`).then((r) => { setGoals(r.goals); setErr(""); }).catch((e) => setErr(e.message)); }, [lang]);
   const live = (goals ?? []).some((g) => g.status === "running" || g.planning);
   usePoll(load, live ? 5_000 : 30_000, visible);
   const name = (slug: string) => agents.find((a) => a.slug === slug)?.name ?? slug;
@@ -139,21 +143,57 @@ export default function GoalsPanel({ agents, visible, onOpenTask, focusId }: { a
         <p className="muted text-xs">{tr("goal.intro")}</p>
         <span className="flex shrink-0 gap-1.5"><button className="chip" onClick={() => setCourt(true)} title={tr("goal.courtTitle")}>⚖ {tr("goal.decide")}</button><button className="btn" onClick={() => setCreating(true)}>+ {tr("goal.new")}</button></span>
       </div>
+      <NewPilot onDone={(id) => { load(); if (id) setOpen(id); }} />
       {!goals ? <p className="muted text-xs">{err ? "" : tr("common.loading")}</p> : !goals.length ? <p className="muted text-xs">{tr("goal.none")}</p> : (
         <ul className="space-y-2 text-xs">
           {goals.map((x) => (
             <li key={x.id}>
-              <button className="card w-full space-y-1 text-left" onClick={() => setOpen(x.id)} aria-label={`${x.title}, ${x.status}`}>
+              {x.card ? <ProgressCard p={x.card} compact onOpen={() => setOpen(x.id)} onAction={() => setOpen(x.id)} /> : <button className="card w-full space-y-1 text-left" onClick={() => setOpen(x.id)} aria-label={`${x.title}, ${x.status}`}>
                 <span className="flex items-start justify-between gap-2"><b className="min-w-0 break-words">{x.title}</b><StatusPill status={x.status} /></span>
                 <span className="muted block">{tr("goal.steps", { done: x.steps.filter((s) => s.status === "done").length, n: x.steps.length })}{x.progress.now !== null ? ` · ${x.progress.now}${x.progress.target !== null ? ` / ${x.progress.target}` : ""}` : ""}{x.waitingFor ? tr("goal.waitingShort", { who: x.waitingFor }) : ""}{x.track ? ` · ${x.track.track}` : ""}{x.planning ? tr("goal.draftingShort") : ""}</span>
                 {x.progress.pct !== null && <span className="block h-1 rounded bg-white/10"><span className="block h-1 rounded" style={{ width: `${x.progress.pct}%`, background: "var(--cyan)" }} /></span>}
-              </button>
+              </button>}
             </li>
           ))}
         </ul>
       )}
       {err && <p className="error" role="alert">{err}</p>}
     </div>
+  );
+}
+
+/** Autopilot project: one box, his own words. Opus plans the days; ORBIT runs it; the project is one progress card. */
+function NewPilot({ onDone }: { onDone: (id?: string) => void }) {
+  const { t: tr } = useT();
+  const [ask, setAsk] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function submit(e: React.FormEvent) {
+    e.preventDefault(); setBusy(true); setErr("");
+    try { const r = await api<GoalView>("/api/goals", { method: "POST", body: JSON.stringify({ pilot: true, ask }) }); setAsk(""); onDone(r.id); }
+    catch (x) { setErr(x instanceof Error ? x.message : "Failed"); } finally { setBusy(false); }
+  }
+  return (
+    <form className="card space-y-1.5 text-xs" onSubmit={submit} aria-label={tr("pilot.title")}>
+      <label className="block"><b>🧭 {tr("pilot.title")}</b><span className="muted block">{tr("pilot.hint")}</span>
+        <textarea className="input mt-1 w-full" rows={2} maxLength={1000} value={ask} onChange={(e) => setAsk(e.target.value)} placeholder={tr("pilot.ph")} /></label>
+      <button className="btn" disabled={busy || ask.trim().length < 8}>{tr(busy ? "pilot.starting" : "pilot.start")}</button>
+      {err && <p className="error" role="alert">{err}</p>}
+    </form>
+  );
+}
+
+function PilotLimits({ g, busy, act }: { g: GoalView; busy: boolean; act: (b: object, c?: string) => Promise<boolean> }) {
+  const { t: tr } = useT();
+  const p = g.pilot!;
+  const [v, setV] = useState(String(p.callsPerDay));
+  const used = p.calls.day === localDay(new Date()) ? p.calls.used : 0;
+  return (
+    <p className="muted flex flex-wrap items-center gap-1.5">
+      {tr("pilot.calls", { used, max: p.callsPerDay })} · {tr("pilot.replans", { n: p.replans, max: p.maxReplans })}
+      <input className="input w-16" type="number" min={MIN_CALLS} max={MAX_CALLS} value={v} onChange={(e) => setV(e.target.value)} aria-label={tr("pilot.limit")} />
+      <button className="chip" disabled={busy || Number(v) === p.callsPerDay} onClick={() => void act({ action: "calls", id: g.id, callsPerDay: Number(v) })}>{tr("pilot.setLimit")}</button>
+    </p>
   );
 }
 
@@ -221,6 +261,8 @@ function Detail({ g, busy, err, act, name, color, agents, onBack, onOpenTask }: 
     <div className="space-y-3 text-xs">
       <button className="chip" onClick={onBack}>{tr("goal.back")}</button>
       <div className="flex items-start justify-between gap-2"><h3 className="break-words text-sm font-semibold">🎯 {g.title}</h3><StatusPill status={g.status} /></div>
+      {g.card && <ProgressCard p={{ ...g.card, action: null }} />}
+      {g.pilot && <PilotLimits g={g} busy={busy} act={act} />}
       {g.why && <p className="muted break-words">{g.why}</p>}
       <p className="muted">{g.deadline ? `${tr("goal.deadline", { d: g.deadline })}${g.deadline < localDay(new Date()) && g.status !== "done" ? tr("goal.passed") : ""} · ` : ""}{tr("goal.budget", { left: g.runsLeft, max: g.budget.runsPerDay, calls: g.budget.callsPerStep })}</p>
       {g.waitingFor && <p style={{ color: "#fbbf24" }}>{tr("goal.waiting", { who: g.waitingFor })}</p>}
