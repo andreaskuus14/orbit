@@ -8,12 +8,12 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { planetNeeds, type Need } from "@/lib/needs-you-pure";
 import { planetById } from "@/lib/planets";
 import { linkToHash } from "@/lib/deeplink-pure";
-import type { Progress } from "@/lib/progress-pure";
+import { fromNeed, type Progress } from "@/lib/progress-pure";
 import { businessRows, examples as pickExamples, vaultRows, type SimpleRow } from "@/lib/planet-page-pure";
 import { VOICE_ASK } from "./voice/bus";
 import { openTarget } from "./NeedsYou";
 import { nav } from "./palette-commands";
-import { ProgressList } from "./ProgressCard";
+import { ProgressCard, ProgressList } from "./ProgressCard";
 import type { PanelId } from "@/lib/planets";
 import { useT } from "./i18n";
 import css from "./PlanetHome.module.css";
@@ -75,14 +75,11 @@ export function PlanetHome({ planet, results, work, primary, action, onManual, o
         <h3 id={`ph-work-${planet}`} className={css.h}>{t("ph.working")}{running + waiting ? <span className={css.count}>{running + waiting}</span> : null}</h3>
         {work && work.length > 0 && <ProgressList items={work} max={5} />}
         {children}
-        {needs?.own.length ? (
+        {needs?.own.length ? ( // the same card as home's Needs you: its button opens where the item's own Approve lives
           <ul className="space-y-2">
             {needs.own.slice(0, 5).map((n) => (
-              <li key={n.ref} className={`card ${css.need}`}>
-                <span className={css.dot} aria-hidden="true" />
-                <span className="min-w-0 flex-1"><b className="block truncate">{n.title}{n.group && ` · ${n.group.length}`}</b><small className="muted">{t("ph.waitsYou")} · {t(`needs.ask.${n.cause}`)}</small></span>
-                <button className="btn shrink-0 px-3 py-1 text-xs" onClick={() => openTarget(n.act.open, openTask, onOpenGoal ?? openTask)}>{t(n.group ? "needs.reviewAll" : n.kind === "decide" ? "needs.review" : "common.open")}</button>
-              </li>))}
+              <li key={n.ref}><ProgressCard p={fromNeed(n, t(`needs.ask.${n.cause}`), t(n.group ? "needs.reviewAll" : n.kind === "decide" ? "needs.review" : "common.open"))}
+                onAction={() => openTarget(n.act.open, openTask, onOpenGoal ?? openTask)} /></li>))}
           </ul>) : null}
         {needs?.elsewhere.length ? (
           <ul className="space-y-1">
