@@ -147,6 +147,7 @@ const BASE = {
   "quiet.brief": "Morning brief", "quiet.morning": "Good morning", "quiet.recap": "Since you left", "quiet.tour": "What's new", "quiet.new": "{n} new", "quiet.needYou": "{n} need you", "quiet.dot": "new", "quiet.aria": "Status: {s}. Open the list", "quiet.title": "Waiting for you",
 
   "perf.renderChanged": "Render changed", "perf.noBaseline": "No comparable baseline. Match the visible window, GPU and pixel ratio.",
+  "boundary.title": "This part hit a problem", "boundary.body": "The rest of ORBIT is fine. Try again, or go back to the galaxy.", "boundary.retry": "Try again",
   "common.loading": "Loading…", "common.add": "Add", "common.remove": "Remove", "common.cancel": "Cancel", "common.copied": "Copied",
 
   "overview.aria": "Planets", "overview.kicker": "ORBIT", "overview.title1": "Ask for anything.", "overview.title2": "Watch ORBIT do it.",
@@ -1185,6 +1186,7 @@ export const ET: Partial<Record<Key, string>> = {
   "quiet.brief": "Hommikune ülevaade", "quiet.morning": "Tere hommikust", "quiet.recap": "Sinu äraolekul", "quiet.tour": "Mis on uut", "quiet.new": "{n} uut", "quiet.needYou": "{n} vajab sind", "quiet.dot": "uus", "quiet.aria": "Olek: {s}. Ava nimekiri", "quiet.title": "Sind ootab",
 
   "perf.renderChanged": "Renderdus muutus", "perf.noBaseline": "Võrreldav mõõtmine puudub. Kasuta sama nähtavat akent, graafikaprotsessorit ja pikslisuhet.",
+  "boundary.title": "See osa jooksis kokku", "boundary.body": "Ülejäänud ORBIT töötab. Proovi uuesti või mine tagasi galaktikasse.", "boundary.retry": "Proovi uuesti",
   "common.loading": "Laadin…", "common.add": "Lisa", "common.remove": "Eemalda", "common.cancel": "Tühista", "common.copied": "Kopeeritud",
 
   "overview.aria": "Planeedid", "overview.kicker": "ORBIT", "overview.title1": "Küsi mida tahes.", "overview.title2": "Vaata, kuidas ORBIT selle teeb.",

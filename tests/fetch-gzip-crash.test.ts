@@ -64,3 +64,16 @@ test("crashVerdict: every uncaught exception is fatal, even a network error insi
   assert.equal(crashVerdict("uncaughtException"), "fatal");
   assert.equal(crashVerdict("unhandledRejection"), "keep-serving");
 });
+
+test("crashVerdict: a browser hanging up on its own request keeps serving; look-alikes from outbound calls stay fatal", async () => {
+  const { crashVerdict, clientAborted } = await import("../src/lib/crash-log.ts");
+  const err = (code: string, message: string, stack: string) => Object.assign(new Error(message), { code, stack });
+  const inbound = err("ECONNRESET", "aborted", "Error: aborted\n    at abortIncoming (node:_http_server:838:17)\n    at socketOnClose (node:_http_server:832:3)");
+  assert.equal(clientAborted(inbound), true);
+  assert.equal(crashVerdict("uncaughtException", inbound), "keep-serving");
+  const outbound = err("ECONNRESET", "aborted", "Error: aborted\n    at TLSSocket.socketCloseListener (node:_http_client:477:27)");
+  assert.equal(crashVerdict("uncaughtException", outbound), "fatal");
+  assert.equal(crashVerdict("uncaughtException", err("ECONNRESET", "socket hang up", "at abortIncoming")), "fatal");
+  assert.equal(crashVerdict("uncaughtException", null), "fatal");
+  assert.equal(crashVerdict("uncaughtException", "aborted"), "fatal");
+});

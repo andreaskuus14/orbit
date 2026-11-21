@@ -73,6 +73,7 @@ import { CursorRing } from "./CursorRing";
 import { MaskText } from "./MaskText";
 import { useDragPanel } from "./useDragPanel";
 import { ASK_FOCUS, SimpleOr } from "./PlanetHome";
+import { PlanetBoundary } from "./PlanetBoundary";
 import { useDialogFocus } from "./useDialogFocus";
 import { TimeDilation } from "./TimeDilation";
 import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
@@ -133,8 +134,8 @@ function useBootBatch(max: number) {
 }
 
 /** A visited world stays mounted while away: hidden, its canvas paused and its polls/global keys off (WorldPaused), so re-entry skips the remount hitch. */
-function Kept({ on, children }: { on: boolean; children: ReactNode }) {
-  return <div className="kept absolute inset-0" hidden={!on}><WorldPaused.Provider value={!on}>{children}</WorldPaused.Provider></div>;
+function Kept({ on, name, onBack, children }: { on: boolean; name: string; onBack: () => void; children: ReactNode }) {
+  return <div className="kept absolute inset-0" hidden={!on}><WorldPaused.Provider value={!on}><PlanetBoundary name={name} onBack={onBack}>{children}</PlanetBoundary></WorldPaused.Provider></div>;
 }
 
 export default function Orbit({ userId, email }: { userId: string; email: string }) {
@@ -744,14 +745,14 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <span className="planet-entry-progress" aria-hidden="true" style={{ background: divePlanet.color }} />
       </div>}
       {/* Worlds stay mounted after their first visit (hidden + paused): re-entering skips the rebuild, shader compile and texture upload. */}
-      {has("intelligence") && <Kept on={at("intelligence")}><NewsGlobe reduced={reduced} quality={quality} onClose={closeWorld} focus={newsFocus} paused={!at("intelligence")} /></Kept>}
-      {has("studio") && <Kept on={at("studio")}><StudioWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} open={studioOpen} paused={!at("studio")} review={focusReview} onReview={setFocusReview} /></Kept>}
-      {has("creation") && <Kept on={at("creation")}><DevWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} paused={!at("creation")} /></Kept>}
-      {has("agents") && <Kept on={at("agents")}><AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} focusGoal={focusGoal} radarUrl={radarUrl} onRadarDone={() => setRadarUrl(null)} paused={!at("agents")} /></Kept>}
-      {has("arch") && <Kept on={at("arch")}><ArchWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} paused={!at("arch")} /></Kept>}
-      {has("memory") && <Kept on={at("memory")}><MemoryWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} focusId={focusMemory} onChanged={refreshCount} paused={!at("memory")} List={MemoryPanel} /></Kept>}
+      {has("intelligence") && <Kept on={at("intelligence")} name="intelligence" onBack={closeWorld}><NewsGlobe reduced={reduced} quality={quality} onClose={closeWorld} focus={newsFocus} paused={!at("intelligence")} /></Kept>}
+      {has("studio") && <Kept on={at("studio")} name="studio" onBack={closeWorld}><StudioWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} open={studioOpen} paused={!at("studio")} review={focusReview} onReview={setFocusReview} /></Kept>}
+      {has("creation") && <Kept on={at("creation")} name="creation" onBack={closeWorld}><DevWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} paused={!at("creation")} /></Kept>}
+      {has("agents") && <Kept on={at("agents")} name="agents" onBack={closeWorld}><AgentsStation flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} focusGoal={focusGoal} radarUrl={radarUrl} onRadarDone={() => setRadarUrl(null)} paused={!at("agents")} /></Kept>}
+      {has("arch") && <Kept on={at("arch")} name="arch" onBack={closeWorld}><ArchWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} paused={!at("arch")} /></Kept>}
+      {has("memory") && <Kept on={at("memory")} name="memory" onBack={closeWorld}><MemoryWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} focusId={focusMemory} onChanged={refreshCount} paused={!at("memory")} List={MemoryPanel} /></Kept>}
       {shown && KEEP.includes(shown) && at(shown) ? null : isPlanetWorld(shown) ? (
-        <PlanetWorld key={shown} id={shown} flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld}>{panelBody(shown)}</PlanetWorld>
+        <PlanetWorld key={shown} id={shown} flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld}><PlanetBoundary key={shown} name={shown} onBack={closeWorld}>{panelBody(shown)}</PlanetBoundary></PlanetWorld>
       ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
         <nav aria-label={t("overview.aria")} inert={covered || undefined} className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <AmbientLoop />
@@ -835,7 +836,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           aria-hidden={!panel || undefined} inert={!panel || undefined}>
           <div className="drag-handle mb-3 flex items-center justify-between" {...(docked ? {} : drawerDrag.handle)}><h2 className="brand world-header flex items-center gap-2 text-base">{drawer && drawer !== "profile" && <WorldEmblem id={drawer} size={28} />}<MaskText key={title} text={title} />{drawer && <WorldHeaderArt id={drawer} />}</h2><button className="chip" onClick={() => setPanel(null)} aria-label={t("hud.closePanel")} title={t("hud.closeEsc")}>{t("common.close")}</button></div>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {drawer && panelBody(drawer)}
+            {drawer && <PlanetBoundary key={drawer} name={drawer}>{panelBody(drawer)}</PlanetBoundary>}
           </div>
         </aside>
       )}

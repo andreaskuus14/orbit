@@ -26,7 +26,11 @@ export function DubVoiceSection() {
   const chunks = useRef<Blob[]>([]);
   const url = useMemo(() => (sample ? URL.createObjectURL(sample) : ""), [sample]);
   useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
-  const load = () => fetch(API).then((r) => r.json()).then((j: State) => setS(j), (e) => setNote(msg(e)));
+  const load = () => fetch(API).then(async (r) => { // an error reply ({ error }) is not a state: rendering it crashed all of Profile
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j?.voice || !j?.tool) throw new Error(j?.error || `Failed (${r.status})`);
+    setS(j as State);
+  }).catch((e) => setNote(msg(e)));
   useEffect(() => { void load(); }, []);
 
   const record = async () => {
@@ -52,7 +56,11 @@ export function DubVoiceSection() {
   };
   const remove = async () => {
     setBusy(true);
-    try { await fetch(API, { method: "DELETE" }); setNote(t("dub.removed")); await load(); } catch (e) { setNote(msg(e)); } finally { setBusy(false); }
+    try { // "removed" only when the server says so: a failed delete must not tell him his voice sample is gone
+      const r = await fetch(API, { method: "DELETE" });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || `Failed (${r.status})`); }
+      setNote(t("dub.removed")); await load();
+    } catch (e) { setNote(msg(e)); } finally { setBusy(false); }
   };
 
   return (

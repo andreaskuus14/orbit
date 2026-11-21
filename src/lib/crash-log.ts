@@ -26,7 +26,16 @@ export const currentJob = () => jobs.getStore() ?? null;
 /** Exit code of a controlled stop. launch.ps1 restarts on it without the "died at boot, so rebuild" path (the build isn't the problem). */
 export const CONTROLLED_STOP_EXIT = 70;
 export type Verdict = "keep-serving" | "fatal";
-export const crashVerdict = (ev: (typeof EVENTS)[number]): Verdict => (ev === "unhandledRejection" ? "keep-serving" : "fatal");
+/** A browser that hung up on its own request (a tab closed mid-load, the phone remote losing Wi-Fi): Node's HTTP server emits
+ *  ECONNRESET "aborted" on that request from abortIncoming, and with no listener it surfaces as uncaught. Only that one request
+ *  ended, at its own boundary, so it is not "half-way through anything". Outbound network errors never come from abortIncoming
+ *  and stay fatal. */
+export const clientAborted = (reason: unknown): boolean => {
+  const e = reason as NodeJS.ErrnoException | null;
+  return !!e && e.code === "ECONNRESET" && e.message === "aborted" && typeof e.stack === "string" && /\babortIncoming\b/.test(e.stack);
+};
+export const crashVerdict = (ev: (typeof EVENTS)[number], reason?: unknown): Verdict =>
+  ev === "unhandledRejection" || clientAborted(reason) ? "keep-serving" : "fatal";
 const SAYS: Record<Verdict, string> = {
   "keep-serving": "logged; the server keeps running",
   fatal: "fatal: ORBIT stops now and its launcher restarts it",
@@ -39,7 +48,7 @@ export function logCrashes(exit: (code: number) => void = (c) => process.exit(c)
   for (const ev of EVENTS) {
     const h = (reason: unknown) => {
       if ((reason as { $$typeof?: symbol } | null)?.$$typeof === Symbol.for("react.postpone")) return; // rendering, not an error
-      const e = reason as NodeJS.ErrnoException, job = currentJob(), verdict = crashVerdict(ev);
+      const e = reason as NodeJS.ErrnoException, job = currentJob(), verdict = crashVerdict(ev, reason);
       const line = redact(`${new Date().toISOString()} ${ev}${job ? ` in ${job}` : ""} ${e?.code ?? ""} ${e?.stack ?? String(reason)}\n`);
       console.error(`[orbit] ${ev} (${SAYS[verdict]}):\n${line}`);
       try { mkdirSync(orbitDataDir(), { recursive: true }); appendFileSync(path.join(orbitDataDir(), "crash.log"), `${line}  → ${SAYS[verdict]}\n`); } catch { /* the console line is the fallback */ }

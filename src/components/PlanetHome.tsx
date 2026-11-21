@@ -4,7 +4,7 @@
 // 3. "Working on it": the shared progress cards (ProgressCard) for this planet's running work, plus what waits for his click;
 // 4. results, each saying what happened and what to do next; 5. "More": example asks and all of the planet's tools, unchanged.
 // The Ask carries the planet (Orbit adds "here"), so CORE knows where he is. Nothing here approves or sends anything by itself.
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { planetNeeds, type Need } from "@/lib/needs-you-pure";
 import { planetById } from "@/lib/planets";
 import { linkToHash } from "@/lib/deeplink-pure";
@@ -13,7 +13,7 @@ import { businessRows, examples as pickExamples, vaultRows, type SimpleRow } fro
 import { VOICE_ASK } from "./voice/bus";
 import { openTarget } from "./NeedsYou";
 import { nav } from "./palette-commands";
-import { ProgressCard, ProgressList } from "./ProgressCard";
+import { openProgress, ProgressCard, ProgressList } from "./ProgressCard";
 import type { PanelId } from "@/lib/planets";
 import { useT } from "./i18n";
 import css from "./PlanetHome.module.css";
@@ -50,11 +50,15 @@ export function PlanetHome({ planet, results, work, primary, action, onManual, o
   const submit = (e: FormEvent) => { e.preventDefault(); const q = text.trim(); if (!q) { dispatchEvent(new Event(ASK_FOCUS)); return; } ask(q); setText(""); };
   const examples = pickExamples([1, 2, 3].map((n) => t(`ph.${planet}.ex${n}` as "ph.creation.ex1")));
   const waiting = needs ? needs.own.reduce((s, n) => s + (n.group?.length ?? 1), 0) : 0;
-  const running = (work ?? []).filter((p) => p.phase === "working" || p.phase === "waiting" || p.phase === "needs").length;
-  const nothing = needs && !needs.own.length && !needs.elsewhere.length && !children && (work === undefined || (work && !work.length));
+  // Finished work is a result, not something "working": it moves down to Results, so the count matches the cards under it.
+  const active = (work ?? []).filter((p) => p.phase !== "done").sort((a, b) => RANK[a.phase] - RANK[b.phase]), finished = (work ?? []).filter((p) => p.phase === "done");
+  const running = active.filter((p) => p.phase === "working" || p.phase === "waiting" || p.phase === "needs").length;
+  const nothing = needs && !needs.own.length && !needs.elsewhere.length && !children && !active.length;
+  const hint = useRotating(examples, text === "");
+  const tone = { "--planet": planetById(planet)?.color ?? "#22d3ee" } as CSSProperties;
 
   return (
-    <div className={css.page} aria-label={t("ph.label")} data-planet={planet}>
+    <div className={css.page} aria-label={t("ph.label")} data-planet={planet} style={tone}>
       {/* 1. What it's for */}
       <p className={css.what}>{t(`ph.${planet}.what` as "ph.creation.what")}</p>
 
@@ -65,7 +69,7 @@ export function PlanetHome({ planet, results, work, primary, action, onManual, o
         <form className={css.ask} onSubmit={submit}>
           <label className="sr-only" htmlFor={`ph-ask-${planet}`}>{t("ph.askLabel")}</label>
           <input id={`ph-ask-${planet}`} className="field" value={text} maxLength={500} onChange={(e) => setText(e.target.value)}
-            placeholder={t(`ph.${planet}.ex1` as "ph.creation.ex1")} />
+            placeholder={hint ?? t(`ph.${planet}.ex1` as "ph.creation.ex1")} />
           <button type="submit" className={primary ? "chip" : "btn"}>{t("ph.do")}</button>
         </form>
       )}
@@ -73,7 +77,6 @@ export function PlanetHome({ planet, results, work, primary, action, onManual, o
       {/* 3. Working on it: running work, then what waits for his click */}
       <section aria-labelledby={`ph-work-${planet}`} className={css.block}>
         <h3 id={`ph-work-${planet}`} className={css.h}>{t("ph.working")}{running + waiting ? <span className={css.count}>{running + waiting}</span> : null}</h3>
-        {work && work.length > 0 && <ProgressList items={work} max={5} />}
         {children}
         {needs?.own.length ? ( // the same card as home's Needs you: its button opens where the item's own Approve lives
           <ul className="space-y-2">
@@ -81,6 +84,7 @@ export function PlanetHome({ planet, results, work, primary, action, onManual, o
               <li key={n.ref}><ProgressCard p={fromNeed(n, t(`needs.ask.${n.cause}`), t(n.group ? "needs.reviewAll" : n.kind === "decide" ? "needs.review" : "common.open"))}
                 onAction={() => openTarget(n.act.open, openTask, onOpenGoal ?? openTask)} /></li>))}
           </ul>) : null}
+        {active.length > 0 && <ProgressList items={active} max={5} />}
         {needs?.elsewhere.length ? (
           <ul className="space-y-1">
             {needs.elsewhere.map((e) => (
@@ -89,16 +93,22 @@ export function PlanetHome({ planet, results, work, primary, action, onManual, o
                 <button className="chip" onClick={() => nav({ panel: e.planet as PanelId })}>{t("common.open")}</button>
               </li>))}
           </ul>) : null}
-        {!needs && work === undefined ? <p className="muted text-sm" role="status">{t("needs.loading")}</p>
+        {!needs && !active.length ? <Skeleton label={t("needs.loading")} />
           : nothing ? <p className={css.empty}>{t("ph.workingNone")}</p> : null}
       </section>
 
       {/* 4. Results */}
-      {results !== undefined && (
+      {(results !== undefined || finished.length > 0) && (
         <section aria-labelledby={`ph-results-${planet}`} className={css.block}>
           <h3 id={`ph-results-${planet}`} className={css.h}>{t("ph.results")}</h3>
-          {!results ? <p className="muted text-sm" role="status">{t("needs.loading")}</p>
-            : !results.length ? <p className={css.empty}>{t("ph.resultsNone")}</p>
+          {finished.length > 0 && <ul className="space-y-2">{finished.slice(0, 3).map((p) => (
+            <li key={p.id} className={`card ${css.result} ${css.done}`}>
+              <span className={css.tick} aria-hidden="true">✓</span>
+              <span className="min-w-0 flex-1"><b className="block truncate">{p.title}</b>{p.result && <small className="muted">{p.result.text}</small>}</span>
+              {(p.result?.open || p.action?.open) && <button className="chip shrink-0" onClick={() => openProgress(p.result?.open || p.action!.open)}>{t("ph.seeResult")}</button>}
+            </li>))}</ul>}
+          {results === undefined ? null : !results ? <Skeleton label={t("needs.loading")} />
+            : !results.length ? (finished.length ? null : <p className={css.empty}>{t("ph.resultsNone")}</p>)
             : <ul className="space-y-2">{results.slice(0, 6).map((r) => (
               <li key={r.id} className={`card ${css.result}`}>
                 <span className="min-w-0 flex-1"><b className="block truncate">{r.title}</b>{r.sub && <small className="muted">{r.sub}</small>}</span>
@@ -118,6 +128,30 @@ export function PlanetHome({ planet, results, work, primary, action, onManual, o
       </details>
     </div>
   );
+}
+
+/** What waits for his click first, then what failed, then live work, then queued. */
+const RANK: Record<Progress["phase"], number> = { needs: 0, failed: 1, working: 2, waiting: 3, done: 4 };
+
+/** Loading: two quiet placeholder cards in the shape of what is coming, instead of a line of text that jumps. */
+function Skeleton({ label }: { label: string }) {
+  return (
+    <div className={css.skeleton} role="status" aria-label={label}>
+      <span /><span />
+    </div>
+  );
+}
+
+/** The input's hint cycles through the planet's example asks while it is empty (every 4.5 s), so each planet shows what it
+ *  can do without another button. Still with reduced motion: the first example stays. */
+function useRotating(items: string[], on: boolean): string | null {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (!on || items.length < 2 || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const id = setInterval(() => setI((n) => (n + 1) % items.length), 4500);
+    return () => clearInterval(id);
+  }, [on, items.length]);
+  return items.length ? items[i % items.length] : null;
 }
 
 /** The way back from a planet's tools to its simple page (same look everywhere). */
