@@ -2,11 +2,13 @@
 // CORE's voice: a queue of short utterances on window.speechSynthesis, plus a fake level envelope for the 3D CORE
 // (speechSynthesis gives no audio to analyse, so word-boundary events become pulses).
 import { voiceLevel, loadVoiceSettings, VOICE_INTERRUPT, type VoiceSettings } from "./bus";
+import { guessLang } from "@/lib/voice-et-pure";
 
 let settings: VoiceSettings | null = null;
 let voice: SpeechSynthesisVoice | null = null;
-let queue: string[] = [];
-let current: SpeechSynthesisUtterance | "kokoro" | null = null; // also keeps Chrome from GC-ing the utterance (then onend never fires)
+type Item = { text: string; lang?: "en" | "et" };
+let queue: Item[] = [];
+let current: SpeechSynthesisUtterance | "kokoro" | null = null; // "kokoro" = any audio we play ourselves (Kokoro or the PC's Estonian voice); // also keeps Chrome from GC-ing the utterance (then onend never fires)
 let waiters: (() => void)[] = [];
 const listeners = new Set<(speaking: boolean) => void>();
 let pulse = 0, lastWord = 0, raf = 0, voiceAskedAt = 0, stuckSince = 0;
@@ -18,8 +20,24 @@ let worker: Worker | null = null, reqId = 0, kokoroBroken = false;
 const pending = new Map<number, (r: { audio?: Float32Array; rate?: number; error?: string; ready?: boolean }) => void>();
 let audioCtx: AudioContext | null = null, analyser: AnalyserNode | null = null, source: AudioBufferSourceNode | null = null;
 const levelBuf = new Float32Array(1024);
+/** Which language a chunk is spoken in: Eesti → Estonian; "auto" → by its words; else English. */
+const langOf = (it: Item): "en" | "et" => it.lang ?? (/^et/i.test(speechSettings().lang) ? "et" : speechSettings().lang === "auto" && guessLang(it.text) === "et" ? "et" : "en");
 const estonian = () => /^et/i.test(speechSettings().lang);
 const kokoroVoice = () => { const v = speechSettings().voiceURI; return !kokoroBroken && !estonian() && v?.startsWith("kokoro:") ? v.slice(7) : null; }; // Kokoro has no Estonian
+/* ---- Estonian: Piper's Estonian voice made on this PC (/api/voice/speak). Any failure falls back to the browser's et-EE voice. ---- */
+let etDownUntil = 0; // a failure (e.g. the one-time download still running) uses the browser's voice for a minute, then tries again
+async function etAudio(text: string): Promise<{ audio?: Float32Array; rate?: number; error?: string }> {
+  try {
+    const r = await fetch("/api/voice/speak", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text, lang: "et", voice: speechSettings().etVoice, rate: Number(speechSettings().rate) || 1 }) });
+    if (!r.ok) return { error: `speak ${r.status}` };
+    audioCtx ??= new AudioContext();
+    const buf = await audioCtx.decodeAudioData(await r.arrayBuffer());
+    return { audio: buf.getChannelData(0), rate: buf.sampleRate };
+  } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
+}
+const make = (it: Item) => (langOf(it) === "et" ? etAudio(it.text) : kokoro(it.text));
+const ownAudio = (it: Item) => typeof Worker !== "undefined" && (langOf(it) === "et" ? Date.now() >= etDownUntil : !!kokoroVoice());
 function kokoro(text: string, warm = false) {
   if (!worker) {
     worker = new Worker(new URL("./kokoro.worker.ts", import.meta.url), { type: "module" });
@@ -34,13 +52,13 @@ function kokoro(text: string, warm = false) {
 }
 /** Start loading the model in the background (Settings → Voice picked a natural voice). */
 export const warmNaturalVoice = () => { if (typeof Worker !== "undefined") void kokoro("", true); };
-let prefetch: { text: string; p: ReturnType<typeof kokoro> } | null = null;
-async function speakKokoro(text: string, myGen: number) {
-  const got = prefetch?.text === text ? prefetch.p : kokoro(text);
-  prefetch = queue[0] !== undefined ? { text: queue[0], p: kokoro(queue[0]) } : null; // make the next sentence while this one plays
+let prefetch: { it: Item; p: ReturnType<typeof kokoro> } | null = null;
+async function speakKokoro(it: Item, myGen: number) {
+  const got = prefetch?.it === it ? prefetch.p : make(it);
+  prefetch = queue[0] !== undefined && ownAudio(queue[0]) ? { it: queue[0], p: make(queue[0]) } : null; // make the next sentence while this one plays
   const r = await got;
   if (myGen !== gen || current !== "kokoro") return; // stopped meanwhile
-  if (!r.audio || !r.rate) { kokoroBroken = true; current = null; queue.unshift(text); prefetch = null; pump(); return; } // fall back for the rest of the session
+  if (!r.audio || !r.rate) { if (langOf(it) === "et") etDownUntil = Date.now() + 60_000; else kokoroBroken = true; current = null; queue.unshift(it); prefetch = null; pump(); return; } // fall back for the rest of the session
   try {
     audioCtx ??= new AudioContext();
     if (audioCtx.state === "suspended") await audioCtx.resume();
@@ -54,7 +72,8 @@ async function speakKokoro(text: string, myGen: number) {
     source.start();
   } catch {
     if (myGen !== gen || current !== "kokoro") return;
-    kokoroBroken = true; current = null; queue.unshift(text); pump();
+    if (langOf(it) === "et") etDownUntil = Date.now() + 60_000; else kokoroBroken = true;
+    current = null; queue.unshift(it); pump();
   }
 }
 
@@ -96,18 +115,20 @@ function pump() {
     scheduled = window.setTimeout(() => { scheduled = 0; pump(); }, 60);
     return;
   }
-  const text = queue.shift();
-  if (text === undefined) { waiters.forEach((w) => w()); waiters = []; notify(); return; }
-  if (kokoroVoice() && typeof Worker !== "undefined") {
+  const it = queue.shift();
+  if (it === undefined) { waiters.forEach((w) => w()); waiters = []; notify(); return; }
+  const text = it.text, et = langOf(it) === "et";
+  if (ownAudio(it)) {
     current = "kokoro";
     lastTwo = [...lastTwo.slice(-1), text];
-    void speakKokoro(text, gen);
+    void speakKokoro(it, gen);
     animate();
     return;
   }
   if (!voice) pickVoice();
   const u = new SpeechSynthesisUtterance(text);
-  if (voice) { u.voice = voice; u.lang = voice.lang; } else if (estonian()) u.lang = "et-EE";
+  const v = et && !/^et/i.test(voice?.lang ?? "") ? synth()?.getVoices().find((x) => /^et/i.test(x.lang)) ?? null : voice;
+  if (v) { u.voice = v; u.lang = v.lang; } else if (et) u.lang = "et-EE";
   const rate = Number(speechSettings().rate);
   u.rate = Number.isFinite(rate) ? Math.min(2, Math.max(0.5, rate)) : 1;
   u.onboundary = (e) => { if (e.name !== "sentence") { pulse = 1; lastWord = performance.now(); } };
@@ -129,12 +150,19 @@ let endedAt = 0;
 export const speakingOrJustEnded = (tailMs: number) => isSpeaking() || Date.now() - endedAt < tailMs;
 
 /** Queue one chunk (a sentence; keep it short — Chrome cuts utterances off after ~15 s). */
-export function speakChunk(text: string, forGen?: number) {
-  if ((!synth() && !kokoroVoice()) || !text.trim() || (forGen !== undefined && forGen !== gen)) return;
-  queue.push(text);
+export function speakChunk(text: string, forGen?: number, lang?: "en" | "et") {
+  if ((!synth() && !kokoroVoice() && typeof Worker === "undefined") || !text.trim() || (forGen !== undefined && forGen !== gen)) return;
+  queue.push({ text, lang });
   const was = !!current;
   pump();
   if (!was) notify();
+}
+
+/** The voice API for callers that know the language (the JARVIS loop, calls): queue one chunk in English or Estonian. "auto" (or no
+ *  lang) follows Settings → Voice → Language. Resolves when it (and everything queued before it) has been spoken or stopped. */
+export function speak(text: string, lang?: "en" | "et" | "auto"): Promise<void> {
+  speakChunk(text, undefined, lang === "auto" ? undefined : lang);
+  return finish();
 }
 
 /** Resolves once everything queued so far has been spoken (or stopped). */

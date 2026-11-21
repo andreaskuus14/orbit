@@ -7,7 +7,7 @@ test("migrateVoiceSettings maps the old wake/engine pair to hands-free modes", (
   assert.equal(migrateVoiceSettings({ wake: true, engine: "whisper" }).handsFree, "local"); // chose Whisper = wanted audio local
   assert.equal(migrateVoiceSettings({ wake: false, engine: "whisper" }).handsFree, "off");
   const m = migrateVoiceSettings({ speak: false, wake: true, voiceURI: "v1", rate: 1.2, lang: "et-EE", engine: "whisper" });
-  assert.deepEqual(m, { speak: false, handsFree: "local", voiceURI: "v1", rate: 1.2, lang: "et-EE", engine: "whisper", conversation: "stay", bargeByVoice: false });
+  assert.deepEqual(m, { speak: false, handsFree: "local", voiceURI: "v1", rate: 1.2, lang: "et-EE", engine: "whisper", conversation: "stay", bargeByVoice: false, etVoice: "Mari" });
   assert.equal("wake" in m, false);
 });
 
@@ -39,9 +39,15 @@ test("ORBIT mic is a local hands-free mode: never Chrome, kept by migration", as
   const { whisperLang } = await import("../src/components/voice/bus.ts");
   assert.equal(migrateVoiceSettings({ handsFree: "orbit" }).handsFree, "orbit");
   assert.equal(migrateVoiceSettings({ bargeByVoice: true }).bargeByVoice, true);
+  assert.equal(migrateVoiceSettings({ etVoice: "Kalev" }).etVoice, "Kalev");
+  assert.equal(migrateVoiceSettings({ etVoice: "Bob" }).etVoice, "Mari"); // only the Estonian voice's four speakers
   assert.equal(migrateVoiceSettings({ bargeByVoice: "yes" }).bargeByVoice, false); // off unless explicitly on
   for (const engine of ["chrome", "whisper"] as const) for (const use of ["handsFree", "pushToTalk"] as const)
     assert.equal(recognizerFor({ handsFree: "orbit", engine }, use), "whisper");
   assert.equal(whisperLang("et-EE"), "et");
   assert.equal(whisperLang("en-GB"), "en");
+  assert.equal(whisperLang("auto"), "auto"); // English + Eesti, picked per sentence on this PC
+  const { chromeLang } = await import("../src/components/voice/bus.ts");
+  assert.equal(chromeLang("auto"), "en-US"); // Chrome's recognizer needs one language
+  assert.equal(chromeLang("et-EE"), "et-EE");
 });
