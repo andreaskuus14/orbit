@@ -3,7 +3,8 @@ import { inlineTask } from "./task-claim-pure";
 import { atLeastOpus, isRisky, turnRisk } from "./agent-defs-pure";
 import { isLimitError, needsOpus } from "./core-mcp-boost-pure";
 import { runData } from "./model-log-pure";
-import { askClaude, askClaudeStream, emit, warmClaude, recordUsage, reviewDraft, MODEL, FAST_MODEL, DEEP_MODEL, DEEP_EFFORT, type PromptImage } from "./claude";
+import { askClaude, askClaudeStream, emit, warmClaude, recordUsage, reviewDraft, MODEL, FAST_MODEL, DEEP_MODEL, DEEP_EFFORT, LOCAL_MODEL, type PromptImage } from "./claude";
+import { claudeDown } from "./local-model-pure";
 
 // Cleared once the local CLI rejects --effort, so later deep turns don't fail on it again (until a restart).
 const deepFlags = { effort: DEEP_EFFORT };
@@ -55,6 +56,8 @@ import { autonomyLevels } from "./autonomy";
 import { skillDenied } from "./skills-pure";
 import { maxSteps, fallbackNote, sessionInput } from "./core-capability-pure";
 import { citedLinks, unseenLinks, unseenNote } from "./core-sources-pure";
+import { answerClaims, answerNote, answerSources } from "./factcheck-pure";
+import { checkClaimsLocal, coreBudgetMs } from "./factcheck";
 import { withHeadsUp } from "./capability-pure";
 import { coreEngine } from "./core-engine";
 import { randomUUID } from "node:crypto";
@@ -78,7 +81,8 @@ export const SESSION_MODE = process.env.ORBIT_CORE_SESSION === "resume" ? "resum
 const SESSION_MODE_ENV = process.env.ORBIT_CORE_SESSION; // "off" opts the SDK engine out of its default chat session
 
 // CORE tools that change things: logged to the activity log when they succeed (navigation and reads aren't).
-const LOGGED = ["save_memory", "ask_agent", ...MODULE_WRITES];
+const LOGGED = ["save_memory", "ask_agent", "save_for_later", ...MODULE_WRITES];
+const OFFLINE_DETAIL = "offline mode: Claude was unreachable or on hold; the local brain could only read and save tasks for later";
 
 export type TraceStep = { step: string; detail: string; ms: number; ok: boolean; via?: Rung[]; evidence?: WriteEvidence[]; answerEval?: AnswerEval & { ms: number }; receipt?: Receipt; policy?: { verdict: "refuse"; turn: string; allowOnce?: { id: string; journal: boolean } } };
 export type Citation = { id: string; title: string; kind: string; at?: string }; // at: the memory's last change (for "what I used" ages)
@@ -356,6 +360,13 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     onStep?.(tool, input, { out, ms, ok: !out.startsWith("Error:") }); // the live view's step end (core-live-pure.ts redacts it)
     if (LOGGED.includes(tool) && !out.startsWith("Error:")) logActivity({ area: operator ? "operator" : "core", title: `CORE ${tool}: ${activityLine(tool, out)}`, ...undoOf(tool, out) }); // no inputs: memory / reminder / file text stays out of the log
   };
+  // Offline mode (offline-tools.ts): Claude unreachable, rate-limited or on hold → the local brain answers with SAFE read tools, each
+  // through the same gated() → decide() → authorizeTool() → exec() → record() path; risky asks become tasks waiting for his OK.
+  const offline = () => import("./offline-tools").then((m) => m.offlineTurn({
+    sb, userId, question, history, chat: sessionKey, now: localNow(), langRule: CORE_LANG_RULE[lang], policy: policyCtx, steps, attachBlock: attach?.block ?? "",
+    attachments: !!attach, turnId, exec, record, authorize: authorizeTool, emit: (kind, payload) => void emit(sb, userId, kind, "core", payload),
+    onStep: onStep && ((tool, input) => onStep!(tool, input)), signal, budgetMs: deepLeft() - 30_000,
+  }));
   // A failed model call: true = redo it (session dropped, --effort dropped, or fast/deep → main model); throws when there is no fallback.
   const recover = (e: unknown, effort?: string) => {
     if (signal?.aborted) throw e; // a Stop still ends the turn
@@ -428,7 +439,17 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
           if (sess && sessionKey) coreSessions.set(sessionKey, { id: r.sessionId || sess.id, resume: true });
           answer = r.text;
           break;
-        } catch (e) { recover(e, effort); }
+        } catch (e) {
+          // Claude unreachable or rate-limited: offline mode, as the JSON loop (never for a turn held to Opus, never with images)
+          if (!signal?.aborted && LOCAL_MODEL && !held && !attach?.images?.length && claudeDown(e instanceof Error ? e.message : String(e))) {
+            const r = await offline().catch(() => { throw e; });
+            onRoute?.("local"); ran = "local"; answer = r.text;
+            await recordUsage(sb, userId, "core.chat", r, "local");
+            trace.push({ step: "local", detail: OFFLINE_DETAIL, ms: r.ms, ok: true });
+            break;
+          }
+          recover(e, effort);
+        }
       }
       await review();
     }
@@ -453,7 +474,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       let r;
       try {
       if (planning) {
-        r = await askClaude(ask, system, { lane: "foreground", signal, model, effort, timeoutMs, thinking: STEP_THINKING, risky: held }); // nothing streams: a tool call, or a draft redone below
+        r = await askClaude(ask, system, { lane: "foreground", signal, model, effort, timeoutMs, thinking: STEP_THINKING, risky: held, offline }); // nothing streams: a tool call, or a draft redone below
       } else if (onDelta) {
         // The model writes a JSON envelope; forward only the newly decoded part of its "final" answer.
         // Deep: nothing until the reply is clearly the JSON envelope, so a raw plan or tool call never streams.
@@ -463,9 +484,9 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
           if (tier === "deep" && !/^\s*[{`]/.test(raw)) return;
           const shown = partialAnswer(raw);
           if (shown && shown.length > sent) { sendDelta!(shown.slice(sent)); sent = shown.length; }
-        }, signal, "foreground", model, attach?.images, effort, timeoutMs, undefined, sess ?? undefined, held);
+        }, signal, "foreground", model, attach?.images, effort, timeoutMs, undefined, sess ?? undefined, held, offline);
       } else {
-        r = await askClaude(ask, system, { lane: "foreground", signal, model, images: attach?.images, effort, timeoutMs, session: sess ?? undefined, risky: held });
+        r = await askClaude(ask, system, { lane: "foreground", signal, model, images: attach?.images, effort, timeoutMs, session: sess ?? undefined, risky: held, offline });
       }
       } catch (e) {
         // A long step timed out: once more with the work split, then (interactive) hand the rest to the background.
@@ -480,8 +501,8 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       if (sess && !r.local) { sess = { id: sess.id, resume: true }; sessSent = true; sessSeen = steps.length; if (sessionKey) coreSessions.set(sessionKey, sess); }
       await recordUsage(sb, userId, "core.chat", r, r.local ? "local" : model);
       ran = r.local ? "local" : model;
-      // Offline brain (claude.ts): no tools, so its reply is always the answer; the "local" trace step shows the badge.
-      if (r.local && !trace.some((s) => s.step === "local")) trace.push({ step: "local", detail: "local brain: Claude was unreachable or on hold", ms: 0, ok: true });
+      // Offline mode (offline-tools.ts): its tool loop already ran, so its reply is always the answer; the "local" trace step shows the badge.
+      if (r.local && !trace.some((s) => s.step === "local")) trace.push({ step: "local", detail: OFFLINE_DETAIL, ms: 0, ok: true });
       const reply = r.local ? { thought: "", final: parseAgentReply(r.text).final ?? r.text } : parseAgentReply(r.text);
       // Native function-call markup (blanked by the CLI) instead of our JSON: ask again, never save it as the answer.
       if ("garbled" in reply && reply.garbled) {
@@ -563,7 +584,18 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   // Web/news links the answer cites but nothing in this turn contained: say so instead of passing them as sources.
   const unseen = unseenLinks(wk.text, [prompt, attach?.block ?? "", ...evalTools.map((t) => t.output)]), cited = citedLinks(wk.text);
   if (cited) trace.push({ step: "sources", detail: unseen.length ? `${unseen.length} of ${cited} cited links not opened this turn: ${unseen.join(" ").slice(0, 300)}` : `${cited} cited links, all from this turn's tools or context`, ms: 0, ok: !unseen.length });
-  const text = (wk.text || `_(CORE stopped after ${steps.length} tool calls without writing an answer.)_`) + unseenNote(unseen) + fallbackNote(trace);
+  // Local fact check: each sentence citing a web link against what this turn read from that link (a note, never a rewrite).
+  let factNote = "";
+  const fClaims = cited ? answerClaims(wk.text) : [];
+  if (fClaims.length) {
+    const t = Date.now(), fc = await checkClaimsLocal(fClaims, answerSources(evalTools), coreBudgetMs());
+    if (fc) {
+      factNote = answerNote(fClaims, fc.v, lang);
+      const bad = [...fc.v.values()].filter((x) => x === "not_backed" || x === "contradicted").length, backed = [...fc.v.values()].filter((x) => x === "backed").length;
+      trace.push({ step: "check_facts", detail: `${backed} of ${fClaims.length} web claims backed by their source, ${bad} not backed`, ms: Date.now() - t, ok: !bad });
+    } else trace.push({ step: "check_facts", detail: "fact check skipped (off, no source text, or out of time)", ms: Date.now() - t, ok: true });
+  }
+  const text = (wk.text || `_(CORE stopped after ${steps.length} tool calls without writing an answer.)_`) + unseenNote(unseen) + factNote + fallbackNote(trace);
   const all = [...citations, ...wk.cites];
   // "What I used": built from the citations, trace and context refs already in hand (core-used-pure.ts); no model call, private items redacted
   const used = buildUsed({ citations: all, trace, privateTools: MODULE_PRIVATE, extras: { memories: [...byId.values()], context: ctxIn, files: attach ? attachmentNames(attach.block).filter((n) => !n.startsWith("Earlier attachments")) : [] } });

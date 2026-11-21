@@ -301,8 +301,9 @@ export function ProfilePanel() {
     e.preventDefault();
     try { await api("/api/profile", { method: "PUT", body: JSON.stringify(p) }); setMsg(t("profile.saved")); } catch (e2) { setMsg(e2 instanceof Error ? e2.message : "Could not save"); }
   }
-  return (
+  return ( // Settings: one sentence, the three things he changes (language, about you, what ORBIT may do by itself), the rest under More
     <div className="space-y-6">
+    <p className="text-sm">{t("ph.profile.what")}</p>
     <section className="space-y-1">
       <LangSwitch />
       <p className="muted text-xs">{t("lang.hint")}</p>
@@ -318,9 +319,11 @@ export function ProfilePanel() {
       <label className="block text-sm">{t("profile.talk")}<textarea className="field mt-1 h-20 w-full" value={p.communication ?? ""} onChange={(e) => setP({ ...p, communication: e.target.value })} maxLength={COMMUNICATION_STORED_MAX} /></label>
       <button className="btn">{t("profile.save")}</button> {msg && <span className="muted text-sm">{msg}</span>}
     </form>
+    <AutonomySection />
+    <details className="space-y-6">
+    <summary className="chip cursor-pointer">{t("ws.more")} · <span className="muted">{t("set.moreHint")}</span></summary>
     <JobFitSection />
     <PasswordSection />
-    <AutonomySection />
     <CoreEngineSection />
     <AuthoritySection />
     <PluginsSection />
@@ -331,6 +334,7 @@ export function ProfilePanel() {
     <PersonaSection />
     <PlaybookSection />
     <LessonsSection />
+    </details>
     </div>
   );
 }

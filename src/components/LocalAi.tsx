@@ -8,6 +8,7 @@ import type { Autostart } from "@/lib/autostart-pure";
 import type { LocalStatus } from "@/lib/local-model-pure";
 import { useT } from "./i18n";
 import RobloxBuild, { PINK } from "./RobloxBuild";
+import { KaggleBurst } from "./KaggleBurst";
 
 // Local AI tools (tools/local-ai on his PC): Picture to 3D and Text to 3D (GAME DEV → Assets), Voiceover (STUDIO → Produce),
 // Captions (STUDIO → Produce), Read document (VAULT), Open IFC model (ARCH) and the tool list (OPERATIONS → Local AI). Every result is saved in VAULT; nothing is uploaded. Data: /api/local-ai.
@@ -355,6 +356,7 @@ export function LocalAiTools() {
   return (
     <section className="grid gap-3 text-sm" aria-label="Local AI tools">
       <ThisPc />
+      <KaggleBurst />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs">{h?.running ? <>Service running{h.gpu ? ` on ${h.gpu.name} (${h.gpu.vramGb} GB)` : " on the CPU only (no GPU found)"}.</> : <>Service not running. Start it: <code>{START_CMD}</code></>}</p>
         <button className="chip" onClick={check}>Check again</button>

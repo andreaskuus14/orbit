@@ -188,7 +188,7 @@ export function scoreFrom(m: Model, x: FVec, d: Detail): Virality {
   });
   const pick = (up: boolean) => fs.filter((f) => (up ? f.pts >= 1 : f.pts <= -1)).sort((a, b) => (up ? b.pts - a.pts : a.pts - b.pts)).slice(0, 3)
     .map((f) => ({ ...f, text: factorText(f.key, up, x, d) }));
-  return { score: Math.round(score), mult: r2(Math.exp(pred)), conf: confOf(m), learning: !m.learned, n: m.n, x, d, up: pick(true), down: pick(false) };
+  return { score: Math.round(score), mult: Math.max(0.01, r2(Math.exp(pred))), conf: confOf(m), learning: !m.learned, n: m.n, x, d, up: pick(true), down: pick(false) };
 }
 
 /** Review/packaging order: the virality score, or neutral 50 for clips made before scoring. */

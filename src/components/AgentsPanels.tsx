@@ -27,9 +27,10 @@ import { blockedBy, recoveryOptions } from "@/lib/tasks-recovery-pure";
 import { INITIAL_INBOX, OperationsInbox } from "./OperationsInbox";
 import { PREVIEW_TZ, graceMinutes, lastWith, nextOccurrences } from "@/lib/automation-preview-pure";
 import { LocalAiTools } from "./LocalAi";
+import { TerminalView } from "./TerminalView";
 import { PlanJobsView } from "./PlanJobsView";
 import { ProgressList } from "./ProgressCard";
-import { fromTask, sortProgress } from "@/lib/progress-pure";
+import { taskWork } from "@/lib/planet-page-pure";
 import { BUSINESS_LOOP } from "@/lib/business-loop-pure";
 
 type Step = { step: string; detail: string; ms: number; ok: boolean };
@@ -229,7 +230,7 @@ function Recover({ task, wholeOk, label, onAct }: { task: Task; wholeOk: boolean
 
 /* ---------- OPERATIONS: tasks + projects ---------- */
 
-const OPS_MORE: ("team" | "plans" | "rules" | "localai" | "scout")[] = ["team", "plans", "rules", "localai", "scout"];
+const OPS_MORE: ("team" | "plans" | "rules" | "terminal" | "localai" | "scout")[] = ["team", "plans", "rules", "terminal", "localai", "scout"];
 export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: string | null; onOpen?: (id: string | null) => void; openMemory: (id: string) => void }) {
   const { t: tr, lang } = useT();
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -239,7 +240,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   const [form, setForm] = useState({ request: "", agent: "nova", project_id: "" });
   const [newProject, setNewProject] = useState("");
   const [filter, setFilter] = useState<string>("");
-  const [tab, setTab] = useState<"tasks" | "team" | "automations" | "plans" | "rules" | "activity" | "localai" | "scout">("tasks");
+  const [tab, setTab] = useState<"tasks" | "team" | "automations" | "plans" | "rules" | "activity" | "localai" | "scout" | "terminal">("tasks");
   const [manual, setManual] = useManual("operations");
   useEffect(() => { // a glowing scout moon in the galaxy was clicked: open Scout (now, or when this panel mounts)
     const go = () => { if (takeScoutTab()) { setManual(true); setTab("scout"); } };
@@ -301,8 +302,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
 
   // "Working on it": what runs now, what waits for him, what failed today, as the shared progress cards.
   const day = Date.now() - 86_400_000;
-  const working = sortProgress(tasks.filter((x) => !x.parent_id && (["running", "queued", "awaiting_approval"].includes(x.status) || (x.status === "failed" && Date.parse(x.finished_at ?? x.created_at) >= day)))
-    .map((x) => fromTask(x, lang, { nowMs: Date.now() })));
+  const working = taskWork(tasks, lang, Date.now());
   const workingNow = (
     <section className="space-y-2" aria-labelledby="ops-working">
       <h3 id="ops-working" className="h3">{tr("prog.title")}</h3>
@@ -311,7 +311,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
     </section>
   );
   if (!manual) return ( // AI-first home (PlanetHome shows "Working on it" itself); the tools below sit behind "Manual tools"
-    <PlanetHome planet="operations" onManual={() => setManual(true)} onOpenTask={setOpen}
+    <PlanetHome planet="operations" onManual={() => setManual(true)} onOpenTask={setOpen} work={loading && !tasks.length ? null : working}
       results={loading && !tasks.length ? null : tasks.filter((x) => x.status === "done" && !x.parent_id).slice(0, 6).map((x) => ({
         id: x.id, title: x.title, sub: x.finished_at ? new Date(x.finished_at).toLocaleString() : "", open: () => setOpen(x.id),
       }))} />
@@ -337,6 +337,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
   if (tab === "activity") return <div className="space-y-4">{tabs}<ActivityView onOpenTask={setOpen} /></div>;
   if (tab === "scout") return <div className="space-y-4">{tabs}<ScoutPanel onOpenTask={setOpen} /></div>;
   if (tab === "localai") return <div className="space-y-4">{tabs}<LocalAiTools /></div>;
+  if (tab === "terminal") return <div className="space-y-4">{tabs}<TerminalView /></div>;
   if (tab === "plans") return <div className="space-y-4">{tabs}<PlanJobsView agents={agents} onOpenTask={setOpen} /></div>;
   if (tab === "rules") return <div className="space-y-4">{tabs}<RulesView onOpenTask={setOpen} /></div>;
   if (tab === "automations") return <div className="space-y-4">{tabs}<AutomationsView agents={agents} onOpenTask={setOpen} /></div>;

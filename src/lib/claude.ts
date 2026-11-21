@@ -201,21 +201,23 @@ function takeSpare(system: string, model: string): Spare | null {
 
 /** purpose: what the call is for, for the usage meter (core, agent, goals, autopilot, clips, translate…); default by lane. */
 /** web: allow only WebSearch/WebFetch (read-only); web pages are untrusted, so that call's system prompt must say they are data. */
-export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string; web?: boolean | "search"; mcp?: McpAccess; onLine?: (line: string) => void; session?: CliSession; thinking?: number; risky?: boolean };
+export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string; web?: boolean | "search"; mcp?: McpAccess; onLine?: (line: string) => void; session?: CliSession; thinking?: number; risky?: boolean;
+  /** CORE's offline turn with tools (offline-tools.ts), used instead of the plain local answer when this call falls back locally */
+  offline?: () => Promise<ClaudeResult> };
 
 /** One headless Claude Code call with all tools disabled (it can only read the prompt and answer), or only the web tools with `web`. Aborting `signal` kills the CLI. */
-export function askClaude(prompt: string | Promise<string>, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web, mcp, onLine, session, thinking, risky }: AskOpts = {}): Promise<ClaudeResult> {
+export function askClaude(prompt: string | Promise<string>, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web, mcp, onLine, session, thinking, risky, offline }: AskOpts = {}): Promise<ClaudeResult> {
   const p = purpose ?? laneDefault(lane);
   model = routedModel(model, p, FAST_MODEL, ROUTING_ON);
-  return withLocal(lane, prompt, system, p, images.length, !!mcp, signal, timeoutMs, !!risky, () => cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, p, web, mcp, onLine, session, thinking), signal));
+  return withLocal(lane, prompt, system, p, images.length, !!mcp, signal, timeoutMs, !!risky, () => cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, p, web, mcp, onLine, session, thinking), signal), offline);
 }
 
 /** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI.
  *  A pending prompt starts the CLI now and writes stdin when it resolves: its ~1 s boot overlaps the caller's prep. */
-export function askClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose?: string, session?: CliSession, risky = false): Promise<ClaudeResult> {
+export function askClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose?: string, session?: CliSession, risky = false, offline?: () => Promise<ClaudeResult>): Promise<ClaudeResult> {
   const p = purpose ?? laneDefault(lane);
   model = routedModel(model, p, FAST_MODEL, ROUTING_ON);
-  return withLocal(lane, prompt, system, p, images.length, false, signal, timeoutMs, risky, () => cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model, images, effort, timeoutMs, p, false, undefined, undefined, session), signal));
+  return withLocal(lane, prompt, system, p, images.length, false, signal, timeoutMs, risky, () => cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model, images, effort, timeoutMs, p, false, undefined, undefined, session), signal), offline);
 }
 const laneDefault = (lane: Lane) => (lane === "foreground" ? "core" : "background");
 
@@ -224,14 +226,15 @@ export { LOCAL_MODEL };
 
 /** Lanes that allow it (localAllowed) go to the local model while the usage hold for their lane is on (foreground: only the real limit), or when Claude fails because it's
  *  unreachable or rate-limited. If the local model fails too, the original Claude error is what the caller sees. */
-async function withLocal(lane: Lane, prompt: string | Promise<string>, system: string, purpose: string, images: number, mcp: boolean, signal: AbortSignal | undefined, timeoutMs: number | undefined, risky: boolean, claude: () => Promise<ClaudeResult>): Promise<ClaudeResult> {
+async function withLocal(lane: Lane, prompt: string | Promise<string>, system: string, purpose: string, images: number, mcp: boolean, signal: AbortSignal | undefined, timeoutMs: number | undefined, risky: boolean, claude: () => Promise<ClaudeResult>, offline?: () => Promise<ClaudeResult>): Promise<ClaudeResult> {
+  const local = offline ?? (() => askLocal(prompt, system, signal, timeoutMs));
   if (!localAllowed({ model: LOCAL_MODEL, purpose, images, mcp, risky })) return claude();
   // background lanes go local under the soft budget too; foreground (owner) only when the real limit is hit
-  if (usageHoldFor(lane)) { if (lane === "foreground") console.warn(`[orbit] Claude limit reached; ${purpose} answered by the local brain (${LOCAL_MODEL})`); return askLocal(prompt, system, signal, timeoutMs).catch(claude); }
+  if (usageHoldFor(lane)) { if (lane === "foreground") console.warn(`[orbit] Claude limit reached; ${purpose} answered by the local brain (${LOCAL_MODEL})`); return local().catch(claude); }
   try { return await claude(); } catch (e) {
     if (signal?.aborted || !claudeDown(e instanceof Error ? e.message : String(e))) throw e;
     console.warn(`[orbit] Claude unreachable for ${purpose}; answering with the local brain (${LOCAL_MODEL})`);
-    return askLocal(prompt, system, signal, timeoutMs).catch(() => { throw e; });
+    return local().catch(() => { throw e; });
   }
 }
 

@@ -12,7 +12,7 @@ import { Canvas, useFrame, useThree, type RootState } from "@react-three/fiber";
 import { ContactShadows, Edges, Line, OrbitControls, PerformanceMonitor } from "@react-three/drei";
 import { useGlRecovery } from "./useGlRecovery";
 import { useT } from "./i18n";
-import { PlanetHome, useManual } from "./PlanetHome";
+import { BackToSimple, PlanetHome, useManual } from "./PlanetHome";
 import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
 import { domeArcs, hourSegments, type Vec } from "@/lib/arch-sunpath-pure";
 import { concepts as makeConcepts, type Brief } from "@/lib/arch-concepts-pure";
@@ -480,6 +480,21 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const badOpenings = scene.parts.filter((o) => isOpening(o.kind) && openingIssue(o, scene.parts.find((w) => w.id === o.host)));
 
   if (!ready && project) return <div className="absolute inset-0 overflow-auto p-6 pt-20"><p role="status">{loadError ? tr("desk.modelError") : tr("desk.modelLoading")}</p><button className="chip" onClick={() => onProject("")}>{tr("desk.back")}</button>{loadError && <button className="chip" onClick={() => { setLoadError(""); setLoadAttempt((n) => n + 1); }}>{tr("state.retry")}</button>}</div>;
+  const cmdBlock = (<div className="space-y-2">
+        <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+          <input className="field flex-1" placeholder={tr("arch.cmdPh")} value={cmd} maxLength={500} onChange={(e) => setCmd(e.target.value)} aria-label={tr("arch.cmd")} />
+          <button className="btn" disabled={busy || !cmd.trim()}>{tr(busy ? "arch.working" : "arch.doIt")}</button>
+          {simple && past.length > 0 && <button type="button" className="chip" onClick={undo}>↶ {tr("arch.undo")}</button>}{/* the toolbar's Undo is in Manual tools */}
+        </form>
+        {msg && <p aria-live="polite">{msg}</p>}
+        {conflict && (
+          <div role="alert" className="flex flex-wrap items-center gap-2">
+            <span>{tr("arch.conflict")}</span>
+            <button className="chip" onClick={() => { apply(conflict.ops); setMsg(conflict.say); setConflict(null); }}>{tr("arch.conflictApply")}</button>
+            <button className="chip" onClick={() => setConflict(null)}>{tr("arch.conflictDrop")}</button>
+          </div>
+        )}
+  </div>);
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label={tr("arch.region")} style={{ background: bg }}>
       {!flat && (
@@ -524,23 +539,11 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
 
       <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[45dvh] space-y-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label={tr("arch.controls")}>
         <h2 className="brand world-header flex items-center gap-2 text-base"><WorldEmblem id="arch" size={28} />{"ARCH"}<WorldHeaderArt id="arch" /></h2>
-        {simple ? <PlanetHome planet="arch" onManual={() => setManual(true)} onExample={(q) => void send(q)} />
-          : <button className="link text-xs" onClick={() => setManual(false)}>← {tr("ph.simple")}</button>}
+        {simple ? <PlanetHome planet="arch" onManual={() => setManual(true)} onExample={(q) => void send(q)} noInput action={cmdBlock} />
+          : <BackToSimple onClick={() => setManual(false)} />}
         {/* Manual tools stay mounted while hidden (autosave, history and exports keep working exactly as before) */}
         <div hidden={simple}><ProjectDesk key={project || "unassigned"} project={project} onSelect={onProject} active={!paused} disabled={!ready || busy || lessonBusy || !!lesson || ["saving", "failed", "conflict"].includes(save.status)} /></div>
-        <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void send(); }}>
-          <input className="field flex-1" placeholder={tr("arch.cmdPh")} value={cmd} maxLength={500} onChange={(e) => setCmd(e.target.value)} aria-label={tr("arch.cmd")} />
-          <button className="btn" disabled={busy || !cmd.trim()}>{tr(busy ? "arch.working" : "arch.doIt")}</button>
-          {simple && past.length > 0 && <button type="button" className="chip" onClick={undo}>↶ {tr("arch.undo")}</button>}{/* the toolbar's Undo is in Manual tools */}
-        </form>
-        {msg && <p aria-live="polite">{msg}</p>}
-        {conflict && (
-          <div role="alert" className="flex flex-wrap items-center gap-2">
-            <span>{tr("arch.conflict")}</span>
-            <button className="chip" onClick={() => { apply(conflict.ops); setMsg(conflict.say); setConflict(null); }}>{tr("arch.conflictApply")}</button>
-            <button className="chip" onClick={() => setConflict(null)}>{tr("arch.conflictDrop")}</button>
-          </div>
-        )}
+        {!simple && cmdBlock}
         <div hidden={simple} className="space-y-3">
         <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void teach(); }}>
           <input className="field flex-1" placeholder={tr("arch.topicPh")} value={topic} maxLength={200} onChange={(e) => setTopic(e.target.value)} aria-label={tr("arch.topic")} />
