@@ -67,7 +67,7 @@ test("taste weights the pair winner twice, comparing only same-age views (includ
   assert.equal(retryWinners([old, { ...retry, snaps: { "24h": { ...retry.snaps["24h"]!, views: 10 } } }])[0].videoId, old.videoId);
   assert.deepEqual(retryWinners([old, { ...retry, snaps: { "48h": retry.snaps["24h"] } }]), []);
   const i = insights({ ...emptyLearn(), clips: { [old.videoId]: old, [retry.videoId]: retry } }, []);
-  assert.match(formatTaste(i), /Retry-pair winners \(weight 2/); assert.match(formatTaste(i), /Title 2/);
+  assert.match(formatTaste(i), /Retry pairs, the better of each \(one pair is a hint, not proof/); assert.match(formatTaste(i), /Title 2/);
 });
 
 test("Last Shorts exposes 24h flops and restoration state and keeps older originals reachable", () => {

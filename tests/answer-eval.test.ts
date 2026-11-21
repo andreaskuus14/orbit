@@ -41,11 +41,17 @@ test("each action and explicit target requires its own receipt", () => {
   failed("I read your question from notes.md.", "unsupported_action:read");
 });
 
-test("generic Done is checked against the requested action", () => {
-  failed("Done.", "unsupported_action:save", { question: "Please save my note." });
+test("generic Done does not infer completion from the owner's request words", () => {
+  passed("Done.", { question: "Please save my note." });
   passed("Done.", { question: "Please save my note.", toolEvidence: [receipt("save")] });
-  failed("Done.", "unsupported_action:send", { question: "Send invoice.pdf.", toolEvidence: [receipt("send", "other.pdf")] });
+  passed("Done.", { question: "Send invoice.pdf.", toolEvidence: [receipt("send", "other.pdf")] });
+  passed("Done.", { question: "Run the tests, or publish the clip after approval." });
   passed("Done.", { question: "Are you finished explaining?" });
+});
+
+test("owner request wording is never treated as an answer completion claim", () => {
+  for (const question of ["Run the tests before merging.", "Publish the clip after I approve it.", "When should I run this?", "Do not publish yet."])
+    passed("I can help with that.", { question });
 });
 
 test("plans, denials, third-party reports and conditional examples aren't tool completions", () => {

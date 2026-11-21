@@ -275,7 +275,7 @@ test("retry at the failed step re-runs only the failed/uncertain action under it
   assert.deepEqual(t.pending.map((a: any) => a.status), ["approved", "pending"]);
   assert.equal(t.pending[1].attempt, "t:1");
   assert.equal(h.db[0].status, "awaiting_approval"); // the failed parent waits for the step again
-  assert.equal((await post("t", { action: "approve" })).status, 200);
+  assert.equal((await post("t", { action: "approve", seen: approvalBind.pendingSeen(t.pending) })).status, 200);
   assert.equal(writes, 0);
   const after = h.db.find((r) => r.id === "t")! as any;
   assert.equal(after.status, "done");

@@ -417,7 +417,7 @@ summary.core-step::-webkit-details-marker { display: none; }
 /* CORE command workspace: conversation left, artifact + mission + voice right (the drawer widens only on wide screens). */
 @media (min-width: 64rem) {
   .drawer:has(.core-ws) { width: min(68rem, calc(100vw - 1.5rem)); }
-  .core-ws { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 26rem); gap: 1rem; height: 100%; min-height: 0; }
+  .core-ws { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 26rem); grid-template-rows: minmax(0, 1fr); gap: 1rem; height: 100%; min-height: 0; } /* one row as tall as the drawer: only the chat list scrolls */
 }
 .core-ws { height: 100%; min-height: 0; }
 .core-ws-side { display: none; }

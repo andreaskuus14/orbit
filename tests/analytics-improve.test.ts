@@ -36,6 +36,12 @@ test("ANA07 experiment: before/after windows of equal length; too few is not a r
   const few = experimentResult(e, units(after.slice(0, 3)), Date.parse("2026-10-26T00:00:00Z"));
   assert.equal(few.enough, false);
   assert.equal(few.diff, null);
+  assert.equal(r.test.verdict, "early"); // 50 % → 80 % on 10 each: a big gap, still too early to call
+  assert.ok(Number.isFinite(r.test.more!) && r.test.more! > 0);
+  assert.equal(few.test.verdict, "early");
+  const many = (k: number, day: number, okShare: number) => Array.from({ length: k }, (_, i) => mk(day + (i % 5), i < k * okShare ? "done" : "failed"));
+  const big = experimentResult(e, units([...many(80, 15, 0.3), ...many(80, 21, 0.9)]), Date.parse("2026-10-26T00:00:00Z"));
+  assert.equal(big.test.verdict, "better");
 });
 
 test("ANA08 queue: recurring failures and high rates become scoped proposals, at most 3, keyed per week", () => {

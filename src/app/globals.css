@@ -993,3 +993,39 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 @media (prefers-reduced-motion: reduce) { .tour-ring { transition: none; } }
 @media (max-width: 640px) { .home-desk { bottom: calc(5.2rem + env(safe-area-inset-bottom, 0px)); max-height: 36dvh; } }
 .cmdbar[hidden] { display: none; }
+
+/* CORE chat polish: calm, flat blocks inside answers (code, tables, media), the composer, drop zone and "Latest". ChatAnswer.tsx, CoreChat.tsx. */
+.chat-answer { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+.chat-folded-answer { max-height: 26rem; overflow: hidden; -webkit-mask-image: linear-gradient(#000 80%, transparent); mask-image: linear-gradient(#000 80%, transparent); }
+.chat-folded-answer > .chat-more { position: sticky; bottom: 0; }
+.chat-mini { font-size: 0.72rem; padding: 0.15rem 0.55rem; border-radius: 999px; border: 1px solid rgba(180, 217, 224, 0.22); background: rgba(255, 255, 255, 0.04); color: inherit; text-decoration: none; white-space: nowrap; }
+.chat-mini:hover { background: rgba(255, 255, 255, 0.09); }
+.chat-more { align-self: flex-start; }
+.chat-code { margin: 0; border-radius: 10px; background: #0b0f17; border: 1px solid rgba(180, 217, 224, 0.14); overflow: hidden; }
+.chat-code figcaption { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.3rem 0.4rem 0.3rem 0.75rem; font-size: 0.7rem; color: #8da2af; border-bottom: 1px solid rgba(180, 217, 224, 0.1); }
+.chat-code pre { margin: 0; padding: 0.7rem 0.8rem; overflow-x: auto; font-size: 0.78rem; line-height: 1.5; font-family: var(--font-mono, ui-monospace, monospace); }
+.chat-code pre.chat-folded { max-height: 22rem; overflow-y: hidden; }
+.chat-code > .chat-more { margin: 0 0 0.5rem 0.75rem; }
+.chat-table { display: flex; flex-direction: column; gap: 0.35rem; align-items: flex-start; }
+.chat-table-scroll { max-width: 100%; overflow-x: auto; border-radius: 10px; border: 1px solid rgba(180, 217, 224, 0.16); }
+.chat-table table { border-collapse: collapse; font-size: 0.82rem; }
+.chat-table th, .chat-table td { padding: 0.35rem 0.7rem; border-bottom: 1px solid rgba(180, 217, 224, 0.1); white-space: nowrap; }
+.chat-table th { font-weight: 600; background: rgba(255, 255, 255, 0.04); }
+.chat-table tr:last-child td { border-bottom: 0; }
+.chat-media { margin: 0; border-radius: 10px; border: 1px solid rgba(180, 217, 224, 0.16); overflow: hidden; background: rgba(0, 0, 0, 0.25); }
+.chat-media img, .chat-media video { display: block; width: 100%; max-height: 24rem; object-fit: contain; background: #000; }
+.chat-media audio { display: block; width: 100%; }
+.chat-media object { display: block; width: 100%; height: 22rem; background: #fff; }
+.chat-media figcaption { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.35rem 0.6rem; font-size: 0.75rem; }
+.chat-caret { display: inline-block; width: 0.45rem; height: 1rem; margin-top: 0.15rem; border-radius: 2px; background: currentColor; opacity: 0.55; animation: blink 1s steps(2) infinite; }
+.chat-latest { position: sticky; bottom: 0.5rem; display: block; margin: 0 auto; z-index: 4; font-size: 0.75rem; padding: 0.3rem 0.8rem; border-radius: 999px; background: #10233a; border: 1px solid rgba(92, 200, 240, 0.5); color: #e6f1ff; }
+.chat-drop { position: absolute; inset: 0; z-index: 7; display: grid; place-items: center; border: 2px dashed rgba(92, 200, 240, 0.6); border-radius: 16px; background: rgba(2, 6, 16, 0.78); pointer-events: none; font-size: 0.95rem; }
+.chat-input { resize: none; min-height: 2.5rem; max-height: 200px; line-height: 1.45; overflow-y: auto; }
+.chat-stop { background: #3a1620; border-color: #fb7185; }
+.chat-hit { display: block; width: 100%; text-align: left; padding: 0.35rem 0.4rem; border-radius: 8px; }
+.chat-hit:hover, .chat-hit[aria-current] { background: rgba(255, 255, 255, 0.07); }
+.chat-hit small { display: block; color: var(--muted); font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .chat-caret { animation: none; } }
+/* The phone chat app (/chat): one full-height column, safe areas respected, no galaxy behind it. */
+.chat-app { position: fixed; inset: 0; display: flex; flex-direction: column; padding: max(0.6rem, env(safe-area-inset-top)) 0.75rem max(0.6rem, env(safe-area-inset-bottom)); background: var(--bg); }
+.chat-app > .core-ws { flex: 1; min-height: 0; }

@@ -2,7 +2,8 @@
 
 Listens on 127.0.0.1 only. One job at a time and every GPU model is unloaded after its job, so a 6 GB laptop GPU
 never holds two models. Endpoints: /health, /image-to-3d, /remove-bg, /tts, /clone-tts, and the optional modules
-/transcribe (captions), /ifc-summary (IFC models), /doc-to-md (document reading), /render-pdf (PDF pages as pictures for OCR); see README.md.
+/transcribe (captions), /ifc-summary (IFC models), /doc-to-md (document reading), /render-pdf (PDF pages as pictures for OCR),
+/dub-line (STUDIO bilingual dub: one line in English or Estonian, in the owner's own voice); see README.md.
 
 UNTESTED ON A GPU: written and syntax-checked in a cloud box without CUDA or Windows. setup.ps1 installs what this imports.
 """
@@ -47,6 +48,17 @@ MAX_RENDER_PAGES = 50  # /render-pdf: pictures of PDF pages for the OCR model (O
 RENDER_SIDE = 2000
 CAPTION_LANGS = {"auto": None, "en": "en", "et": "et"}
 DOC_TYPES = {".pdf", ".docx", ".pptx", ".png", ".jpg", ".jpeg"}
+# Bilingual dub (setup.ps1 -Dub): a plain voice says the line (Kokoro for English, Piper for Estonian), then OpenVoice V2's tone colour
+# converter (MIT code + weights) gives it the owner's voice from his own consented sample. Never XTTSv2/Coqui (CPML is non-commercial).
+OPENVOICE_DIR = MODELS / "openvoice"
+PIPER_ET = MODELS / "piper" / "et_EE-news-medium.onnx"
+MAX_DUB_CHARS = 400
+DUB_EN_VOICES = {"am_michael", "am_fenrir", "bm_george", "af_heart", "bf_emma"}  # plain English voice under his voice (male first)
+# Calibration lines: the converter needs the plain voice's own "colour" too; it is taken once from these and kept.
+DUB_CALIBRATE = {
+    "en": "This is a short test of my voice. I talk about games, building things and what I learned today. Let's see how it sounds.",
+    "et": "See on minu hääle lühike proov. Räägin mängudest, ehitamisest ja sellest, mida ma täna õppisin. Vaatame, kuidas see kõlab.",
+}
 
 # Background cut-out: BiRefNet (MIT) through rembg, with the old u2net as the fallback. Never RMBG-2.0 (non-commercial weights).
 # "lite" (Swin-tiny, ~224 MB) is the default because rembg runs it on the CPU; "birefnet-general" (~970 MB) is cleaner but slower and heavier.
@@ -127,6 +139,8 @@ def installed() -> dict:
         "captions": has("faster_whisper") and (WHISPER_DIR / "model.bin").is_file(),
         "ifc": has("ifcopenshell"),
         "docs": has("docling") and (DOCLING_DIR / "ready.txt").is_file(),
+        "dub": has("openvoice") and has("piper") and has("kokoro_onnx") and (OPENVOICE_DIR / "checkpoint.pth").is_file() and PIPER_ET.is_file()
+        and (MODELS / "kokoro" / "kokoro-v1.0.onnx").is_file(),
     }
 
 
@@ -483,6 +497,132 @@ def render_pdf(file: UploadFile = File(...), pages: str = Form("")):
     finally:
         os.unlink(path)
     return {"total": total, "pages": out}
+
+
+_dub: dict = {}  # converter (~130 MB), Piper voice, speaker colours: kept between lines (one Short is 10-30 lines)
+
+
+def _kokoro_model():
+    global _kokoro
+    if _kokoro is None:
+        from kokoro_onnx import Kokoro
+        _kokoro = Kokoro(str(MODELS / "kokoro" / "kokoro-v1.0.onnx"), str(MODELS / "kokoro" / "voices-v1.0.bin"))
+    return _kokoro
+
+
+def _converter():
+    if "conv" not in _dub:
+        import torch
+        from openvoice import utils as ov_utils
+        from openvoice.models import SynthesizerTrn
+        hps = ov_utils.get_hparams_from_file(str(OPENVOICE_DIR / "config.json"))
+        dev = "cpu"  # small (~130 MB) and fast enough on the CPU; kept loaded, so it must not hold the shared laptop GPU between jobs
+        model = SynthesizerTrn(0, hps.data.filter_length // 2 + 1, n_speakers=hps.data.n_speakers, **hps.model).to(dev).eval()
+        ckpt = torch.load(str(OPENVOICE_DIR / "checkpoint.pth"), map_location=dev, weights_only=True)
+        model.load_state_dict(ckpt["model"], strict=False)
+        _dub["conv"] = (model, hps, dev)
+    return _dub["conv"]
+
+
+def _spec(y, hps):
+    """Linear spectrogram exactly as OpenVoice's mel_processing.spectrogram_torch (which imports librosa; this doesn't need it)."""
+    import torch
+    n, hop, win = hps.data.filter_length, hps.data.hop_length, hps.data.win_length
+    y = torch.nn.functional.pad(y.unsqueeze(1), (int((n - hop) / 2), int((n - hop) / 2)), mode="reflect").squeeze(1)
+    s = torch.stft(y, n, hop_length=hop, win_length=win, window=torch.hann_window(win, device=y.device), center=False, normalized=False, onesided=True, return_complex=True)
+    return torch.sqrt(s.real.pow(2) + s.imag.pow(2) + 1e-6)
+
+
+def _resampled(audio, rate: int, sr: int):
+    import torch
+    t = torch.from_numpy(audio.astype("float32"))
+    if rate != sr:
+        import torchaudio.functional as AF
+        t = AF.resample(t, rate, sr)
+    return t
+
+
+def _colour(audio, rate: int):
+    """Speaker colour (OpenVoice reference embedding) of a voice recording."""
+    import torch
+    model, hps, dev = _converter()
+    y = _resampled(audio, rate, hps.data.sampling_rate).to(dev).unsqueeze(0)
+    with torch.no_grad():
+        return model.ref_enc(_spec(y, hps).transpose(1, 2)).unsqueeze(-1)
+
+
+def _plain(lang: str, text: str, voice: str, speed: float):
+    """The line in a plain voice: (samples float32, rate). speed > 1 = faster (Piper: shorter length_scale)."""
+    import numpy as np
+    if lang == "en":
+        samples, rate = _kokoro_model().create(text, voice=voice, speed=speed, lang="en-gb" if voice.startswith("b") else "en-us")
+        return np.asarray(samples, dtype="float32"), rate
+    import wave
+    from piper import PiperVoice, SynthesisConfig
+    if "piper" not in _dub:
+        _dub["piper"] = PiperVoice.load(str(PIPER_ET))
+    pv = _dub["piper"]
+    spk = int(voice) if voice.isdigit() else 0
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        pv.synthesize_wav(text, w, syn_config=SynthesisConfig(speaker_id=spk, length_scale=1.0 / speed))
+    buf.seek(0)
+    with wave.open(buf, "rb") as r:
+        pcm = np.frombuffer(r.readframes(r.getnframes()), dtype="<i2").astype("float32") / 32768.0
+        return pcm, r.getframerate()
+
+
+@app.post("/dub-line")
+def dub_line(sample: UploadFile = File(...), consent: str = Form(""), lang: str = Form(...), text: str = Form(...),
+             voice: str = Form(""), speed: float = Form(1.0), tau: float = Form(0.3)):
+    """One dub line in the owner's own voice → WAV (22.05 kHz mono). His sample + the own-voice statement are required on every call."""
+    if consent != "own-voice":
+        raise HTTPException(403, "Dubbing uses only your own voice: confirm in Settings that the sample is you.")
+    need(installed()["dub"], "Bilingual dub (OpenVoice V2 + Piper Estonian)")
+    text = " ".join(text.split())
+    if lang not in DUB_CALIBRATE:
+        raise HTTPException(400, "lang must be en or et")
+    if not text or len(text) > MAX_DUB_CHARS:
+        raise HTTPException(400, f"A dub line must be 1-{MAX_DUB_CHARS} characters.")
+    if not 0.7 <= speed <= 1.6 or not 0.1 <= tau <= 1.0:
+        raise HTTPException(400, "speed must be 0.7-1.6 and tau 0.1-1.0")
+    voice = voice if lang == "et" else (voice if voice in DUB_EN_VOICES else "am_michael")
+    if lang == "et" and voice not in {"", "0", "1", "2", "3"}:
+        raise HTTPException(400, "The Estonian voice is speaker 0-3.")
+    data = read_capped(sample, MAX_SAMPLE, "voice sample")
+    import hashlib
+    key = hashlib.sha256(data).hexdigest()
+    with Busy():
+        import numpy as np
+        import soundfile as sf
+        import torch
+        model, hps, dev = _converter()
+        try:
+            if _dub.get("tgt_key") != key:
+                try:
+                    ref, rate = sf.read(io.BytesIO(data), dtype="float32", always_2d=True)
+                except Exception:
+                    raise HTTPException(400, "The voice sample must be a WAV file.")
+                ref = ref.mean(axis=1)
+                if len(ref) < rate * 5:
+                    raise HTTPException(400, "The voice sample is too short: record 10-30 seconds of you talking.")
+                _dub["tgt"], _dub["tgt_key"] = _colour(ref, rate), key
+            src_key = f"{lang}:{voice}"
+            if src_key not in _dub:
+                cal, cal_rate = _plain(lang, DUB_CALIBRATE[lang], voice, 1.0)
+                _dub[src_key] = _colour(cal, cal_rate)
+            plain, rate = _plain(lang, text, voice, speed)
+            sr = hps.data.sampling_rate
+            spec = _spec(_resampled(plain, rate, sr).to(dev).unsqueeze(0), hps)
+            lengths = torch.LongTensor([spec.size(-1)]).to(dev)
+            with torch.no_grad():
+                out = model.voice_conversion(spec, lengths, sid_src=_dub[src_key], sid_tgt=_dub["tgt"], tau=tau)[0][0, 0].data.cpu().float().numpy()
+        except MemoryError:
+            raise HTTPException(507, "Out of memory. Close other programs and try again.")
+        peak = float(np.max(np.abs(out))) if out.size else 0.0
+        if peak > 0.99:
+            out = out * (0.95 / peak)
+    return Response(wav_bytes(out, sr), media_type="audio/wav")
 
 
 @app.exception_handler(HTTPException)

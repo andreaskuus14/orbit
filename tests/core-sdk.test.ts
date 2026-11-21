@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { authMode, gated, serial, nativeSystem, orbitName, readMessage, sdkFailure, sdkName, sdkOptions, sdkSession, sdkTools, stepLine, toolResult, userMessage, CORE_BUILTINS } from "../src/lib/core-sdk-pure.ts";
+import { authMode, gated, serial, tierGate, toolLane, nativeSystem, orbitName, readMessage, sdkFailure, sdkName, sdkOptions, sdkSession, sdkTools, stepLine, toolResult, userMessage, CORE_BUILTINS } from "../src/lib/core-sdk-pure.ts";
 import { TIERS, type PolicyCtx } from "../src/lib/policy-pure.ts";
 import { describeFailure } from "../src/lib/core-capability-pure.ts";
 import { STUDIO_TOOLS } from "../src/lib/core-studio.ts";
@@ -173,4 +173,70 @@ test("unstringLists: list inputs sent as JSON text become lists; other values st
   assert.deepEqual(unstringLists({ workspace: "bakery", slots: JSON.stringify(slots) }), { workspace: "bakery", slots });
   assert.deepEqual(unstringLists({ leads: ' [{"name":"Autokoobas OÜ"}]' }).leads, [{ name: "Autokoobas OÜ" }]);
   assert.deepEqual(unstringLists({ query: "[draft] notes", content: '{"a":1}', n: 3 }), { query: "[draft] notes", content: '{"a":1}', n: 3 }); // not JSON / an object: untouched
+});
+
+test("toolLane: T0 and T1 map to their own read lanes; T2/T3/unknown/plugin are strictly exclusive", () => {
+  assert.equal(toolLane("goal_status", TIERS), "T0");
+  assert.equal(toolLane("week_review", TIERS), "T0");
+  assert.equal(toolLane("web_search", TIERS), "T1");
+  assert.equal(toolLane("fetch_url", TIERS), "T1");
+  assert.equal(toolLane("create_goal", TIERS), "exclusive");
+  assert.equal(toolLane("schedule_approved", TIERS), "exclusive");
+  assert.equal(toolLane("plugin__github__list_prs", TIERS), "exclusive");
+  assert.equal(toolLane("unknown_tool", TIERS), "exclusive");
+});
+
+test("tierGate: same-tier reads (T0+T0 or T1+T1) run concurrently, while T0<->T1 and exclusive enforce strict taint barriers", async () => {
+  const gate = tierGate();
+  let inFlight = 0, maxT0 = 0, maxT1 = 0;
+  const log: string[] = [];
+  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  // 3 T0 local reads overlap concurrently
+  await Promise.all([1, 2, 3].map((i) =>
+    gate("T0", async () => {
+      inFlight++; maxT0 = Math.max(maxT0, inFlight);
+      await delay(25);
+      inFlight--;
+      return i;
+    }),
+  ));
+  assert.equal(maxT0, 3);
+
+  // 3 T1 public web reads overlap concurrently
+  await Promise.all([1, 2, 3].map((i) =>
+    gate("T1", async () => {
+      inFlight++; maxT1 = Math.max(maxT1, inFlight);
+      await delay(25);
+      inFlight--;
+      return i;
+    }),
+  ));
+  assert.equal(maxT1, 3);
+
+  // T0 private read -> T1 outbound read -> exclusive write -> T0 read:
+  // T1 must wait for BOTH initial T0 reads (taint barrier), and trailing T0 must not starve T1 or exclusive
+  const steps: string[] = [];
+  const p1 = gate("T0", async () => { log.push("start T0-a"); await delay(30); steps.push("private-a"); log.push("end T0-a"); });
+  const p2 = gate("T0", async () => { log.push("start T0-b"); await delay(15); steps.push("private-b"); log.push("end T0-b"); });
+  const p3 = gate("T1", async () => { log.push(`start T1 (${steps.length})`); await delay(10); log.push("end T1"); });
+  const p4 = gate("exclusive", async () => { log.push("start W1"); await delay(15); log.push("end W1"); });
+  const p5 = gate("exclusive", async () => { log.push("start W2"); await delay(5); log.push("end W2"); });
+  const p6 = gate("T0", async () => { log.push("start T0-after"); });
+  const pErr = gate("T0", async () => { throw new Error("boom"); }).catch(() => "caught");
+  const pFinal = gate("exclusive", async () => "ok");
+
+  await Promise.all([p1, p2, p3, p4, p5, p6, pErr]);
+  assert.equal(await pFinal, "ok");
+
+  // Both T0-a and T0-b started before either ended (parallel)
+  assert.ok(log.indexOf("start T0-b") < log.indexOf("end T0-a"));
+  // T1 only started AFTER both T0 reads finished and recorded their steps
+  assert.ok(log.includes("start T1 (2)"));
+  assert.ok(log.indexOf("end T0-a") < log.indexOf("start T1 (2)"));
+  assert.ok(log.indexOf("end T0-b") < log.indexOf("start T1 (2)"));
+  // Exclusive writes ran strictly one at a time, after T1, and before T0-after
+  assert.ok(log.indexOf("end T1") < log.indexOf("start W1"));
+  assert.ok(log.indexOf("end W1") < log.indexOf("start W2"));
+  assert.ok(log.indexOf("end W2") < log.indexOf("start T0-after"));
 });
