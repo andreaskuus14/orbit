@@ -71,7 +71,7 @@ function hasReceipt(action: AnswerAction, tail: string, evidence: readonly ToolE
     : evidence.some((e) => e.action === action);
 }
 
-function unsupportedActions(question: string, answer: string, evidence: readonly ToolEvidence[]): string[] {
+function unsupportedActions(answer: string, evidence: readonly ToolEvidence[]): string[] {
   const text = prose(answer), flags: string[] = [];
   const bounds = [0, ...[...text.matchAll(/[.!?;]\s+|\n+|\s+but\s+|\s+and\s+(?=(?:i|we)\b)/gi)].map((m) => m.index! + m[0].length), text.length];
   for (let i = 0; i < bounds.length - 1; i++) {
@@ -108,10 +108,8 @@ function unsupportedActions(question: string, answer: string, evidence: readonly
       if (!hasReceipt(action, clause.slice(m.index! + m[0].length), evidence)) flags.push(`unsupported_action:${action}`);
     }
   }
-  if (/^(?:done|all done|completed)[.!]?$/i.test(answer.trim())) {
-    const requested = /^(?:please\s+|can you\s+|could you\s+)?(save|send|delete|create|update|schedule|publish|run|search|read)\b/i.exec(question.trim());
-    if (requested && !hasReceipt(requested[1].toLowerCase() as AnswerAction, question.slice(requested[0].length), evidence)) flags.push(`unsupported_action:${requested[1].toLowerCase()}`);
-  }
+  // A bare acknowledgement is not evidence that the requested action was completed. Inferring an
+  // action from the owner's wording here mislabels references/instructions such as "run or publish".
   return flags;
 }
 
@@ -178,7 +176,7 @@ export function evalAnswer({ question, answer, toolEvidence = [], playbookRules 
   if (!text) add("empty_answer", 1);
   else if (truncated(text)) add("truncated_answer", 0.7);
   const evidence = toolEvidence.filter((e) => e.ok === true && typeof e.tool === "string" && e.tool.trim());
-  for (const flag of unsupportedActions(question, raw, evidence)) add(flag, 0.6);
+  for (const flag of unsupportedActions(raw, evidence)) add(flag, 0.6);
   for (const flag of numericFlags(raw, evidence)) add(flag, 0.7);
   if (lifeBlocks(raw).length || lifeBlocks([question, ...toolEvidence.map((e) => e.text ?? "")].join("\n")).some((block) => block.length >= 20 && normal(raw).includes(block))) add("life_leak", 1);
   for (const rule of styleRules(playbookRules)) {

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   REPAIR_SYSTEM, agentPermissions, branchName, budgetStop, collectSignals, effectLine, failedTests, gateEnv, isWaiting, parseAgentReply, parseMetric, parseRepair,
-  patchCard, patchSeen, prBody, rankSignals, repairBlock, repairBrief, repairConfig, repairModel, repairPrompt, validBranch, type IssueIn, type Patch, type Signal,
+  patchCard, patchSeen, prBody, rankSignals, repairBlock, repairBrief, repairConfig, repairExamBlock, repairExamVerdict, repairModel, repairPrompt, validBranch, type IssueIn, type Patch, type Signal,
 } from "../src/lib/night-repair-pure.ts";
 
 const NOW = Date.parse("2026-11-21T02:00:00Z");
@@ -34,6 +34,18 @@ test("repairBlock: off switch, Stop-all, window, once a night, usage pacer, owne
   assert.match(repairBlock({ ...open, hold: "Keeping your window fresh until 07:30" }), /usage pacer/);
   assert.match(repairBlock({ ...open, idle: false }), /using ORBIT/);
   assert.match(repairBlock({ ...open, autonomy: "Night shift is Off in Profile → Autonomy" }), /Off/);
+});
+
+test("night repair allows an unmeasured candidate but blocks a lower score or a score for another commit", () => {
+  assert.equal(repairExamVerdict(undefined, "abc"), "unmeasured");
+  assert.equal(repairExamBlock(undefined, "abc"), "");
+  assert.equal(repairExamBlock({ baseScore: 80, candidateScore: 80, candidateCommit: "abc", runId: "ev-20261121-aaaa" }, "abc"), "");
+  assert.equal(repairExamVerdict({ baseScore: 80, candidateScore: 79, candidateCommit: "abc", runId: "ev-20261121-aaaa" }, "abc"), "regressed");
+  assert.match(repairExamBlock({ baseScore: 80, candidateScore: 79, candidateCommit: "abc", runId: "ev-20261121-aaaa" }, "abc"), /lower/);
+  assert.equal(repairExamVerdict({ baseScore: 80, candidateScore: 80, candidateCommit: "abc", runId: "ev-20261121-aaaa" }, "abc"), "passed");
+  assert.equal(repairExamVerdict({ baseScore: 80, candidateScore: 82, candidateCommit: "other", runId: "ev-20261121-aaaa" }, "abc"), "mismatched");
+  assert.match(repairExamBlock({ baseScore: 80, candidateScore: 82, candidateCommit: "other", runId: "ev-20261121-aaaa" }, "abc"), /another commit/);
+  assert.equal(repairExamVerdict({ baseScore: 80, candidateScore: 101, candidateCommit: "abc", runId: "ev-20261121-aaaa" }, "abc"), "unmeasured");
 });
 
 test("budgetStop: max 3 patches, max N calls, Stop-all and a low quota stop the night", () => {
@@ -151,7 +163,7 @@ const patch = (o: Partial<Patch> = {}): Patch => ({ id: "p1", night: "2026-11-21
 test("the card and the PR: problem, diff summary, gate result, measured effect; nothing waits without a passing gate", () => {
   const c = patchCard(patch());
   assert.match(c.title, /^Night fix: parses attrs/);
-  for (const re of [/Problem: Failing test/, /Diff: 2 files, \+10\/−1/, /Gate: passed/, /Measured:/, /Approve merges/]) assert.match(c.message, re);
+  for (const re of [/Problem: Failing test/, /Diff: 2 files, \+10\/[−-]1/, /Gate: passed/, /Measured:/, /ORBIT exam: not measured by the exam yet/, /Approve merges/]) assert.match(c.message, re);
   assert.match(c.detail, /local branch/);
   assert.match(patchCard(patch({ pr: { number: 7, url: "u" } })).detail, /PR #7/);
   assert.match(prBody(patch()), /Not merged/);

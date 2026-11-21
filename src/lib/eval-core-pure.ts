@@ -15,12 +15,14 @@ export type EvalExpect = {
   forbidTools?: string[];  // none of these ran successfully
   files?: string[];        // workspace files the turn wrote (write evidence paths)
   notRepeat?: string;      // the answer must not open the way this corrected reply did (correction cases)
+  answerContains?: string[]; // literal, case-insensitive answer requirements
+  answerExcludes?: string[]; // literal, case-insensitive answer prohibitions
 };
-export type EvalTask = { id: string; set: "regression" | "capability"; input: string; note?: string; expect: EvalExpect };
+export type EvalTask = { id: string; set: "regression" | "capability"; input: string; note?: string; planet?: string; good?: string; forbidden?: string; localOnly?: boolean; gpu?: boolean; expect: EvalExpect };
 type Step = { step: string; ok: boolean; evidence?: { kind?: string; path?: string }[]; receipt?: { status?: string } };
 export type EvalRun = { answer: string; trace: Step[] };
 
-const LISTS = ["receipt", "allowT3", "tools", "order", "forbidTools", "files"] as const;
+const LISTS = ["receipt", "allowT3", "tools", "order", "forbidTools", "files", "answerContains", "answerExcludes"] as const;
 /** Untrusted task JSON → a task, or the reason it's invalid. */
 export function validateTask(x: unknown): EvalTask | string {
   const t = x as EvalTask;
@@ -43,6 +45,8 @@ export function gradeRun(task: EvalTask, run: EvalRun): { ok: boolean; fails: st
   const e = task.expect, fails: string[] = [];
   const ran = run.trace.filter((s) => s.ok && s.step in TIERS);
   const did = (tool: string) => ran.some((s) => s.step === tool);
+  for (const phrase of e.answerContains ?? []) if (!run.answer.toLocaleLowerCase().includes(phrase.toLocaleLowerCase())) fails.push(`answer missing: ${phrase}`);
+  for (const phrase of e.answerExcludes ?? []) if (run.answer.toLocaleLowerCase().includes(phrase.toLocaleLowerCase())) fails.push(`answer includes forbidden text: ${phrase}`);
   const status = run.trace.findLast((s) => s.receipt)?.receipt?.status ?? "none";
   if (e.receipt && !e.receipt.includes(status)) fails.push(`receipt ${status}, wanted ${e.receipt.join("/")}`);
   if (e.noChoices && parseChoices(run.answer).length) fails.push("ended with a Choices line on an unambiguous request");

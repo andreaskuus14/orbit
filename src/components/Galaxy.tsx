@@ -52,6 +52,7 @@ import { useT } from "./i18n";
 import { ET, translate, type Lang } from "@/lib/i18n-pure";
 import { AlienScript } from "./AlienScript";
 import { hoverParts, planetLife, toolPlanet, QUIET, WARM, WORK } from "@/lib/living-galaxy-pure";
+import { AMBER, countBadge, RED, sentenceRest, statusLook, type GalaxyStatus, type WorldStatus } from "@/lib/galaxy-status-pure";
 import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
 import { arrivalSecs, arrivalSpread, easeInStop, offscreenEdge } from "@/lib/alien-behaviour-pure";
 
@@ -83,6 +84,7 @@ export type GalaxyProps = {
   onDiveCancel?: (request: DiveRequest) => void; // the user grabbed the view mid-dive
   onIdle?: () => void;       // start-up and background shaders are compiled: a good moment for other idle work
   dilation?: { startAt: number; endAt: number } | null; // time dilation focus block: the galaxy's clock runs slow
+  status?: GalaxyStatus;     // living galaxy one-glance status per world (idle / working / needs / broke)
 };
 
 type Positions = Record<string, THREE.Vector3>;
@@ -370,7 +372,7 @@ function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; f
   );
 }
 
-function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, scoutMoons = 0, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, vitality, shell = 0, level = 1, scales, feel, arrive, fresh = false }: {
+function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, scoutMoons = 0, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, vitality, shell = 0, level = 1, scales, feel, arrive, fresh = false, status }: {
   p: PlanetDef; fresh?: boolean; // something new in the last 24 h: the rim warms on hover
   index: number; selected: boolean; onSelect: (id: PanelId) => void; onHover: (id: PlanetId, on: boolean) => void;
   positions: Positions; pulses: RefObject<Record<string, number>>; memoryCount: number; scoutMoons?: number; reduced: boolean;
@@ -383,7 +385,9 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
   scales?: Scales;
   feel?: RefObject<Feel>; // the eased pointer: worlds lean toward it a touch
   arrive?: RefObject<Arrive>;
+  status?: WorldStatus; // one-glance living status (idle / working / needs / broke)
 }) {
+  const statusRef = useRef(status); statusRef.current = status;
   const group = useRef<THREE.Group>(null);
   const mesh = useRef<THREE.Mesh>(null);
   const look = LOOKS[p.id];
@@ -456,16 +460,16 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
       }
     }
     if (mesh.current) {
-      const l = lit.current, hit = hitGlow(p.id, clock.elapsedTime);
+      const l = lit.current, hit = hitGlow(p.id, clock.elapsedTime), sl = statusLook(statusRef.current, clock.elapsedTime, reduced);
       if (!reduced) mesh.current.rotation.y += dt * 0.18 * l.spin; // busy worlds turn faster
       // Real backend events, CORE trails landing and lightning add a brief flare; a busy week keeps a warm glow.
-      const m = liquid.mat;
-      m.emissiveIntensity = glow(pulses, p.id) * 0.8 + flash.current * 0.6 + l.glow * 0.3 + hit * 1.2;
-      m.color.copy(base).lerp(QUIET_C, l.cool * 0.75).multiplyScalar(1 - l.dim); // a quiet week: cold and dim
-      m.envMapIntensity = env0 * (1 - l.dim * 0.8); // reflections too, or chrome worlds never dim
+      const m = liquid.mat, dim = Math.max(l.dim, sl.dim);
+      m.emissiveIntensity = glow(pulses, p.id) * 0.8 + flash.current * 0.6 + l.glow * 0.3 + sl.glow + hit * 1.2;
+      m.color.copy(base).lerp(QUIET_C, l.cool * 0.75).multiplyScalar(1 - dim); // quiet/idle: calm and dim
+      m.envMapIntensity = env0 * (1 - dim * 0.8); // reflections too, or chrome worlds never dim
       const h = halo.current;
       if (h) {
-        const o = Math.min(0.9, l.glow * 0.7 * (reduced ? 1 : 0.85 + 0.15 * Math.sin(clock.elapsedTime * 1.3 + phase)) + hit * 0.7);
+        const o = Math.min(0.9, (l.glow * 0.7 + sl.glow * 1.4) * (reduced ? 1 : 0.85 + 0.15 * Math.sin(clock.elapsedTime * 1.3 + phase)) + hit * 0.7);
         h.visible = o > 0.01;
         (h.material as THREE.SpriteMaterial).opacity = o;
       }
@@ -513,7 +517,7 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
 
   return (
     <>
-      <OrbitPath r={p.radius} warn={failing} />
+      <OrbitPath r={p.radius} warn={failing || status?.state === "broke"} />
       <group ref={group}>
         <mesh
           ref={mesh}
@@ -548,6 +552,12 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
         {p.id === "memory" && <Moons count={memoryCount} reduced={reduced} spread={spread} />}
         {p.id === "operations" && scoutMoons > 0 && <ScoutMoons count={scoutMoons} size={size} reduced={reduced} spread={spread} onOpen={() => { requestScoutTab(); onSelect("operations"); }} />}
         {p.id === "life" && life && <LifeRing size={size} done={life.done} total={life.total} still={still} />}
+        {(status?.state === "needs" || status?.state === "broke") && (
+          <mesh rotation-x={Math.PI / 2}>
+            <ringGeometry args={[size * 1.48, size * 1.62, 64]} />
+            <meshBasicMaterial color={status.state === "broke" ? RED : AMBER} transparent opacity={0.5} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} />
+          </mesh>
+        )}
         {Array.from({ length: Math.min(agentBusy, 5) }, (_, k) => (
           <AgentSatellite key={k} size={size} active reduced={reduced} offset={(k * Math.PI * 2) / Math.min(agentBusy, 5)} spread={spread} />
         ))}
@@ -1082,10 +1092,14 @@ export default function Galaxy(props: GalaxyProps) {
   const sizes = useMemo(() => Object.fromEntries(PLANETS.map((p) => [p.id, planetSize(p)])), []);
   const { onSelect, selected } = props;
   const u = props.universe;
-  const lines = useMemo(() => Object.fromEntries(PLANETS.map((p) => [p.id, hoverParts(p.id, { recent: u?.recent, today: u?.today, stages: p.id === "business" ? u?.stages : null,
-    memories: props.memoryCount, agents: props.agentsWorking, life: props.lifeProgress })
-    .map((x) => (x.n !== undefined ? tn(x.key as Parameters<typeof tn>[0], x.n, x.vars) : t(x.key as Parameters<typeof t>[0], x.vars))).join(" · ")])),
-  [u, props.memoryCount, props.agentsWorking, props.lifeProgress, t, tn]);
+  const lines = useMemo(() => Object.fromEntries(PLANETS.map((p) => {
+    const st = props.status?.[p.id];
+    if (st) return [p.id, sentenceRest(st.line)];
+    return [p.id, hoverParts(p.id, { recent: u?.recent, today: u?.today, stages: p.id === "business" ? u?.stages : null,
+      memories: props.memoryCount, agents: props.agentsWorking, life: props.lifeProgress })
+      .map((x) => (x.n !== undefined ? tn(x.key as Parameters<typeof tn>[0], x.n, x.vars) : t(x.key as Parameters<typeof t>[0], x.vars))).join(" · ")];
+  })),
+  [u, props.status, props.memoryCount, props.agentsWorking, props.lifeProgress, t, tn]);
   useEffect(() => { // Enter opens the current stop, exactly like clicking it
     if (stop < 0 || selected !== null) return;
     const k = (e: KeyboardEvent) => {
@@ -1110,7 +1124,7 @@ export default function Galaxy(props: GalaxyProps) {
         <RealSky on={sky.on} lat={sky.lat} lon={sky.lon} />
         {/* No drei <Sparkles>: its shader writes negative alpha, which turns into NaN in the bloom blur and blacks out the screen. */}
         <Dust count={q.dust} reduced={props.reduced} feel={feel} />
-        <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning} reduced={props.reduced} particles={props.reduced ? 0 : coreParticleSide(level)} level={level} aligned={props.selected === "core"} approval={!!props.ships?.tasks.some((t) => t.status === "awaiting_approval")} />
+        <NeuralCore onSelect={props.onSelect} pulses={props.pulses} busy={props.busy} warning={props.warning || props.status?.core?.state === "broke"} reduced={props.reduced} particles={props.reduced ? 0 : coreParticleSide(level)} level={level} aligned={props.selected === "core"} approval={!!props.ships?.tasks.some((t) => t.status === "awaiting_approval") || props.status?.core?.state === "needs"} />
         <Filaments positions={positions} pulses={props.pulses} reduced={props.reduced} />
         <Beams positions={positions} pulses={props.pulses} reduced={props.reduced} />
         <Trails positions={positions} reduced={props.reduced} />
@@ -1123,6 +1137,7 @@ export default function Galaxy(props: GalaxyProps) {
             positions={positions} pulses={props.pulses} memoryCount={props.memoryCount} scoutMoons={p.id === "operations" ? props.scoutMoons : 0} reduced={props.reduced}
             agentBusy={p.id === "intelligence" ? (props.pulseBusy ? 1 : 0) : p.id === "agents" ? props.agentsWorking : 0}
             failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)}
+            status={props.status?.[p.id]}
             life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} vitality={props.universe?.vitality[p.id]} fresh={!!props.universe?.today?.[p.id]} shell={shellCount(level)} level={level} scales={scales} feel={feel} arrive={arrive} />
         ))}
         <WarmIn> {/* both arrive with data after the start-up compile */}
@@ -1174,14 +1189,20 @@ export default function Galaxy(props: GalaxyProps) {
       {!props.reduced && <StoryRail stop={stop} on={!intro && selected === null} onGo={(n) => story.current.goTo(n)} />}
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         {BODIES.map((id) => <span key={`l-${id}`} ref={(el) => { leaders.current[id] = el; }} className="planet-leader" />)}
-        <span ref={(el) => { labels.current.core = el; }} className="planet-label absolute left-0 top-0" style={{ color: props.warning ? "#fb7185" : "#efe6d6" }}>
-          CORE{props.warning ? " · last request failed" : ""}
+        <span ref={(el) => { labels.current.core = el; }} className="planet-label absolute left-0 top-0" style={{ color: props.warning || props.status?.core?.state === "broke" ? RED : props.status?.core?.state === "needs" ? AMBER : "#efe6d6" }}>
+          CORE{props.warning ? " · last request failed" : countBadge(props.status?.core) ? ` · ${countBadge(props.status?.core)}` : ""}
           <AlienScript text="CORE" className="planet-script" />
           {props.busy && <InkGlyph reduced={props.reduced} />}
         </span>
-        {PLANETS.map((p) => ( // calm labels (c11): pearl, with a breath of the world's identity colour
-          <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" style={{ color: `color-mix(in srgb, ${p.color} 38%, #e4e9f2)` }}>{t(`planet.${p.id}`)}<AlienScript text={p.name} className="planet-script" /></span>
-        ))}
+        {PLANETS.map((p) => { // calm labels (c11): pearl, with a breath of the world's identity colour; quiet badge while working
+          const st = props.status?.[p.id], badge = countBadge(st);
+          const color = st?.state === "broke" ? RED : st?.state === "needs" ? AMBER : `color-mix(in srgb, ${p.color} 38%, #e4e9f2)`;
+          return (
+            <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" style={{ color }}>
+              {t(`planet.${p.id}`)}{badge ? ` · ${badge}` : ""}<AlienScript text={p.name} className="planet-script" />
+            </span>
+          );
+        })}
       </div>
       </div>
     </div>

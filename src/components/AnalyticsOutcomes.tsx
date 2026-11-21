@@ -7,6 +7,7 @@ import { linkToHash } from "@/lib/deeplink-pure";
 import { METRICS, outcomeRates, pct, reliability, timeAndCost, units, worstFailure, type MetricId, type Rate, type TaskRow, type UsageCostRow } from "@/lib/analytics-outcomes-pure";
 import { EXP_METRICS, MIN_EXP, experimentResult, improvementQueue, isoWeek, timeSaved, type Calibration, type ExpMetric, type Experiment, type Improvement } from "@/lib/analytics-improve-pure";
 import { useT } from "./i18n";
+import { AbVerdict } from "./AbVerdict";
 import type { Key } from "@/lib/i18n-pure";
 
 type Data = { rows: TaskRow[]; chains: Set<string>; usage: UsageCostRow[] | null; projects: Map<string, string> };
@@ -199,6 +200,7 @@ function Improve({ us }: { us: Units }) {
           <li key={e.id}><b>{e.name}</b> <span className="muted">· {e.change} · {METRICS[e.metric].name} · {e.start.slice(0, 10)}{e.end ? ` → ${e.end.slice(0, 10)}` : ""}</span><br />
             {t("ana.x.result", { b: r.before.pct ?? "–", bn: r.before.of, a: r.after.pct ?? "–", an: r.after.of, d: r.days })}{" "}
             <span className={r.enough ? "" : "muted"}>{r.enough ? t("ana.x.diff", { d: `${r.diff! > 0 ? "+" : ""}${r.diff}` }) : t("ana.x.few", { n: MIN_EXP })}</span>
+            {" · "}<b><AbVerdict verdict={r.test.verdict} more={r.test.more} a={t("ana.x.before")} b={t("ana.x.after")} /></b>
             {e.decision ? <span className="muted"> · {t(`ana.x.dec.${e.decision}` as Key)}</span> : (
               <span className="ml-1 inline-flex gap-1">{(["keep", "revert", "inconclusive"] as const).map((dcs) => <button key={dcs} className="chip" onClick={() => void call({ action: "endExperiment", id: e.id, decision: dcs })}>{t(`ana.x.dec.${dcs}` as Key)}</button>)}</span>)}
           </li>); })}</ul>

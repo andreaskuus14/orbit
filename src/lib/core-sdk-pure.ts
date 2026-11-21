@@ -60,6 +60,59 @@ export function serial() {
   };
 }
 
+export type ToolLane = "T0" | "T1" | "exclusive";
+
+/** Same-tier read-only tools (T0 local reads, or T1 public web reads) may run concurrently with each other.
+ *  Switching lanes (e.g. T0 private read -> T1 outbound web read) waits for all in-flight calls to finish so
+ *  decide() always sees prior taint steps. T2/T3/unknown/plugin tools run strictly exclusively. */
+export function toolLane(tool: string, tiers: Readonly<Record<string, string>>): ToolLane {
+  const tier = tiers[tool];
+  return tier === "T0" || tier === "T1" ? tier : "exclusive";
+}
+
+/** Taint-safe FIFO concurrency gate for SDK parallel tool calls:
+ *  - Multiple T0 calls run concurrently; multiple T1 calls run concurrently.
+ *  - Any lane change (T0 <-> T1) or exclusive call waits for every earlier in-flight call to complete first.
+ *  - Exclusive calls (T2/T3/unknown) run one at a time. */
+export function tierGate() {
+  type Entry = { lane: ToolLane; run: () => void };
+  const queue: Entry[] = [];
+  let activeLane: ToolLane | null = null;
+  let activeCount = 0;
+
+  const pump = () => {
+    while (queue.length > 0) {
+      const next = queue[0];
+      const canJoin =
+        activeCount === 0 ||
+        (activeLane === next.lane && (next.lane === "T0" || next.lane === "T1"));
+      if (!canJoin) return;
+      queue.shift();
+      activeLane = next.lane;
+      activeCount++;
+      next.run();
+    }
+  };
+
+  return <T>(lane: ToolLane, fn: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      queue.push({
+        lane,
+        run: () => {
+          Promise.resolve()
+            .then(fn)
+            .then(resolve, reject)
+            .finally(() => {
+              activeCount--;
+              if (activeCount === 0) activeLane = null;
+              pump();
+            });
+        },
+      });
+      pump();
+    });
+}
+
 /** CORE's system prompt with the JSON-envelope section swapped for native tool calls (the SDK runs the tool loop). */
 export function nativeSystem(system: string): string {
   return system.replace(/HOW YOU ANSWER[\s\S]*?\n\nTOOLS:\n/, "HOW YOU ANSWER: write the answer in Markdown. Call a tool directly when you need one; only the tools offered to you this turn exist.\n\nTOOL NOTES:\n");

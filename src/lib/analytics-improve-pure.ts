@@ -2,6 +2,8 @@
 // tests/analytics-improve.test.ts. Built on analytics-outcomes-pure (same units and denominators). Store: analytics-store.ts.
 import { outcomeRates, pct, reliability, worstFailure, type MetricId, type Unit, type WorkflowType } from "./analytics-outcomes-pure.ts";
 
+import { RATE_OPTS, decide, rateSteps, type RateObs, type Verdict } from "./abtest-pure.ts";
+
 const TYPES: WorkflowType[] = ["single", "chain", "goal", "mission"];
 
 /* ---------- ANA02: time saved, as an owner-calibrated estimate ---------- */
@@ -54,8 +56,14 @@ export function experimentResult(e: Experiment, us: Unit[], now: number) {
   const before = rateOf(us.filter((u) => at(u) >= s - len && at(u) < s), e.metric), after = rateOf(us.filter((u) => at(u) >= s && at(u) <= end), e.metric);
   const p = (r: { n: number; of: number }) => (r.of ? Math.round((100 * r.n) / r.of) : null);
   const enough = before.of >= MIN_EXP && after.of >= MIN_EXP;
+  // Honest verdict (abtest-pure): units arrive as the window grows (a day before the start pairs with a day after), so the
+  // test walks them in that order and stays ≤ 5 % false "better" however often he opens the page. Still before/after, not controlled.
+  const obs: RateObs[] = us.map((u) => ({ u, t: at(u) })).filter(({ t }) => t >= s - len && t <= end).map(({ u, t }) => ({ d: t >= s ? t - s : s - t, arm: t >= s ? "B" as const : "A" as const, ...rateOf([u], e.metric) }))
+    .sort((a, b) => a.d - b.d).map(({ arm, n, of }) => ({ arm, n, of }));
+  const d = decide(rateSteps(obs), { ...RATE_OPTS, minEach: MIN_EXP });
+  const test: { verdict: Verdict; more?: number } = { verdict: d.verdict, ...(d.more !== undefined && Number.isFinite(d.more) && { more: d.more }) };
   return { before: { n: before.n, of: before.of, pct: p(before) }, after: { n: after.n, of: after.of, pct: p(after) }, days: Math.max(1, Math.round(len / 86_400_000)),
-    diff: enough ? p(after)! - p(before)! : null, enough };
+    diff: enough ? p(after)! - p(before)! : null, enough, test };
 }
 
 /* ---------- ANA08: weekly improvement queue ---------- */

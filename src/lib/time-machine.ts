@@ -91,7 +91,7 @@ async function current(c: TmChange, x: Ctx): Promise<Current> {
     }
     case "vault": return { t: "vault", state: await vaultNow(c.after) };
     case "memory": {
-      const { data, error } = await x.sb.from("memories").select(MEM_COLS).eq("id", c.id).maybeSingle();
+      const { data, error } = await x.sb.from("memories").select(MEM_COLS).eq("id", c.id).neq("kind", "journal").maybeSingle();
       if (error) throw new Error(error.message);
       return { t: "memory", state: toMem(data) };
     }
@@ -201,7 +201,7 @@ export function undoRecord(sb: SupabaseClient, userId: string, id: string): Prom
 
 /** An Activity-log memory undo (CORE's save_memory) with a redo: the row is kept here before it is deleted. null = use the plain undo. */
 export async function undoSavedMemory(sb: SupabaseClient, userId: string, id: string): Promise<{ title: string; id: string } | null> {
-  const { data, error } = await sb.from("memories").select(`${MEM_COLS}, storage_path`).eq("id", id).maybeSingle();
+  const { data, error } = await sb.from("memories").select(`${MEM_COLS}, storage_path`).eq("id", id).neq("kind", "journal").maybeSingle();
   if (error || !data || data.storage_path) return null; // a file-backed memory: the plain undo (its file goes too)
   const before = toMem(data)!;
   const change: TmChange = { t: "memory", id, before, after: null };

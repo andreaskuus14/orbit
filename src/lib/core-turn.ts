@@ -43,7 +43,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
   const voice = body.voice === true; // asked out loud: answer short enough to listen to
   const lang = parseLang(body.lang); // the UI language switch: "et" = CORE answers in Estonian
   if (!message) return Response.json({ error: "Message is required (max 8000 chars)" }, { status: 400 });
-  const attach = await prepareAttachments(files.files);
+  const turnT0 = Date.now(); // live step times count from here
   const content = files.files.length ? message + attachedSuffix(files.files.map((f) => f.name)) : message;
 
   // B05: one turn per chat at a time (phone + desktop), and a client retry with the same requestId gets the first turn's outcome.
@@ -73,6 +73,16 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
       const { count } = await sb.from("messages").select("id", { count: "exact", head: true }).eq("conversation_id", cid);
       if ((count ?? 0) >= MAX_MESSAGES - 1) return { status: 400, body: { error: `This chat is full (${MAX_MESSAGES} messages). Start a new chat.` } };
 
+      // The client learns the chat id right away; files are read inside the turn (each one a live step), so a scanned PDF's OCR
+      // shows as "Reading scan.pdf" instead of a silent wait before the first byte. Ids below zero never meet liveTracker's.
+      send({ type: "start", conversationId: cid });
+      const began = new Map<number, number>();
+      const attach = await prepareAttachments(files.files, { signal, message, onFile: (i, name, phase, ok, note) => {
+        if (phase === "start") began.set(i, Date.now());
+        send(phase === "start" ? { type: "step", id: -(i + 1), tool: "read_file", label: `Reading ${name}…`, vars: { name }, key: "chat.reading", t: Date.now() - turnT0 }
+          : { type: "step_done", id: -(i + 1), ok: ok !== false, ms: Date.now() - (began.get(i) ?? Date.now()), ...(note && { result: note }), t: Date.now() - turnT0 });
+      } });
+      if (signal?.aborted) return { status: 499, body: { conversationId: cid, error: "Stopped before it started" } };
       // Migration 0013 caps the combined extracted text at 20k per chat, including concurrent uploads.
       const { data: userMsg, error: userMsgErr } = await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "user", content, attachment_text: attach?.text ?? "" }).select("id").single();
       if (userMsgErr) return { status: 500, body: { error: userMsgErr.message } };
@@ -149,7 +159,6 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
       };
 
 
-      send({ type: "start", conversationId: cid });
       // Live work view: numbered, timed, redacted steps (core-live-pure.ts); private module reads show only "a private note".
       const live = liveTracker((tool, input) => MODULE_PRIVATE.includes(tool) || input.kind === "journal", coreTaintStore.has(cid));
       const sendAll = (evs: Record<string, unknown>[]) => evs.forEach(send);
