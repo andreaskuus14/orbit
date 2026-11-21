@@ -141,6 +141,7 @@ async function planInput(sb: SupabaseClient, userId: string, st: NightState, run
     health: true, loops: true,
     backup: await import("./capsule").then((m) => m.backupDue(), () => false),
     personas: await import("./personas").then((m) => m.personasDue(userId), () => false),
+    playtesters: await import("./playtesters").then((m) => m.playtestersDue(userId), () => false),
     handled: run.items.map((i) => `${i.kind}:${i.ref}`), now: Date.now(), today: today(), off: [...nightOff(autonomyLevels()), ...learned.drop],
     boost: await import("./lessons").then(async (m) => Object.fromEntries(await Promise.all(NIGHT_KINDS.map(async (k) => [k, await m.nightBoost(userId, k)] as const))), () => ({}) as Record<string, number>)
       .then((b) => Object.fromEntries(NIGHT_KINDS.map((k) => [k, (b[k] ?? 1) * (learned.weight[k] ?? 1)]))),
@@ -239,6 +240,11 @@ export async function runOne(sb: SupabaseClient, userId: string, t: NightTask, s
       const { runPersonaPlaytest } = await import("./personas");
       const r = await runPersonaPlaytest(sb, userId, { studioRuns: PERSONA_STUDIO_RUNS, day: nightKey(Date.now(), (await load()).settings), signal });
       return { ...base, label: r.line, status: r.proposals.length ? "approval" : "done", ...(r.proposals.length ? { why: `${r.proposals.length} backlog proposal${r.proposals.length > 1 ? "s" : ""} in GAME DEV → Personas` } : {}), at: at() };
+    }
+    case "playtesters": { // look-only Studio runs (only when Studio is open) + code check; fixes wait for his Approve in GAME DEV → Test → AI testers
+      const r = await (await import("./playtesters")).runPlaytesters(userId, signal);
+      const fixes = r.proposals.filter((p) => p.status === "pending").length;
+      return { ...base, label: r.line, status: fixes ? "approval" : r.runs.length ? "done" : "skipped", ...(fixes ? { why: `${fixes} fix${fixes > 1 ? "es" : ""} in GAME DEV → Test → AI testers` } : !r.runs.length ? { why: r.studio } : {}), at: at() };
     }
     case "loops": { // open loops (loops.ts): rules only, no model call; Journal/LIFE never read
       const r = await (await import("./loops")).scanLoops(sb, userId);
