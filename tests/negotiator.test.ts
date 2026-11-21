@@ -108,7 +108,9 @@ test("property: no plan ever prices outside the limits", () => {
     for (let i = 0; i < 12 && n.state === "talking"; i++) {
       const theirs = Math.round(Math.abs(Math.sin(seed * 31 + i)) * 900);
       const r = reply(n, i % 4 === 3 ? "too expensive" : `${theirs} eur?`);
-      if (r.plan.price !== null) assert.ok(r.plan.price >= n.limits.floor && r.plan.price <= n.limits.ceiling, `${side} ${seed} ${r.plan.price}`);
+      // an accept takes their own number, which can be better for him than his limits (a seller asking under his floor); never worse
+      if (r.plan.price !== null && r.plan.action === "accept") assert.ok(side === "sell" ? r.plan.price >= n.limits.floor : r.plan.price <= n.limits.ceiling, `${side} ${seed} ${r.plan.price}`);
+      else if (r.plan.price !== null) assert.ok(r.plan.price >= n.limits.floor && r.plan.price <= n.limits.ceiling, `${side} ${seed} ${r.plan.price}`);
       n = say(r.n, r.plan);
     }
   }

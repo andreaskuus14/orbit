@@ -64,6 +64,9 @@ export type Event = { min: number; kind: "reward" | "buy"; name: string; balance
 export type SimOpts = { players: number; seed: number };
 export const SIM_DEFAULTS: SimOpts = { players: 100, seed: 1 };
 const STEP = 10; // seconds per tick: plenty for minute-level answers
+/** Purchases one simulated player may make (and log). A rebuyable sink at growth 1 with a boost ("sink, Speed, 1, 1, 10") made
+ *  every buy pay for the next, so the greedy loop never ended and took ORBIT's memory with it. Past the cap the player only saves. */
+export const MAX_BUYS = 2000;
 
 /** One seeded player. Activity varies 70–130% per player; each tick it buys the cheapest affordable sink (one-offs once, rebuyables at growing prices).
  *  shortcut: a greedy buyer, no saving for a favourite; add a priority column when his game needs one. */
@@ -71,7 +74,7 @@ export function playOne(m: Model, seed: number, player: number): { events: Event
   const r = rng((seed * 7919 + player * 104729) >>> 0), activity = 0.7 + 0.6 * r();
   const price = m.sinks.map((s) => s.price), bought = m.sinks.map(() => 0), spent: Record<string, number> = {};
   const next = m.rewards.map((x) => x.at * 60), events: Event[] = [];
-  let bal = 0, earned = 0, rewarded = 0, boost = 0;
+  let bal = 0, earned = 0, rewarded = 0, boost = 0, buys = 0;
   const end = m.session * m.sessions * 60;
   for (let t = STEP; t <= end; t += STEP) {
     const inc = m.sources.reduce((a, s) => a + (s.amount / s.every) * STEP, 0) * activity * (1 + boost / 100);
@@ -81,12 +84,12 @@ export function playOne(m: Model, seed: number, player: number): { events: Event
       bal += x.amount; rewarded += x.amount; events.push({ min: t / 60, kind: "reward", name: x.name, balance: Math.round(bal) });
       next[i] = x.repeat > 0 ? next[i] + x.repeat * 60 : Infinity;
     });
-    for (;;) {
+    while (buys < MAX_BUYS) {
       let k = -1;
       m.sinks.forEach((s, i) => { if ((s.growth >= 1 || !bought[i]) && price[i] <= bal && (k < 0 || price[i] < price[k])) k = i; });
       if (k < 0) break;
       const s = m.sinks[k];
-      bal -= price[k]; spent[s.name] = (spent[s.name] ?? 0) + price[k]; bought[k]++; boost += s.boost;
+      bal -= price[k]; spent[s.name] = (spent[s.name] ?? 0) + price[k]; bought[k]++; buys++; boost += s.boost;
       events.push({ min: t / 60, kind: "buy", name: s.name, balance: Math.round(bal) });
       if (s.growth >= 1) price[k] *= s.growth;
     }

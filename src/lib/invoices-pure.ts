@@ -74,11 +74,14 @@ export function nextNumber(existing: string[], year: number): { number: string; 
 // ---- Totals ---------------------------------------------------------------------
 
 export type Totals = { net: number; vat: number; gross: number; lines: number[] };
-/** Line totals rounded to the cent, VAT once on the net sum (rounded half up). */
+/** a ÷ b rounded half up, for whole numbers a ≥ 0, b > 0, in integer steps (no float error: 264.174 × €9082.50 must give …,036). */
+const divHalfUp = (a: number, b: number) => { const r = a % b; return (a - r) / b + (2 * r >= b ? 1 : 0); };
+/** Line totals rounded half up to the cent, VAT once on the net sum (rounded half up). Qty has 3 decimals, the rate 2: both are
+ *  turned into whole numbers first, so the rounding is exact (float qty × cents once lost a cent on 1.005 × €1.00). */
 export function totals(i: Pick<Invoice, "lines" | "vat">): Totals {
-  const lines = i.lines.map((l) => Math.round(l.qty * l.cents));
+  const lines = i.lines.map((l) => divHalfUp(Math.round(l.qty * 1000) * Math.round(l.cents), 1000));
   const net = lines.reduce((a, b) => a + b, 0);
-  const vat = i.vat.on ? Math.round((net * i.vat.rate) / 100) : 0;
+  const vat = i.vat.on ? divHalfUp(net * Math.round(i.vat.rate * 100), 10_000) : 0;
   return { net, vat, gross: net + vat, lines };
 }
 

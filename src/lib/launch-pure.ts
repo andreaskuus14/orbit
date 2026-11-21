@@ -43,7 +43,8 @@ export function toCsv(rows: (string | number)[][]): string {
 }
 
 const money = (n: number) => n.toFixed(2);
-const up99 = (n: number) => Math.max(0.99, Math.ceil(n) - 0.01); // 12.30 → 12.99
+/** The lowest X.99 at or above n: 12.30 → 12.99, 12.99 → 12.99, 13.00 → 13.99 (ceil(n) − 0.01 gave 12.99 for 13.00: under the floor). */
+const up99 = (n: number) => Math.max(0.99, Math.round(Math.ceil(n + 0.01 - 1e-9) * 100 - 1) / 100);
 export const slug = (s: string) => s.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "product";
 /** Cut at a word boundary to max characters, with no trailing punctuation. */
 export function clip(s: string, max: number): string {
