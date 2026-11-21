@@ -5,6 +5,7 @@ import { assetName } from "./local-ai-pure";
 import { stopAllOn } from "./stop-all";
 import { comfyBase, comfyPost, comfyReady } from "./comfy";
 import { comfyNotRunning, seedOf } from "./comfy-pure";
+import { MAX_SECONDS, NEGATIVE } from "./video-pure";
 import { checkVideo, framesFor, isMp4, parseVideoHistory, parseVideoQueued, videoHd, videoNotInstalled, videoSize, videoViewPath, videoWorkflow, type VideoRequest } from "./video-pure";
 
 export const VIDEO_TIMEOUT_MS = 30 * 60_000;
@@ -62,11 +63,35 @@ async function generateVideoNow(r: VideoRequest, picture: Blob | null, timeoutMs
   }
 }
 
+/** The seconds he asked for, before the local 5 s cap. */
+const requestedSeconds = (raw: unknown) => { const n = typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() ? Number(raw) : MAX_SECONDS; return Number.isFinite(n) ? Math.max(2, n) : MAX_SECONDS; };
+
 /** CORE's local_video. Errors come back as "Error: ..." text (core.ts's convention). */
 export async function runVideoTool(i: Record<string, unknown>): Promise<string> {
   try {
     const r = checkVideo(i);
     if ("error" in r) throw new Error(r.error);
+    // KAGGLE BURST (kaggle.ts): local first; a clip too long or too slow for this PC becomes an offer he clicks in OPERATIONS → Local AI.
+    const asked = requestedSeconds(i.seconds);
+    let note = "";
+    {
+      const kp = await import("./kaggle-pure");
+      const need = { ...kp.videoNeed({ seconds: asked, quality: r.quality }), ...(r.image ? { remoteBlock: "a clip that starts from a VAULT picture stays on this PC (VAULT files never go to Kaggle)" } : {}) };
+      const local = need.localMin !== null && need.localMin <= kp.burstConfig(process.env).maxLocalMin;
+      if (!local) {
+        const k = await import("./kaggle");
+        const d = await k.decide(need);
+        if (d.run === "refuse") throw new Error(asked > MAX_SECONDS ? `${d.why} On this PC a clip is at most ${MAX_SECONDS} s: ask for ${MAX_SECONDS} s or less.` : d.why);
+        if (d.run === "offer") {
+          const seconds = Math.min(kp.REMOTE_MAX_SECONDS, asked);
+          const script = kp.videoScript({ prompt: r.prompt, negative: NEGATIVE, seconds, quality: r.quality, aspect: r.aspect, seed: seedOf(r.prompt) });
+          const o = await k.addOffer({ kind: "video", title: `Video, ${seconds} s: ${r.prompt.slice(0, 60)}`, script, hours: d.hours, why: d.why,
+            result: { type: "video", name: assetName(r.name || r.prompt.slice(0, 40), "mp4", "video") } });
+          return `Not started yet. ${d.why} I put a Kaggle offer in OPERATIONS → Local AI → Kaggle burst (id ${o.id}): it runs on his free Kaggle account only after he clicks Send to Kaggle there. Nothing has left his PC. Tell him that, and that the finished video lands in VAULT.${asked > kp.REMOTE_MAX_SECONDS ? ` Kaggle clips are at most ${kp.REMOTE_MAX_SECONDS} s, so this one is ${seconds} s.` : ""}`;
+        }
+        note = d.note;
+      }
+    }
     let picture: Blob | null = null;
     if (r.image) {
       const { stream } = await readStream(r.image, null); // a VAULT file; traversal/missing names are refused there
@@ -75,6 +100,6 @@ export async function runVideoTool(i: Record<string, unknown>): Promise<string> 
     }
     const bytes = await generateVideo(r, picture);
     const saved = await saveUpload(new File([bytes as BlobPart], assetName(r.name || r.prompt.slice(0, 40), "mp4", "video"), { type: "video/mp4" }));
-    return `Saved the video as "${saved}" in VAULT (${r.image ? "image to video" : "text to video"}, about ${r.seconds} s, made on his PC with Wan 2.2 in ComfyUI; free, nothing uploaded; silent, no sound). Show it with vault_read or tell him where it is.`;
+    return `${note ? `${note} ` : ""}Saved the video as "${saved}" in VAULT (${r.image ? "image to video" : "text to video"}, about ${r.seconds} s, made on his PC with Wan 2.2 in ComfyUI; free, nothing uploaded; silent, no sound). Show it with vault_read or tell him where it is.`;
   } catch (e) { return `Error: ${e instanceof Error ? e.message : String(e)}`; }
 }

@@ -63,3 +63,7 @@ orbit-launcher.log.1
 *.key
 *.ojb
 restic.pass
+# tools/kaggle: the CLI venv (setup.ps1). The Kaggle token lives only in %USERPROFILE%\.kaggle, never here.
+/tools/kaggle/.venv/
+kaggle.json
+access_token
