@@ -17,7 +17,9 @@ import { maybeScorecard } from "./agent-replay";
 import { maybeArchDigest } from "./arch-digest";
 import { allows, tickAutonomy } from "./autonomy";
 import { beat } from "./host-heartbeat";
-import { briefingsSkip, sweepDue, type Remembered } from "./scheduler-gate-pure";
+import { briefingsSkip, resumeSkip, sweepDue, type IdleMark, type Remembered } from "./scheduler-gate-pure";
+import { resumeDirtyAt } from "./dirty-marks";
+import { endEventsTick, eventsTick } from "./durable";
 
 // Server-side scheduler (briefings + automations): runs inside the ORBIT server process (npm run dev / npm start), so briefings
 // happen without a browser open. It needs SUPABASE_SECRET_KEY to act for the user with no session.
@@ -30,6 +32,16 @@ const g = globalThis as unknown as { __orbitScheduler?: NodeJS.Timeout; __orbitT
 const gates = () => process.env.ORBIT_SCHED_GATES !== "0";
 const USERS_MS = 10 * 60_000, EXPIRY_MS = 10 * 60_000; // the owner list; approval expiry (a 48 h rule) checked every 10 min
 const briefLast = (g.__orbitBriefLast ??= new Map()), expiryAt = (g.__orbitExpiryAt ??= new Map());
+const g2 = globalThis as unknown as { __orbitResumeIdle?: Map<string, IdleMark> };
+
+// Resume passes (missions, agent teams, goals) that found nothing are skipped until an emit()/writer in this process marks them
+// dirty, or 10 min pass (scheduler-gate-pure resumeSkip). ORBIT_RESUME_GATE=0 = every tick, as before.
+const idle = (g2.__orbitResumeIdle ??= new Map<string, IdleMark>());
+function idleGated(key: string, run: () => Promise<number>): Promise<void> {
+  const now = Date.now();
+  if (process.env.ORBIT_RESUME_GATE !== "0" && resumeSkip(idle.get(key), resumeDirtyAt(), now)) return Promise.resolve();
+  return run().then((n) => { idle.set(key, { at: now, empty: n === 0 }); }, (e) => { idle.delete(key); throw e; });
+}
 
 async function tick(sb: SupabaseClient) {
   if (g.__orbitBusy) return;
@@ -42,6 +54,7 @@ async function tick(sb: SupabaseClient) {
       users = data ?? [];
       g.__orbitUsers = { at: Date.now(), ids: users };
     }
+    eventsTick(); // durable.ts: the consumers below share one "newest event id" read (ORBIT_EVENTS_GATE=0 = off)
     // Event-triggered automations first (they should feel instant), then scheduled ones, then briefings.
     await handleEvents(sb).catch((e) => console.error("[orbit] automation events failed:", e?.message ?? e)); // still advances its cursor: startAutomation refuses while Stop-all is on
     void import("./ntfy").then((m) => m.tickNtfy(sb)); // phone notifications for finished/failed/waiting tasks; drops them while Stop-all is on
@@ -59,11 +72,11 @@ async function tick(sb: SupabaseClient) {
       void import("./bg-resume").then((m) => m.resumeBackgroundTurns(sb, id)); // background CORE turns a restart cut off (bg-resume-pure.ts)
       if (!gates() || sweepDue(expiryAt.get(id), Date.now(), EXPIRY_MS)) { expiryAt.set(id, Date.now()); void import("./approval-expiry").then((m) => m.expireApprovals(sb, id)); } // agent approvals unanswered for 48 h → rejected, never approved
       void import("./plan-jobs").then((m) => { void m.tickPlanJobs(sb, id); void m.tickStudioPlans(); }); // plan-file jobs + STUDIO plans (Autonomy-gated): one step per session, resumed from their plan file
-      void nightOwnsCompany().then((night) => resumeChains(sb, id, night)).catch((e) => console.error("[orbit] agent teams resume failed:", e?.message ?? e)); // continue after approvals/restarts
+      void idleGated(`chains:${id}`, () => nightOwnsCompany().then((night) => resumeChains(sb, id, night))).catch((e) => console.error("[orbit] agent teams resume failed:", e?.message ?? e)); // continue after approvals/restarts
       // Goals without a browser: one step per goal per tick; inside the night-shift window the night shift owns them (its switch and budget).
       // Goals Off/Ask in Profile → Autonomy: no unattended steps; his Continue click and opening ORBIT (owner lane) still advance them.
-      if (allows("goals", "background").ok) void nightOwnsCompany().then((night) => night ? undefined : import("./goals").then((m) => m.resumeGoals(sb, id, 1))).catch((e) => console.error("[orbit] goals resume failed:", e?.message ?? e));
-      void import("./missions").then((m) => m.resumeMissions(sb, id)).catch((e) => console.error("[orbit] missions resume failed:", e?.message ?? e));
+      if (allows("goals", "background").ok) void nightOwnsCompany().then((night) => night ? undefined : idleGated(`goals:${id}`, () => import("./goals").then((m) => m.resumeGoals(sb, id, 1)))).catch((e) => console.error("[orbit] goals resume failed:", e?.message ?? e));
+      void idleGated(`missions:${id}`, () => import("./missions").then((m) => m.resumeMissions(sb, id))).catch((e) => console.error("[orbit] missions resume failed:", e?.message ?? e));
       // Briefings & digests Off/Ask/Stop-all: due slots are skipped, not run and not recorded as failed (no retry loop); his own Refresh still works.
       const brief = allows("briefings", "background");
       if (!(gates() && briefingsSkip(briefLast.get(id), new Date()))) { // no slot due even with the remembered runs: the database would agree (runs only get added)
@@ -143,6 +156,7 @@ async function tick(sb: SupabaseClient) {
   } catch (e) {
     console.error("[orbit] scheduler tick failed:", e instanceof Error ? e.message : e);
   } finally {
+    endEventsTick();
     g.__orbitBusy = false;
   }
 }

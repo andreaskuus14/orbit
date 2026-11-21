@@ -25,6 +25,7 @@ Open http://127.0.0.1:3000. (Dev mode is slower than the installed build. For th
 | `supabase/migrations/0023_attempt_ids.sql` | Approvals that create projects, tasks, automations (required) |
 | `supabase/migrations/0025_task_origin.sql` | Scorecard replays carry an origin (optional) |
 | `supabase/migrations/0026_prospect_drafted_at.sql` | Prospect `drafted_at`; without it Auto never sends a draft (optional) |
+| `supabase/migrations/0028_agent_task_counts.sql` | Faster agent counts in OPERATIONS (optional) |
 
 Doctor may also list other files (for example `0024_fact_entities.sql`). Apply whatever it lists. When Doctor shows none missing, this step is done.
 

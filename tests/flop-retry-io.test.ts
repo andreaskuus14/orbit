@@ -13,6 +13,7 @@ import { crossSiteBlocked } from "../src/lib/csrf.ts";
 import type { Clip, ClipJob } from "../src/lib/clips/types.ts";
 
 const require = createRequire(import.meta.url);
+const jobCache = await import("../src/lib/clips/job-cache-pure.ts");
 const compile = (file: string) => ts.transpileModule(readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
 const oldClip = (): Clip => ({ id: "clip-1", title: "Old Short", hook: "Old hook", start: 0, end: 20, reason: "", score: 0.5, status: "approved", video: "clips/original.mp4", publish: { status: "done", videoId: "abcdefghijk", title: "Old Short", privacy: "public", at: "" } });
 const makeJob = (clips: Clip[]): ClipJob => ({ id: "abcdef-123456", source: "source.mp4", status: "done", createdAt: "", updatedAt: "", step: "", warnings: [], progress: 1, options: { count: 1, maxSec: 30, captions: true }, clips });
@@ -30,6 +31,7 @@ function factory() {
       if (n === "./flop-retry-pure") return policy;
       if (n === "../approval-pure") return approvalPure;
       if (n === "../asr-pool") return { asrWorkers: () => 1 };
+      if (n === "./job-cache-pure") return jobCache;
       return {};
     },
   });

@@ -6,6 +6,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CliSession } from "./claude";
 import { orbitDataDir } from "./data-dir.ts";
 import { allowOnceBook, type AllowOnceBook } from "./allow-once-pure.ts";
+import { claimSkip } from "./scheduler-gate-pure.ts";
+import { eventsDirtyAt } from "./dirty-marks.ts";
 import { TICK_MAX, ackTrack, type Dead, capSessions, emptyTrack, liveSession, parseCursors, parseSessions, parseTracks, planTake, parseTaint, mergeTaint, type Cursors, type StoredSession, type TaintEntry, type Track } from "./durable-pure.ts";
 
 // Small state that must survive a restart (review finding 6), in <ORBIT data dir>:
@@ -140,6 +142,20 @@ export async function ackEvent(consumer: string, id: number, giveUp = false) {
   if (r.cursor !== getCursor(consumer)) await setCursor(consumer, r.cursor);
 }
 
+// One "newest event id" read shared by the consumers of one scheduler tick (automations, ntfy, rules: 3 event scans a minute →
+// usually 1 tiny read). Shared only inside a tick (scheduler.ts eventsTick/endEventsTick) and only until an emit() in this process
+// (dirty-marks.ts); outside a tick every call reads fresh. null on error = never skip.
+const eg = globalThis as unknown as { __orbitLatestEvent?: { at: number; p?: Promise<number | null> } | null };
+export const eventsTick = () => { eg.__orbitLatestEvent = { at: Date.now() }; };
+export const endEventsTick = () => { eg.__orbitLatestEvent = null; };
+async function latestEventId(sb: SupabaseClient): Promise<number | null> {
+  const read = () => Promise.resolve(sb.from("events").select("id").order("id", { ascending: false }).limit(1))
+    .then(({ data, error }) => (error ? null : ((data?.[0]?.id as number | undefined) ?? 0)), () => null);
+  const c = eg.__orbitLatestEvent, now = Date.now();
+  if (!c || now - c.at > 30_000 || now < c.at || eventsDirtyAt() >= c.at) return read();
+  return (c.p ??= read());
+}
+
 /** Events of `types` for one consumer, oldest first, at most TICK_MAX. Each is marked "processing" (saved) before it is returned;
  *  the caller acts, then calls ackEvent. One left unacknowledged by a crash comes back once more (its action must be idempotent on
  *  `event:<consumer>:<id>`); a second crash gives up on it. First run ever starts at the newest event. Events older than 24 h are
@@ -151,6 +167,7 @@ export async function claimEvents(sb: SupabaseClient, consumer: string, types: s
     await setCursor(consumer, data?.[0]?.id ?? 0);
     return [];
   }
+  if (process.env.ORBIT_EVENTS_GATE !== "0" && claimSkip(getCursor(consumer), await latestEventId(sb), track(consumer))) return []; // nothing newer: same [] the query below would give
   const want = track(consumer).retry;
   if (want?.length) { // owner Retry: these exact events, once (they stay dead letters until acknowledged)
     const { data, error } = await sb.from("events").select("id, user_id, type, payload, created_at").in("id", want);
