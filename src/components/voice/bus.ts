@@ -15,8 +15,10 @@ export type HandsFree = "off" | "chrome" | "local" | "orbit"; // orbit = "ORBIT 
 export type VoiceSettings = { speak: boolean; handsFree: HandsFree; voiceURI: string | null; rate: number; lang: string; engine: "chrome" | "whisper"; conversation: "stay" | "once";
   /** ORBIT mic: talking over ORBIT stops it from the mic level alone. Off by default: on speakers ORBIT's own voice
    *  could trigger it (Windows TTS can bypass echo cancellation); without it only "stop" / "Orbit, …" interrupt. */
-  bargeByVoice: boolean };
-export const DEFAULT_VOICE: VoiceSettings = { speak: true, handsFree: "chrome", voiceURI: null, rate: 1.05, lang: "en-US", engine: "chrome", conversation: "stay", bargeByVoice: false }; // hands-free on: the user asked for it; Settings says Chrome streams audio while it listens
+  bargeByVoice: boolean;
+  /** Estonian spoken answers: one of the Piper voice's four speakers (made on this PC). */
+  etVoice: string };
+export const DEFAULT_VOICE: VoiceSettings = { speak: true, handsFree: "chrome", voiceURI: null, rate: 1.05, lang: "en-US", engine: "chrome", conversation: "stay", bargeByVoice: false, etVoice: "Mari" }; // hands-free on: the user asked for it; Settings says Chrome streams audio while it listens
 
 /** Stored settings (any version) → current shape. Old { wake: boolean }: on + Whisper meant "keep my audio local", so it
  *  becomes local hands-free; on + Chrome stays Chrome. */
@@ -33,6 +35,7 @@ export function migrateVoiceSettings(raw: unknown): VoiceSettings {
     lang: typeof o.lang === "string" && o.lang ? o.lang : DEFAULT_VOICE.lang,
     conversation: o.conversation === "once" ? "once" : "stay",
     bargeByVoice: o.bargeByVoice === true,
+    etVoice: typeof o.etVoice === "string" && ET_VOICES.includes(o.etVoice) ? o.etVoice : DEFAULT_VOICE.etVoice,
   };
 }
 
@@ -43,8 +46,11 @@ export function recognizerFor(s: Pick<VoiceSettings, "handsFree" | "engine">, us
   return local || s.engine === "whisper" ? "whisper" : "chrome";
 }
 
-/** Whisper language for the language setting: Estonian uses the multilingual model, English the English-only one. */
-export const whisperLang = (lang: string): "et" | "en" => (/^et/i.test(lang) ? "et" : "en");
+export const ET_VOICES = ["Mari", "Vesta", "Albert", "Kalev"];
+/** Local listening language for the language setting: "auto" = English and Estonian, picked per sentence. */
+export const whisperLang = (lang: string): "et" | "en" | "auto" => (lang === "auto" ? "auto" : /^et/i.test(lang) ? "et" : "en");
+/** Chrome's recognizer needs one language: "auto" listens in English there. */
+export const chromeLang = (lang: string) => (lang === "auto" ? "en-US" : lang || "en-US");
 
 const KEY = "orbit.voice";
 // Speaking is per page load: ORBIT always opens muted (the user's voice leaked into Discord calls), the 🔇 button unmutes.

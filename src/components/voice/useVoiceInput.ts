@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { loadVoiceSettings, recognizerFor, voiceContext, voiceLevel, whisperLang, VOICE_ASK, VOICE_INTERRUPT } from "./bus";
+import { chromeLang, loadVoiceSettings, recognizerFor, voiceContext, voiceLevel, whisperLang, VOICE_ASK, VOICE_INTERRUPT } from "./bus";
 import { normalizeTranscript } from "./wake";
 import { correctTranscript, endpointDelay, mergeFinals, pickBestAlternative } from "./hear";
 import { recordUtterance, transcribeAudio } from "./whisper";
@@ -33,7 +33,8 @@ export function getSpeechRecognition(): SpeechRecCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 /** Set explicitly (voice settings): Chrome otherwise follows the browser's UI language, which may not be the spoken one. */
-export const speechLang = () => loadVoiceSettings().lang || "en-US";
+/** Chrome's recognizer language ("auto" listens in English there). */
+export const speechLang = () => chromeLang(loadVoiceSettings().lang);
 export const alternatives = (r: SpeechResult) => Array.from({ length: r.length }, (_, k) => r[k].transcript);
 
 /** Friendly text for a SpeechRecognition error code; null for ones the user doesn't need to see. */
@@ -129,7 +130,7 @@ export function useVoiceInput(): VoiceInput {
           const audio = await recordUtterance(ctrl.signal, (f) => { finishRecording = f; });
           if (!audio) { if (!cancelled) setError("I didn't hear anything. Click the mic and try again."); return end(""); }
           setInterim("Transcribing…");
-          end(correctTranscript(await transcribeAudio(audio, ctrl.signal, whisperLang(speechLang()))));
+          end(correctTranscript(await transcribeAudio(audio, ctrl.signal, whisperLang(loadVoiceSettings().lang))));
         } catch (e) {
           if (!cancelled) setError(e instanceof DOMException && e.name === "NotAllowedError" ? speechErrorMessage("not-allowed")!
             : e instanceof Error ? e.message : "Voice input stopped unexpectedly. Try again.");

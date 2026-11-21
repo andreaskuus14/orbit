@@ -20,8 +20,7 @@ import { readSleepReport } from "./sleep";
 import { stopAllOn } from "./stop-all";
 import { focusActive } from "./focus";
 import { localDay } from "./morning-pure";
-import { transcribeSpeech } from "./voice-asr";
-import { kokoroTts } from "./clips/story";
+import { speak, transcribe } from "./voice-io";
 import { encodeWav } from "./audio-pure";
 import { cleanWhisperText } from "@/components/voice/hear";
 import { getPersona, lastPersona } from "./persona";
@@ -105,15 +104,16 @@ export async function ringNow(sb: SupabaseClient, userId: string): Promise<numbe
   return deliver(pushLabel("call", things));
 }
 
-// ---- Voice out: Kokoro on this PC, one sentence at a time, as a 16-bit WAV (base64) ----
+// ---- Voice out: on this PC, one sentence at a time, as a 16-bit WAV (base64). Kokoro for English, the Estonian voice for Estonian
+// sentences (voice-io.ts picks by the words), so a call he holds in Estonian is answered in Estonian. ----
 export type Spoken = { text: string; audio: string | null };
 function tts(text: string): Promise<string | null> {
   const hit = G.cache.get(text);
   if (hit) return Promise.resolve(hit);
   // One at a time: parallel runs share the same CPU cores and each gets slower.
   const p = G.tts.then(async () => {
-    const out = await (await kokoroTts()).generate(text, { voice: VOICE() });
-    return Buffer.from(encodeWav(out.audio, out.sampling_rate)).toString("base64");
+    const out = await speak(text, "auto", { voice: VOICE() });
+    return Buffer.from(encodeWav(out.audio, out.rate)).toString("base64");
   });
   G.tts = p.catch(() => {});
   return p.then((b64) => { if (text.length < 40) G.cache.set(text, b64); return b64; }, (e) => { console.error("[call] tts:", e instanceof Error ? e.message : e); return null; });
@@ -308,7 +308,7 @@ export function callTurn(s: Session, input: { audio?: Float32Array; text?: strin
       const waiting = toItems(s.sb); // fetched while Whisper runs
       waiting.catch(() => {});
       try {
-        const heard = input.text ?? cleanWhisperText(await transcribeSpeech(input.audio!));
+        const heard = input.text ?? cleanWhisperText(await transcribe(input.audio!));
         ms.asr = Date.now() - t0;
         send({ type: "heard", text: heard });
         if (!heard.trim()) return;
