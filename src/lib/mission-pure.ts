@@ -123,3 +123,9 @@ export function bridgeStudio(body: unknown, now: number): BridgeStudio {
   }
   return { jobs: live, next, scheduled };
 }
+
+/** /api/mission's studio part: only the job fields bridgeStudio reads, from the same shown list as GET /api/studio/clips. */
+export function studioSummary(jobs: { id: string; source: string; status: string; step?: string; progress?: number; clips: { status: string; title?: string; publish?: { status?: string; scheduledFor?: string; title?: string } }[] }[]) {
+  return { jobs: jobs.map((j) => ({ id: j.id, source: j.source, status: j.status, step: j.step, progress: j.progress,
+    clips: j.clips.map((c) => ({ status: c.status, title: c.title, ...(c.publish ? { publish: { status: c.publish.status, scheduledFor: c.publish.scheduledFor, title: c.publish.title } } : {}) })) })) };
+}

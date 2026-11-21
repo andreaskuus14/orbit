@@ -12,6 +12,7 @@ import {
   goalProblem, isLive, newGoal, nextMove, okStep, parseJson, pause, planPrompt, reflectPrompt, resume, setPlan, startStep, stepRequest, stop,
   validateGoal, validateSteps, waitFor, type Goal,
 } from "./goals-pure";
+import { markResumeDirty } from "./dirty-marks";
 
 // GOALS runner. State: public.goals (migration 0010, RLS owner-only), one row per goal, the doc changed only by compare-and-swap on
 // `version`. Step work = ordinary top-level rows in public.tasks run through runTask, sharing the agent slots with chains (withSlot).
@@ -47,6 +48,7 @@ export async function mutate(sb: SupabaseClient, id: string, fn: (doc: Goal) => 
     if (!row) return { error: "Goal not found" };
     const err = fn(row.doc);
     if (err) return { error: err };
+    markResumeDirty(); // scheduler resume gate
     const { data, error } = await sb.from("goals").update({ doc: row.doc, status: row.doc.status, title: row.doc.title, version: row.version + 1, updated_at: new Date().toISOString() })
       .eq("id", id).eq("version", row.version).select(COLS);
     if (error) throw error;
@@ -73,6 +75,7 @@ export async function createGoal(sb: SupabaseClient, userId: string, body: unkno
   if (countErr) return { error: countErr.message };
   if ((mine ?? []).filter((r) => isOpen(r.status)).length >= MAX_OPEN) return { error: `You already have ${MAX_OPEN} open goals; finish, stop or delete one first` };
   const doc = newGoal(v), run = evalRunId(); // an eval run's goal carries its id (eval-run.ts cleanup)
+  markResumeDirty();
   const { data, error } = await sb.from("goals").insert({ user_id: userId, title: doc.title, status: doc.status, doc: run ? { ...doc, eval: run } : doc }).select(COLS).single();
   if (error) return { error: error.message };
   void draftPlan(sb, userId, data.id);
@@ -211,9 +214,11 @@ export function abortGoalDrivers() {
 }
 
 /** Scheduler tick (and opening ORBIT): nudge every live goal (no-op for ones already driving). */
-export async function resumeGoals(sb: SupabaseClient, userId: string, maxRuns = Infinity) {
-  const { data } = await sb.from("goals").select("id").eq("user_id", userId).in("status", ["approved", "running", "waiting"]);
+/** Returns how many live goals it found (1 on a failed read: unknown), for the scheduler's idle gate. */
+export async function resumeGoals(sb: SupabaseClient, userId: string, maxRuns = Infinity): Promise<number> {
+  const { data, error } = await sb.from("goals").select("id").eq("user_id", userId).in("status", ["approved", "running", "waiting"]);
   for (const r of data ?? []) void advance(sb, userId, r.id, maxRuns);
+  return error ? 1 : (data ?? []).length;
 }
 
 export type GoalAction = "approve" | "edit" | "redraft" | "ok" | "proposal" | "pause" | "resume" | "stop" | "continue" | "metric" | "delete" | "milestones" | "replan" | "phrase";

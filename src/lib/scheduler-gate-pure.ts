@@ -21,3 +21,17 @@ export const proposalsSkip = (r: Remembered<number> | undefined, now: number, ev
 
 /** A slow sweep (approval expiry, the user list) runs at most every everyMs. */
 export const sweepDue = (lastAt: number | undefined, now: number, everyMs: number) => lastAt === undefined || now - lastAt >= everyMs || now < lastAt;
+
+// ── efficiency pass 2 ──
+/** Events: one shared "newest event id" read per tick serves every consumer (automations, ntfy, rules). A consumer whose cursor
+ *  is already at or past it, with nothing in flight or acknowledged-ahead and no owner Retry waiting, would read [] from the
+ *  `id > cursor` query: skip that query. latest null (unknown) never skips. ORBIT_EVENTS_GATE=0 = always query. */
+export const claimSkip = (cursor: number | undefined, latest: number | null, t: { done: number[]; inflight: Record<string, number>; retry?: number[] }) =>
+  cursor !== undefined && latest !== null && latest <= cursor && !t.done.length && !Object.keys(t.inflight).length && !t.retry?.length;
+
+/** missions / agent teams / goals resume passes: after a pass found nothing to resume, the next ones are skipped until something
+ *  could have changed (an event was emitted or one of their writers ran, both in this process: dirtyAt), or maxAgeMs passed
+ *  (another process, a row edited by hand). A pass that found rows always runs again next tick. ORBIT_RESUME_GATE=0 = every tick. */
+export type IdleMark = { at: number; empty: boolean };
+export const resumeSkip = (m: IdleMark | undefined, dirtyAt: number, now: number, maxAgeMs = 10 * 60_000) =>
+  !!m && m.empty && dirtyAt <= m.at && now >= m.at && now - m.at < maxAgeMs;

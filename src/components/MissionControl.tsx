@@ -52,10 +52,15 @@ export function MissionControl() {
   useEffect(() => {
     if (!open) return;
     let alive = true;
+    let combined = true; // one /api/mission request per poll; its {off:true} or a failure → the separate requests, as before
+    const separate = () => Promise.all([get("/api/tasks"), get("/api/proposals"), get("/api/usage-meter"), get("/api/studio/clips"),
+      sb.from("events").select("type, created_at").order("created_at", { ascending: false }).limit(14).then((r) => r.data ?? null, () => null)]);
     const poll = async (first: boolean) => {
-      const [tasks, proposals, usage, studio, doctor, ev] = await Promise.all([get("/api/tasks"), get("/api/proposals"), get("/api/usage-meter"), get("/api/studio/clips"),
-        first ? get("/api/doctor?boot=1") : null, // this boot's cached self-test: no heavy checks re-run
-        sb.from("events").select("type, created_at").order("created_at", { ascending: false }).limit(14).then((r) => r.data ?? null, () => null)]);
+      const boot = first ? get("/api/doctor?boot=1") : null; // this boot's cached self-test: no heavy checks re-run
+      const one = combined ? await get("/api/mission") : null;
+      if (combined && (!one || one.off)) combined = false;
+      const [[tasks, proposals, usage, studio, ev], doctor] = await Promise.all([
+        combined ? [one.tasks, one.proposals, one.usage, one.studio, one.events] : separate(), boot]);
       if (alive) setD((p) => ({ tasks, proposals, usage, studio, doctor: doctor ?? p.doctor, events: ev ?? p.events }));
     };
     void poll(true);

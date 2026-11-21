@@ -4,20 +4,27 @@ import { requireUser } from "@/lib/supabase/server";
 import { checkTools, createJob, ensureDirs, inboxDir, listDownloads, listInbox, listJobs, listQuarantined, publishingKey, startClipQueue, studioRoot } from "@/lib/clips/factory";
 import { isInboxName, validOptions } from "@/lib/clips/pure";
 import { readFailAck } from "@/lib/clips/fail-ack";
+import { etagFor, etagMatches } from "@/lib/clips/job-cache-pure";
+import { shownJobs } from "@/lib/clips/pure";
+import { createHash } from "node:crypto";
 
 export const dynamic = "force-dynamic";
 
 // CLIP FACTORY: inbox videos → vertical Shorts. Contract: src/lib/clips/types.ts.
-export async function GET() {
+export async function GET(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   startClipQueue();
   await ensureDirs();
-  const [jobs, downloads] = await Promise.all([listJobs(), listDownloads()]);
-  // Newest 30, plus any older job still running or holding clips to review/publish, so those never drop off the list.
-  const shown = jobs.filter((j, i) => i < 30 || !["done", "failed"].includes(j.status) || j.clips.some((c) => c.status === "ready" || c.status === "approved"));
-  return Response.json({ root: studioRoot(), tools: await checkTools(), inbox: await listInbox(jobs, downloads), jobs: shown, downloads: downloads.slice(0, 20),
+  const [jobs, downloads] = await Promise.all([listJobs({ shared: true }), listDownloads()]); // read-only here: the cached jobs, no copies
+  const body = JSON.stringify({ root: studioRoot(), tools: await checkTools(), inbox: await listInbox(jobs, downloads), jobs: shownJobs(jobs), downloads: downloads.slice(0, 20),
     quarantined: await listQuarantined(), publishing: publishingKey(), failAck: await readFailAck().catch(() => []) }); // publishing: "<job>/<clip>" uploading now (other "uploading" clips are stale) // read after the lists: reading is what moves damaged files aside
+  // ETag/304 (job-cache-pure.ts): a poll whose list hasn't changed gets no body; the client keeps what it has. ORBIT_CLIPS_ETAG=0 = always 200.
+  if (process.env.ORBIT_CLIPS_ETAG === "0") return new Response(body, { headers: { "Content-Type": "application/json" } });
+  const tag = etagFor(createHash("sha1").update(body).digest("hex"));
+  const headers = { ETag: tag, "Cache-Control": "private, no-cache" };
+  if (etagMatches(req.headers.get("if-none-match"), tag)) return new Response(null, { status: 304, headers });
+  return new Response(body, { headers: { ...headers, "Content-Type": "application/json" } });
 }
 
 export async function POST(req: Request) {

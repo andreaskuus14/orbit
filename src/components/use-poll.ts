@@ -24,3 +24,16 @@ const inflight = new Map<string, Promise<unknown>>();
 /** GET JSON (null on failure), shared across components while one identical request is in flight. */
 export const sharedJson = <T = unknown>(url: string): Promise<T | null> =>
   dedupe(inflight, url, () => fetch(url, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null), () => null));
+
+const tagged = new Map<string, { etag: string; json: unknown }>();
+/** GET JSON with If-None-Match: a 304 returns the exact object of the last 200 (same identity, so React skips the re-render).
+ *  Throws like a failed fetch on other errors; servers without an ETag behave exactly like a plain GET. */
+export async function etagJson<T>(url: string): Promise<{ ok: boolean; status: number; json: T }> {
+  const prev = tagged.get(url);
+  const res = await fetch(url, { cache: "no-store", headers: prev ? { "If-None-Match": prev.etag } : undefined });
+  if (res.status === 304 && prev) return { ok: true, status: 200, json: prev.json as T };
+  const json = await res.json().catch(() => ({}));
+  const etag = res.headers.get("etag");
+  if (res.ok && etag) tagged.set(url, { etag, json }); else tagged.delete(url);
+  return { ok: res.ok, status: res.status, json: json as T };
+}

@@ -7,6 +7,7 @@ import { createBudget, emit } from "./claude";
 import { interruptedPatch } from "./completion-pure";
 import { COMPANY_PREFIX, resolvedStep, roleOf, stepStatus } from "./company-pure";
 import { CHAIN_TITLE, acceptHandoff, byStep, chainView, nextMove, parseMeta, stepTitle, toMeta, validateChain, type ChainView, type ChildRow } from "./chains-pure";
+import { markResumeDirty } from "./dirty-marks";
 
 // AGENT TEAMS runner: the chain lives in the tasks table (see chains-pure.ts), so it survives restarts. drive() walks the steps in order,
 // one at a time per chain, and stops at an approval; resumeChains (the scheduler tick) picks it up again. Reads never drive
@@ -30,6 +31,7 @@ export async function createChain(sb: SupabaseClient, userId: string, body: unkn
   const d = validateChain(body);
   if (typeof d === "string") return { error: d };
   for (const st of d.steps) if (!(await getAgent(sb, st.agent, userId))) return { error: `Unknown agent "${st.agent}"` };
+  markResumeDirty(); // scheduler resume gate
   const { data: parent, error } = await sb.from("tasks").insert({
     user_id: userId, agent: "nova", title: `${prefix}${d.goal}`.slice(0, 200), request: JSON.stringify(toMeta(d, company)), status: "running",
   }).select("id").single(); // started_at stays null: the stale-task sweep only touches rows with a started_at
@@ -78,9 +80,11 @@ export async function listChains(sb: SupabaseClient, _userId: string): Promise<C
 }
 
 /** For a server-side tick: continue this user's running chains. skipCompany: in the night window, company chains are the night shift's (its budget). */
-export async function resumeChains(sb: SupabaseClient, userId: string, skipCompany = false) {
-  const { data } = await sb.from("tasks").select("id, request").eq("user_id", userId).is("parent_id", null).eq("status", "running").like("title", `${CHAIN_TITLE}%`);
+/** Returns how many running teams it found (1 on a failed read: unknown), for the scheduler's idle gate. */
+export async function resumeChains(sb: SupabaseClient, userId: string, skipCompany = false): Promise<number> {
+  const { data, error } = await sb.from("tasks").select("id, request").eq("user_id", userId).is("parent_id", null).eq("status", "running").like("title", `${CHAIN_TITLE}%`);
   for (const p of data ?? []) { const m = parseMeta(p.request); if (m && !(m.company && (skipCompany || !allows("goals", "background").ok))) void drive(sb, userId, p.id); }
+  return error ? 1 : (data ?? []).length;
 }
 
 /** Running company chains with each step's status and call cap, for the night shift's planner (night-pure companySteps). Never drives. */

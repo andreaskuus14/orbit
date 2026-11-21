@@ -27,6 +27,7 @@ import { OAuthError, getAccessToken, invalidateAccess, readStored } from "../yt-
 import { TITLES_RULE, creatorFromSource, thumbTimes } from "./titles";
 import { nextDevlogDay, sourceNote } from "./inbox-watch";
 import { DEVLOG_DIR, devlogMoment, devlogTitle, momentPrompts, sameSourceDay } from "./devlog";
+import { createJobCache, stampOf } from "./job-cache-pure";
 import type { Clip, ClipJob, ClipOptions, ClipPublish, Download, InboxFile, JobStatus, Quarantined, ToolsStatus } from "./types";
 import {
   MAX_SOURCE_SEC, MIN_CLIP_SEC, SAMPLE_RATE, asrBudgetSec, VIDEO_EXTS, WIN_SEC, asrPieces, asrRegions, audioArgs, buildAss, clipLoudness, fallbackMoments, frameArgs,
@@ -182,7 +183,7 @@ export function saveState(id: string, file: string, data: unknown): Promise<void
     const tmp = `${file}.${process.pid}.tmp`, fh = await open(tmp, "w");
     try { await fh.writeFile(JSON.stringify(data, null, 2)); await fh.sync(); } finally { await fh.close(); }
     for (let i = 0; ; i++) { // Windows: antivirus/indexer can briefly lock the target
-      try { await rename(tmp, file); break; }
+      try { await rename(tmp, file); JC.drop(id); break; }
       catch (e) {
         if (i >= 5 || !["EPERM", "EACCES", "EBUSY"].includes((e as NodeJS.ErrnoException).code ?? "")) throw e;
         await new Promise((r) => setTimeout(r, 50 * 2 ** i));
@@ -242,9 +243,26 @@ export async function getJob(id: string): Promise<ClipJob | null> {
   return readState<ClipJob>(jobsDir(), id, jobProblem);
 }
 
-export async function listJobs(): Promise<ClipJob[]> {
+// Parsed job files keyed by their stamp (job-cache-pure.ts). Callers get their own copy (they may change and save a job);
+// shared: true is for read-only callers (the GET list), which then skip the copy too. ORBIT_JOB_CACHE=0 = no cache.
+const JC = ((globalThis as unknown as { __orbitJobCache?: ReturnType<typeof createJobCache<ClipJob>> }).__orbitJobCache ??= createJobCache<ClipJob>());
+const jobCacheOn = () => process.env.ORBIT_JOB_CACHE !== "0";
+
+export async function listJobs(o: { shared?: boolean } = {}): Promise<ClipJob[]> {
   const names = (await readdir(jobsDir()).catch(() => [] as string[])).filter((n) => n.endsWith(".json"));
-  const jobs = (await Promise.all(names.map((n) => getJob(n.slice(0, -5))))).filter((j): j is ClipJob => !!j);
+  const ids = names.map((n) => n.slice(0, -5));
+  if (jobCacheOn()) JC.keepOnly(ids);
+  const one = async (id: string): Promise<ClipJob | null> => {
+    if (!jobCacheOn() || S.running?.job.id === id) return getJob(id);
+    const st = await stat(path.join(jobsDir(), `${id}.json`)).catch(() => null);
+    if (!st) return getJob(id); // vanished meanwhile: readState decides, as before
+    const stamp = stampOf(st), hit = JC.get(id, stamp);
+    if (hit) return o.shared ? hit : structuredClone(hit);
+    const j = await getJob(id);
+    if (j) JC.set(id, stamp, o.shared ? j : structuredClone(j)); else JC.drop(id);
+    return j;
+  };
+  const jobs = (await Promise.all(ids.map(one))).filter((j): j is ClipJob => !!j);
   return jobs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
