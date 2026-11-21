@@ -4,7 +4,7 @@
 import { WorldEmblem } from "./WorldEmblem";
 import { WorldHeaderArt } from "./WorldHeaderArt";
 import { WarmCompile } from "./WarmCompile";
-import { memo, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
 import * as THREE from "three";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
@@ -541,7 +541,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         </Canvas>
       )}
 
-      <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[45dvh] space-y-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label={tr("arch.controls")}>
+      <section style={{ "--planet": "#94a3b8" } as CSSProperties} className="ws glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[45dvh] space-y-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label={tr("arch.controls")}>
         <h2 className="brand world-header flex items-center gap-2 text-base"><WorldEmblem id="arch" size={28} />{"ARCH"}<WorldHeaderArt id="arch" /></h2>
         {simple ? <PlanetHome planet="arch" onManual={() => setManual(true)} onExample={(q) => void send(q)} noInput action={cmdBlock} />
           : <BackToSimple onClick={() => setManual(false)} />}
@@ -549,10 +549,14 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         <div hidden={simple}><ProjectDesk key={project || "unassigned"} project={project} onSelect={onProject} active={!paused} disabled={!ready || busy || lessonBusy || !!lesson || ["saving", "failed", "conflict"].includes(save.status)} /></div>
         {!simple && cmdBlock}
         <div hidden={simple} className="space-y-3">
-        <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void teach(); }}>
-          <input className="field flex-1" placeholder={tr("arch.topicPh")} value={topic} maxLength={200} onChange={(e) => setTopic(e.target.value)} aria-label={tr("arch.topic")} />
-          <button className="btn" disabled={lessonBusy || !topic.trim()}>{lessonBusy ? tr("cf.writing") : `📚 ${tr("arch.teach")}`}</button>
-        </form>
+        {/* Learning is its own job, not the house: folded so the "Do it" box is the one place to type (open while a lesson runs). */}
+        <details className="arch-learn" open={!!lesson || lessonBusy || undefined}>
+          <summary className="chip inline-flex cursor-pointer select-none list-none">📚 {tr("arch.teach")}</summary>
+          <form className="mt-1.5 flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void teach(); }}>
+            <input className="field flex-1" placeholder={tr("arch.topicPh")} value={topic} maxLength={200} onChange={(e) => setTopic(e.target.value)} aria-label={tr("arch.topic")} />
+            <button className="btn" disabled={lessonBusy || !topic.trim()}>{lessonBusy ? tr("cf.writing") : tr("arch.teach")}</button>
+          </form>
+        </details>
         {lessonMsg && <p aria-live="polite">{lessonMsg}</p>}
         {lesson && (
           <div className="card space-y-2" aria-label={tr("arch.lessonAria", { name: lesson.building })}>
@@ -638,11 +642,11 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
           </div>
         )}
         <div className="flex flex-wrap gap-1.5">
-          <button className="chip" onClick={() => setRun((n) => n + 1)} title={tr("arch.buildTitle")}>▶ {tr("arch.build")}</button>
-          <button className="chip" aria-pressed={walk} disabled={flat} onClick={() => setWalk((v) => !v)} title={tr("arch.walkTitle")}>🚶 {tr("arch.walk")}</button>
+          {/* Main row (tools pass, 21 Nov): what he uses while shaping the house. Everything else folds under More tools. */}
           <button className="chip" disabled={!past.length} onClick={undo}>↶ {tr("arch.undo")}</button>
+          <button className="chip" aria-pressed={walk} disabled={flat} onClick={() => setWalk((v) => !v)} title={tr("arch.walkTitle")}>🚶 {tr("arch.walk")}</button>
           {/* "show me X" toggles, folded (UI audit PR 3); a count shows how many are on. The "Do it" box can ask for these too. */}
-          <details className="w-full" open={viewOpen} onToggle={(e) => setViewOpen((e.currentTarget as HTMLDetailsElement).open)}>
+          <details className="arch-view" open={viewOpen} onToggle={(e) => setViewOpen((e.currentTarget as HTMLDetailsElement).open)}>
             <summary className="chip inline-flex cursor-pointer select-none list-none">👁 {tr("arch.viewMenu")} {viewOpen ? "▴" : "▾"}{viewsOn ? <span className="num ml-1">· {viewsOn}</span> : null}</summary>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
           <button className="chip" aria-pressed={noRoof} onClick={() => setNoRoof((v) => !v)}>{tr("arch.hideRoof")}</button>
@@ -666,6 +670,12 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
               </>}
             </span>
           )}
+          <details className="arch-more" open={!!brief || undefined}>
+            <summary className="chip inline-flex cursor-pointer select-none list-none">⋯ {tr("arch.moreTools")}</summary>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+          <button className="chip" onClick={() => setRun((n) => n + 1)} title={tr("arch.buildTitle")}>▶ {tr("arch.build")}</button>
+          <button className="chip" aria-pressed={!!brief} onClick={() => setBrief((b) => (b ? null : { area: 120, bedrooms: 2, sauna: true, view: "s" }))} title={tr("arch.conceptsTitle")}>✏ {tr("arch.concepts")}</button>
+          <button className="chip" disabled={!shell} onClick={addInterior} title={tr("arch.wallTitle")}>+ {tr("arch.wall")}</button>
           <button className="chip" onClick={() => { setPast((p) => [...p, scene]); setScene(starterScene()); setSel(null); }}>{tr("arch.startOver")}</button>
           {brief && (
             <div className="glass w-full space-y-2 p-2 text-xs" role="group" aria-label={tr("arch.concepts")}>
@@ -684,12 +694,12 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
               ))}
             </div>
           )}
-          <button className="chip" aria-pressed={!!brief} onClick={() => setBrief((b) => (b ? null : { area: 120, bedrooms: 2, sauna: true, view: "s" }))} title={tr("arch.conceptsTitle")}>✏ {tr("arch.concepts")}</button>
-          <button className="chip" disabled={!shell} onClick={addInterior} title={tr("arch.wallTitle")}>+ {tr("arch.wall")}</button>
+            </div>
+          </details>
         </div>
 
-        <div className="card space-y-1.5" aria-label={tr("arch.exports")}>
-          <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.exports")}</div>
+        <details className="card arch-exports space-y-1.5" aria-label={tr("arch.exports")}>
+          <summary className="cursor-pointer select-none text-xs font-semibold">⬇ {tr("arch.exports")} <span className="muted font-normal">· {tr("arch.exportsReady", { n: exportsList.filter((x) => x.ok).length, m: exportsList.length })}</span></summary>
           {exportsList.map((x) => {
             const label = tr(x.format === "csv" ? "arch.boqCsv" : x.format === "json" ? "arch.sceneJson" : "arch.ifc");
             return <div key={x.format} className="text-xs">
@@ -704,7 +714,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
             </div>;
           })}
           <p className="muted text-[11px]">{tr("arch.exportHow")}</p>
-        </div>
+        </details>
         <IfcPanel ifc={ifc} view={() => r3f.current} sun={{ lat: at.lat, lon: at.lon, north, year: Number(sun.date.slice(0, 4)) }} onClose={() => setIfc(null)}
           onOpen={(x) => { setIfc(x); setScan(null); setMeas(null); setWalk(false); setSel(null); setSun((v) => ({ ...v, on: true })); }} />
         <IfcOpen />

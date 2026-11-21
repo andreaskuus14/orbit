@@ -21,8 +21,11 @@ sheen on running work, press/hover feedback, smooth More disclosure. All motion 
 ## Still open (next)
 1. Contract hardening: a 200 reply missing its list crashes BUSINESS, VAULT, INTELLIGENCE, MEMORY, AGENTS (panel + station),
    PROFILE → Autonomy, ARCH → ProjectDesk, MEMORY world. Boundaries now contain it; each reader should default its arrays.
-2. "All tools" density: ARCH 47 buttons, BUSINESS 30, LIFE 26, DEV 19, INTELLIGENCE 17. Move the 2–3 most used into each
-   simple page as results/actions; keep the rest behind More.
+2. "All tools" pass 1 done (second commit): shared frame (planet-coloured sliding tab, calm cards, readable headings, tab
+   cross-fade) for BUSINESS, LIFE, INTELLIGENCE, DEV, AGENTS, STUDIO production; BUSINESS today queue + "Find new clients" and
+   LIFE habits on the simple pages; BUSINESS insights moved under More; ARCH one tool row, folds for project desk, learning,
+   extra tools and exports. Next: the same for DEV, INTELLIGENCE, AGENTS, STUDIO; ARCH's two IFC cards into one; LIFE's
+   calendar card shows .env setup text to the owner.
 3. Two tests need local setup: `frame-review` needs the ffmpeg-static binary; the 512 MB worker test fails when NODE_OPTIONS
    raises the heap.
 4. `next dev` needs ~4 GB: on the laptop prefer `app:start` (production) over `app:dev`.

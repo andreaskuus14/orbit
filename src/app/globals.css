@@ -1036,3 +1036,4 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .kept > .planet-boundary { position: absolute; inset: 0; margin: auto; height: fit-content; z-index: 20; background: rgba(9, 14, 26, 0.94); }
 .planet-boundary-mark { width: 10px; height: 10px; border-radius: 50%; background: #fb7185; box-shadow: 0 0 0 4px rgba(251, 113, 133, 0.18); }
 @media (prefers-reduced-motion: reduce) { .planet-boundary { animation: none; } }
+

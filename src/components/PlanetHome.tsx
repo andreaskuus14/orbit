@@ -9,7 +9,7 @@ import { planetNeeds, type Need } from "@/lib/needs-you-pure";
 import { planetById } from "@/lib/planets";
 import { linkToHash } from "@/lib/deeplink-pure";
 import { fromNeed, type Progress } from "@/lib/progress-pure";
-import { businessRows, examples as pickExamples, vaultRows, type SimpleRow } from "@/lib/planet-page-pure";
+import { examples as pickExamples } from "@/lib/planet-page-pure";
 import { VOICE_ASK } from "./voice/bus";
 import { openTarget } from "./NeedsYou";
 import { nav } from "./palette-commands";
@@ -158,25 +158,4 @@ function useRotating(items: string[], on: boolean): string | null {
 export function BackToSimple({ onClick }: { onClick: () => void }) {
   const { t } = useT();
   return <button type="button" className={`link text-xs ${css.back}`} onClick={onClick}>← {t("ph.simple")}</button>;
-}
-
-/** Wrap a planet panel (opened by Orbit): simple page first, the panel itself behind More → All tools. BUSINESS and VAULT get their
- *  latest items as results; LIFE shows none on purpose (its text stays private, and there's nothing for ORBIT to "make" there). */
-export function SimpleOr({ planet, onOpenTask, onOpenGoal, children }: { planet: SimplePlanet; onOpenTask: (id: string) => void; onOpenGoal?: (id: string) => void; children: ReactNode }) {
-  const { lang } = useT();
-  const [manual, setManual] = useManual(planet);
-  const [rows, setRows] = useState<SimpleRow[] | null>(null);
-  const src = planet === "business" ? "/api/business" : planet === "vault" ? "/api/vault" : null;
-  useEffect(() => {
-    if (manual || !src) return;
-    let live = true;
-    fetch(src, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => {
-      if (!live) return;
-      setRows(!j ? [] : planet === "business" ? businessRows(j.prospects ?? [], lang) : vaultRows(j.files ?? [], lang));
-    }, () => { if (live) setRows([]); });
-    return () => { live = false; };
-  }, [manual, src, planet, lang]);
-  if (!manual) return <PlanetHome planet={planet} onManual={() => setManual(true)} onOpenTask={onOpenTask} onOpenGoal={onOpenGoal}
-    results={src ? rows && rows.map((r) => ({ ...r, open: () => { if (r.link) location.hash = r.link.slice(1); else setManual(true); } })) : undefined} />;
-  return <><BackToSimple onClick={() => setManual(false)} />{children}</>;
 }

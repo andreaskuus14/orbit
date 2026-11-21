@@ -92,3 +92,21 @@
   .page :global(.progress-card[data-phase="working"] .progress-bar > i)::after { display: none; }
 }
 
+
+/* BUSINESS today queue on the simple page: one dot per kind (follow-up amber, send cyan, write a first message slate). */
+.today { gap: 0.65rem; }
+.todayDot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #64748b; }
+.todayDot[data-kind="followup"] { background: #fbbf24; box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.15); }
+.todayDot[data-kind="send"] { background: var(--planet); box-shadow: 0 0 0 3px color-mix(in srgb, var(--planet) 20%, transparent); }
+
+/* LIFE habits on the simple page: a round check that fills with the planet's colour and pops when done. */
+.habit { gap: 0.7rem; transition: opacity 0.25s; }
+.habit[data-done] b { color: #94a3b8; text-decoration: line-through; text-decoration-color: rgba(148, 163, 184, 0.5); }
+.check { display: grid; place-items: center; width: 1.6rem; height: 1.6rem; flex: none; border-radius: 50%; cursor: pointer;
+  border: 1.5px solid color-mix(in srgb, var(--planet) 65%, #475569); background: transparent; color: #04110b; font-size: 0.85rem; font-weight: 700;
+  transition: background-color 0.2s, border-color 0.2s, transform 0.12s; }
+.check:hover:not(:disabled) { transform: scale(1.08); }
+.check:active:not(:disabled) { transform: scale(0.92); }
+.check[aria-pressed="true"] { background: var(--planet); border-color: var(--planet); }
+.check[aria-pressed="true"] > span { animation: ph-pop 0.35s cubic-bezier(0.3, 1.4, 0.5, 1) both; }
+@media (prefers-reduced-motion: reduce) { .check, .check > span { transition: none !important; animation: none !important; } }
