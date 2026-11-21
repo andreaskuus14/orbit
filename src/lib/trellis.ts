@@ -1,11 +1,11 @@
-// TRELLIS.2 picture → 3D, server side: its own ComfyUI on 127.0.0.1:8189 (tools/trellis, installed by setup.ps1).
+// TRELLIS.2 (best) / Pixal3D (draft) picture → 3D, server side: its own ComfyUI on 127.0.0.1:8189 (tools/trellis, installed by setup.ps1).
 // Upload → queue → poll → fetch the .glb → VAULT. Local only: the picture never leaves the PC, nothing is paid, so no approval.
 import { readStream, saveUpload } from "./vault";
 import { assetName } from "./local-ai-pure";
 import { stopAllOn } from "./stop-all";
 import { abortError, acquireGpu, freeComfyVram, pause } from "./gpu-lock";
 import { comfyUrl } from "./comfy-pure";
-import { MODEL, isGlb, outputRef, robloxMaterials, parseQueued, parseRun, trellisNotRunning, trellisUrl, workflow } from "./trellis-pure";
+import { DRAFT, DRAFT_MODEL, MODEL, graphFor, isGlb, outputRef, robloxMaterials, parseQueued, parseRun, trellisNotRunning, trellisUrl, type Quality } from "./trellis-pure";
 
 const base = () => trellisUrl(process.env.ORBIT_TRELLIS_URL);
 const G = globalThis as unknown as { __orbitTrellis?: Promise<boolean> | null; __orbitTrellisFree?: NodeJS.Timeout };
@@ -42,12 +42,14 @@ function autostart(u: string): Promise<boolean> {
 const ready = async (u: string) => !!(await stats(u, 2000)) || autostart(u);
 const post = (u: string, path: string, body: unknown) => fetch(`${u}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
 
-/** One picture → .glb bytes, capped for Roblox (20k triangles, 1024 px texture). First run downloads ~10 GB of model files. */
-export async function trellisModel(picture: Blob, job: string, timeoutMs = 25 * 60_000, o: { onWait?: (text: string) => void; signal?: AbortSignal } = {}): Promise<Uint8Array> {
+/** One picture → .glb bytes, capped for Roblox (20k triangles, 1024 px texture). quality "draft" = Pixal3D grey blocking mesh, else TRELLIS.2. */
+export async function trellisModel(picture: Blob, job: string, timeoutMs = 25 * 60_000, o: { onWait?: (text: string) => void; signal?: AbortSignal; quality?: Quality } = {}): Promise<Uint8Array> {
+  const qual: Quality = o.quality === "draft" ? "draft" : "best";
+  const name = qual === "draft" ? "Pixal3D" : "TRELLIS.2";
   const u = base();
   if (!u) throw new Error("ORBIT_TRELLIS_URL must point at this PC (http://127.0.0.1:<port>).");
   if (stopAllOn()) throw new Error("ORBIT is paused (Stop-all is on)");
-  if (!(await ready(u))) throw new Error(trellisNotRunning());
+  if (!(await ready(u))) throw new Error(trellisNotRunning(qual));
   // One heavy GPU job at a time on the shared 8 GB card (gpu-lock.ts); the pictures ComfyUI gives its VRAM back first.
   const lease = await acquireGpu("3d", { maxWaitMs: 60 * 60_000, ttlMs: 5 * 60_000 /* heartbeat: every poll */, onWait: o.onWait, signal: o.signal });
   try {
@@ -58,24 +60,24 @@ export async function trellisModel(picture: Blob, job: string, timeoutMs = 25 * 
     up.append("overwrite", "true");
     const ur = await fetch(`${u}/upload/image`, { method: "POST", body: up, signal: AbortSignal.timeout(60_000) });
     const uploaded = (await ur.json().catch(() => null)) as { name?: unknown } | null;
-    if (!ur.ok || typeof uploaded?.name !== "string") throw new Error(`TRELLIS.2 didn't accept the picture (${ur.status}).`);
-    const q = parseQueued(await (await post(u, "/prompt", { prompt: workflow({ image: uploaded.name, seed: 42, job }), client_id: "orbit" })).json().catch(() => null));
+    if (!ur.ok || typeof uploaded?.name !== "string") throw new Error(`${name} didn't accept the picture (${ur.status}).`);
+    const q = parseQueued(await (await post(u, "/prompt", { prompt: graphFor(qual, { image: uploaded.name, seed: 42, job }), client_id: "orbit" })).json().catch(() => null), qual);
     if ("error" in q) throw new Error(q.error);
     const until = Date.now() + timeoutMs;
     try {
       for (;;) {
         if (stopAllOn()) { await post(u, "/interrupt", {}).catch(() => {}); throw new Error("Stopped: Stop-all is on"); }
-        if (Date.now() > until) { await post(u, "/interrupt", {}).catch(() => {}); throw new Error(`TRELLIS.2 took longer than ${Math.round(timeoutMs / 60_000)} min and was stopped.`); }
+        if (Date.now() > until) { await post(u, "/interrupt", {}).catch(() => {}); throw new Error(`${name} took longer than ${Math.round(timeoutMs / 60_000)} min and was stopped.`); }
         if (o.signal?.aborted) { await post(u, "/interrupt", {}).catch(() => {}); throw abortError(o.signal); } // cancelled while running: stop the GPU work too
         await pause(2000, o.signal);
         if (o.signal?.aborted) continue; // handled at the top of the loop
         lease.beat();
-        const h = parseRun(await fetch(`${u}/history/${encodeURIComponent(q.id)}`, { cache: "no-store", signal: AbortSignal.timeout(10_000) }).then((r) => r.json(), () => null), q.id);
+        const h = parseRun(await fetch(`${u}/history/${encodeURIComponent(q.id)}`, { cache: "no-store", signal: AbortSignal.timeout(10_000) }).then((r) => r.json(), () => null), q.id, qual);
         if (h.state === "error") throw new Error(h.error);
         if (h.state === "done") {
           const r = await fetch(`${u}/view?${new URLSearchParams(outputRef(job))}`, { signal: AbortSignal.timeout(60_000) });
           const bytes = new Uint8Array(await r.arrayBuffer());
-          if (!r.ok || !isGlb(bytes)) throw new Error(`TRELLIS.2 finished but the .glb couldn't be read (${r.status}); see tools/trellis/service.log.`);
+          if (!r.ok || !isGlb(bytes)) throw new Error(`${name} finished but the .glb couldn't be read (${r.status}); see tools/trellis/service.log.`);
           return robloxMaterials(bytes);
         }
       }
@@ -87,14 +89,16 @@ export async function trellisModel(picture: Blob, job: string, timeoutMs = 25 * 
   } finally { lease.release(); }
 }
 
-/** CORE's local_3d with quality "best". Errors come back as "Error: ..." text (core.ts's convention). */
-export async function runTrellisTool(i: Record<string, unknown>): Promise<string> {
+/** CORE's local_3d with quality "draft" or "best". Errors come back as "Error: ..." text (core.ts's convention). */
+export async function runTrellisTool(i: Record<string, unknown>, quality: Quality = "best"): Promise<string> {
   try {
     const { stream } = await readStream(i.image, null); // a VAULT file; traversal/missing names are refused there
     const picture = await new Response(stream).blob();
     const job = `j${Date.now().toString(36)}`;
-    const bytes = await trellisModel(picture, job);
-    const saved = await saveUpload(new File([bytes as BlobPart], assetName(i.name ?? i.image, "glb", "model-3d"), { type: "model/gltf-binary" }), { made: "3D model from a picture" });
+    const draft = quality === "draft";
+    const bytes = await trellisModel(picture, job, (draft ? 10 : 25) * 60_000, { quality: draft ? "draft" : "best" });
+    const saved = await saveUpload(new File([bytes as BlobPart], assetName(i.name ?? i.image, "glb", draft ? "draft-3d" : "model-3d"), { type: "model/gltf-binary" }), { made: draft ? "Draft 3D model from a picture" : "3D model from a picture" });
+    if (draft) return `Saved the draft 3D model as "${saved}" in VAULT (${DRAFT_MODEL.name} on his PC: a grey blocking shape with no texture, max ${DRAFT.faces.toLocaleString("en-US")} triangles, for placing and sizing in Roblox; colour it in Studio, or ask for quality "best" for the textured final model). In Roblox Studio use Import 3D and pick that file (ORBIT can't import into Studio by itself).`;
     return `Saved the 3D model as "${saved}" in VAULT (${MODEL.name} on his PC, textured, max 20,000 triangles and a 1024 px texture so Roblox accepts it; takes several minutes). In Roblox Studio use Import 3D and pick that file (ORBIT can't import into Studio by itself).`;
   } catch (e) { return `Error: ${e instanceof Error ? e.message : String(e)}`; }
 }

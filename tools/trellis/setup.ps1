@@ -1,5 +1,7 @@
 # ORBIT best-quality picture → 3D (Microsoft TRELLIS.2): one-time setup on Windows (PowerShell). Run from the ORBIT folder:
 #   powershell -ExecutionPolicy Bypass -File tools\trellis\setup.ps1
+# Add -Draft for the quick grey blocking mesh too (Pixal3D, MIT: +~7.5 GB, same ComfyUI):
+#   powershell -ExecutionPolicy Bypass -File tools\trellis\setup.ps1 -Draft
 # Installs a SEPARATE ComfyUI (own Python 3.12 + PyTorch 2.10 CUDA 13.0) and uses ComfyUI's NATIVE TRELLIS.2 nodes (in core
 # since v0.34.0): no custom node pack and no compiled CUDA helpers. The old setup used Aero-Ex/ComfyUI-Trellis2-GGUF with
 # nvdiffrast + nvdiffrec_render (NVIDIA Source Code License: non-commercial only); this one removes them, so the meshes can
@@ -8,6 +10,7 @@
 # ORBIT then starts it by itself on 127.0.0.1:8189 (start.ps1 runs it by hand). Re-running skips finished parts.
 # Needs git and an NVIDIA driver 580 or newer (CUDA 13.0).
 # UNTESTED on the GPU: the native-node version was written in a cloud box (2026-11-20). Run tools\trellis\smoke.ts after setup.
+param([switch]$Draft)
 
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
@@ -31,6 +34,16 @@ $Weights = @(
   @{ Path = "vae\trellis_2_texture_vae_bf16.safetensors"; Url = "$TrellisHf/vae/trellis_2_texture_vae_bf16.safetensors"; Bytes = 948461364; Sha = "714e5ebf094a610e12a8e3b5175c18a62f37f6ea4218acb6073644456b73ab0e" },
   @{ Path = "clip_vision\dino_v3_vit_l.safetensors"; Url = "$TrellisHf/clip_vision/dino_v3_vit_l.safetensors"; Bytes = 1212559776; Sha = "5cb785e458de7c460579082418af81f5c62380c181599344bdc60898c63468ee" },
   @{ Path = "background_removal\birefnet.safetensors"; Url = "$BiRefNetHf/background_removal/birefnet.safetensors"; Bytes = 444473596; Sha = "9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154" }
+)
+# Draft (Pixal3D) extras: Comfy-Org's repackaged TencentARC/Pixal3D (MIT; NOTICE lists TRELLIS.2, Direct3D-S2, MoGe (MIT) and
+# DINOv2 (Apache-2.0)), whose image encoder file is DINOv3 ViT-L (Meta DINOv3 License) plus NAF (valeoai/NAF, Apache-2.0), and
+# MoGe-2 (Microsoft, MIT) for the camera angle. The shape VAE and BiRefNet above are byte-identical to Pixal3D's (same SHA-256).
+$PixalHf = "https://huggingface.co/Comfy-Org/Pixal3D/resolve/f37641be376725d324c56626007cc477f1249a69"
+$MoGeHf = "https://huggingface.co/Comfy-Org/MoGe/resolve/1484985258ba7ef45c314144fcf0e90924ffbf44"
+$DraftWeights = @(
+  @{ Path = "diffusion_models\pixal3d_int8_convrot.safetensors"; Url = "$PixalHf/diffusion_models/pixal3d_int8_convrot.safetensors"; Bytes = 5584555824; Sha = "4621eac3b715484f79303c7152af641fe0b2b14f4d0e3d394fd6922d00f955ec" },
+  @{ Path = "clip_vision\dino_v3_L_naf_fp32.safetensors"; Url = "$PixalHf/clip_vision/dino_v3_L_naf_fp32.safetensors"; Bytes = 1215214176; Sha = "4ad2ec4e0879a5b5b04cd97325cc37da954a7b6edca5170b86510f17f2b2290f" },
+  @{ Path = "geometry_estimation\moge_2_vitl_normal_fp16.safetensors"; Url = "$MoGeHf/geometry_estimation/moge_2_vitl_normal_fp16.safetensors"; Bytes = 661859924; Sha = "cb1a692d03235671e959e81360d7b4d9f44aefadb1f852d6ca6aa17799d5e31f" }
 )
 # Left over from the old setup (non-commercial or no longer needed): removed from the env and custom_nodes on every run.
 $OldPackages = @("nvdiffrast", "nvdiffrec_render", "cumesh", "flex_gemm", "o_voxel")
@@ -105,6 +118,11 @@ if ($stale.Count) { Run $Uv (@("pip", "uninstall", "--python", $Py) + $stale) }
 
 Step "Model files (~8.9 GB, pinned + SHA-256 checked)"
 foreach ($w in $Weights) { InstallModel $w }
+# Draft files once installed stay checked on every re-run, even without -Draft.
+if ($Draft -or (Test-Path (Join-Path $Models $DraftWeights[0].Path))) {
+  Step "Draft model files (Pixal3D + MoGe, ~7.5 GB, pinned + SHA-256 checked)"
+  foreach ($w in $DraftWeights) { InstallModel $w }
+}
 
 Step "Check"
 $check = "import importlib.util as u, sys, torch, scipy, comfy_kitchen; bad=[m for m in sys.argv[1:] if u.find_spec(m)]; " +
@@ -113,4 +131,5 @@ $check = "import importlib.util as u, sys, torch, scipy, comfy_kitchen; bad=[m f
 Run $Py (@("-c", $check) + $Forbidden)
 Write-Host "`nDone. ORBIT starts TRELLIS.2 by itself; ask CORE for a 'best' 3D model from a VAULT picture." -ForegroundColor Green
 Write-Host "Check it once: node --experimental-strip-types tools\trellis\smoke.ts   Log: tools\trellis\service.log"
+if ($Draft) { Write-Host "Draft (quick grey blocking mesh): ask CORE for a 'draft' 3D model; check it once: node --experimental-strip-types tools\trellis\smoke.ts --draft" }
 Write-Host "Old GGUF weights from the previous setup can be deleted from tools\trellis\ComfyUI\models to free disk space."
