@@ -83,6 +83,8 @@ const OWNER_ONLY: Record<string, string> = {
   "app/api/memories/map/route.ts": "MEMORY map (his own view)",
   "app/api/memories/reembed/route.ts": "re-embed passes the row: private rows stay on the local model",
   "lib/memory-hygiene.ts": "hygiene proposals: rules only, no model",
+  "lib/life-journal.ts": "LIFE → Journal: opens encrypted journal rows for the owner only, no model",
+  "lib/doctor.ts": "journal encryption check: counts plain-text rows, returns no text",
 };
 const GUARDED = ["app/api/arch/crit/route.ts", "lib/chronicle.ts", "lib/memory.ts", "lib/memory-pack.ts", "lib/memory-search.ts", "lib/memory-types.ts", "lib/people.ts", "lib/study.ts"];
 

@@ -15,6 +15,7 @@ import { htmlToText, pickPublicAddress, assertHttpUrl, redirectTarget, readCappe
 import { MEMORY_COLUMNS, retrieveMemories, type MemorySearchOptions } from "./memory-search";
 import { dupPlan, findDuplicate, provenance, provenanceTags, type DupChoice, type DupRow } from "./memory-capture-pure";
 import { correctionRecords, isMissingColumn } from "./provenance-pure";
+import { sealJournalMemory } from "./journal-key";
 export { MEMORY_COLUMNS } from "./memory-search";
 
 import { KINDS, type Kind } from "./kinds";
@@ -36,8 +37,12 @@ const SUGGEST_THRESHOLD = 0.6;
 /** Store a memory, embed it, emit a universe event, and suggest (never auto-confirm) related memories. */
 export async function createMemory(sb: SupabaseClient, userId: string, input: MemoryInput) {
   // MEM04: every capture path (notes, links, voice memos, files, CORE) carries the same provenance tags.
-  if (!input.tags?.some((t) => t.startsWith("fp:"))) input = { ...input, tags: [...(input.tags ?? []), ...provenanceTags(provenance(input))] };
-  const embedding = await embed(`${input.title}\n\n${input.content}`, "document", input); // kind + tags decide local-only
+  const journal = input.kind === "journal";
+  // Journal: encrypted at rest with the PC's key (journal-key.ts), no embedding (embedding = showing it to a model, the local
+  // one included), no text fingerprint tag, no link suggestions. LIFE → Journal opens it (life-journal.ts).
+  if (journal) input = { ...input, ...sealJournalMemory(userId, input.title, input.content), tags: (input.tags ?? []).filter((t) => !t.startsWith("fp:")) };
+  else if (!input.tags?.some((t) => t.startsWith("fp:"))) input = { ...input, tags: [...(input.tags ?? []), ...provenanceTags(provenance(input))] };
+  const embedding = journal ? null : await embed(`${input.title}\n\n${input.content}`, "document", input); // kind + tags decide local-only
   const { data, error } = await sb
     .from("memories")
     .insert({ ...input, user_id: userId, embedding: embedding ? JSON.stringify(embedding) : null })
@@ -73,6 +78,7 @@ export async function createMemory(sb: SupabaseClient, userId: string, input: Me
  *  returns {duplicate, preview} and writes nothing until the owner picks keep (a marked separate version), merge or update
  *  (the old text is kept as a "superseded" history copy, like Correct). No model call besides the usual embedding. */
 export async function captureMemory(sb: SupabaseClient, userId: string, input: MemoryInput, opts: { vault?: string | null; fileHash?: string | null; onDuplicate?: DupChoice | null; attach?: () => Promise<string> } = {}) {
+  if (input.kind === "journal") return { ...(await createMemory(sb, userId, input)), duplicate: null }; // encrypted: no duplicate lookup by text
   const make = async (extra: string[]) => ({ ...(await createMemory(sb, userId, { ...input, tags: withEvalTag([...tags, ...extra]), ...(opts.attach ? { storage_path: await opts.attach() } : {}) })), duplicate: dup });
   let dup: ReturnType<typeof findDuplicate> = null;
   const p = provenance({ ...input, ...opts });

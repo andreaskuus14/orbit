@@ -35,6 +35,13 @@
     "night:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/night/install.ps1",
     "night:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/night/uninstall.ps1",
     "remote:vapid": "node --experimental-strip-types scripts/vapid-keys.ts",
+    "journal:encrypt": "node --no-warnings --experimental-strip-types scripts/journal-encrypt.ts",
+    "journal:check": "node --no-warnings --experimental-strip-types scripts/journal-encrypt.ts --check",
+    "journal:key": "node --no-warnings --experimental-strip-types scripts/journal-key.ts",
+    "backup:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/backup/setup.ps1",
+    "backup:run": "node --no-warnings --experimental-strip-types scripts/backup-run.ts run",
+    "backup:snapshots": "node --no-warnings --experimental-strip-types scripts/backup-run.ts snapshots",
+    "backup:restore": "node --no-warnings --experimental-strip-types scripts/backup-run.ts restore",
     "perf:run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/perf-run.ps1",
     "perf:report": "node --no-warnings --experimental-strip-types scripts/perf-run.ts"
   },

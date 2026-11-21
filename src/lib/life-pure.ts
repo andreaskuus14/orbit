@@ -26,6 +26,8 @@ export type HabitView = Habit & { streak: number; week: DayDot[]; doneToday: boo
 export type LifeState = {
   today: string; habits: HabitView[]; reminders: Reminder[];
   focus: { today: number; week: number }; journal: { date: string; text: string }[];
+  /** LIFE route only: evening captures and voice-memo journal notes, opened for the owner (life-journal.ts). */
+  notes?: { id: string; date: string; source: string; text: string }[];
   work: WorkLog[]; timer: FocusTimer | null; review: ReturnType<typeof reviewState>;
 };
 

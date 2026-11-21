@@ -13,7 +13,7 @@ export type Report = { status: Status; headline: string; speech: string; checks:
 
 // Clipboard output crosses the support boundary. Select known IDs and states instead of redacting free text.
 const SHARE_CHECKS = ["doctor", "claude", "models", "supabase", "ytkey", "quota", "oauth", "tools", "ffmpeg", "ytdlp", "whisper",
-  "hyperframes", "clipwarn", "disk", "build", "version", "migrations", "launcher", "night", "life", "vault", "facts", "durable", "drill", "latency", "wake", "env", "allow"];
+  "hyperframes", "clipwarn", "disk", "build", "version", "migrations", "launcher", "night", "life", "journal", "backup", "vault", "facts", "durable", "drill", "latency", "wake", "env", "allow"];
 const SHARE_SERVICES = ["supabase", "claude", "resend", "higgsfield", "ollama", "push", "calendar"];
 const SHARE_ROLES = ["main", "fast", "smart", "deep"];
 const SHARE_JOB_KINDS = ["task", "mission", "night", "clip"];

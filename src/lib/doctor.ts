@@ -12,6 +12,7 @@ import { HF_INSTALL } from "./clips/hyperframes-pure";
 import { scoutView } from "./clips/scout";
 import { isMissingTable } from "./proactive-pure";
 import { usage, vaultDir } from "./vault";
+import { orbitDataDir } from "./data-dir";
 import { rememberChecks } from "./capability";
 import { MAX_FILES, MAX_TOTAL } from "./vault-pure";
 import { api } from "./youtube";
@@ -164,6 +165,24 @@ async function life(): Promise<Check> {
   }
 }
 
+/** Journal encryption: key on this PC, and no plain-text journal left (life.json days, Supabase journal rows). */
+async function journal(sb: SupabaseClient): Promise<Check> {
+  const [{ journalKeyId }, { isSealed }, { journalCheck }] = await Promise.all([import("./journal-key"), import("./journal-crypt-pure"), import("./restic-pure")]);
+  const f = path.join(orbitDataDir(), "life.json");
+  const j = await readFile(f, "utf8").then((t) => (JSON.parse(t).journal ?? {}) as Record<string, unknown>, () => ({}));
+  const days = Object.values(j).filter((v) => typeof v === "string" && v && !isSealed(v)).length;
+  const { data, error } = await sb.from("memories").select("title, content").eq("kind", "journal").limit(2000);
+  const rows = error ? null : (data ?? []).filter((r) => !isSealed(r.title) || !isSealed(r.content)).length;
+  return journalCheck(journalKeyId(), days, rows);
+}
+async function backups(): Promise<Check> {
+  const { CONFIG_NAME, STATUS_NAME, backupCheck } = await import("./restic-pure");
+  const dir = orbitDataDir();
+  const configured = await exists(path.join(dir, CONFIG_NAME));
+  const st = await readFile(path.join(dir, STATUS_NAME), "utf8").then((t) => JSON.parse(t), () => null);
+  return backupCheck(configured, st, Date.now());
+}
+
 async function vault(): Promise<Check> {
   const dir = vaultDir();
   if (!(await exists(dir))) return vaultCheck(false, true, 0, 0, MAX_TOTAL, MAX_FILES); // checked first: usage() would create the folder
@@ -219,6 +238,8 @@ export async function runDoctor(sb: SupabaseClient): Promise<Report> {
     guard("launcher", "Server stability", async () => launcherCheck(await tail(path.join(root(), "orbit-launcher.log"), 50_000), new Date())),
     guard("night", "Overnight run", night),
     guard("life", "LIFE data (habits, reminders)", life),
+    guard("journal", "Journal encryption", () => journal(sb)),
+    guard("backup", "Encrypted backups (restic)", backups),
     guard("vault", "VAULT (your files)", vault),
     guard("facts", "Belief memory", () => facts(sb)),
     guard("durable", "Saved state & events", async () => { const d = await import("./durable.ts"); return { id: "durable", label: "Saved state & events", ...(await import("./durable-pure.ts")).durableCheck(d.writeFailures(), d.deadEvents()) }; }),

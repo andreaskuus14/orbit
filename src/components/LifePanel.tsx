@@ -579,6 +579,19 @@ function Journal({ st, act }: { st: LifeState; act: Act }) {
           </li>
         ))}
       </ul>
+      {!!st.notes?.length && (
+        <section className="space-y-2">
+          <h3 className="muted text-xs">{t("life.notes")}</h3>
+          <ul className="space-y-2">
+            {st.notes.map((n) => (
+              <li key={n.id} className="card text-sm">
+                <div className="muted text-xs">{longDate(n.date.slice(0, 10))}</div>
+                <p className="whitespace-pre-wrap">{n.text}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <p className="muted text-xs">{t("life.journalPrivate")}</p>
     </div>
   );

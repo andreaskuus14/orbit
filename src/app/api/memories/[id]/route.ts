@@ -5,6 +5,7 @@ import { embed } from "@/lib/embeddings";
 import { MEMORY_COLUMNS } from "@/lib/memory";
 import { cleanTags, str } from "@/lib/pure";
 import { isMissingColumn, PROVENANCE_COLUMNS } from "@/lib/provenance-pure";
+import { redactJournalRow } from "@/lib/journal-crypt-pure";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -19,7 +20,7 @@ export async function GET(_: Request, { params }: Ctx) {
   if (!data) return Response.json({ error: "Not found" }, { status: 404 });
   const { data: links } = await sb.from("memory_links").select("id, from_id, to_id, status, score")
     .or(`from_id.eq.${id},to_id.eq.${id}`).neq("status", "rejected");
-  return Response.json({ memory: data, links: links ?? [] });
+  return Response.json({ memory: redactJournalRow(data as unknown as Parameters<typeof redactJournalRow>[0]), links: links ?? [] });
 }
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -38,6 +39,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
   if ("title" in patch || "content" in patch) {
     const { data: cur } = await sb.from("memories").select("title, content, kind, tags").eq("id", id).maybeSingle();
+    // Journal entries are encrypted and edited in LIFE only: an edit here would overwrite them with the locked placeholder.
+    if (cur?.kind === "journal") return Response.json({ error: "Journal entries are private and edited in LIFE → Journal" }, { status: 409 });
     if (cur) {
       const e = await embed(`${patch.title ?? cur.title}\n\n${patch.content ?? cur.content}`, "document", { kind: cur.kind, tags: patch.tags ?? cur.tags }); // a journal tag keeps it local
       patch.embedding = e ? JSON.stringify(e) : null;

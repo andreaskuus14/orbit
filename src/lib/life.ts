@@ -10,6 +10,7 @@ import {
 import { habitWeek, isChannel, parseWindow, recordAt, shouldNudge, ignoredRun, type NudgeCtx } from "./habit-nudge-pure";
 import { restoreFocusTimer, type FocusTimer } from "./focus-timer-pure";
 import { claim, wallTime, type Notice } from "./reminders-pure";
+import { sealLifeDay } from "./journal-key";
 
 // LIFE workspace (habits, focus, reminders, journal), stored locally in <ORBIT data dir>/life.json like follows.json.
 
@@ -60,8 +61,18 @@ function update<T>(fn: (s: LifeStore) => T): Promise<T> {
 }
 const today = () => dateKey(new Date());
 
-export async function getLife(): Promise<LifeState> { return view(await read(), Date.now()); }
-/** The raw stored LIFE data (full journal and focus history), for exports and backups. */
+/** LIFE for every server caller (CORE modules, brief, insights, worlds): the journal's days are there, its text never is
+ *  (stored encrypted, journal-crypt-pure.ts). Only LIFE's own route opens it: life-journal.ts openLifeJournal. */
+export async function getLife(): Promise<LifeState> {
+  const s = await read();
+  return view({ ...s, journal: Object.fromEntries(Object.keys(s.journal).map((d) => [d, ""])) }, Date.now());
+}
+/** LIFE → Journal for the owner (GET /api/life only): the same view with the journal opened. */
+export async function getLifeForOwner(openJournal: (j: Record<string, string>) => Record<string, string>): Promise<LifeState> {
+  const s = await read();
+  return view({ ...s, journal: openJournal(s.journal) }, Date.now());
+}
+/** The raw stored LIFE data (full focus history; journal days as stored, i.e. encrypted), for exports and backups. */
 export const exportLife = (): Promise<LifeStore> => read();
 
 export async function addHabit(name: string, emoji?: string, days?: number[]): Promise<{ habit: Habit } | { error: string }> {
@@ -171,7 +182,7 @@ export async function saveJournal(text: string, date?: string): Promise<{ ok: tr
   const t = today(), day = date ?? t;
   if (!isDateKey(day) || day > t || day < addDays(t, -6)) return { error: "Only the last 7 days can be edited" };
   if (typeof text !== "string" || text.length > MAX_JOURNAL) return { error: `Journal entry must be at most ${MAX_JOURNAL} characters` };
-  return update((s) => { if (text.trim()) s.journal[day] = text; else delete s.journal[day]; return { ok: true as const }; });
+  return update((s) => { if (text.trim()) s.journal[day] = sealLifeDay(day, text); else delete s.journal[day]; return { ok: true as const }; });
 }
 
 export async function lifeSummary(): Promise<string> { return summaryText(await getLife(), Date.now()); }
