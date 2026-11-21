@@ -6,16 +6,19 @@ import { DEFAULT_MAX_SPLATS } from "@/lib/splat-pure";
 import type { ArchDigest } from "@/lib/arch-digest-pure";
 import { scanNote, searchStudio, studioItems, studioLinks, type Critique, type StudioItem, type StudioMemory } from "@/lib/arch-studio-pure";
 import type { ScanData, SplatWorker } from "./SplatCloud";
+import { ProgressCard } from "./ProgressCard";
+import { useT } from "./i18n";
+import { MAX_PHOTOS, MIN_PHOTOS, scanProgress, type ScanJob } from "@/lib/photo-scan-pure";
 
 const BRIEF_KEY = "orbit.arch.brief";
 const MAX_SCAN_BYTES = 1024 ** 3; // a bigger .ply won't fit in a browser tab's memory anyway
 const ICON: Record<StudioItem["kind"], string> = { lesson: "📚", scan: "◍", critique: "✎", note: "·" };
 const ASPECTS = ["proportion", "circulation", "light", "structure"] as const;
 
-/** A phone photo shrunk to ≤1600 px JPEG (fits the model's image limit; Safari also turns HEIC into JPEG here). */
-async function shrink(f: File): Promise<File> {
+/** A phone photo shrunk to ≤`side` px JPEG (fits the model's image limit; Safari also turns HEIC into JPEG here). */
+async function shrink(f: File, side = 1600): Promise<File> {
   const bmp = await createImageBitmap(f);
-  const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+  const k = Math.min(1, side / Math.max(bmp.width, bmp.height));
   const c = new OffscreenCanvas(Math.round(bmp.width * k), Math.round(bmp.height * k));
   c.getContext("2d")!.drawImage(bmp, 0, 0, c.width, c.height);
   bmp.close();
@@ -31,6 +34,9 @@ export function ArchStudio({ worker, lesson, lessonKey, onScan, onScanNote, onTe
   const [crit, setCrit] = useState<Critique | null>(null), [critMsg, setCritMsg] = useState(""), [critBusy, setCritBusy] = useState(false);
   const [rows, setRows] = useState<StudioMemory[]>([]), [q, setQ] = useState(""), [open, setOpen] = useState<string | null>(null), [libMsg, setLibMsg] = useState("");
   const [digest, setDigest] = useState<ArchDigest | null>(null);
+  const { t, lang } = useT();
+  const [shots, setShots] = useState<File[]>([]), [shotTitle, setShotTitle] = useState(""), [jobs, setJobs] = useState<ScanJob[]>([]), [shotMsg, setShotMsg] = useState("");
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => { try { setBrief(localStorage.getItem(BRIEF_KEY) ?? ""); } catch { /* private mode */ } }, []);
   useEffect(() => { try { localStorage.setItem(BRIEF_KEY, brief); } catch { /* private mode */ } }, [brief]);
 
@@ -46,6 +52,39 @@ export function ArchStudio({ worker, lesson, lessonKey, onScan, onScanNote, onTe
   const shown = useMemo(() => searchStudio(items, q), [items, q]);
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const linked = (id: string) => links.flatMap((l) => (l.a === id ? [l.b] : l.b === id ? [l.a] : [])).map((x) => byId.get(x)!).filter(Boolean);
+
+  // Photo scan jobs: poll while one is moving (the card shows steps, time left and the result).
+  const live = jobs.some((j) => j.stage !== "done" && !j.error);
+  const loadJobs = useCallback(async () => {
+    const j = await fetch("/api/arch/photo-scan", { cache: "no-store" }).then((r) => r.json()).catch(() => null);
+    if (Array.isArray(j?.jobs)) setJobs((old) => { if (old.some((o) => o.stage !== "done" && (j.jobs as ScanJob[]).some((n) => n.id === o.id && n.stage === "done"))) void refresh(); return j.jobs; });
+    setNow(Date.now());
+  }, [refresh]);
+  useEffect(() => { void loadJobs(); }, [loadJobs]);
+  useEffect(() => { if (!live) return; const i = setInterval(() => void loadJobs(), 2000); return () => clearInterval(i); }, [live, loadJobs]);
+
+  async function makeScan() {
+    setShotMsg("");
+    try {
+      const fd = new FormData();
+      fd.append("title", shotTitle);
+      for (const f of shots) fd.append("photos", await shrink(f, 2000).catch(() => f));
+      const r = await fetch("/api/arch/photo-scan", { method: "POST", body: fd });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error ?? `Failed (${r.status})`);
+      setShots([]); void loadJobs();
+    } catch (e) { setShotMsg((e as Error).message); }
+  }
+  /** Open a finished photo scan with Measure on: its size is set from one known length. */
+  function openPhotoScan(name: string) {
+    const it = items.find((i) => i.vault === name);
+    void openScan(name, it ?? null, true);
+  }
+  useEffect(() => { // home's card links here: #o=arch&scan=<VAULT name>
+    const m = /[#&]scan=([^&]+)/.exec(location.hash);
+    if (m && items.length) { const n = decodeURIComponent(m[1]); history.replaceState(null, "", location.hash.replace(/&scan=[^&]+/, "") || "#"); openPhotoScan(n); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once the library has loaded
+  }, [items.length]);
 
   async function importScan(f: File) {
     if (f.size > MAX_SCAN_BYTES) return setScanMsg("That scan is over 1 GB; export a smaller one (Scaniverse: lower quality, or crop).");
@@ -71,14 +110,14 @@ export function ArchStudio({ worker, lesson, lessonKey, onScan, onScanNote, onTe
     } catch (e) { setScanMsg((e as Error).message); } finally { setScanBusy(false); }
   }
 
-  async function openScan(name: string, it: StudioItem) {
+  async function openScan(name: string, it: StudioItem | null, measure = false) {
     setScanBusy(true); setScanMsg(`Opening ${name}…`);
     try {
       const r = await fetch(`/api/vault?file=${encodeURIComponent(name)}&raw=1`);
       if (!r.ok) throw new Error(r.status === 404 ? `${name} isn't on this PC (restore it in VAULT if it's cloud-only).` : `Couldn't open ${name} (${r.status}).`);
       const buf = await r.arrayBuffer();
       const s = await worker.call({ parse: buf, max: DEFAULT_MAX_SPLATS, store: false }, [buf]);
-      onScan({ ...s, name, bytes: null, noteId: it.id, note: it.content });
+      onScan({ ...s, name, bytes: null, noteId: it?.id ?? null, note: it?.content ?? "", measure });
       setScanMsg(`${name}: ${s.count.toLocaleString("en")} splats.`);
     } catch (e) { setScanMsg((e as Error).message); } finally { setScanBusy(false); }
   }
@@ -119,6 +158,21 @@ export function ArchStudio({ worker, lesson, lessonKey, onScan, onScanNote, onTe
           <input type="file" accept=".ply,.splat" className="sr-only" disabled={scanBusy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void importScan(f); }} />
         </label>
         {scanMsg && <p className="text-xs" aria-live="polite">{scanMsg}</p>}
+        <div className="space-y-1" aria-label={t("ps.title")}>
+          <p className="text-xs font-semibold">{t("ps.title")}</p>
+          <p className="muted text-[11px]">{t("ps.how", { min: MIN_PHOTOS, max: MAX_PHOTOS })}</p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <label className="chip inline-flex cursor-pointer">📷 {shots.length ? t("ps.picked", { n: shots.length }) : t("ps.pick")}
+              <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => { setShots([...(e.target.files ?? [])].slice(0, MAX_PHOTOS + 1)); setShotMsg(""); e.target.value = ""; }} />
+            </label>
+            <input className="field text-xs" style={{ width: "12rem" }} value={shotTitle} maxLength={80} onChange={(e) => setShotTitle(e.target.value)} placeholder={t("ps.whatPh")} aria-label={t("ps.what")} />
+            <button className="btn" disabled={shots.length < MIN_PHOTOS || shots.length > MAX_PHOTOS || live} onClick={() => void makeScan()}>{t("ps.go")}</button>
+          </div>
+          {shots.length > MAX_PHOTOS && <p className="text-xs">{t("ps.tooMany", { max: MAX_PHOTOS })}</p>}
+          {shotMsg && <p className="text-xs" aria-live="polite">{shotMsg}</p>}
+          {jobs.slice().reverse().slice(0, 2).map((j) => <ProgressCard key={j.id} p={scanProgress(j, lang, now)}
+            onAction={(a) => { if (a.kind === "open" && j.saved) openPhotoScan(j.saved); else if (a.kind === "retry") setShotMsg(t("ps.retry")); }} />)}
+        </div>
         <p className="muted text-[11px]">Scaniverse: Share → Export → Splat (.ply). Up to {DEFAULT_MAX_SPLATS.toLocaleString("en")} splats are kept; the file is stored in VAULT.</p>
       </div>
 
@@ -157,7 +211,7 @@ export function ArchStudio({ worker, lesson, lessonKey, onScan, onScanNote, onTe
             {isOpen && <div className="space-y-1 px-1 py-1 text-xs">
               <p className="muted whitespace-pre-line">{it.content.slice(0, 700)}{it.content.length > 700 ? "…" : ""}</p>
               <div className="flex flex-wrap gap-1">
-                {it.vault && <button className="chip" disabled={scanBusy} onClick={() => void openScan(it.vault!, it)}>◍ Open scan</button>}
+                {it.vault && <button className="chip" disabled={scanBusy} onClick={() => void openScan(it.vault!, it, it.tags.includes("photo-scan") && !/^scale: /m.test(it.content))}>◍ Open scan</button>}
                 {it.image && <a className="chip" href={`/api/memories/${it.id}/file`} target="_blank" rel="noreferrer">Sketch ↗</a>}
                 {near.map((n) => <button key={n.id} className="chip" onClick={() => setOpen(n.id)} title="Linked by building">{ICON[n.kind]} {n.title.slice(0, 40)}</button>)}
               </div>

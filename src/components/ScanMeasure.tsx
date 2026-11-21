@@ -8,9 +8,13 @@ import { useThree } from "@react-three/fiber";
 import { Html, Line } from "@react-three/drei";
 import { calibrate, dist, formatLength, mid, parseLength, pickK, readMeasureNote, withMeasures, type MeasureNote, type V3 } from "@/lib/arch-measure-pure";
 import type { ScanData, SplatWorker } from "./SplatCloud";
+import { useT } from "./i18n";
 
 export type MeasureState = MeasureNote & { on: boolean; pending: V3 | null; noteId: string | null; note: string };
-export const measureFrom = (s: ScanData): MeasureState => ({ ...readMeasureNote(s.note ?? ""), on: false, pending: null, noteId: s.noteId ?? null, note: s.note ?? "" });
+export const measureFrom = (s: ScanData): MeasureState => {
+  const n = readMeasureNote(s.note ?? "");
+  return { ...n, on: !!s.measure && !n.scale, pending: null, noteId: s.noteId ?? null, note: s.note ?? "" };
+};
 type SetM = Dispatch<SetStateAction<MeasureState | null>>;
 
 const C = "#fbbf24";
@@ -61,6 +65,7 @@ export function MeasureLayer({ m, set, worker, ext }: { m: MeasureState; set: Se
 
 /** In the ARCH panel: measure toggle, list with delete, calibrate on one measurement, save to the scan note. */
 export function MeasurePanel({ m, set, onSaved }: { m: MeasureState; set: SetM; onSaved: () => void }) {
+  const { t } = useT();
   const [cal, setCal] = useState<number | null>(null), [real, setReal] = useState("2.0"), [msg, setMsg] = useState("");
   async function save(next: MeasureState) {
     if (!next.noteId) return setMsg("This scan has no MEMORY note to save to; re-import it to get one.");
@@ -84,6 +89,11 @@ export function MeasurePanel({ m, set, onSaved }: { m: MeasureState; set: SetM; 
         {m.list.length > 0 && <button className="chip" onClick={() => void save(m)}>Save to scan note</button>}
       </div>
       {m.on && <p className="muted text-[11px]" aria-live="polite">{m.pending ? "Now click the second point." : "Click two points on the scan (drag still orbits)."}{!m.scale && " Calibrate first: measure something you know, like a door (2.0 m)."}</p>}
+      {!m.scale && m.list.length > 0 && cal === null && <form className="flex flex-wrap items-center gap-1 text-xs" onSubmit={(e) => { e.preventDefault(); applyCal(0); }}>
+        <span>{t("ps.askReal")}</span>
+        <input className="field w-20" value={real} maxLength={12} onChange={(e) => setReal(e.target.value)} aria-label={t("ps.askReal")} />
+        <button className="chip">{t("ps.setSize")}</button>
+      </form>}
       <p className="muted text-[11px]">{m.scale ? `Calibrated${m.ref ? ` on ${formatLength(m.ref)}` : ""}: 1 scan unit = ${m.scale.toPrecision(4)} m.` : "Not calibrated: lengths assume the scan is in metres (≈)."}</p>
       {m.list.length > 0 && <ul className="space-y-0.5">{m.list.map((x, i) => <li key={i} className="flex flex-wrap items-center gap-1.5 text-xs">
         <span className="num w-20">{i + 1} · {label(m, x.a, x.b)}</span>

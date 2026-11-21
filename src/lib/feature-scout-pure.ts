@@ -122,7 +122,7 @@ export function areaOf(r: Pick<Raw, "name" | "what" | "tags">): AreaId | null {
 
 export type InUse = { name: string; slug: string; area: AreaId };
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9.]+/g, "-").replace(/^-|-$/g, "");
-const AREA_OF_TOOL: Record<string, AreaId> = { image3d: "image3d", removebg: "cutout", tts: "voice", clone: "voice", dub: "voice", captions: "captions", ifc: "arch", docs: "docs", images: "pictures", text3d: "image3d", motion: "gamedev" };
+const AREA_OF_TOOL: Record<string, AreaId> = { image3d: "image3d", removebg: "cutout", tts: "voice", clone: "voice", dub: "voice", captions: "captions", ifc: "arch", scan: "arch", docs: "docs", images: "pictures", text3d: "image3d", motion: "gamedev" };
 /** Models ORBIT already runs: OPERATIONS → Local AI's catalog, the Ollama brain, OCR, Parakeet, FLUX.2 klein, TRELLIS.2, Pixal3D, embeddings, reranker. */
 export const IN_USE: InUse[] = ([
   ...CATALOG.flatMap((c) => c.model.split(/\s(?:via|in|\()\s?|,/)[0].split(/ \/ | or /).map((m) => ({ name: m.trim(), slug: slug(m), area: AREA_OF_TOOL[c.id] ?? "core" }))),
