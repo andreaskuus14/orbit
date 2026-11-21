@@ -87,6 +87,8 @@ export const TIERS: Record<string, Tier> = {
   browse: "T1", // ORBIT's hidden browser on a public page: read-only (non-GET requests blocked), submits/logins refused for his click
   save_decision: "T2", watch_add: "T2", watch_list: "T0", watch_changes: "T0", // page watch (pagewatch.ts): a local record; the checks only read public pages
   daily_runs: "T0", // daily.ts: reads the three daily workflows' own records
+  pc_window: "T0", // the active app + window title from tools/voice (private windows come back empty)
+  pc_act: "T2", // his PC via the loopback helper: pc-policy-pure levels (level 3 only queues; it runs on his OK)
 };
 
 // T3 runs only behind an owner-click approval (AGENTS.md rule 6): the token each path checks before anything leaves ORBIT.
@@ -111,6 +113,7 @@ export const TOOL_AREA: Record<string, Area> = {
   ws_run: "operator-build", // a local demo server of his own workspace (AGENTS.md rule 6 category A); never public
   local_3d: "operator-build", local_tts: "operator-build", local_transcribe: "operator-build", local_image: "operator-build", local_image_edit: "operator-build", local_music: "operator-build", local_video: "operator-build", // local models writing new VAULT files (category A)
   roblox_export: "operator-build", // local project files + git commit (category A)
+  pc_act: "operator-organize", // his own PC: apps, files in connected folders (Undo), level 3 after his OK
   watch_add: "research", // later reads of a public page (category A)
 };
 
@@ -144,6 +147,7 @@ export const EGRESS_CLASS: Record<string, "model" | "web" | "none"> = {
   life_check: "none", life_add_habit: "none", life_remind: "none", ws_write: "none", ws_edit: "none", ws_create: "none", ws_run: "none",
   ws_stop: "none", vault_move: "none", vault_rename: "none", life_plan: "none", automation_pause: "none", studio_drafts: "none", roblox_export: "none",
   roblox_lint: "none", save_decision: "none", watch_list: "none", watch_changes: "none", daily_runs: "none",
+  pc_window: "none", pc_act: "none", // stays on the PC (loopback helper)
 };
 // lead_update: the lead selector is BUSINESS's own record key (business_status shows it), so only its free-text fields are scanned;
 // for both lead tools BUSINESS results don't count as private (lead_create scans its whole input); journal/LIFE/attachment text in a note is still refused.
@@ -159,7 +163,7 @@ export const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "find_outlier
 // shop offer titles, vault/workspace file text, git commit subjects.
 /** His own stores that hold other people's text (invites, video text, offer titles, files, commits, analysed code). */
 // plan_day carries calendar invites; local_transcribe the words in any audio/video file he points it at.
-const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "vault_skill", "ws_read", "plan_day", "local_transcribe"];
+const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "vault_skill", "ws_read", "plan_day", "local_transcribe", "pc_window", "pc_act"];
 // mission_status: agents' results; run_niche: its web research.
 export const UNTRUSTED = ["browse", "fetch_url", "scrape_page", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "find_outliers", "find_lead_candidates", "ask_agent", "business_status", "watch_changes", "mission_status", "run_niche", ...STORED_OUTSIDE];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;

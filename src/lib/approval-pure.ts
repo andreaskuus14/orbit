@@ -21,6 +21,7 @@ export const EFFECTS: Record<string, Effect> = {
   ws_picture_draft: "reversible", // stand-ins + a quoted draft; the spend is story.approve
   studio_drafts: "read",
   local_3d: "reversible", local_tts: "reversible", local_transcribe: "reversible", local_image: "reversible", local_image_edit: "reversible", local_music: "reversible", local_video: "reversible", // a new VAULT file from a model on his PC (trash it to undo)
+  pc_window: "read", pc_act: "reversible", // pc-policy-pure: level 2 keeps Undo, level 3 runs only on his OK; sends/spends are refused
   browse: "read", // read-only browser: non-GET requests blocked, submits/logins refused
   save_decision: "reversible", // one memory row (kind decision), Undo in OPERATIONS → Activity; only after his yes (policy-pure)
   watch_add: "reversible", watch_list: "read", watch_changes: "read", // page watch: a local record (remove it in INTELLIGENCE → Watches)
