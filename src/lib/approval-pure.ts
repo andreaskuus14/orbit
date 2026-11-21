@@ -25,11 +25,13 @@ export const EFFECTS: Record<string, Effect> = {
   browse: "read", // read-only browser: non-GET requests blocked, submits/logins refused
   save_decision: "reversible", // one memory row (kind decision), Undo in OPERATIONS → Activity; only after his yes (policy-pure)
   watch_add: "reversible", watch_list: "read", watch_changes: "read", // page watch: a local record (remove it in INTELLIGENCE → Watches)
+  terminal_run: "reversible", terminal_status: "read", terminal_stop: "reversible", // level 2 has a snapshot + Undo; level 3 waits for terminal.approve
   roblox_export: "reversible", roblox_lint: "read", // local Rojo project files, each export a git commit (git revert to undo)
   ws_inspire_image: "reversible", // reference words + a quoted draft; the spend is story.approve
   schedule_approved: "publish", // uploads only clips already approved by his click (status "approved")
   // owner-click actions
   "business.send": "outward-send", "contracts.send": "outward-send", "negotiator.approve": "outward-send", "invoices.remind": "outward-send",
+  "terminal.approve": "outward-send", // a level-3 command may delete, install, upload, send or log in: his click on that exact command
   "story.approve": "spend", "studio.schedule": "publish", "studio.publish": "publish", "contracts.sign": "sign",
   "rules.add": "reversible", "rules.confirm": "reversible", "rules.pause": "reversible", "rules.resume": "reversible", "rules.delete": "reversible", "rules.run": "reversible", "automations.start": "reversible", // standing rules run only existing runners; outward steps still wait in Approvals
   "loops.close": "reversible", "loops.snooze": "reversible", "loops.task": "reversible", // open loops: his own bookkeeping (task = his day plan)
@@ -53,6 +55,8 @@ export const spendContent = (fingerprint: string, credits: number) => ({ fingerp
 export const negoContent = (id: string, text: string, to: string | null) => ({ id, text, to: to ? to.trim().toLowerCase() : null });
 /** Clip publish: the exact revision he approved (video, thumbnail, cut, title, edit settings incl. captions); any edit changes the hash.
  *  The description is approved by the publish click itself (he reads it in the form he submits). */
+/** Terminal level-3 command: the exact text and the folder it runs in (shell-session approveRun checks both again). */
+export const termContent = (id: string, command: string, cwd: string) => ({ id, command, cwd });
 export const clipContent = (c: { video?: string; thumb?: string; start: number; end: number; title?: string; edit?: unknown }) =>
   ({ video: c.video ?? "", thumb: c.thumb ?? "", start: c.start, end: c.end, title: c.title ?? "", edit: c.edit ?? null });
 

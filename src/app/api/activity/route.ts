@@ -35,7 +35,7 @@ export async function POST(req: Request) {
   if (res) return res;
   const b = (await req.json().catch(() => null)) as { undo?: unknown; area?: unknown } | null;
   const u = cleanUndo(b?.undo);
-  if (!u) return Response.json({ error: "Expected { undo: { kind: 'memory', id } | { kind: 'vault-rename', id, to } | { kind: 'op', id } | { kind: 'pc', id } }" }, { status: 400 });
+  if (!u) return Response.json({ error: "Expected { undo: { kind: 'memory', id } | { kind: 'vault-rename', id, to } | { kind: 'op', id } | { kind: 'pc', id } | { kind: 'term', id } }" }, { status: 400 });
   const area = b?.area === "core" || b?.area === "system" ? b.area : "operator"; // same area as the original line, so the filter hides its Undo
   try {
     if (u.kind === "memory") {
@@ -47,6 +47,8 @@ export async function POST(req: Request) {
       logActivity({ area, title: "Undone: memory deleted", undid: undoKey(u) });
     } else if (u.kind === "pc") { // a level-2 PC action (move/rename/code edit) through the voice helper
       logActivity({ area, title: await (await import("@/lib/jarvis")).undoPc(u.id), undid: undoKey(u) });
+    } else if (u.kind === "term") { // a terminal command's snapshot (OPERATIONS → Terminal)
+      logActivity({ area, title: await (await import("@/lib/shell-session")).undoSnapshot(u.id), undid: undoKey(u) });
     } else if (u.kind === "op") { // ORGANIZE write (vault_move/rename, lead_update, life_plan, automation_create/pause): its saved before-state
       logActivity({ area, title: await undoOp(sb, user.id, u.id), undid: undoKey(u) });
     } else {
