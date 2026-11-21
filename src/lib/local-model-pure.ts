@@ -30,7 +30,7 @@ const same = (a: string, b: string) => a === b || a === `${b}:latest` || b === `
 /** Models that can't chat (embeddings) or aren't on this PC (cloud) are never a fallback. */
 const chatCapable = (m: string) => !!m && !isCloudModel(m) && !/embed|bge-|minilm|rerank|nomic/i.test(m);
 
-/** Appended to the system prompt of every local call: the local model gets no tools. */
+/** Appended to the system prompt of every plain local call (no tools). The CORE offline turn has its own prompt with tools (offline-tools-pure.ts). */
 export const LOCAL_NOTE = "\n\nOFFLINE MODE: you are a small local model with no tools. Never call or describe tool calls; answer directly in plain text from what is given.";
 
 /** Which calls may run locally: CORE chat ("core") and background summaries (*.summary). Never anything with images or MCP
@@ -62,6 +62,34 @@ export function ollamaAnswer(j: unknown): { text: string; inputTokens: number; o
   if (!text) throw new Error("Local model gave no answer");
   const n = (v: unknown) => (typeof v === "number" && v >= 0 ? v : 0);
   return { text, inputTokens: n(o.prompt_eval_count), outputTokens: n(o.eval_count) };
+}
+
+/** A message in an Ollama /api/chat tool loop (role "tool" carries one tool's result; tool_name says which). */
+export type OllamaMsg = { role: "system" | "user" | "assistant" | "tool"; content: string; tool_calls?: unknown[]; tool_name?: string };
+export type OllamaTool = { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } };
+/** Ollama /api/chat body with native tool calling (offline-tools.ts). No LOCAL_NOTE: this call does get tools. */
+export function ollamaToolRequest(model: string, messages: OllamaMsg[], tools: OllamaTool[], numCtx?: number) {
+  return { model, stream: false, messages, ...(tools.length ? { tools } : {}),
+    ...(/^qwen3/i.test(model) ? { think: false } : {}), ...(numCtx ? { options: { num_ctx: numCtx } } : {}) };
+}
+export type ToolCall = { name: string; args: Record<string, unknown> };
+/** Ollama tool-loop reply → text, tool calls and the raw assistant message to send back. Throws on an error or a reply with nothing. */
+export function ollamaToolReply(j: unknown): { text: string; calls: ToolCall[]; raw: OllamaMsg; inputTokens: number; outputTokens: number } {
+  const o = (j ?? {}) as { error?: unknown; message?: { content?: unknown; tool_calls?: unknown }; prompt_eval_count?: unknown; eval_count?: unknown };
+  if (typeof o.error === "string") throw new Error(`Local model: ${o.error}`);
+  const text = typeof o.message?.content === "string" ? o.message.content.replace(/<think>[\s\S]*?<\/think>/g, "").trim() : "";
+  const rawCalls = Array.isArray(o.message?.tool_calls) ? o.message.tool_calls : [];
+  const calls: ToolCall[] = [];
+  for (const c of rawCalls) {
+    const f = (c as { function?: { name?: unknown; arguments?: unknown } })?.function;
+    if (typeof f?.name !== "string" || !f.name) continue;
+    let args: unknown = f.arguments;
+    if (typeof args === "string") { try { args = JSON.parse(args); } catch { args = {}; } }
+    calls.push({ name: f.name.slice(0, 80), args: args && typeof args === "object" && !Array.isArray(args) ? args as Record<string, unknown> : {} });
+  }
+  if (!text && !calls.length) throw new Error("Local model gave no answer");
+  const n = (v: unknown) => (typeof v === "number" && v >= 0 ? v : 0);
+  return { text, calls, raw: { role: "assistant", content: text, ...(rawCalls.length ? { tool_calls: rawCalls } : {}) }, inputTokens: n(o.prompt_eval_count), outputTokens: n(o.eval_count) };
 }
 
 export type LocalStatus = { state: "off" | "ok" | "fallback" | "missing" | "down"; text: string };
