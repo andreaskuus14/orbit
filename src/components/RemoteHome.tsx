@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useT } from "./i18n";
 
 // Pieces of the phone remote's home screen. Visual only: every action is passed in from RemoteApp.
-export type Item = { id: string; kind: "clip" | "spend" | "send" | "nego" | "invoice"; title: string; detail: string; seen: string; credits?: number; thumb?: boolean; to?: string; message?: string; strategy?: string; buyer?: string; amount?: string; daysLate?: number };
+export type Item = { id: string; kind: "clip" | "spend" | "send" | "nego" | "invoice" | "patch"; title: string; detail: string; seen: string; credits?: number; thumb?: boolean; to?: string; message?: string; strategy?: string; buyer?: string; amount?: string; daysLate?: number };
 
 function useReducedMotion() {
   const [reduce, setReduce] = useState(false);
@@ -64,7 +64,7 @@ export function NeedCard({ it, busy, blind, later, onThumbError, decide }: { it:
         : <img src={`/api/remote/thumb?id=${it.id}&v=${it.seen}`} alt={t("remote.thumbAlt", { title: it.title })} className="w-full rounded-lg" style={{ maxHeight: 360, objectFit: "contain", background: "#000" }} onError={onThumbError} />)}
       {it.kind === "nego" && <div className="text-xs">{t("remote.plan")} {it.strategy}</div>}
       {it.kind === "invoice" && <div className="text-sm">{owes}<b>{it.amount}</b>{owed}</div>}
-      {(it.kind === "send" || it.kind === "nego" || it.kind === "invoice") && <>
+      {(it.kind === "send" || it.kind === "nego" || it.kind === "invoice" || it.kind === "patch") && <>
         {it.to && <div className="text-sm">{t("remote.to")} <b>{it.to}</b></div>}
         <pre className="field w-full whitespace-pre-wrap text-xs" style={{ fontFamily: "inherit", maxHeight: 260, overflow: "auto" }}>{it.message}</pre>
       </>}
@@ -72,7 +72,7 @@ export function NeedCard({ it, busy, blind, later, onThumbError, decide }: { it:
         <button className="btn flex-1" style={{ minHeight: 48 }} disabled={!!busy || blind} onClick={() => decide(it, true)}>
           {busy === it.id ? "…" : it.kind === "spend" ? tn("remote.approveCredits", it.credits ?? 0) : it.kind === "send" || ((it.kind === "nego" || it.kind === "invoice") && it.to) ? t("remote.approveSend") : t("common.approve")}
         </button>
-        {it.kind === "clip" && <button className="chip" style={{ minHeight: 48, minWidth: 88 }} disabled={!!busy} onClick={() => decide(it, false)}>{t("common.reject")}</button>}
+        {(it.kind === "clip" || it.kind === "patch") && <button className="chip" style={{ minHeight: 48, minWidth: 88 }} disabled={!!busy} onClick={() => decide(it, false)}>{t("common.reject")}</button>}
       </div>
     </article>
   );
