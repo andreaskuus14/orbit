@@ -4,6 +4,57 @@ import { isPrivate, isPrivateKind, type PrivRow } from "./private-pure.ts";
 export const DIM = 1024; // the DB column; EmbeddingGemma gives 768, zero-padding keeps cosine similarity unchanged
 export type Provider = "local" | "voyage";
 
+export const LOCAL_EMBED_MODEL = "onnx-community/embeddinggemma-300m-ONNX";
+export const LOCAL_EMBED_DTYPE = "q8" as const;
+
+export type ModelFileSpec = { relPath: string; size: number; sha256: string };
+
+/** Expected size + SHA-256 for the local EmbeddingGemma-300M (q8) ONNX artifacts.
+ *  Used by embeddings.ts to detect truncated or corrupted downloads before/after load and re-fetch cleanly. */
+export const LOCAL_EMBED_FILES: readonly ModelFileSpec[] = [
+  { relPath: "onnx/model_quantized.onnx", size: 567_874, sha256: "172efde319fe1542dc41f31be6154910b05b78f7a861c265c4600eec906bd6d8" },
+  { relPath: "onnx/model_quantized.onnx_data", size: 308_890_624, sha256: "705626e28e4c23c82ade34566b4197d97f534c12275fa406dfb71e9937d388c0" },
+];
+
+export type ModelFileStat = { size: number; sha256?: string } | null;
+export type ModelCheckResult =
+  | { status: "ok" }
+  | { status: "missing" }
+  | { status: "corrupt"; file: string; reason: "partial" | "size" | "hash" };
+
+/** Pure integrity check over cached model files:
+ *  - all missing -> "missing" (fresh install, let transformers.js download)
+ *  - some present & some missing -> "corrupt" ("partial")
+ *  - any present file has wrong byte size -> "corrupt" ("size")
+ *  - any present file has wrong sha256 (when provided) -> "corrupt" ("hash") */
+export function checkModelFiles(
+  actual: Record<string, ModelFileStat>,
+  specs: readonly ModelFileSpec[] = LOCAL_EMBED_FILES,
+): ModelCheckResult {
+  let present = 0;
+  for (const spec of specs) {
+    if (actual[spec.relPath]) present++;
+  }
+  if (present === 0) return { status: "missing" };
+  for (const spec of specs) {
+    const info = actual[spec.relPath];
+    if (!info) return { status: "corrupt", file: spec.relPath, reason: "partial" };
+    if (info.size !== spec.size) return { status: "corrupt", file: spec.relPath, reason: "size" };
+    if (info.sha256 && info.sha256.toLowerCase() !== spec.sha256.toLowerCase()) {
+      return { status: "corrupt", file: spec.relPath, reason: "hash" };
+    }
+  }
+  return { status: "ok" };
+}
+
+const CORRUPT_ERR_RE = /out of bounds|can not be read in full|Deserialize tensor|External initializer|Protobuf|Unexpected end of JSON/i;
+
+/** True when an ONNX/transformers.js load failure looks like a truncated or corrupted cached file. */
+export function isCorruptModelError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return CORRUPT_ERR_RE.test(msg);
+}
+
 /** ORBIT_EMBED wins; otherwise Voyage when a key is set (its stored vectors stay comparable), else the free local model.
  *  A journal entry is always embedded locally: journal text never leaves ORBIT (AGENTS.md rule 6). */
 export function provider(env: { ORBIT_EMBED?: string; VOYAGE_API_KEY?: string }, kind?: string | PrivRow): Provider {
