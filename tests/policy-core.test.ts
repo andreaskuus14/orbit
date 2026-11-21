@@ -17,6 +17,7 @@ import { tonightBlocked } from "../src/lib/night-pure.ts";
 import { wishBlocked } from "../src/lib/deals-pure.ts";
 import { ruleBlocked } from "../src/lib/rules-pure.ts";
 import { checkpointBlocked } from "../src/lib/checkpoint-pure.ts";
+import { robloxWriteBlocked } from "../src/lib/rojo-sync-pure.ts";
 
 const ctx = (o: Partial<PolicyCtx> = {}): PolicyCtx => ({ stopAll: false, attach: false, pins: false, steps: [], question: "hello", autonomy: { "operator-build": "ask", "operator-organize": "ask" }, ...o }); // per-action ask path; operator grants: tests/operator.test.ts
 const step = (tool: string, input: object = {}) => `You called ${tool} ${JSON.stringify(input)}\nRESULT:\nok`;
@@ -46,6 +47,7 @@ function legacy(tool: string, input: Record<string, unknown>, c: PolicyCtx): str
   else if (tool === "add_wish") b = wishBlocked(question, dataIn()); // deal hunter: its runner's guard (deals.ts runDealTool)
   else if (tool === "propose_rule") b = ruleBlocked(question, dataIn()); // standing rules: its runner's guard (rules.ts runRuleTool)
   else if (tool === "watch_add") b = watchBlocked(question, dataIn()); // page watch: its runner's guard (pagewatch.ts runWatchTool)
+  else if (tool === "roblox_write" || tool === "roblox_undo") b = robloxWriteBlocked(question); // script files: his own ask for a code change (rojo-sync-pure)
   else if (tool === "ask_agent") b = agentBlocked(question, input.agent, !!attach || steps.some((x) => ["fetch_url", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "ask_agent", "business_status", "watch_changes", "calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "ws_read"].some((t) => x.startsWith(`You called ${t} `)))); // red-team 8.3: added after 1.3; third-party-data reads added with the 2026-11 audit
   else if (tool === "save_checkpoint") b = checkpointBlocked(question); // chat checkpoint: its runner's guard (checkpoint.ts runCheckpointTool)
   else if (isOpsTool(tool)) b = c.stopAll ? PAUSED_MSG : opsBlocked(tool, question, dataIn(), input); // ORGANIZE (operator category B): its runner's guard (core-operator.ts)

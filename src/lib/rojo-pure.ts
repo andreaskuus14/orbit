@@ -3,7 +3,7 @@
 
 export const ROJO_PORT = 34872; // `rojo serve` default
 export const MAX_ISSUES = 500;
-export const SETUP_HINT = "Run tools\\roblox\\setup.ps1 once (PowerShell, from the ORBIT folder): it installs Rokit, Rojo and Selene.";
+export const SETUP_HINT = "Run tools\\roblox\\setup.ps1 once (PowerShell, from the ORBIT folder): it installs Rokit, Rojo, Selene, StyLua and the Rojo plugin for Studio.";
 
 /** Where scripts live in a Roblox place. Workspace is left out on purpose: Rojo would then own every part, mesh and the terrain. */
 const SERVICES: [string, string][] = [

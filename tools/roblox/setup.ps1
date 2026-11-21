@@ -4,6 +4,8 @@
 #   Rokit  = installs and pins Roblox command-line tools (the current replacement for Aftman/Foreman).
 #   Rojo   = copies scripts between files on your PC and Roblox Studio (export + live sync).
 #   Selene = checks Luau code for mistakes (undefined names, unused variables, shadowing...).
+#   StyLua = keeps Luau code tidy (spacing, layout).
+# Licences: Rokit MIT, Rojo MPL-2.0, Selene MPL-2.0, StyLua MPL-2.0 (all free for commercial use).
 #   Git    = keeps every exported version so you can see what changed.
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
@@ -30,12 +32,18 @@ if (-not (Test-Path (Join-Path $RokitBin "rokit.exe")) -and -not (Get-Command ro
 } else { Write-Host "Rokit is already installed." }
 $env:Path = "$RokitBin;$env:Path"  # this window doesn't see the new PATH yet
 
-Step "Rojo and Selene (versions from tools\roblox\rokit.toml)"
+Step "Rojo, Selene and StyLua (versions from tools\roblox\rokit.toml)"
 Push-Location $Here
 try {
   Run rokit @("install", "--no-trust-check")
   Run rojo @("--version")
   Run selene @("--version")
+  Run stylua @("--version")
+  # Also as global tools, so they run in a connected folder that pins other tools (its own aftman.toml/rokit.toml). Not fatal.
+  foreach ($t in @("rojo-rbx/rojo@7.7.1", "Kampfkarren/selene@0.31.0", "JohnnyMorganz/StyLua@2.6.0")) {
+    & rokit add --global $t 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Host "  ($t is already a global tool, or Rokit said no: fine)" }
+  }
   Step "Rojo's Studio plugin"
   Run rojo @("plugin", "install")
 } finally { Pop-Location }
