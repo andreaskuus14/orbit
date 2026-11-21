@@ -73,6 +73,7 @@ import MemoryControls from "./MemoryControls";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { DupPreview, MemoryInspector, MemoryProjects, MemoryReview, MemorySearch, PeopleView } from "./MemoryWorkspace";
 import { isProvTag, type DupChoice } from "@/lib/memory-capture-pure";
+import { DubVoiceSection } from "./DubVoice";
 import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string; confirmation?: string | null; recheck_at?: string | null };
@@ -911,6 +912,7 @@ export function ProfilePanel() {
     <AuthoritySection />
     <PluginsSection />
     <PhonePairing />
+    <DubVoiceSection />
     <WeeklyReviewSetting />
     <TimeCapsuleSection />
     <PlaceSection />

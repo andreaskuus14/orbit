@@ -14,7 +14,7 @@ export function serviceUrl(raw: string | undefined, def = DEFAULT_URL): string |
   return u.protocol === "http:" && LOOPBACK.has(u.hostname) && !u.username && !u.password ? u.origin : null;
 }
 
-export type ToolId = "image3d" | "removebg" | "tts" | "clone" | "captions" | "ifc" | "docs";
+export type ToolId = "image3d" | "removebg" | "tts" | "clone" | "captions" | "ifc" | "docs" | "dub";
 /** et: Estonian name and sentence (the optional modules have them; the UI falls back to English). */
 export type CatalogEntry = { id: ToolId | "images" | "text3d" | "motion"; name: string; what: string; model: string; vram: string; vramGb: number; license: string; where: string; setup: string; et?: { name: string; what: string } };
 /** Every local creative tool, in plain words. OPERATIONS → Local AI shows this list; vramGb 0 = runs on the CPU. */
@@ -36,6 +36,10 @@ export const CATALOG: CatalogEntry[] = [
   { id: "docs", name: "Document reading", what: "Turns a PDF, Word file or scanned page into clean Markdown text with its tables, saved next to the original so CORE can read it.",
     model: "Docling (layout, TableFormer, RapidOCR)", vram: "about 2 GB; falls back to the CPU", vramGb: 2, license: "MIT", where: "VAULT → open a file → Read document", setup: `${SETUP_CMD} -Docs`,
     et: { name: "Dokumendi lugemine", what: "Teeb PDF-ist, Wordi failist või skannitud lehest puhta Markdown-teksti koos tabelitega ja salvestab selle originaali kõrvale, et CORE saaks seda lugeda." } },
+  { id: "dub", name: "Bilingual dub", what: "Makes an English or Estonian version of your approved Short, said in your own voice, with captions in that language.",
+    model: "OpenVoice V2 voice converter + Kokoro (English) + Piper et_EE (Estonian)", vram: "none (CPU)", vramGb: 0, license: "MIT (OpenVoice V2 code + weights, Piper voice), Apache-2.0 (Kokoro); Piper runtime GPL-3.0",
+    where: "STUDIO → review queue → EN/ET version", setup: `${SETUP_CMD} -Dub`,
+    et: { name: "Kakskeelne dubleerimine", what: "Teeb sinu kinnitatud Shortist inglis- või eestikeelse versiooni sinu enda häälega ja selle keele subtiitritega." } },
   { id: "images", name: "Pictures (unlimited)", what: "Makes realistic photos from a description: website pictures (used first, before the online free service) and pictures CORE saves in VAULT.",
     model: "SDXL-Lightning 4-step in ComfyUI (a separate service on 127.0.0.1:8188)", vram: "about 6 GB at 1024 px (fits 8 GB)", vramGb: 6, license: "CreativeML Open RAIL++-M (commercial use OK, no harmful uses)", where: "STUDIO → Websites → Generate locally; CORE's local_image", setup: "powershell -ExecutionPolicy Bypass -File tools\\comfyui\\setup.ps1" },
   { id: "text3d", name: "Text to 3D (Roblox)", what: "Describe an object and Roblox Studio generates a textured mesh in your place (Roblox's own Cube 3D model).",
@@ -45,10 +49,10 @@ export const CATALOG: CatalogEntry[] = [
 ];
 
 /** Optional modules: installed later with their own setup switch. */
-export const MODULES: ToolId[] = ["captions", "ifc", "docs"];
+export const MODULES: ToolId[] = ["captions", "ifc", "docs", "dub"];
 
 export type Health = { running: boolean; gpu: { name: string; vramGb: number } | null; busy: boolean; tools: Record<ToolId, boolean> };
-const NONE: Record<ToolId, boolean> = { image3d: false, removebg: false, tts: false, clone: false, captions: false, ifc: false, docs: false };
+const NONE: Record<ToolId, boolean> = { image3d: false, removebg: false, tts: false, clone: false, captions: false, ifc: false, docs: false, dub: false };
 /** server.py's /health JSON (null = unreachable) → what the UI shows. Anything odd counts as not running. */
 export function parseHealth(j: unknown): Health {
   const o = (j ?? {}) as { ok?: unknown; service?: unknown; gpu?: { name?: unknown; vramGb?: unknown } | null; busy?: unknown; tools?: Record<string, unknown> };

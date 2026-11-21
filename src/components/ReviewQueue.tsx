@@ -22,7 +22,7 @@ type VersionEdit = { layout: "fit" | "fill" | "split" | "follow"; camSide: "left
 type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
   retryOf?: { videoId: string; title: string };
   status: "rendering" | "ready" | "failed" | "approved" | "rejected"; video?: string; thumb?: string; edit?: VersionEdit; brand?: string;
-  titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; virality?: Virality };
+  titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; virality?: Virality; dub?: { lang: "en" | "et"; of: string } };
 type Job = { id: string; source: string; createdAt: string; clips: Clip[];
   options: { captions: boolean; layout?: VersionEdit["layout"]; camSide?: VersionEdit["camSide"]; camSize?: number; jumpCuts?: boolean; zooms?: boolean } };
 type Item = { job: string; source: string; base: VersionEdit; clip: Clip };
@@ -119,6 +119,11 @@ export default function ReviewQueue({ reduced, onClose, start }: { reduced: bool
     await api(`${url(it)}/version`, "POST", { ...edit, start: 0, end: 0, suggest });
     setSaid("↻ Another version is rendering: it will be in your next review."); setMode("idle");
   });
+  // Bilingual dub (dub-pure.ts): the approved Short in the other language, in his own voice. It comes back here as a new version.
+  const dub = () => run(async (it) => {
+    const { clip } = await api<{ clip: Clip }>(`${url(it)}/dub`, "POST");
+    setSaid(tr("dub.started", { lang: tr(clip.dub?.lang === "et" ? "dub.et" : "dub.en") }));
+  });
   const open = (m: Mode) => {
     if (!c || c.status === "rejected") return;
     if (m === "title") setTitle(c.title);
@@ -214,6 +219,7 @@ export default function ReviewQueue({ reduced, onClose, start }: { reduced: bool
             )}
             {c.status !== "rejected" && <ClipPicks clip={c} busy={busy} big onPick={(body) => void patch(body, () => {})} onMore={() => void moreTitles()} moreBusy={writing} />}
             {c.hook && <p className="leading-snug">“{c.hook}”</p>}
+            {c.dub && <p className="muted text-xs" role="note">{tr("dub.note", { lang: tr(c.dub.lang === "et" ? "dub.et" : "dub.en") })}</p>}
             {c.virality && <div className="flex items-start gap-3 rounded-xl border border-white/10 p-2"><ScoreRing key={c.id} v={c.virality} reduced={reduced} size={56} /><div className="min-w-0 flex-1"><ScoreWhy key={c.id} v={c.virality} open /></div></div>}
             <p className="muted num text-xs">{c.virality ? "editor" : "score"} {score(c.score)}/100 · {mmss(c.start)}–{mmss(c.end)} · {mmss(Math.max(0, c.end - c.start))}</p>
             {c.reason && <p className="muted text-xs leading-snug">Why: {c.reason}</p>}
@@ -226,6 +232,7 @@ export default function ReviewQueue({ reduced, onClose, start }: { reduced: bool
             <div className="mt-1 flex flex-wrap gap-1.5">
               <button className="chip" onClick={() => void approve()} disabled={busy || c.status !== "ready"} aria-label={`Approve ${c.title}${c.retryOf ? " and replace original after publication" : ""} (A)`}>✓ {c.retryOf ? "Approve & replace after publication" : "Approve"}<Kbd k="A" /></button>
               <button className="chip" onClick={() => setMode((m) => (m === "reject" ? "idle" : "reject"))} disabled={busy || c.status === "rejected"} aria-expanded={mode === "reject"} aria-label={`Reject ${c.title} (R)`}>✕ Reject<Kbd k="R" /></button>
+              {c.status === "approved" && !c.dub && <button className="chip" onClick={() => void dub()} disabled={busy} title={tr("dub.why")}>🌐 {tr("dub.button")}</button>}
               <button className="chip" onClick={() => (mode === "version" ? setMode("idle") : open("version"))} disabled={busy || c.status === "rejected"} aria-expanded={mode === "version"} aria-label={`Another version of ${c.title} (V)`}>↻ Version<Kbd k="V" /></button>
               <button className="chip" onClick={() => go(i - 1)} disabled={i === 0} aria-label="Previous clip (←)">←</button>
               <button className="chip" onClick={() => go(i + 1)} aria-label="Next clip (→)">Skip →</button>

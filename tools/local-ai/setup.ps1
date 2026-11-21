@@ -10,8 +10,9 @@
 #   setup.ps1 -Ifc        IFC models for ARCH: IfcOpenShell (~60 MB, CPU)
 #   setup.ps1 -Docs       document reading: Docling + its layout/table/OCR models (~1 GB)
 #   setup.ps1 -Extras     all three
+#   setup.ps1 -Dub        STUDIO bilingual dub: OpenVoice V2 voice converter (MIT) + Piper Estonian voice (~210 MB, CPU; needs the main setup's Kokoro)
 # Background cut-out: BiRefNet lite by default; -CutoutModel birefnet-general (~970 MB, cleaner, slower) or u2net. Also set ORBIT_CUTOUT_MODEL to match.
-param([ValidateSet("birefnet-general-lite", "birefnet-general", "u2net")][string]$CutoutModel = "birefnet-general-lite", [switch]$SkipClone, [switch]$Skip3D, [switch]$Captions, [switch]$Ifc, [switch]$Docs, [switch]$Extras)
+param([ValidateSet("birefnet-general-lite", "birefnet-general", "u2net")][string]$CutoutModel = "birefnet-general-lite", [switch]$SkipClone, [switch]$Skip3D, [switch]$Captions, [switch]$Ifc, [switch]$Docs, [switch]$Extras, [switch]$Dub)
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
 $Venv = Join-Path $Here ".venv"
@@ -32,6 +33,17 @@ $WhisperRepo = "dropbox-dash/faster-whisper-large-v3-turbo"; $WhisperRev = "0a36
 $IfcPkgs = @("ifcopenshell==0.9.0.post1")  # LGPL-3.0, prebuilt py311 win_amd64 wheel
 $DoclingPkgs = @("docling==2.139.0")  # MIT; needs torchvision built for the same torch
 $TorchVisionVer = "0.22.1"  # pairs with torch 2.7.1
+# Bilingual dub: OpenVoice (code MIT, pinned commit, installed without its many TTS dependencies: ORBIT only uses the converter) + Piper (GPL-3.0 runtime)
+$OpenVoiceCommit = "74a1d147b17a8c3092dd5430504bd83ef6c7eb23"
+$DubPkgs = @("piper-tts==1.8.0")
+$OpenVoiceRev = "f36e7edfe1684461a8343844af60babc2efbb727"  # myshell-ai/OpenVoiceV2 (MIT, "free for commercial use")
+$PiperRev = "e9c8a39444359388adaa94255becb37a5a2b8e51"      # rhasspy/piper-voices et_EE news medium (MIT; TartuNLP data CC-BY)
+$DubFiles = @(
+  @{ Url = "https://huggingface.co/myshell-ai/OpenVoiceV2/resolve/$OpenVoiceRev/converter/checkpoint.pth"; Out = "openvoice\checkpoint.pth"; Sha = "9652c27e92b6b2a91632590ac9962ef7ae2b712e5c5b7f4c34ec55ee2b37ab9e" },
+  @{ Url = "https://huggingface.co/myshell-ai/OpenVoiceV2/resolve/$OpenVoiceRev/converter/config.json"; Out = "openvoice\config.json"; Sha = "9dfff60350b8c63f2c664efd92a61b2516efb22671466960f0e5dfebd881fa47" },
+  @{ Url = "https://huggingface.co/rhasspy/piper-voices/resolve/$PiperRev/et/et_EE/news/medium/et_EE-news-medium.onnx"; Out = "piper\et_EE-news-medium.onnx"; Sha = "e4a55ec42364c5a2d060bf51ef7525b141b24cd56426f61a3702b44f68f5f21f" },
+  @{ Url = "https://huggingface.co/rhasspy/piper-voices/resolve/$PiperRev/et/et_EE/news/medium/et_EE-news-medium.onnx.json"; Out = "piper\et_EE-news-medium.onnx.json"; Sha = "281235a43df750a5ca3edc0c752a74c3487e63609c53468a7fce1d4b93d161af" }
+)
 $Kokoro = @(
   @{ Name = "kokoro-v1.0.onnx"; Sha = "beb0d1848dee9a49da392cc3df26958d46cfa35d321edf434f52949153f0df3a" },
   @{ Name = "voices-v1.0.bin"; Sha = "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d" }
@@ -69,7 +81,7 @@ Step "Virtual environment ($Venv)"
 if (-not (Test-Path $Py)) { Run py @("-3.11", "-m", "venv", $Venv) }
 Run $Py @("-m", "pip", "install", "--upgrade", "pip==24.3.1", "setuptools==75.6.0", "wheel==0.45.1")
 
-if ($Captions -or $Ifc -or $Docs -or $Extras) {
+if ($Captions -or $Ifc -or $Docs -or $Extras -or $Dub) {
   # Only the optional modules: the main tools are left as they are. "torch==$TorchVer" in each install keeps pip from touching torch.
   $C = @("-c", (Join-Path $Here "constraints.txt"))
   # find_spec, not import: nothing on stderr (Windows PowerShell treats native stderr as an error under "Stop")
@@ -98,6 +110,19 @@ if ($Captions -or $Ifc -or $Docs -or $Extras) {
       RunTries (Join-Path $Venv "Scripts\docling-tools.exe") @("models", "download", "-o", "$Models\docling", "layout", "tableformer", "rapidocr")
       Set-Content (Join-Path $Models "docling\ready.txt") "docling 2.139.0 models"
     }
+  }
+  if ($Dub) {
+    Step "Bilingual dub: OpenVoice V2 converter (MIT) + Piper Estonian voice (~210 MB, CPU)"
+    if (-not (& $Has "openvoice")) { RunRetry $Py @("-m", "pip", "install", "--no-deps", "git+https://github.com/myshell-ai/OpenVoice@$OpenVoiceCommit") }
+    if (-not (& $Has "piper")) { RunRetry $Py (@("-m", "pip", "install") + $DubPkgs + @("torch==$TorchVer") + $C) }
+    foreach ($f in $DubFiles) {
+      $dest = Join-Path $Models $f.Out
+      New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
+      if ((Test-Path $dest) -and (Get-FileHash $dest -Algorithm SHA256).Hash -eq $f.Sha) { continue }
+      for ($i = 1; $i -le 4; $i++) { try { Invoke-WebRequest $f.Url -OutFile $dest; break } catch { if ($i -eq 4) { throw } ; Warn "Download stopped (try $i of 4); retrying in 15 s"; Start-Sleep 15 } }
+      if ((Get-FileHash $dest -Algorithm SHA256).Hash -ne $f.Sha) { Remove-Item $dest; throw "$($f.Out) was damaged while downloading (hash mismatch). Run setup.ps1 -Dub again." }
+    }
+    if (-not (Test-Path (Join-Path $Models "kokoro\kokoro-v1.0.onnx"))) { Warn "Kokoro isn't installed: run the main setup once, then -Dub again (English dubs use it)." }
   }
   Write-Host "`nDone. Restart the service (close its window, then run start.ps1) and check OPERATIONS → Local AI." -ForegroundColor Green
   exit 0
