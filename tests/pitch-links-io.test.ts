@@ -35,12 +35,14 @@ async function load(status = "review") {
   return { m: m.exports, file, mtime, pushes, contracts };
 }
 const tok = (p: string) => p.slice(3);
+// Always a different last char (a fixed "A" was a no-op whenever the real sig ended in "A": 1 in 64 runs).
+const flipLast = (t: string) => t.slice(0, -1) + (t.endsWith("A") ? "B" : "A");
 
 test("bad tokens never write; a valid open logs one view and pushes once", async () => {
   const { m, file, pushes } = await load();
   const l = await m.createLink("c1", 7, true);
   const before = await fsp.readFile(file, "utf8");
-  for (const t of ["junk", tok(l.path).slice(0, -1) + "A", `${l.id}.1.${"x".repeat(22)}`]) {
+  for (const t of ["junk", flipLast(tok(l.path)), `${l.id}.1.${"x".repeat(22)}`]) {
     assert.equal(await m.beacon(t, "v", 10), false);
     assert.ok("state" in (await m.openLink(t, "Chrome/1", "1.2.3.4")));
   }
