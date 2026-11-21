@@ -9,14 +9,14 @@ Set-Location $PSScriptRoot
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) { Write-Host "Python 3.10+ is needed for the scraper rung: install it from python.org (tick 'Add to PATH'), then run this again."; exit 1 }
 if (-not (Test-Path .venv)) { python -m venv .venv }
 $py = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
-& $py -c "import scrapling.fetchers" 2>$null
-if ($LASTEXITCODE -ne 0) {
+# Windows PowerShell 5.1 turns a native command's stderr into an error under "Stop", so probe with cmd and plain exit codes.
+function Test-Py([string]$code) { cmd /c "`"$py`" -c `"$code`" >nul 2>nul"; return ($LASTEXITCODE -eq 0) }
+if (-not (Test-Py "import scrapling.fetchers")) {
   & $py -m pip install --quiet --upgrade pip
   & $py -m pip install --quiet "scrapling[fetchers]"
   & $py -m scrapling install   # browser fetchers for scrape_page's "browser"/"stealth" modes
 }
-& $py -c "import scrapling.fetchers; print('Scrapling ready:', scrapling.__version__)" 2>$null
-if ($LASTEXITCODE -ne 0) { & $py -c "import scrapling; print('Scrapling ready')" }
+if (Test-Py "import scrapling.fetchers") { Write-Host "Scrapling ready." } else { Write-Host "Scrapling didn't install: the scraper rung is skipped (fetch and browser still work). Run this again later." -ForegroundColor Yellow }
 
 $chrome = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe", "$env:LocalAppData\Google\Chrome\Application\chrome.exe",
   "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1

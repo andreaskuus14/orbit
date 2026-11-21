@@ -66,29 +66,34 @@ class Pure(unittest.TestCase):
 
 class PcActions(unittest.TestCase):
     def test_folders(self):
-        fs = pc_actions.parse_folders("/tmp;C:\\Windows;relative")
-        self.assertEqual([str(f) for f in fs], ["/tmp"])
-        self.assertTrue(str(pc_actions.inside("/tmp/x.txt", fs)).endswith("x.txt"))
+        import tempfile
+        # Not the system temp dir: on Windows that is under AppData, which parse_folders refuses on purpose.
+        root = Path(__file__).resolve().parent / "_tmp"; root.mkdir(exist_ok=True)
+        base = Path(tempfile.mkdtemp(dir=root))
+        other = Path(tempfile.mkdtemp(dir=root))
+        fs = pc_actions.parse_folders(f"{base};relative;C:\\Windows")
+        self.assertEqual([str(f) for f in fs], [str(base)])
+        self.assertTrue(str(pc_actions.inside(str(base / "x.txt"), fs)).endswith("x.txt"))
         with self.assertRaises(PermissionError):
-            pc_actions.inside("/etc/passwd", fs)
+            pc_actions.inside(str(other / "secret.txt"), fs)
         with self.assertRaises(PermissionError):
-            pc_actions.inside("/tmp/../etc/passwd", fs)
+            pc_actions.inside(str(base / ".." / other.name / "secret.txt"), fs)
 
     def test_move_and_undo(self):
         import tempfile
-        d = Path(tempfile.mkdtemp(dir="/tmp"))
+        d = Path(tempfile.mkdtemp())
         (d / "a.txt").write_text("hi")
         fs = [d]
         r = pc_actions.act("rename_file", {"from": str(d / "a.txt"), "to": str(d / "b.txt")}, fs)
         self.assertTrue(r["ok"]) ; self.assertTrue((d / "b.txt").exists())
         with self.assertRaises(PermissionError):
-            pc_actions.act("move_file", {"from": str(d / "b.txt"), "to": "/etc/b.txt"}, fs)
+            pc_actions.act("move_file", {"from": str(d / "b.txt"), "to": str(Path(tempfile.mkdtemp()) / "b.txt")}, fs)
         self.assertTrue(pc_actions.undo("rename_file", r["undo"], fs)["ok"])
         self.assertTrue((d / "a.txt").exists())
 
     def test_code_edit_on_branch(self):
         import subprocess, tempfile
-        d = Path(tempfile.mkdtemp(dir="/tmp"))
+        d = Path(tempfile.mkdtemp())
         run = lambda *a: subprocess.run(["git", *a], cwd=d, capture_output=True, text=True)
         run("init", "-q", "-b", "main"); run("config", "user.email", "t@t"); run("config", "user.name", "t")
         (d / "a.lua").write_text("local x = 1\n"); run("add", "."); run("commit", "-qm", "init")
