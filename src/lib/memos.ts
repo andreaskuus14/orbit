@@ -14,7 +14,7 @@ import { stopAllOn } from "./stop-all";
 import { usageHold } from "./usage-meter";
 import { readState, saveState, studioRoot } from "./clips/factory";
 import {
-  classifyMemo, destOf, DUMP_SYSTEM, dumpPrompt, filingFor, isDestId, itemFiling, itemFrom, itemRefileProblem, itemRefiled, itemStartProblem, itemUndoProblem, itemUndone, mergeModel, memoOfItems,
+  classifyMemo, destOf, isPrivateText, DUMP_SYSTEM, dumpPrompt, filingFor, isDestId, itemFiling, itemFrom, itemRefileProblem, itemRefiled, itemStartProblem, itemUndoProblem, itemUndone, mergeModel, memoOfItems,
   MEMO_SYSTEM, memoPrompt, parseModelItems, parseModelKind, pickGame, planMemo, pushMemo, refiled, refileProblem, startProblem, undoneMemo, undoProblem, withItem,
   type Filing, type ItemKind, type ItemNote, type ItemRef, type Memo, type MemoItem, type MemoKind, type MemoRef, type Planned, type Target,
 } from "./memos-pure";
@@ -41,7 +41,7 @@ export const listMemos = async (n = 20) => (await load()).memos.slice(0, n);
 /** Rules first; one fast-model call only when they're unsure and nothing holds background spend. */
 async function classify(sb: SupabaseClient, userId: string, text: string): Promise<{ kind: MemoKind; by: "rules" | "model" }> {
   const r = classifyMemo(text);
-  if (r.sure || stopAllOn() || usageHold()) return { kind: r.kind, by: "rules" };
+  if (r.sure || isPrivateText(text) || stopAllOn() || usageHold()) return { kind: r.kind, by: "rules" }; // private text never reaches the model
   try {
     const res = await askClaude(memoPrompt(text), MEMO_SYSTEM, { lane: "foreground", model: FAST_MODEL, timeoutMs: 20_000, purpose: "memo.classify" });
     void recordUsage(sb, userId, "memo.classify", res, FAST_MODEL).catch(() => {});
@@ -157,7 +157,7 @@ async function unfile(sb: SupabaseClient, userId: string, ref: ItemRef) {
 /** One fast-model call for the whole memo, only for the parts the rules weren't sure about (never private ones: those are sure and local). */
 async function splitWithModel(sb: SupabaseClient, userId: string, items: Planned[]): Promise<Planned[] | null> {
   const parts = items.filter((p) => !p.sure).map((p) => p.text);
-  if (!parts.length || stopAllOn() || usageHold()) return null;
+  if (!parts.length || parts.some(isPrivateText) || stopAllOn() || usageHold()) return null; // belt and braces: private parts are always rule-sure
   try {
     const res = await askClaude(dumpPrompt(parts), DUMP_SYSTEM, { lane: "foreground", model: FAST_MODEL, timeoutMs: 30_000, purpose: "memo.split" });
     void recordUsage(sb, userId, "memo.split", res, FAST_MODEL).catch(() => {});
@@ -187,7 +187,7 @@ async function fileItems(sb: SupabaseClient, userId: string, items: Planned[]): 
 export async function fileMemo(sb: SupabaseClient, userId: string, text: string, source: Memo["source"], wav?: Uint8Array): Promise<Memo> {
   const plan = planMemo(text);
   let m: Memo;
-  if (plan.legacy) {
+  if (plan.legacy && !isPrivateText(text)) { // private text always takes the item path: it is filed as a local journal entry
     const { kind, by } = await classify(sb, userId, text);
     const ref = await fileAs(sb, userId, kind, text);
     m = { id: randomUUID(), at: new Date().toISOString(), text, kind, by, source, ref };

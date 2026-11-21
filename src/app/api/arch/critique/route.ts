@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
 import { isCurrent } from "@/lib/memory-types-pure";
+import { dropPrivate } from "@/lib/private-pure";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude } from "@/lib/claude";
 import { usageHardHold } from "@/lib/usage-meter";
@@ -36,10 +37,10 @@ export async function POST(req: Request) {
   const held = stopAllOn() ? "Stop-all is on" : usageHardHold();
   if (held) return fail(`Not right now: ${held}`, 503);
 
-  const { data: notes } = await sb.from("memories").select("kind, title, content, tags, created_at").contains("tags", ["arch", "lesson"]).order("created_at", { ascending: false }).limit(4);
+  const { data: notes } = await sb.from("memories").select("kind, title, content, tags, created_at").contains("tags", ["arch", "lesson"]).neq("kind", "journal").order("created_at", { ascending: false }).limit(4);
   let critique;
   try {
-    const r = await askClaude(critiquePrompt({ brief, lesson, notes: (notes ?? []).filter((m) => isCurrent(m, { now: Date.now() })) }), CRITIQUE_SYSTEM, { lane: "foreground", purpose: "arch.critique", images: [{ type: kind.type, data }], timeoutMs: 150_000, signal: req.signal });
+    const r = await askClaude(critiquePrompt({ brief, lesson, notes: dropPrivate(notes).filter((m) => isCurrent(m, { now: Date.now() })) }), CRITIQUE_SYSTEM, { lane: "foreground", purpose: "arch.critique", images: [{ type: kind.type, data }], timeoutMs: 150_000, signal: req.signal });
     critique = parseCritique(r.text);
   } catch (e) {
     if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);

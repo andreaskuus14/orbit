@@ -2,6 +2,7 @@
 // recheck date (migration 0019). Builds: exact-match boost for names/ids on top of the existing hybrid ranking
 // (memory-search.ts), a compact linked context set for CORE, per-project briefings from recorded outcomes only, and the
 // four memory controls. Journal (LIFE) records are dropped everywhere here. Tested in tests/provenance.test.ts.
+import { isPrivate } from "./private-pure.ts";
 
 export type Confirmation = "suggested" | "confirmed";
 export type MemRecord = {
@@ -11,7 +12,7 @@ export type MemRecord = {
 };
 export type ContextItem = { id: string; title: string; line: string; link: string; confirmation: Confirmation; stale: boolean };
 
-const notJournal = <T extends { kind: string }>(r: T) => r.kind !== "journal";
+const notJournal = <T extends { kind: string }>(r: T) => !isPrivate(r); // private-pure.ts
 export const confirmationOf = (r: Pick<MemRecord, "confirmation">): Confirmation => r.confirmation === "suggested" ? "suggested" : "confirmed";
 /** Inferred / model-made records start as suggestions; owner-made ones are confirmed. */
 export const initialConfirmation = (source: string): Confirmation => /^(?:capture|upload|url|user_said|owner)$/.test(source) ? "confirmed" : "suggested";

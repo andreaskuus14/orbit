@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { rrfMerge, toOrQuery } from "./pure.ts";
 import { exactMatchIds, exactTerms, isMissingColumn, PROVENANCE_COLUMNS } from "./provenance-pure.ts";
 import { isCurrent, type Legacy } from "./memory-types-pure.ts";
+import { isPrivate } from "./private-pure.ts";
 import { applyRerank, RERANK_POOL, rerankable, rerankDoc } from "./rerank-pure.ts";
 import { CANDIDATE_LIMIT, memoryLimit, memoryProject, memoryProjectFilter, selectCoreMemoryIds, type MemoryMetadata } from "./memory-retrieval-pure.ts";
 
@@ -95,6 +96,6 @@ export async function retrieveMemories(sb: SupabaseClient, query: string, limit:
   const candidates = ids.map((id) => byId.get(id)).filter((m): m is NonNullable<typeof m> => !!m)
     // Model-facing searches (CORE, agents, court, episodes) only get what is current HERE: never another chat's or project's
     // scoped instruction, an expired one or a superseded copy. The owner's own MEMORY search (includeJournal) sees everything.
-    .filter((m) => options.includeJournal || isCurrent(m, { now: Date.now(), project: options.projectScope, chat: options.chatId, legacy: options.projectLegacy })); // projectName only ranks; scope decides
+    .filter((m) => options.includeJournal || (!isPrivate(m) && isCurrent(m, { now: Date.now(), project: options.projectScope, chat: options.chatId, legacy: options.projectLegacy }))); // projectName only ranks; scope decides
   return { results: candidates, mode };
 }

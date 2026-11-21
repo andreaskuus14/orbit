@@ -2,6 +2,7 @@
 // (Again/Hard/Good/Easy), day-granular due dates (local "YYYY-MM-DD", so no time zone maths in here), a daily cap on new cards,
 // streak and recall stats. Cards come from kept lessons, ARCH lesson quizzes, memories he marks "Learn this" (drafted by one
 // fast-model call, he keeps or edits each) and a deck he types. Journal memories never become cards. I/O: study.ts.
+import { isPrivate } from "./private-pure.ts";
 
 export const SOURCES = ["lesson", "arch", "memory", "deck", "book"] as const;
 export type CardSource = (typeof SOURCES)[number];
@@ -193,7 +194,7 @@ export function sourceCorrected(u: UserStudy, ref: string, today: string): numbe
 export const cardLog = (u: UserStudy, id: string) => u.log.filter((r) => r.card === id).reverse();
 
 /** Only non-journal memories may be studied (journal entries are LIFE: never sent to a model). */
-export const studyable = (m: { kind: string; tags?: string[] | null }) => m.kind !== "journal" && !(m.tags ?? []).includes("journal");
+export const studyable = (m: { kind: string; tags?: string[] | null }) => !isPrivate(m); // private-pure.ts
 
 /** The stored file → a store, or null when it's unreadable ("" = no file yet). Bad cards and log rows are dropped. */
 export function parseStore(raw: string): Store | null {

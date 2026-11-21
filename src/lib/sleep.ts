@@ -14,6 +14,7 @@ import { readState, studioRoot } from "./clips/factory";
 import { learnProblem, results48, type LearnState } from "./clips/learn-pure";
 import { localDay } from "./morning-pure";
 import { MAX_CALLS, dupGroups, evidencePairs, parseConsolidation, parseEvidence, parseSleep, parseVec, reportLine, sleepDue, type Mem, type SleepState } from "./sleep-pure";
+import { dropPrivate } from "./private-pure";
 
 // Sleep loop: once a night (03:00–07:00 local, scheduler tick) CORE consolidates near-duplicate memories, curates its
 // playbook from the day's corrections, and leaves a one-line report for the morning card. Background lane, FAST_MODEL,
@@ -76,7 +77,7 @@ async function consolidate(sb: SupabaseClient, userId: string, ask: Ask): Promis
   if (error) throw error;
   if (prev.error) throw prev.error; // else already-merged groups would be merged again
   const done = new Set((prev.data ?? []).flatMap((m) => m.tags as string[]));
-  const mems: Mem[] = (data ?? []).filter((m) => isCurrent(m, { now: Date.now() })).map((m) => ({ id: m.id, title: m.title, content: String(m.content).slice(0, 600), embedding: parseVec(m.embedding) }));
+  const mems: Mem[] = dropPrivate(data).filter((m) => isCurrent(m, { now: Date.now() })).map((m) => ({ id: m.id, title: m.title, content: String(m.content).slice(0, 600), embedding: parseVec(m.embedding) }));
   const groups = dupGroups(mems, done);
   if (!groups.length) return 0;
   const text = await ask(groups.map((g, i) => `<group ${i}>\n${g.map((m) => `<note>\n${m.title}\n${m.content}\n</note>`).join("\n")}\n</group>`).join("\n") + "\nYour JSON reply:", CONSOLIDATE, userId, "core.sleep.consolidate");

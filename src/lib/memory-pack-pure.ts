@@ -4,6 +4,7 @@
 // Tested in tests/memory-pack.test.ts.
 import { currentOnly, memoryType, type Typed } from "./memory-types-pure.ts";
 import { projectOf } from "./memory-workspace-pure.ts";
+import { isPrivate } from "./private-pure.ts";
 
 export type PackRec = Typed & { id: string; title: string; content: string; kind: string; tags: string[]; updated_at?: string | null };
 export type Line = { id: string; text: string };
@@ -16,9 +17,8 @@ export const SECTIONS = ["objective", "decisions", "constraints", "questions"] a
 type Section = (typeof SECTIONS)[number];
 const CAP = 12, TEXT = 280;
 
-const PRIVATE = /^(?:journal|life|diary|health|mood)$/i;
-/** Journal/LIFE content never enters a pack (it would reach CORE and agents). */
-export const isPrivate = (r: { kind?: string; tags?: string[] | null }) => PRIVATE.test(r.kind ?? "") || (r.tags ?? []).some((t) => PRIVATE.test(t) || /^life[:/]/i.test(t));
+/** Journal/LIFE content never enters a pack (it would reach CORE and agents): the shared guard in private-pure.ts. */
+export { isPrivate };
 
 const same = (a: string | null, b: string) => !!a && a.trim().toLowerCase() === b.trim().toLowerCase();
 /** The records a pack may use: current in this project's context, belonging to this project, not chat-scoped, not private. */

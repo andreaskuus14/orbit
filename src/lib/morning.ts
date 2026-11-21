@@ -129,7 +129,7 @@ async function deadlines(sb: SupabaseClient, userId: string, today: string) {
 
 /** The newest ARCH lesson saved in the last 14 days (ArchWorld saves them as notes tagged arch + lesson). */
 async function archLesson(sb: SupabaseClient, now: number) {
-  const { data, error } = await sb.from("memories").select("id, title").contains("tags", ["arch", "lesson"])
+  const { data, error } = await sb.from("memories").select("id, title").contains("tags", ["arch", "lesson"]).neq("kind", "journal")
     .gte("created_at", new Date(now - 14 * 86_400_000).toISOString()).order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (error) throw new Error(error.message);
   return data ?? undefined;

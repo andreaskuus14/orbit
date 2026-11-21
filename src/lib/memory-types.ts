@@ -3,13 +3,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { MEMORY_COLUMNS } from "./memory-search";
 import { currentOnly, type Legacy, type Typed } from "./memory-types-pure";
+import { dropPrivate } from "./private-pure";
 
 type Row = Record<string, unknown> & Typed & { id: string };
 export async function currentMemories<T extends Record<string, unknown>>(sb: SupabaseClient, userId: string, results: T[], project: string, chat?: string, legacy?: Legacy): Promise<T[]> {
   const ids = results.map((m) => String(m.id));
   if (!ids.length) return results;
   const fix = await sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).overlaps("tags", ids.map((id) => `corrects:${id}`)).limit(20);
-  const corrections = (fix.data ?? []) as unknown as Row[];
+  const corrections = dropPrivate((fix.data ?? []) as unknown as Row[]); // CORE context: never a journal row
   const rows = [...(results as unknown as Row[]), ...corrections];
   const keep = currentOnly(rows, { now: Date.now(), project, chat, legacy });
   // A correction that applies here takes the place of the memory it corrects.

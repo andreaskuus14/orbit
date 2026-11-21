@@ -37,9 +37,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (!Object.keys(patch).length) return Response.json({ error: "Nothing to update" }, { status: 400 });
 
   if ("title" in patch || "content" in patch) {
-    const { data: cur } = await sb.from("memories").select("title, content, kind").eq("id", id).maybeSingle();
+    const { data: cur } = await sb.from("memories").select("title, content, kind, tags").eq("id", id).maybeSingle();
     if (cur) {
-      const e = await embed(`${patch.title ?? cur.title}\n\n${patch.content ?? cur.content}`, "document", cur.kind);
+      const e = await embed(`${patch.title ?? cur.title}\n\n${patch.content ?? cur.content}`, "document", { kind: cur.kind, tags: patch.tags ?? cur.tags }); // a journal tag keeps it local
       patch.embedding = e ? JSON.stringify(e) : null;
     }
   }
