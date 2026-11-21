@@ -44,7 +44,7 @@ test("level 1: reads, builds, tests, local renders, git inspect", () => {
     "uv pip list", "tar -tf a.tar", "node --test tests", "Get-ChildItem env:", "find . -name *.ts",
   ]);
   each(1, ["ls -la", "cat src/a.ts | grep foo | head -5", "source .venv/bin/activate", ". .venv/bin/activate", "export DEBUG=1", "git log -5 2>/dev/null", "wc -l src/*.ts", "git commit -am 'wip'"], NIX);
-  each(1, ["dir /s", "type package.json", "set DEBUG=1", ".venv\\Scripts\\activate.bat", "findstr foo *.txt"], { ...WIN, shell: "cmd" });
+  each(1, ["dir /s", "type package.json", "set DEBUG=1", ".venv\\Scripts\\activate.bat", "findstr foo *.ts"], { ...WIN, shell: "cmd" });
 });
 
 test("level 2: file changes inside connected folders, with a snapshot", () => {
@@ -171,4 +171,14 @@ test("CORE wiring: terminal_run is a T2 tool halted by Stop-all, approval is con
   assert.equal(decide("terminal_run", { command: "npm test" }, { ...ctx, stopAll: true }).allow, false);
   for (const q of ["run npm test", "git status please", "activate the venv and train", "käivita testid"]) assert.ok(MODULE_HINTS.TERMINAL.test(q), q);
   assert.ok(MODULE_ABOUT.TERMINAL);
+});
+
+test("red-team H5: a wildcard that could open journal/LIFE/VAULT or key files waits for his click (and hides the output)", () => {
+  for (const c of ["cat jour*.md", "cat j?urnal.md", "cat [j]ournal.md", "cat {journal,x}.md", "cat *.md", "grep sad di*", "cat notes/*.txt", "head life.*"]) {
+    const v = classifyCommand(c, NIX);
+    assert.equal(v.level, 3, c); assert.equal(v.private, true, c);
+  }
+  each(3, ["cat .en*", "cat .e?v.local", "cat *", "type .env*", "Get-Content id_*"], NIX);
+  each(3, ["findstr foo *.txt"], { ...WIN, shell: "cmd" });
+  each(1, ["cat src/*.ts", "ls *", "ls src/*", "wc -l src/*.ts", "cat README*", "cat a[0-9].ts", "grep foo src/**/*.ts"], NIX); // code globs and listings stay level 1
 });

@@ -20,5 +20,5 @@ test("changing any one field (recipient, text, tool, an added action) blocks the
   ]) assert.notEqual(seenProblem(changed, seen), "", JSON.stringify(changed));
   assert.equal(seenProblem(shown, seen), "");
   assert.notEqual(seenProblem(shown, 42), "", "a malformed fingerprint is refused, not ignored");
-  assert.equal(seenProblem(shown, undefined), "", "callers that send none keep working");
+  assert.notEqual(seenProblem(shown, undefined), "", "no fingerprint is refused: an Approve covers only what he was shown (red-team H6)");
 });

@@ -438,6 +438,15 @@ export function pickPublicAddress<A extends { address: string; family: number }>
   return addrs[0];
 }
 
+/** The hidden browser's first look at a host, before DNS: "block" for local names and private IP literals, "ok" for a public IP
+ *  literal, "dns" when its addresses decide (browser.ts allowedHost). A trailing dot ("localhost.") is the same name. */
+export function hostLiteralVerdict(host: string): "block" | "ok" | "dns" {
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase().replace(/\.+$/, "");
+  if (!h || h === "localhost" || /\.(?:local|internal|localhost|home\.arpa)$/.test(h) || h === "home.arpa") return "block";
+  if (/^[\d.]+$/.test(h) || h.includes(":")) return isPrivateIp(h) ? "block" : "ok";
+  return "dns";
+}
+
 /** Only plain http(s) URLs may be fetched; returns the URL for chaining. */
 export function assertHttpUrl(url: URL): URL {
   if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("Only http(s) links are allowed");

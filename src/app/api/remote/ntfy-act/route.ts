@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   if (error) return fail("Couldn't read the task. Open ORBIT to decide.", 503);
   if (!task || task.status !== "awaiting_approval") return fail("Already decided.", 409);
   if (!phoneActionable(task.pending)) return fail("This one needs to be read first: open ORBIT.", 409);
-  if (action === "approve" && v.s !== undefined && seenProblem(task.pending ?? [], v.s)) return fail("The action changed since this notification. Nothing was run: open ORBIT.", 409); // S02
+  if (action === "approve" && seenProblem(task.pending ?? [], v.s)) return fail("The action changed since this notification. Nothing was run: open ORBIT.", 409); // S02
   try {
     if (action === "approve") {
       const { data: others, error: oErr } = await sb.from("tasks").select("id, status, pending").eq("user_id", v.u).eq("status", "running").neq("id", v.t).limit(100);

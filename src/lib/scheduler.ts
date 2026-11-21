@@ -116,6 +116,8 @@ async function tick(sb: SupabaseClient) {
     if (allows("memory", "background").ok) void import("./episodes").then((m) => m.maybeEpisodes(sb, (users ?? []).map((u) => u.id)));
     // Night shift (night.ts): in its window while the owner is idle, a bounded queue of safe work; not awaited. Re-checks Stop-all/usageHold per step.
     if (!limited) await maybeNightShift(sb, (users ?? []).map((u) => u.id));
+    // Red-team twin (redteam.ts): once a day from 03:00, ORBIT attacks its own guards with mocked models (nothing leaves the PC); failures → OPERATIONS → Safety + night repair. Not awaited; never throws.
+    void import("./redteam").then((m) => m.maybeRedTeam());
     // Night repair (night-repair.ts): once a night in the same window, inside the usage pacer, up to 3 gated code patches that wait for his Approve. Not awaited; never throws.
     if (!limited) void import("./night-repair").then((m) => m.maybeNightRepair(sb, (users ?? []).map((u) => u.id)));
     // Weekly BUSINESS niche scout (background lane, read-only web tools); not awaited: a run takes minutes. It re-checks Stop-all and usageHold itself.

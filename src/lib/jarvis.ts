@@ -11,8 +11,9 @@ import { loopbackOrigin } from "./yt-analytics-pure";
 import { stopAllOn } from "./stop-all";
 import { logActivity } from "./activity";
 import { addGlance, decidePing, parsePingState, parseWakeSettings, peripheralOffer, present, privateWindow, type ActiveWindow, type Glance, type PingState, type WakeSettings } from "./jarvis-pure";
-import { askLine, confirmAllowed, parseApps, parseFolders, pcDecide, type Pending } from "./pc-policy-pure";
+import { askLine, confirmAllowed, parseApps, parseFolders, pcDecide, pcOutside, type Pending } from "./pc-policy-pure";
 import { localParts } from "./call-pure";
+import { redactText } from "./trace-export-pure"; // keys in a file read never reach the model (red-team H1)
 
 const dir = () => path.join(orbitDataDir(), "voice");
 const f = (n: string) => path.join(dir(), n);
@@ -89,7 +90,9 @@ export async function screenshot(): Promise<Uint8Array | null> {
 
 // ---- PC actions (CORE tools pc_act / pc_window) ---------------------------------------------------------------------------
 
-const pcCtx = () => ({ stopAll: stopAllOn(), folders: parseFolders(process.env.ORBIT_PC_FOLDERS), apps: parseApps(process.env.ORBIT_PC_APPS) });
+// privatePaths: same list as the terminal (shell-session.ts): ORBIT's data folder (VAULT, LIFE) + ORBIT_PRIVATE_FOLDERS
+const pcCtx = () => ({ stopAll: stopAllOn(), folders: parseFolders(process.env.ORBIT_PC_FOLDERS), apps: parseApps(process.env.ORBIT_PC_APPS),
+  privatePaths: [orbitDataDir(), ...(process.env.ORBIT_PRIVATE_FOLDERS ?? "").split(";").map((s) => s.trim()).filter(Boolean)] });
 type ActResult = { ok: boolean; text?: string; undo?: Record<string, unknown> };
 
 async function runAction(p: Pick<Pending, "action" | "args" | "summary">, level: number, how: string): Promise<string> {
@@ -104,10 +107,10 @@ async function runAction(p: Pick<Pending, "action" | "args" | "summary">, level:
     undo = { kind: "pc", id };
   }
   if (level >= 2) logActivity({ area: "operator", title: `PC: ${p.summary}`, detail: how, ...(undo && { undo }) });
-  return `Done: ${p.summary}.${r.text ? `\n${r.text.slice(0, 6000)}` : ""}${undo ? " (Undo in OPERATIONS → Activity)" : ""}`;
+  return `Done: ${p.summary}.${r.text ? `\n${redactText(r.text).slice(0, 6000)}` : ""}${undo ? " (Undo in OPERATIONS → Activity)" : ""}`;
 }
 
-export async function runPcTool(_userId: string, tool: string, input: Record<string, unknown>, _question: string, tainted: boolean): Promise<string> {
+export async function runPcTool(_userId: string, tool: string, input: Record<string, unknown>, _question: string, tainted: boolean, earlier = false): Promise<string> {
   try {
     if (tool === "pc_window") {
       const w = await activeWindow();
@@ -117,9 +120,12 @@ export async function runPcTool(_userId: string, tool: string, input: Record<str
     const v = pcDecide({ action, args }, pcCtx());
     if (v.run === "refuse") return `Error: ${v.reason}`;
     // After outside text (pages, files, window titles) only reads run: injected text can't make ORBIT change his PC.
-    if (tainted && !["read_file", "list_folder", "focus_app", "media_key"].includes(String(action))) return "Error: after outside text in this answer, PC changes need him to ask again in his own words.";
-    if (v.run === "confirm") {
-      const p: Pending = { id: randomUUID().slice(0, 12), action: action as Pending["action"], args: v.args, summary: v.summary, click: v.click, at: Date.now() };
+    // An earlier turn's outside text is still in the chat: changes wait for his OK (pc-policy-pure pcOutside).
+    const gate = pcOutside(action, tainted, earlier);
+    if (gate === "refuse") return "Error: after outside text in this answer, PC changes need him to ask again in his own words.";
+    if (v.run === "confirm" || gate === "confirm") {
+      const click = v.run === "confirm" ? v.click : false;
+      const p: Pending = { id: randomUUID().slice(0, 12), action: action as Pending["action"], args: v.args, summary: v.summary, click, at: Date.now() };
       for (const [k, x] of S.pending) if (Date.now() - x.at > 10 * 60_000) S.pending.delete(k);
       S.pending.set(p.id, p);
       return `Waiting for his OK (nothing done yet): ${askLine(p)}`;
@@ -140,8 +146,9 @@ export async function confirmPc(id: string, allow: boolean, how: "click" | "voic
   if (!c.ok) return { ok: false, text: c.reason };
   S.pending.delete(id); // once
   const v = pcDecide({ action: p!.action, args: p!.args }, pcCtx()); // re-checked at run time (folders, Stop-all)
-  if (v.run !== "confirm") return { ok: false, text: v.run === "refuse" ? v.reason : "That changed; ask again." };
-  const out = await runAction(p!, 3, `his ${how} OK`).catch((e) => `Error: ${e instanceof Error ? e.message : e}`);
+  if (v.run === "refuse") return { ok: false, text: v.reason };
+  // a level 1/2 action that waited only because outside text was in the chat (pcOutside) keeps its level: level 2 keeps Undo
+  const out = await runAction(p!, v.level, `his ${how} OK`).catch((e) => `Error: ${e instanceof Error ? e.message : e}`);
   return { ok: !out.startsWith("Error"), text: out.replace(/^Error: /, "") };
 }
 

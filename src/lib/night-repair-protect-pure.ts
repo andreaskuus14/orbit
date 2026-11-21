@@ -31,6 +31,7 @@ export const PROTECTED_RULES: readonly [RegExp, string][] = [
   [/(^|\/)\.env|\.(pem|key|pfx|p12)$/i, "a secrets file"],
   [/send|mail|invoice|stripe|pay(ment)?|money|publish|upload|negotiat|resend|ntfy|push/i, "payment or send/publish code"],
   [/watchdog|heartbeat|crash-log/i, "the watchdog"],
+  [/red-?team/i, "the red-team self-attack suite (a patch must fix the hole, never the expected outcome)"],
   [/(^|\/)\.git/i, "git metadata"],
 ];
 

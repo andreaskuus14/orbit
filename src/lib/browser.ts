@@ -1,5 +1,5 @@
 import { lookup } from "node:dns/promises";
-import { isPrivateIp } from "./pure.ts";
+import { hostLiteralVerdict, isPrivateIp } from "./pure.ts";
 import type { Act, El } from "./browse-pure.ts";
 
 // Hidden real browser for pages that only show content after JavaScript runs. Uses the Chrome (or Edge)
@@ -15,9 +15,9 @@ const HOST_TTL_MS = 30_000;
 const hostOk = new Map<string, { ok: boolean; at: number }>();
 
 async function allowedHost(host: string): Promise<boolean> {
-  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
-  if (h === "localhost" || h.endsWith(".local") || h.endsWith(".internal") || h.endsWith(".localhost")) return false;
-  if (/^[\d.]+$/.test(h) || h.includes(":")) return !isPrivateIp(h);
+  const lit = hostLiteralVerdict(host); // pure.ts: local names, private IP literals (red-team ssrf cases)
+  if (lit !== "dns") return lit === "ok";
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase().replace(/\.+$/, "");
   const cached = hostOk.get(h);
   if (cached && Date.now() - cached.at < HOST_TTL_MS) return cached.ok;
   let ok = false;

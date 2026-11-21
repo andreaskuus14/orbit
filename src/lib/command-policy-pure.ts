@@ -86,8 +86,42 @@ export function usableFolders(folders: readonly string[], privatePaths: readonly
     return !!n && !SYSTEM.test(n) && !SYSTEM.test(n + "/") && !priv.some((pp) => under(pp, n) && pp !== n);
   }))].slice(0, 20);
 }
+// A wildcard (jour*.md, *.json, .en?) can open a private or secret file the policy never sees by name: a segment that could
+// match one of these names counts as that name (red-team H5). Plain *.ts / src/* still pass.
+const GLOB = /[*?[{]/;
+const PRIVATE_NAMES = [...PRIVATE_KINDS, "journals", "diaries", "päevik", "life.json", "vault"];
+const SECRET_NAMES = [".env", ".env.local", ".env.production", ".ssh", "id_rsa", "id_ed25519", ".npmrc", ".netrc", ".git-credentials", ".gitconfig", "credentials.json", "kaggle.json", "token.json", "secrets.json", "cookies", "key.pem", "login data"];
+const EXTS = ["", ".md", ".txt", ".json", ".csv", ".log"];
+function globRe(seg: string): RegExp | null {
+  let r = "";
+  for (let i = 0; i < seg.length; i++) {
+    const c = seg[i];
+    if (c === "*") r += ".*";
+    else if (c === "?") r += ".";
+    else if (c === "[") { const j = seg.indexOf("]", i + 1); if (j < 0) return null; r += `[${seg.slice(i + 1, j).replace(/^!/, "^").replace(/\\/g, "\\\\")}]`; i = j; }
+    else if (c === "{") { const j = seg.indexOf("}", i + 1); if (j < 0) return null; r += `(?:${seg.slice(i + 1, j).split(",").map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\\\*/g, ".*")).join("|")})`; i = j; }
+    else r += c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  try { return new RegExp(`^${r}$`, "i"); } catch { return null; }
+}
+/** The file-name wildcard of a path could open one of these names (only the last part: that is the file the command reads). */
+const globHits = (p: string, names: readonly string[], exts: readonly string[]) => {
+  const seg = p.split("/").at(-1) ?? "";
+  if (!GLOB.test(seg)) return false;
+  const re = globRe(seg);
+  return !re || names.some((n) => exts.some((e) => re.test(n + e)));
+};
+/** "secret" / "private" when a wildcard could reach such a file; "" otherwise. */
+const globSensitive = (p: string) => globHits(p, SECRET_NAMES, [""]) ? "secret" : globHits(p, PRIVATE_NAMES, EXTS) ? "private" : "";
 const secretName = (p: string) => p.split("/").some((seg) => SECRET_SEG.test(seg));
 const privateName = (p: string, cwd: string) => { const rel = p.startsWith(cwd + "/") ? p.slice(cwd.length + 1) : p; return rel.split("/").some((seg) => PRIVATE_SEG.test(seg)); };
+/** A path that names (or by wildcard could name) passwords/keys, or his journal/LIFE/VAULT files. PC control uses it too (pc-policy-pure). */
+export function sensitivePath(p: string, privatePaths: readonly string[] = []): "secret" | "private" | "" {
+  const n = normPath(p);
+  if (!n) return "";
+  if (secretName(n) || globSensitive(n) === "secret") return "secret";
+  return privateName(n, "") || globSensitive(n) === "private" || where(n, { folders: [], privatePaths }) === "private" ? "private" : "";
+}
 
 /* ---------- tokenizer ---------- */
 
@@ -331,6 +365,9 @@ function inFolders(raw: string[], ctx: CmdCtx, ok: Out, _read = false): Out {
     const p = resolveArg(r, ctx.cwd, ctx.home);
     if (!p) return L3(ok.what, "uses a path ORBIT can't check (a network share or odd form)");
     if (secretName(p)) return L3(ok.what, "touches passwords, keys or login files");
+    const g = ok.what.startsWith("list files") ? "" : globSensitive(p); // a listing shows names only; a read would open them
+    if (g === "secret") return L3(ok.what, "a wildcard that could open password, key or login files");
+    if (g === "private") return { ...L3(ok.what, "a wildcard that could open VAULT, journal or LIFE files: private, so only you see the output"), private: true };
     const w = where(p, ctx);
     if (w === "private" || privateName(p, normPath(ctx.cwd) ?? "")) return { ...L3(ok.what, "touches VAULT, journal or LIFE files: private, so only you see the output"), private: true };
     if (w === "system") return L3(ok.what, "touches system folders");

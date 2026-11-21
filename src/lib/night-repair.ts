@@ -86,7 +86,10 @@ async function runRepair(sb: SupabaseClient, key: string, ac: AbortController) {
     await saveNight(night);
     const issues = await import("./health").then((h) => h.healthIssues()).catch(() => []); // logs, failed jobs, failed tool calls, perf: redacted, no journal rows
     const st = await load();
-    const ranked = rankSignals(collectSignals({ issues, doctor: night.selftest.doctor.map((c) => ({ ...c, label: c.id })), selftest: night.selftest }), st.patches.map((p) => ({ signal: p.signal, at: p.at })), Date.now(), cfg.maxPatches);
+    // Red-team twin (redteam.ts): tonight's self-attack; each attack that got through is a signal like a failing test.
+    const red = await import("./redteam").then(async (m) => { await m.maybeRedTeam(); return (await import("./redteam-pure")).redteamSignals(await m.lastReport()); }).catch(() => []);
+    const signals = [...collectSignals({ issues, doctor: night.selftest.doctor.map((c) => ({ ...c, label: c.id })), selftest: night.selftest }), ...red];
+    const ranked = rankSignals(signals, st.patches.map((p) => ({ signal: p.signal, at: p.at })), Date.now(), cfg.maxPatches);
     night.ranked = ranked.map((s) => ({ id: s.id, title: s.title }));
     await saveNight(night);
     let patches = 0;
