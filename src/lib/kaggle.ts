@@ -97,8 +97,8 @@ export async function decide(need: BurstNeed): Promise<Decision> {
 }
 
 export async function addOffer(o: { kind: GpuKind; title: string; script: string; hours: number; why: string; result: OfferResult }): Promise<Offer> {
-  const st = load(), now = Date.now();
-  const offer: Offer = { id: `${o.kind}-${now.toString(36)}`, kind: o.kind, title: o.title.slice(0, 120), createdAt: now, script: o.script, files: [], hours: o.hours, why: o.why, result: o.result };
+  const st = load(), now = Date.now(); // random tail: two offers in the same millisecond (the tests, a fast PC) must not share an id
+  const offer: Offer = { id: `${o.kind}-${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`, kind: o.kind, title: o.title.slice(0, 120), createdAt: now, script: o.script, files: [], hours: o.hours, why: o.why, result: o.result };
   st.offers = [...freshOffers(st.offers, now), offer];
   await save();
   return offer;
