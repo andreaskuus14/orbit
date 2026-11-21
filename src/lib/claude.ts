@@ -12,6 +12,7 @@ import { LOCAL_MODEL, chatLocal } from "./local-llm.ts";
 import { ledgerIssue } from "./ledger-pure.ts";
 import { routedModel } from "./model-routing-pure.ts";
 import { adminClient } from "./supabase/admin.ts";
+import { markEventsDirty } from "./dirty-marks.ts";
 
 /** An image sent to the model with the prompt (validated by attach-pure). */
 export type PromptImage = { type: string; data: Uint8Array };
@@ -347,6 +348,7 @@ export async function emit(sb: SupabaseClient, userId: string, type: string, pla
   const issue = ledgerIssue(type, planet, payload, causedBy === undefined ? undefined : String(causedBy));
   if (issue) console.warn("[orbit] event doesn't fit the ledger, saved as a plain event", type, issue);
   const row: Record<string, unknown> = { user_id: userId, type, planet, payload };
+  markEventsDirty(); // scheduler gates: the events table (and maybe mission/goal/team state) changed
   let { error } = await sb.from("events").insert(causedBy === undefined ? row : { ...row, caused_by: causedBy });
   // caused_by arrives with 0016_ledger.sql: before it has run, save the event without the link
   if (error && causedBy !== undefined && (error.code === "42703" || error.code === "PGRST204")) ({ error } = await sb.from("events").insert(row));

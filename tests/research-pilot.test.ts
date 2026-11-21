@@ -183,7 +183,7 @@ function boot(w: World) {
     "./agents": p.agents, "./chains": p.chains, "./migration-guard": { requireMigration: async () => {}, MigrationBlocked: class extends Error {} },
   };
   for (const [f, out] of [["agents.ts", p.agents], ["chains.ts", p.chains], ["missions.ts", p.missions]] as const)
-    vm.runInContext(`(function (exports, require) {${src(f)}\n})`, ctx)(out, (n: string) => mods[n] ?? (n === "./execution" ? execution : {}));
+    vm.runInContext(`(function (exports, require) {${src(f)}\n})`, ctx)(out, (n: string) => mods[n] ?? (n === "./execution" ? execution : n === "./dirty-marks" ? { markResumeDirty: () => {}, markEventsDirty: () => {} } : {}));
   const realFetch = p.agents.TOOLS.fetch_url.run;
   p.agents.TOOLS.fetch_url.run = async (c: Row, i: Row) => { // the fake web: one page is unreadable; the private-context gate is the real one
     if (c.priv && !c.links?.has(i.url)) return realFetch(c, i);

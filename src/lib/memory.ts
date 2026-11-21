@@ -163,15 +163,17 @@ export function pinnedGet(url: URL, ip: Pinned, headers: Record<string, string>,
 /** GET a public http(s) URL, following up to 5 redirects manually and refusing private/internal addresses
  *  (SSRF guard). Every hop is re-resolved, checked and connected to the checked IP. The body is capped at
  *  maxBytes while downloading and returned as an in-memory Response. */
-export async function safeFetch(rawUrl: string, accept: string, userAgent = "ORBIT/0.2 (personal knowledge assistant)", maxBytes = 3_000_000, timeoutMs = 10_000, signal?: AbortSignal, httpsOnly = false): Promise<{ res: Response; url: URL; body: Uint8Array<ArrayBuffer> }> {
+export async function safeFetch(rawUrl: string, accept: string, userAgent = "ORBIT/0.2 (personal knowledge assistant)", maxBytes = 3_000_000, timeoutMs = 10_000, signal?: AbortSignal, httpsOnly = false, o: { headers?: Record<string, string>; allow304?: boolean } = {}): Promise<{ res: Response; url: URL; body: Uint8Array<ArrayBuffer> }> {
   let url = assertHttpUrl(new URL(rawUrl));
-  const headers = { "User-Agent": userAgent, Accept: accept, "Accept-Language": "en-US,en;q=0.9", "Accept-Encoding": "gzip, deflate, br" };
+  // o.headers: only conditional-request validators (pulse.ts feeds); o.allow304: a 304 Not Modified is returned, not thrown
+  const headers = { "User-Agent": userAgent, Accept: accept, "Accept-Language": "en-US,en;q=0.9", "Accept-Encoding": "gzip, deflate, br", ...o.headers };
   for (let hop = 0; hop <= 5; hop++) {
     if (httpsOnly && url.protocol !== "https:") throw new Error("result URL must be https"); // every hop, redirects too
     const ip = pickPublicAddress(await lookup(url.hostname.replace(/^\[|\]$/g, ""), { all: true }));
     const r = await pinnedGet(url, ip, headers, maxBytes, signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs));
     const next = redirectTarget(r.status, r.headers.get("location"), url);
     if (next) { url = next; continue; }
+    if (r.status === 304 && o.allow304) return { res: new Response(null, { status: 304, headers: r.headers }), url, body: new Uint8Array(0) };
     if (r.status < 200 || r.status >= 300) throw new Error(`The site answered ${r.status}`);
     const res = new Response(r.status === 204 || r.status === 205 ? null : r.body, { status: r.status, headers: r.headers });
     return { res, url, body: r.body }; // body: the same bytes, for callers that don't want another copy

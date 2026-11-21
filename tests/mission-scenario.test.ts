@@ -145,7 +145,7 @@ function boot(w: World, missing = new Set<string>()) {
     "./agents": p.agents, "./chains": p.chains, "./migration-guard": guard(missing),
   };
   for (const [f, out] of [["agents.ts", p.agents], ["chains.ts", p.chains], ["missions.ts", p.missions]] as const)
-    vm.runInContext(`(function (exports, require) {${src(f)}\n})`, ctx)(out, (n: string) => mods[n] ?? (n === "./execution" ? execution : {}));
+    vm.runInContext(`(function (exports, require) {${src(f)}\n})`, ctx)(out, (n: string) => mods[n] ?? (n === "./execution" ? execution : n === "./dirty-marks" ? { markResumeDirty: () => {}, markEventsDirty: () => {} } : {}));
   // The fake tool: an approval-gated write with an observable counter. It honours the stable attempt id as its idempotency key.
   p.agents.TOOLS.fake_write = { description: "write a file", input: "{}", approval: true, run: async (c: Row, i: Row) => {
     const key = c.attempt ?? crypto.randomUUID();
