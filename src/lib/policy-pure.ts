@@ -81,6 +81,8 @@ export const TIERS: Record<string, Tier> = {
   local_3d: "T2", local_tts: "T2", local_transcribe: "T2", // free models on his own PC (tools/local-ai); the result is a new VAULT file, nothing leaves the PC
   roblox_export: "T2", // rojo syncback into his own projects folder + a local git commit (tools/roblox); nothing leaves the PC
   roblox_lint: "T0", // selene on his exported project, read-only
+  terminal_run: "T2", // one shell command in his connected folders: command-policy-pure levels (1 now, 2 snapshot + Undo, 3 waits for his click in OPERATIONS → Terminal)
+  terminal_status: "T0", terminal_stop: "T2",
   roblox_files: "T0", roblox_read: "T0", // his Rojo project's script list / one file, read-only
   roblox_write: "T2", roblox_undo: "T2", // one Luau file in his own project (checked by StyLua + Selene first), each a git commit; Rojo pushes it to Studio only while live sync is on. Never publishes
   local_video: "T2", // Wan 2.2 in ComfyUI on his PC: a new VAULT .mp4 (optionally from a VAULT picture), nothing leaves the PC
@@ -108,6 +110,7 @@ export const UI_APPROVALS: Record<string, string> = {
   "kaggle.upload": 'POST /api/kaggle {action:"approve", id, seen}: the exact script and files of one GPU job (kaggle-pure kaggleContent); refused under Stop-all, with ORBIT_KAGGLE=0, while another Kaggle job runs or when too few weekly hours are left',
   "studio.schedule": 'POST /api/studio/clips/schedule: only clips with the owner\'s Approve click (status "approved")',
   "studio.publish": 'POST /api/studio/clips/<job>/<clip>/publish: only a clip with status "approved"',
+  "terminal.approve": 'POST /api/terminal {action:"approve", id, approved}: the hash of the exact command + folder the owner saw (level 3 in command-policy-pure); refused under Stop-all',
 };
 
 // Profile → Autonomy area of each tool that starts work, writes or acts: an area set to Off refuses it (autonomyAllows "owner").
@@ -117,6 +120,7 @@ export const TOOL_AREA: Record<string, Area> = {
   ws_run: "operator-build", // a local demo server of his own workspace (AGENTS.md rule 6 category A); never public
   local_3d: "operator-build", local_tts: "operator-build", local_transcribe: "operator-build", local_image: "operator-build", local_image_edit: "operator-build", local_music: "operator-build", local_video: "operator-build", // local models writing new VAULT files (category A)
   roblox_export: "operator-build", // local project files + git commit (category A)
+  terminal_run: "operator-build", // builds/tests/scripts in his project folders (category A); installs, deletes, uploads wait for his click
   pc_act: "operator-organize", // his own PC: apps, files in connected folders (Undo), level 3 after his OK
   roblox_write: "operator-build", roblox_undo: "operator-build", // his script files + git commit (category A)
   watch_add: "research", // later reads of a public page (category A)
@@ -143,6 +147,7 @@ export const EGRESS_CLASS: Record<string, "model" | "web" | "none"> = {
   lead_create: "model", lead_update: "model", // notes → outreach draft prompt (business-pure outreachPrompt); only LEAD_TEXT fields are scanned
   save_checkpoint: "model", // lines go into the atlas research-pilot prompt
   add_wish: "model", // item/notes → the deal hunter's Claude call (deals.ts)
+  terminal_run: "web", // a level-1 command may read a web address (curl GET): the command is scanned like a URL
   browse: "web", watch_add: "web", fetch_url: "web", find_lead_candidates: "web", scrape_page: "web", reach_read: "web", ws_fetch_image: "web",
   // no chat text leaves: plan_task (goal is a local label, steps are enums/inbox file names), run_scout/run_niche ({}), reach_trending (enum)
   plan_task: "none", run_scout: "none", run_niche: "none", reach_trending: "none", schedule_approved: "none", local_3d: "none", local_transcribe: "none",
@@ -152,6 +157,7 @@ export const EGRESS_CLASS: Record<string, "model" | "web" | "none"> = {
   life_check: "none", life_add_habit: "none", life_remind: "none", ws_write: "none", ws_edit: "none", ws_create: "none", ws_run: "none",
   ws_stop: "none", vault_move: "none", vault_rename: "none", life_plan: "none", automation_pause: "none", studio_drafts: "none", roblox_export: "none",
   roblox_lint: "none", roblox_files: "none", roblox_read: "none", roblox_write: "none", roblox_undo: "none", save_decision: "none", watch_list: "none", watch_changes: "none", daily_runs: "none",
+  terminal_status: "none", terminal_stop: "none",
   pc_window: "none", pc_act: "none", // stays on the PC (loopback helper)
 };
 // lead_update: the lead selector is BUSINESS's own record key (business_status shows it), so only its free-text fields are scanned;
@@ -168,7 +174,7 @@ export const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "find_outlier
 // shop offer titles, vault/workspace file text, git commit subjects.
 /** His own stores that hold other people's text (invites, video text, offer titles, files, commits, analysed code). */
 // plan_day carries calendar invites; local_transcribe the words in any audio/video file he points it at.
-const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "vault_skill", "ws_read", "plan_day", "local_transcribe", "roblox_read", "pc_window", "pc_act"]; // roblox_read: free-model / copied code
+const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "vault_skill", "ws_read", "plan_day", "local_transcribe", "roblox_read", "pc_window", "pc_act", "terminal_run", "terminal_status"]; // roblox_read: free-model / copied code
 // mission_status: agents' results; run_niche: its web research.
 export const UNTRUSTED = ["browse", "fetch_url", "scrape_page", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "find_outliers", "find_lead_candidates", "ask_agent", "business_status", "watch_changes", "mission_status", "run_niche", ...STORED_OUTSIDE];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;

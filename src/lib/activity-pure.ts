@@ -10,7 +10,7 @@ export type ActArea = (typeof ACT_AREAS)[number];
 export type ActLink = { task?: string; panel?: string };
 /** How to reverse an autonomous action: delete the memory it saved, rename a VAULT file back (`to` = its old name), or put back
  *  an ORGANIZE write's saved before-state (`op`: core-operator.ts undoOp). */
-export type ActUndo = { kind: "memory"; id: string } | { kind: "vault-rename"; id: string; to: string } | { kind: "op"; id: string } | { kind: "pc"; id: string }; // pc: a level-2 PC action (jarvis.ts undoPc)
+export type ActUndo = { kind: "memory"; id: string } | { kind: "vault-rename"; id: string; to: string } | { kind: "op"; id: string } | { kind: "pc"; id: string } | { kind: "term"; id: string }; // pc: a level-2 PC action (jarvis.ts undoPc); term: a terminal snapshot (shell-session.ts undoSnapshot)
 /** undid: the undoKey() of the action this line reversed. receipt: the finished work's proof status (receipt-pure.ts). */
 export type ActItem = { at: string; area: ActArea; title: string; detail?: string; link?: ActLink; undo?: ActUndo; undid?: string; receipt?: ReceiptStatus };
 export const ACT_MAX = 5000; // lines kept in activity.jsonl
@@ -105,6 +105,7 @@ export function cleanUndo(u: unknown): ActUndo | undefined {
   if (kind === "memory" && /^[\w-]{1,64}$/.test(id)) return { kind, id };
   if (kind === "op" && OP_ID.test(id)) return { kind, id };
   if (kind === "pc" && /^pc-[\w-]{6,64}$/.test(id)) return { kind, id };
+  if (kind === "term" && /^t[0-9a-z]{6,40}$/.test(id)) return { kind, id };
   if (kind === "vault-rename" && typeof to === "string" && to.trim() && to.length <= 300) return { kind, id, to };
   return undefined;
 }
