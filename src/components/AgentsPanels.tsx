@@ -29,7 +29,7 @@ import { PREVIEW_TZ, graceMinutes, lastWith, nextOccurrences } from "@/lib/autom
 import { LocalAiTools } from "./LocalAi";
 import { PlanJobsView } from "./PlanJobsView";
 import { ProgressList } from "./ProgressCard";
-import { fromTask, sortProgress } from "@/lib/progress-pure";
+import { taskWork } from "@/lib/planet-page-pure";
 import { BUSINESS_LOOP } from "@/lib/business-loop-pure";
 
 type Step = { step: string; detail: string; ms: number; ok: boolean };
@@ -337,8 +337,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
 
   // "Working on it": what runs now, what waits for him, what failed today, as the shared progress cards.
   const day = Date.now() - 86_400_000;
-  const working = sortProgress(tasks.filter((x) => !x.parent_id && (["running", "queued", "awaiting_approval"].includes(x.status) || (x.status === "failed" && Date.parse(x.finished_at ?? x.created_at) >= day)))
-    .map((x) => fromTask(x, lang, { nowMs: Date.now() })));
+  const working = taskWork(tasks, lang, Date.now());
   const workingNow = (
     <section className="space-y-2" aria-labelledby="ops-working">
       <h3 id="ops-working" className="h3">{tr("prog.title")}</h3>
@@ -347,7 +346,7 @@ export function OperationsPanel({ focusTask, onOpen, openMemory }: { focusTask: 
     </section>
   );
   if (!manual) return ( // AI-first home (PlanetHome shows "Working on it" itself); the tools below sit behind "Manual tools"
-    <PlanetHome planet="operations" onManual={() => setManual(true)} onOpenTask={setOpen}
+    <PlanetHome planet="operations" onManual={() => setManual(true)} onOpenTask={setOpen} work={loading && !tasks.length ? null : working}
       results={loading && !tasks.length ? null : tasks.filter((x) => x.status === "done" && !x.parent_id).slice(0, 6).map((x) => ({
         id: x.id, title: x.title, sub: x.finished_at ? new Date(x.finished_at).toLocaleString() : "", open: () => setOpen(x.id),
       }))} />

@@ -1,5 +1,5 @@
 "use client";
-import { PlanetHome, useManual } from "./PlanetHome";
+import { BackToSimple, PlanetHome, useManual } from "./PlanetHome";
 import { WarmCompile } from "./WarmCompile";
 import StateNote from "./StateNote";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -314,7 +314,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
               ...sites.map((w) => ({ id: `w-${w.slug}`, title: `🌐 ${w.slug}`, sub: new Date(w.mtime).toLocaleDateString(), open: () => window.open(w.preview, "_blank", "noopener,noreferrer") })),
             ]} />
         ) : <>
-        <button className="link mb-2 text-xs" onClick={() => { setManual(false); setSelected(null); setTab("games"); }}>← {t("ph.simple")}</button>
+        <BackToSimple onClick={() => { setManual(false); setSelected(null); setTab("games"); }} />
         <WorkspaceFrame planet="creation" title={`${t("gd.title")} · ${game?.name ?? t("gd.noGame")}`} view={view} onView={(v) => setTab(VIEWS[v][0][0])}
           views={VIEW_IDS.map((v) => ({ id: v, label: t(`gd.v.${v}`), secondary: v !== "projects" && !game }))}
           context={game ? contractBrief(game) : t("gd.ctxNone", { n: games.length, b: bugs.filter(isActive).length })}>
