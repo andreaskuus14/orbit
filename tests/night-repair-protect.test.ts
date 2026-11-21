@@ -11,7 +11,7 @@ test("every hard-protected path from the spec is refused", () => {
     "scripts/launch.ps1", "scripts/stop.ps1", "scripts/night/orbit-night.ps1", "restart-orbit.cmd", // supervisor, stop, watchdog (launch.ps1 -Watchdog)
     "src/lib/approval-pure.ts", "src/lib/approval-bind.ts", "src/lib/policy-pure.ts", "src/lib/autonomy-pure.ts", "src/lib/stop-all.ts", "src/lib/remote-act.ts",
     "src/lib/remote-web-pure.ts", "src/lib/csrf.ts", "src/lib/allow.ts", "src/lib/usage-pace-pure.ts", "src/lib/agent-defs-pure.ts", "package.json", "tests/route-guards.test.ts",
-    "src/lib/life.ts", "src/lib/life-pure.ts", "src/lib/core-life.ts", "tests/journal-privacy-audit.test.ts", "tests/journal-embed-io.test.ts", "src/lib/youtube-privacy.ts", "tests/memory-scope-guard.test.ts",
+    "src/lib/life.ts", "src/lib/life-pure.ts", "src/lib/core-life.ts", "tests/journal-privacy-audit.test.ts", "tests/journal-embed-io.test.ts", "src/lib/private-pure.ts", "tests/journal-guard.test.ts", "src/lib/youtube-privacy.ts", "tests/memory-scope-guard.test.ts",
     "src/lib/supabase/server.ts", "src/middleware.ts", "src/lib/yt-oauth.ts", "src/lib/remote-pure.ts", "src/app/api/remote/route.ts",
     ".env", ".env.local", "src/.env.production", "src/lib/secret-store.ts", "certs/x.pem",
     "src/lib/business-send.ts", "src/lib/invoices.ts", "src/lib/stripe-pure.ts", "src/lib/remote-push.ts", "src/lib/clips/publish.ts", "src/lib/negotiator.ts",

@@ -11,6 +11,7 @@
 import { createHash } from "node:crypto";
 import { redact } from "./health-pure.ts";
 import { JOB_MODELS } from "./agent-defs-pure.ts";
+import { PRIVATE_KINDS, isPrivateKind } from "./private-pure.ts";
 import { PROTECTED_PREFIXES, ALLOW_PREFIXES, type FileChange } from "./night-repair-protect-pure.ts";
 
 // ---- config and limits ------------------------------------------------------------------------------------------
@@ -73,7 +74,8 @@ export type Smoke = { name: string; ok: boolean; ms: number; detail?: string };
 export type FailedTest = { file: string; name: string; error?: string };
 
 export const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 12);
-const PRIVATE = /journal|\blife\b|diary|habit/i; // LIFE/journal never goes to a model: such signals are dropped before ranking
+// LIFE/journal never goes to a model (the shared guard, private-pure.ts): signals from a private area or naming one are dropped before ranking.
+const PRIVATE = new RegExp(`\\b(?:${PRIVATE_KINDS.filter((k) => k !== "health").join("|")}|habit)\\b`, "i"); // "health" as a word is ORBIT's own system health; an area of that kind still counts
 const NOT_CODE = /\b(ECONN\w*|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|rate.?limit|usage limit|quota|401|403|unauthori[sz]ed|log ?in|sign(ed)? in|api key|not configured|not installed|missing (key|env)|\.env)\b/i;
 const KIND_W: Record<SignalKind, number> = { test: 6, crash: 5, tool: 4, error: 3, perf: 3, job: 2, doctor: 1 };
 
@@ -85,7 +87,7 @@ export function collectSignals(x: { issues: IssueIn[]; doctor: CheckIn[]; selfte
   for (const i of x.issues) {
     if (i.status === "resolved" || i.cls === "external" || (i.sources.length && i.sources.every((s) => s === "usage"))) continue;
     const text = `${i.title} ${i.sig} ${i.excerpt}`;
-    if (PRIVATE.test(`${i.area} ${text}`) || NOT_CODE.test(text)) continue;
+    if (isPrivateKind(i.area) || PRIVATE.test(`${i.area} ${text}`) || NOT_CODE.test(text)) continue;
     const kind: SignalKind = /\btool \S+ call failed/i.test(text) ? "tool" : i.cls === "crash" || i.cls === "unhandled" ? "crash" : i.cls === "perf" ? "perf" : i.cls === "job" ? "job" : "error";
     out.push({ id: `${kind}:${hash(i.sig || i.id)}`, kind, title: clip(i.title, 140), evidence: [clip(i.excerpt, 600)].filter(Boolean), count: i.count, severity: i.severity, last: i.last, area: i.area,
       files: [...new Set((i.excerpt.match(/src\/[\w./-]+\.tsx?/g) ?? []))].slice(0, 4) });

@@ -26,7 +26,7 @@ export const PROTECTED_RULES: readonly [RegExp, string][] = [
   [/night-repair/i, "the night repair itself (incl. this protected-path list)"],
   [/self-improve-patch/i, "the patch safety checker"],
   [/approv|polic|autonom|authority|stop-?all|allow-once|(^|\/)allow\.ts$|csrf|(^|\/)remote(-act|-web-pure|-pure)?\.ts$|scheduler-gate|usage-(pace|meter)|agent-defs|route-guards/i, "approval, policy, autonomy, Stop-all, gate or pacer code"],
-  [/journal|(^|\/)(core-|galaxy-)?life[\w-]*\.tsx?$|privacy|memory-scope|failure-report|task-output-guard/i, "the journal/LIFE privacy guard"],
+  [/journal|(^|\/)private-pure|(^|\/)(core-|galaxy-)?life[\w-]*\.tsx?$|privacy|memory-scope|failure-report|task-output-guard/i, "the journal/LIFE privacy guard"],
   [/auth|session|(^|\/)pair|token|secret|crypto|vapid/i, "auth, sessions or secrets"],
   [/(^|\/)\.env|\.(pem|key|pfx|p12)$/i, "a secrets file"],
   [/send|mail|invoice|stripe|pay(ment)?|money|publish|upload|negotiat|resend|ntfy|push/i, "payment or send/publish code"],
