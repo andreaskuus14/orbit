@@ -15,9 +15,12 @@ export function quotaLeft(d: QuotaDay, group: QuotaGroup, budget = DAILY_UNITS):
   const background = entries.filter((c) => c.group !== "manual").reduce((n, c) => n + c.units, 0);
   return Math.max(0, Math.min(Math.floor(budget * SHARES[group]) - used, budget - totalUnits(d), group === "manual" ? Infinity : Math.floor(budget * 0.8) - background));
 }
+/** Ledger key for a caller in a group: the caller's name, or "name (group)" once the name is already booked to another group
+ *  (getTrends' "trend-radar" runs as manual from STUDIO and as scout from the Shorts planner): units stay with the group that spent them. */
+const keyFor = (d: QuotaDay, caller: string, group: QuotaGroup) => (!d.callers[caller] || d.callers[caller].group === group ? caller : `${caller} (${group})`);
 export function account(ledger: QuotaLedger, caller: string, group: QuotaGroup, endpoint: string, now: number): QuotaLedger {
-  const d = today(ledger, now), old = d.callers[caller] ?? { group, units: 0, calls: 0, searches: 0, dataUnits: 0, analytics: 0 };
-  const next = { ...d, callers: { ...d.callers, [caller]: { group, units: old.units + weightedCost(endpoint), calls: old.calls + 1,
+  const d = today(ledger, now), key = keyFor(d, caller, group), old = d.callers[key] ?? { group, units: 0, calls: 0, searches: 0, dataUnits: 0, analytics: 0 };
+  const next = { ...d, callers: { ...d.callers, [key]: { group, units: old.units + weightedCost(endpoint), calls: old.calls + 1,
     searches: old.searches + Number(endpoint === "search"), dataUnits: old.dataUnits + Number(endpoint !== "search" && endpoint !== "analytics"), analytics: old.analytics + Number(endpoint === "analytics") } } };
   return { v: 1, days: [...ledger.days.filter((x) => x.day !== d.day), next].sort((a, b) => a.day.localeCompare(b.day)).slice(-7) };
 }

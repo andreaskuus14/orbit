@@ -34,6 +34,7 @@ export type BriefIn = {
   watch?: BriefWatch; // page-watch changes of the last day + failed checks (pagewatch-pure briefWatch); page text only on the card, never spoken
   deal?: { id: string; item: string; eur: number }; // the newest great deal the hunter found in the last 24 h (deals.ts freshDeals)
   health?: { id: string; title: string; say: string }; // a new, serious problem the night health check found (health-pure briefHealth)
+  repair?: { id: string; title: string; say: string; detail: string }; // what last night's repair prepared (night-repair-pure repairBrief)
   devSession?: { id: string; title: string; say: string }; // yesterday's Roblox Studio session (dev-session-pure briefSession)
   recap?: { id: string }; // yesterday's private recap reel in STUDIO (clips/recap.ts)
   loops?: { id: string; title: string; say: string }; // open loops from last night's scan (loops.ts loopsBrief)
@@ -69,7 +70,7 @@ export function hello(hour: number): string {
 
 type NightApproval = { label: string; open?: { task: string } | { goal: string; step?: number; stepId?: string } | { panel: string } };
 /** Everything waiting on his OK, night shift first, deduped by task. Remote approvals (clips, spends, emails) only open. */
-export function briefDecisions(night: NightApproval[], work: WorkItem[], remote: { id: string; kind: "clip" | "spend" | "send" | "nego" | "invoice"; title: string; detail?: string; credits?: number; to?: string }[]): Decision[] {
+export function briefDecisions(night: NightApproval[], work: WorkItem[], remote: { id: string; kind: "clip" | "spend" | "send" | "nego" | "invoice" | "patch"; title: string; detail?: string; credits?: number; to?: string }[]): Decision[] {
   const out: Decision[] = [];
   for (const i of night) {
     const o = i.open;
@@ -82,8 +83,8 @@ export function briefDecisions(night: NightApproval[], work: WorkItem[], remote:
   }
   for (const r of remote) if (r.kind !== "invoice") out.push({ // invoice reminders come from invoices-pure briefInvoices
     id: r.id, title: plain(r.title),
-    what: r.kind === "clip" ? `the clip ${q(r.title)}` : r.kind === "spend" ? `the ${r.credits ?? ""} credit spend for ${q(r.title)}`.replace("  ", " ") : r.kind === "nego" ? `your reply to ${plain(r.title)}` : `the email to ${plain(r.title)}`,
-    open: r.kind === "clip" ? { panel: "studio", view: "review" } : r.kind === "send" ? { link: clientLink(r.id.replace(/^send:/, "")) } : r.kind === "nego" ? { panel: "business" } : { panel: "studio" },
+    what: r.kind === "clip" ? `the clip ${q(r.title)}` : r.kind === "spend" ? `the ${r.credits ?? ""} credit spend for ${q(r.title)}`.replace("  ", " ") : r.kind === "nego" ? `your reply to ${plain(r.title)}` : r.kind === "patch" ? `the overnight code fix ${q(r.title.replace(/^Night fix:\s*/, ""))}` : `the email to ${plain(r.title)}`,
+    open: r.kind === "clip" ? { panel: "studio", view: "review" } : r.kind === "patch" ? { doctor: true } : r.kind === "send" ? { link: clientLink(r.id.replace(/^send:/, "")) } : r.kind === "nego" ? { panel: "business" } : { panel: "studio" },
   });
   return out;
 }
@@ -121,6 +122,7 @@ export function briefItems(x: BriefIn): BriefItem[] {
   if (x.goalRisk) add({ id: `goalrisk:${x.goalRisk.id}`, kind: "result", title: x.goalRisk.title, detail: "Weekly milestones", open: { goal: x.goalRisk.id }, say: x.goalRisk.say });
   if (x.loops) add({ id: x.loops.id, kind: "result", title: x.loops.title, detail: "Mission control → Open loops", open: { mission: true }, say: x.loops.say });
   if (x.conflict) add({ id: x.conflict.id, kind: "question", title: x.conflict.title, detail: "MEMORY → Which is right?", open: { panel: "memory" }, say: x.conflict.say });
+  if (x.repair) add({ id: x.repair.id, kind: "result", title: x.repair.title, detail: x.repair.detail || "DEV → Doctor → Night repair", open: { doctor: true }, say: x.repair.say });
   if (x.health) add({ id: `health:${x.health.id}`, kind: "health", title: x.health.title, detail: "New problem: the Doctor panel has the details", open: { doctor: true }, say: x.health.say });
 
 

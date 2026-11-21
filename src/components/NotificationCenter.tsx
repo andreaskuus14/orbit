@@ -73,8 +73,8 @@ export function NotificationCenter({ home = false }: { home?: boolean }) {
     <>
       <AlertWatch />
       {home && problems.length > 0 && !toastUp && <button type="button" className="chip hud-alert !border-red-500 !text-red-300" title={reasonLine(problems[0])}
-        onClick={() => fix(problems[0])} aria-label={`Red alert: ${problems[0].title}. ${problems[0].fixLabel ?? "Open fix"}`}>
-        🔴<span className="alert-label"> Red alert{kinds > 1 ? ` (${kinds})` : ""} · {problems[0].fixLabel ?? "Open fix"}</span>{kinds > 1 && <span className="alert-count">{kinds}</span>}
+        onClick={() => fix(problems[0])} aria-label={`Problem: ${problems[0].title}. ${problems[0].fixLabel ?? "Open fix"}`}>
+        🔴<span className="alert-label"> Problem{kinds > 1 ? ` (${kinds})` : ""} · {problems[0].fixLabel ?? "Open fix"}</span>{kinds > 1 && <span className="alert-count">{kinds}</span>}
       </button>}
       {home && pill && <>
         <button type="button" className="chip quiet-pill relative" popoverTarget="quiet-menu" aria-label={t("quiet.aria", { s: label ?? "" })}>

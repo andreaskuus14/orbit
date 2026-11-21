@@ -64,19 +64,19 @@ export function nightForPhone(r: NightReport | null): PhoneNight {
 
 // ---- Approvals -------------------------------------------------------------
 
-export type ApprovalKind = "clip" | "spend" | "send" | "nego" | "invoice";
+export type ApprovalKind = "clip" | "spend" | "send" | "nego" | "invoice" | "patch"; // patch: a night-repair code patch (night-repair.ts)
 /** One item already waiting for the owner. key is internal ("clip:<job>/<clip>", "spend:<story>", "send:<prospect uuid>"). */
 export type Approval = {
   id: string; key: string; kind: ApprovalKind; title: string; detail: string;
   seen: string; // the version the owner is shown: clip stamp, quote time + script fingerprint, or the draft's updated_at
   credits?: number; // spend: the exact quoted total
   thumb?: boolean; // clip: has a thumbnail the phone can show (no thumbnail = review on the PC)
-  to?: string; message?: string; // send: recipient and full text; nego: the negotiation reply (to only when it will be emailed)
+  to?: string; message?: string; // send: recipient and full text; nego: the negotiation reply (to only when it will be emailed); patch: problem, diff summary, gate, effect
   strategy?: string; // nego: the one-line plan, e.g. "anchor at €450, concede 5% max"
   buyer?: string; amount?: string; daysLate?: number; // invoice: who owes, the invoice total ("€620.00") and days overdue; message = the reminder
 };
 /** Approved only on a screen where he reads the whole message (Remote list, PC): never by voice, Watch or Shortcut. */
-export const screenOnly = (kind: ApprovalKind) => kind === "nego" || kind === "invoice";
+export const screenOnly = (kind: ApprovalKind) => kind === "nego" || kind === "invoice" || kind === "patch";
 export type Echo = { kind: ApprovalKind; credits?: number; seen?: string } | { on: boolean };
 
 /** The uuid the phone uses for an item: HMAC of its key, so ids can't be guessed or pointed at things that aren't listed. */
@@ -97,7 +97,7 @@ export function parseEcho(cmd: RemoteCommand, raw: unknown): { ok: true; echo: E
     if (!keysAre(o, ["on"]) || typeof o.on !== "boolean") return { ok: false, error: "echo must be {on}" };
     return { ok: true, echo: { on: o.on } };
   }
-  if (!keysAre(o, ["kind", "credits", "seen"]) || !["clip", "spend", "send", "nego", "invoice"].includes(o.kind as string)) return { ok: false, error: "echo.kind required" };
+  if (!keysAre(o, ["kind", "credits", "seen"]) || !["clip", "spend", "send", "nego", "invoice", "patch"].includes(o.kind as string)) return { ok: false, error: "echo.kind required" };
   if (o.credits !== undefined && (typeof o.credits !== "number" || !Number.isFinite(o.credits) || o.credits < 0)) return { ok: false, error: "echo.credits must be a number" };
   if (o.seen !== undefined && (typeof o.seen !== "string" || o.seen.length > 128)) return { ok: false, error: "echo.seen must be a string" };
   return { ok: true, echo: { kind: o.kind as ApprovalKind, credits: o.credits as number | undefined, seen: o.seen as string | undefined } };
@@ -107,7 +107,7 @@ export function parseEcho(cmd: RemoteCommand, raw: unknown): { ok: true; echo: E
 export function echoProblem(item: Approval | undefined, echo: Echo | null, action: "approve" | "reject"): string {
   if (!item) return "That item is no longer waiting for approval: reload";
   if (!echo || !("kind" in echo) || echo.kind !== item.kind) return "That item changed: reload";
-  if (action === "reject" && item.kind !== "clip") return "Only clips can be rejected from the phone";
+  if (action === "reject" && item.kind !== "clip" && item.kind !== "patch") return "Only clips and night fixes can be rejected from the phone";
   if (!item.seen || echo.seen !== item.seen) return item.kind === "send" ? "The draft changed since you read it: reload" : "That item changed since you saw it: reload";
   if (action === "approve" && item.kind === "spend" && (typeof item.credits !== "number" || echo.credits !== item.credits)) return `The quote is now ${item.credits} credits: reload and check it`;
   if (action === "approve" && item.kind === "clip" && !item.thumb) return "Open it on the PC to review: no preview for the phone";
