@@ -8,6 +8,7 @@ import { LIFE_TOOLS, runLifeTool, type LifeTool } from "./core-life";
 import { checkpointBasis } from "./checkpoint-pure";
 import { WS_PROMPT, WS_TOOLS, loadWsGate, runWsTool, wsTainted, type WsTool } from "./core-workspace";
 import { OPS_PROMPT, OPS_TOOLS, type OpsTool } from "./core-operator-pure";
+import { TERM_PROMPT, TERM_TOOLS, type TermTool } from "./core-terminal";
 import { decisionMemory, decisionPreview, parseDecision, rememberPreview, takePreview } from "./decisions-pure";
 import { validateMemory } from "./reflect-pure";
 import { saveCoreMemory } from "./reflect";
@@ -147,6 +148,11 @@ const MODULES: CoreModule[] = [
     name: "ROBLOXFILES", tools: ["roblox_export", "roblox_lint"], writes: ["roblox_export"],
     prompt: "- ROBLOX FILES (his Roblox scripts as files on his PC, Rojo + Selene; nothing is uploaded or published): roblox_export {\"place\": \"<full path of a saved .rbxl/.rbxlx>\"} (writes the place's scripts to a Rojo project folder and commits them to git; refused if that folder has uncommitted changes). roblox_lint {\"project\"?: string (default: the newest exported project)} (read-only: Selene's issues by file and line, with the code line). Cite file:line when you name an issue, and say Selene's findings are hints, not proof of a bug. If a tool says rojo/selene isn't installed, tell him to run tools\\roblox\\setup.ps1. If there is no .rbxl yet: in Studio File → Save to File As. Live sync and the issue list are in GAME DEV → Build → Files.",
     run: async (t, i) => (await import("./rojo")).runRojoTool(t, i),
+  },
+  {
+    // a shell in his connected project folders (shell-session.ts); every command gets a command-policy-pure level
+    name: "TERMINAL", tools: [...TERM_TOOLS], writes: ["terminal_run", "terminal_stop"], prompt: TERM_PROMPT,
+    run: async (t, i, c) => (await import("./core-terminal")).runTermTool(t as TermTool, i, { userId: c.userId, steps: c.steps, pinned: c.pinned }),
   },
   {
     // read-only; private: habit streaks and LIFE counts are in it (journal text never is: only a count of entries)
