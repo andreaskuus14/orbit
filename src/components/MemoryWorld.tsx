@@ -12,7 +12,7 @@ import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import type { MemoryPanel } from "./panels"; // passed in by Orbit: the public demo must not bundle panels (Supabase client)
 import { MemoryReview } from "./MemoryWorkspace";
-import { PlanetHome, useManual } from "./PlanetHome";
+import { BackToSimple, PlanetHome, useManual } from "./PlanetHome";
 import { beliefsPending } from "./BeliefsPanel";
 import { studyPending } from "./StudyCards";
 import type { QualityMode } from "@/lib/quality-pure";
@@ -439,7 +439,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   const simple = !manual && !list && !chron && !people && sel === null && !query.trim();
   const toSimple = () => { setManual(false); setList(false); setChron(false); setPeople(false); setSel(null); setQuery(""); };
   const recent = useMemo(() => (!data ? null : data.items.map((m, i) => ({ m, i })).sort((a, b) => b.m.created_at.localeCompare(a.m.created_at)).slice(0, 4)
-    .map(({ m, i }) => ({ id: m.id, title: m.title, sub: m.kind, open: () => open(i) }))), [data]); // eslint-disable-line react-hooks/exhaustive-deps
+    .map(({ m, i }) => ({ id: m.id, title: m.title, sub: `${m.kind} · ${new Date(m.created_at).toLocaleDateString()}`, open: () => open(i) }))), [data]); // eslint-disable-line react-hooks/exhaustive-deps
   const labelAt = hover ?? sel;
   const label = labelAt !== null ? data?.items[labelAt] : undefined;
   const kinds = useMemo(() => [...new Set(data?.items.map((m) => m.kind))].sort(), [data]);
@@ -491,7 +491,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
         {simple ? <PlanetHome planet="memory" results={err ? [] : recent} onManual={() => setManual(true)}>
           {List && <MemoryReview onChanged={onChanged} />}
         </PlanetHome> : <>
-        <button className="link self-start text-xs" onClick={toSimple}>← {t("ph.simple")}</button>
+        <BackToSimple onClick={toSimple} />
         {List && !peep && !list && !flat && <MemoryReview onChanged={onChanged} />}{/* in List view these live under Review */}
         {peep ? <PeoplePanel st={ppl} /> : List && (list || flat) ? <List focusId={focusId} onChanged={onChanged} /> : List && river ? <div ref={setSlot} /> : <>
           <input className="field" type="search" placeholder="Find a memory · title, kind or tag" value={query} maxLength={200}

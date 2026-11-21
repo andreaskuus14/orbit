@@ -22,6 +22,7 @@ import { capShare } from "@/lib/local-news-pure";
 import { FOLLOWS_EVENT } from "./follow-command";
 import { REFRESH_MS } from "@/lib/follows-pure";
 import { useAlienEnv } from "./alien/env";
+import { useManual } from "./planet-manual";
 
 // INTELLIGENCE → World Pulse: a holographic Earth where the news happens.
 // Country shapes come from world-atlas; each country in the news gets a cluster of twinkling city-light dots
@@ -897,6 +898,9 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
   const q = worldQuality(quality);
   const glr = useGlRecovery();
   const later = useMountLater();
+  // Simple page: the globe's own search, country list and regions are tools (behind More in the INTELLIGENCE panel); the public demo has no panel, so it keeps them.
+  const [chosen, setManual] = useManual("intelligence");
+  const manual = chosen || (typeof location !== "undefined" && location.pathname === "/demo");
   const [ready, setReady] = useState(prepped);
   useEffect(() => { if (ready) return; let on = true; prepGlobe(() => { if (on) setReady(true); }); return () => { on = false; }; }, [ready]);
   // The globe felt laggy: it always rendered with 4× MSAA at up to 1.75× pixels. On "auto", step down once frames drop.
@@ -939,6 +943,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
   }, []);
   useEffect(() => {
     if (!goTo || (!goTo.country && !goTo.region && goTo.search === undefined)) return;
+    setManual(true); // CORE / a link asked for a country, region or search: show the globe tools
     if (goTo.search) { setQuery(goTo.search); void find(goTo.search); return; }
     searchSeq.current++; setSearching(false); setSearch(null); // region chips only exist outside search
     if (goTo.search === "") setQuery("");
@@ -1064,7 +1069,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
         {quality === "auto" && <PerformanceMonitor onDecline={() => setLean(true)} />}
         <WarmCompile world="intelligence" />
         <color attach="background" args={["#01040b"]} />
-        <Stars radius={70} depth={40} count={reduced ? 1500 : 5000} factor={2.4} fade speed={reduced ? 0 : 0.35} />
+        <Stars radius={70} depth={40} count={reduced || !manual ? 1200 : 5000} factor={2.4} fade speed={reduced || !manual ? 0 : 0.35} />
         <Globe tint={tint} mode={mode} region={activeRegion} reduced={reduced} lit={lit} selected={selected} followed={followed}
           hover={hover.name} onPick={(n) => setSelected((cur) => (n && n !== cur ? n : n ? null : cur))} onHover={onHover} />
         {/* all dots; out-of-region ones fade out in the shader, so a region switch rebuilds nothing */}
@@ -1101,14 +1106,15 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
         )}
       </div>
 
-      <form onSubmit={runSearch} className="glass globe-search" role="search">
+      {manual && <form onSubmit={runSearch} className="glass globe-search" role="search">
         <input className="field w-full" value={query} onChange={(e) => setQuery(e.target.value)} maxLength={120}
           placeholder="Search world news… e.g. elections, oil prices, AI chips" aria-label="Search world news" />
         <button className="btn shrink-0" disabled={searching || query.trim().length < 2}>{searching ? "Searching…" : "Search"}</button>
         {search && <button type="button" className="chip shrink-0" onClick={() => { searchSeq.current++; setSearching(false); setSearch(null); setQuery(""); setSelected(null); }}>Clear</button>}
-      </form>
+      </form>}
 
-      {!selected && <section className="glass hud-panel globe-side panel-in" key={mode}>
+      {/* Simple page (INTELLIGENCE panel, not More): the globe stays as a calm picture; search, country list and regions are the tools behind More. */}
+      {manual && !selected && <section className="glass hud-panel globe-side panel-in" key={mode}>
         {search ? (
           <>
             <div className="hud-title" style={{ color: "#e9d5ff" }}>SEARCH · {search.q.toUpperCase()}</div>
@@ -1185,7 +1191,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
           onCountry={setSelected} onBack={() => setSelected(null)} backLabel={search ? "Results" : "All countries"} />
       )}
 
-      {!search && (
+      {manual && !search && (
         <nav className="globe-regions glass" aria-label="World regions">
           <button className={`region${!region ? " on" : ""}`} onClick={() => { setRegion(null); setSelected(null); }}>World</button>
           {regionTotals.map(({ r, n }) => (
