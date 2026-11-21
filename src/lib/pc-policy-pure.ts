@@ -6,7 +6,9 @@
 //     its own git branch.
 //   3 waits for his explicit OK every time: delete (to the Recycle Bin), install, system settings. Voice "yes, do it" or a click.
 // Sends, posts, payments/spends and logins are never PC actions: sends/posts/spends run only through ORBIT's own approval cards
-// with his click (AGENTS.md rule 6), and ORBIT never logs in to outside platforms. Pure, no imports; tests/pc-policy.test.ts.
+// with his click (AGENTS.md rule 6), and ORBIT never logs in to outside platforms. Pure; tests/pc-policy.test.ts.
+// Passwords/keys and his VAULT/journal/LIFE files are never touched, even inside a connected folder (command-policy-pure sensitivePath).
+import { sensitivePath } from "./command-policy-pure.ts";
 
 export type PcLevel = 1 | 2 | 3;
 export const PC_ACTIONS = [
@@ -39,7 +41,8 @@ export const DEFAULT_APPS: Record<string, string> = {
 };
 
 export type PcRequest = { action: PcAction; args: Record<string, unknown> };
-export type PcCtx = { stopAll: boolean; folders: readonly string[]; apps?: Record<string, string> };
+/** privatePaths: ORBIT's data folder (VAULT, LIFE) and ORBIT_PRIVATE_FOLDERS: never read, listed or changed, even under a connected folder. */
+export type PcCtx = { stopAll: boolean; folders: readonly string[]; apps?: Record<string, string>; privatePaths?: readonly string[] };
 /** run: "now" (level 1), "snapshot" (level 2: runs, Undo kept), "confirm" (level 3: queued for his OK), "refuse". */
 export type PcVerdict =
   | { run: "now" | "snapshot"; level: 1 | 2; args: Record<string, string>; summary: string }
@@ -91,11 +94,19 @@ export function pcDecide(req: { action?: unknown; args?: unknown }, ctx: PcCtx):
   if (ctx.stopAll) return { run: "refuse", level: spec.level, reason: "Stop-all is on: ORBIT does nothing on the PC until you turn it off." };
   const a = (req.args && typeof req.args === "object" ? req.args : {}) as Record<string, unknown>;
   const no = (reason: string): PcVerdict => ({ run: "refuse", level: spec.level, reason });
-  const inside = (p: string) => insideFolders(p, ctx.folders);
+  // red-team H1: a connected parent (his home, Projects) must not open .env files, keys or ORBIT's own VAULT/LIFE data
+  const touchy = (p: string) => sensitivePath(p.replace(/\\/g, "/"), ctx.privatePaths ?? []);
+  const inside = (p: string) => insideFolders(p, ctx.folders) && !touchy(p);
   const noFolders = "No folders are connected: set ORBIT_PC_FOLDERS in .env.local (folders separated by ;).";
   const ok = (args: Record<string, string>, summary: string): PcVerdict =>
     spec.level === 3 ? { run: "confirm", level: 3, click: !!spec.click, args, summary } : { run: spec.level === 1 ? "now" : "snapshot", level: spec.level, args, summary } as PcVerdict;
 
+  for (const k of ["path", "from", "to", "folder", "repo"]) {
+    const v = str(a[k], 400), t = v && touchy(v);
+    if (t) return no(t === "secret" ? "That's a password, key or login file: ORBIT never opens or moves those." : "That's your private VAULT, journal or LIFE data: ORBIT never opens or moves it from the PC tools.");
+  }
+  if (action === "code_edit" && touchy(`/${str(a.file, 300)}`)) return no("That's a password, key or private file: ORBIT never edits it.");
+  if (action === "rename_file" && touchy(`/${str(a.name, 200)}`)) return no("That name is a password, key or private file name.");
   switch (action) {
     case "open_app": case "focus_app": {
       const name = str(a.app, 60).toLowerCase();
@@ -164,6 +175,14 @@ export function renameTarget(from: string, name: string): string {
   if (!FILE_NAME.test(name) || name === "." || name === "..") return "";
   const i = Math.max(from.lastIndexOf("/"), from.lastIndexOf("\\"));
   return i < 0 ? "" : from.slice(0, i + 1) + name;
+}
+
+/** Outside text and PC changes (jarvis runPcTool). This answer read a page/file/window title (tainted): only reads run, injected
+ *  text can't change his PC. An earlier turn of the chat did (earlier, red-team H2): changes wait for his OK like level 3. */
+export const PC_READS: readonly string[] = ["read_file", "list_folder", "focus_app", "media_key"];
+export function pcOutside(action: unknown, tainted: boolean, earlier: boolean): "ok" | "refuse" | "confirm" {
+  if (PC_READS.includes(String(action))) return "ok";
+  return tainted ? "refuse" : earlier ? "confirm" : "ok";
 }
 
 // ---- His OK for a level-3 action -------------------------------------------------------------------------------------------

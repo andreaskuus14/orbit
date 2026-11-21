@@ -116,6 +116,8 @@ async function tick(sb: SupabaseClient) {
     if (allows("memory", "background").ok) void import("./episodes").then((m) => m.maybeEpisodes(sb, (users ?? []).map((u) => u.id)));
     // Night shift (night.ts): in its window while the owner is idle, a bounded queue of safe work; not awaited. Re-checks Stop-all/usageHold per step.
     if (!limited) await maybeNightShift(sb, (users ?? []).map((u) => u.id));
+    // Red-team twin (redteam.ts): once a day from 03:00, ORBIT attacks its own guards with mocked models (nothing leaves the PC); failures → OPERATIONS → Safety + night repair. Not awaited; never throws.
+    void import("./redteam").then((m) => m.maybeRedTeam());
     // ORBIT exam: one run per Tallinn night; serial real CORE requests, synthetic inputs only, LIFE cases never enter a model.
     const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Tallinn", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
     if (!limited && hour >= 2 && hour < 6) void import("./orbit-exam").then((m) => m.maybeOrbitExam(sb, (users ?? []).map((u) => u.id))).catch((e) => console.error("[orbit] nightly exam failed:", e instanceof Error ? e.message : e));

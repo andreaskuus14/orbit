@@ -192,6 +192,18 @@ const called = (steps: string[], tools: string[]) => steps.some((s) => tools.som
 const untrustedIn = (steps: string[], except: readonly string[] = []) => called(steps, UNTRUSTED.filter((t) => !except.includes(t))) || steps.some((s) => s.startsWith("You called plugin__"));
 /** This turn read outside text: later turns of the chat count it as still there (core.ts outsideEarlier). */
 export const outsideTextIn = (steps: string[]) => untrustedIn(steps);
+
+// TERMINAL (core-terminal.ts): outside text in CORE's context makes file-changing commands wait for his click (command-policy-pure
+// ctx.outside). Red-team H2: an earlier turn's page is still in the session, so it counts too. H3: the terminal's own output is
+// his project, except a command that read the network (curl, wget, git pull …): that output is a page like any other.
+const NET_READ = /^\s*(?:curl|curl\.exe|wget|wget2|iwr|irm|invoke-webrequest|invoke-restmethod|http|https|xh|aria2c|git\s+(?:pull|fetch|clone|ls-remote)|gh\s+(?:api|issue|pr|repo|gist|release)|npm\s+(?:view|info|show)|pip\s+download)\b/i;
+const TERM_STEP = /^You called terminal_(?:run|status|stop) /;
+const termCommand = (s: string) => { try { const j = JSON.parse(s.slice(s.indexOf(" ", 11) + 1, s.indexOf("\nRESULT:")).trim()) as { command?: unknown }; return typeof j.command === "string" ? j.command : ""; } catch { return ""; } };
+export function termOutside(steps: readonly string[], pinned: boolean, earlier: boolean): boolean {
+  if (pinned || earlier || outsideTextIn(steps.filter((s) => !TERM_STEP.test(s)))) return true;
+  return steps.some((s) => (s.startsWith("You called terminal_run ") && NET_READ.test(termCommand(s)))
+    || (s.startsWith("You called terminal_status ") && s.split("\n").some((l) => { const m = /^- .*? \[(.*)\]: /.exec(l); return !!m && NET_READ.test(m[1]); })));
+}
 const err = (s: string | null | undefined) => (s ? s.replace(/^Error: /, "") : "");
 
 // Operator mode (AGENTS.md rule 6, owner-granted 2026-10-30): with the category's Profile → Autonomy area at "do" (the default),

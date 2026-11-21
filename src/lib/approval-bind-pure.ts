@@ -13,8 +13,8 @@ export function pendingSeen(pending: readonly Act[]): string {
   return a.toString(16).padStart(8, "0") + b.toString(16).padStart(8, "0");
 }
 
-/** "" if this approval may run: no fingerprint sent (older callers) or it matches what is stored now. */
+/** "" if this approval may run: its fingerprint matches what is stored now. No fingerprint = refused (red-team H6: an Approve
+ *  without it ran whatever the actions had become; every ORBIT caller sends one). */
 export function seenProblem(stored: readonly Act[], seen: unknown): string {
-  if (seen === undefined) return "";
   return typeof seen === "string" && seen === pendingSeen(stored) ? "" : "The actions changed since you looked. Nothing was run: reload and check them again.";
 }

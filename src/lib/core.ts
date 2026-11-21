@@ -351,7 +351,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const execRaw = async (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[], operator: boolean) => tool === "navigate" ? navigateTool(input, onNavigate)
     : tool === "read_more" ? clips.read(input)
     // module tools (core-modules.ts) keep their own explicit-ask guards as a second check
-    : isModuleTool(tool) ? await runModuleTool(tool, input, { sb, userId, chat: sessionKey, question, tainted: dataIn(), pinned: !!attach || pinsIn, operator, steps, onEvidence: (e) => evidence.push(e) })
+    : isModuleTool(tool) ? await runModuleTool(tool, input, { sb, userId, chat: sessionKey, question, tainted: dataIn(), pinned: !!attach || pinsIn, operator, earlier: outsideEarlier, steps, onEvidence: (e) => evidence.push(e) })
     : await runCoreTool(sb, userId, tool, input, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e), { chat: sessionKey, project: memoryProject?.scope });
   const record = (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number, operator = false) => {
     evalTools.push({ tool, input, output: out.slice(0, STEP_CHARS), evidence });

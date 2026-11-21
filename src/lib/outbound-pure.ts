@@ -22,7 +22,7 @@ export const outgoing = (input: unknown): string =>
 /** The private piece the outgoing text would carry out, or "". Words the owner typed in his own message never count.
  *  noText: private data is in the session but its text isn't at hand (earlier turn, server restarted): refuse any email/phone/amount. */
 export function outboundLeak(out: string, privateText: readonly string[], question = "", noText = false): string {
-  const priv = norm(privateText.join("\n")), q = norm(question), o = decodeURIComponentSafe(out);
+  const priv = norm(privateText.join("\n")), q = norm(question), o = unwrap(out);
   if (!o.trim()) return "";
   const own = (s: string) => q.includes(norm(s)) || (digits(s).length >= 7 && digits(q).includes(digits(s)));
   for (const re of [EMAIL, PHONE, AMOUNT]) for (const m of o.match(re) ?? []) {
@@ -39,8 +39,28 @@ export function outboundLeak(out: string, privateText: readonly string[], questi
   for (const run of outRuns(o)) {
     if (pw.includes(` ${run} `) && !qw.includes(` ${run} `)) return run;
   }
+  // Spelled apart ("T.o.d.a.y", "my-sister-and", one word per path segment): letters and digits only, a long shared stretch.
+  const sq = (s: string) => tokens(s).join(""), ps = sq(priv), os = sq(o), qs = sq(q);
+  for (let i = 0; i + SQUASH <= os.length; i++) { const w = os.slice(i, i + SQUASH); if (ps.includes(w) && !qs.includes(w)) return w; }
   return "";
 }
+const SQUASH = 32; // letters/digits in a row copied from private text, separators ignored
+
+/** What the outgoing text says once URL-encoding (also double), base64/base64url and hex blobs are undone (S: red-team H4). */
+function unwrap(out: string): string {
+  let o = out;
+  for (let i = 0; i < 3; i++) { const d = decodeURIComponentSafe(o); if (d === o) break; o = d; }
+  const extra: string[] = [];
+  const blobs = (o.match(/[A-Za-z0-9+/_-]{16,}={0,2}/g) ?? []).flatMap((m) => [m, ...m.split("/").filter((x) => x.length >= 16)]); // base64 may hold "/", a URL path splits on it
+  for (const m of blobs) {
+    if (/^[0-9a-f]+$/i.test(m) && m.length % 2 === 0) { const h = Buffer.from(m, "hex").toString("utf8"); if (readable(h)) extra.push(h); continue; }
+    const b = Buffer.from(m.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    if (readable(b)) extra.push(b);
+  }
+  return extra.length ? `${o}\n${extra.join("\n")}` : o;
+}
+/** Mostly letters, digits, spaces and punctuation: a decoded blob that is text, not random bytes. */
+const readable = (s: string) => s.length >= 8 && (s.match(/[\p{L}\p{N}\s.,!?'"-]/gu)?.length ?? 0) / s.length > 0.85;
 
 export function decodeURIComponentSafe(s: string) {
   try { return decodeURIComponent(s.replace(/\+/g, " ")); } catch { return s; }

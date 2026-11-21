@@ -59,7 +59,7 @@ test("approve and resume cannot run when the task's output guard read fails", as
 test("approve and resume cannot run when competing outputs cannot be checked", async () => {
   for (const command of ["approve", "resume"]) {
     const h = harness(own, { data: null, error: { message: "connection lost" } });
-    const response = await h.post(command);
+    const response = await h.post(command, { seen: approvalBind.pendingSeen([action]) });
     assert.equal(response.status, 503);
     assert.match((await response.json()).error, /No actions were run/);
     assert.deepEqual(h.stats(), { reads: 2, executions: 0, writes: 0, scopes: ["owner", "owner"] });
@@ -74,11 +74,11 @@ test("a missing or foreign task stops before querying competitors or executing",
 
 test("a healthy output check preserves approval and rejects a real clash", async () => {
   const h = harness(own, empty);
-  assert.equal((await h.post("approve")).status, 200);
+  assert.equal((await h.post("approve", { seen: approvalBind.pendingSeen([action]) })).status, 200);
   assert.equal(h.stats().executions, 1);
   assert.deepEqual(h.stats().scopes, ["owner", "owner"]);
   const clash = harness(own, { data: [{ id: "busy", status: "running", pending: [{ ...action, status: "attempting" }] }], error: null });
-  const response = await clash.post("approve");
+  const response = await clash.post("approve", { seen: approvalBind.pendingSeen([action]) });
   assert.equal(response.status, 409);
   assert.equal((await response.json()).blockedBy, "busy");
   assert.equal(clash.stats().executions, 0);
