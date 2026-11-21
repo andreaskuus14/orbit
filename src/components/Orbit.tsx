@@ -791,6 +791,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           <OrbitExplore selected={shown} onSelect={(id) => galaxySelect(id, true)} />
           <button className="chip hud-search hud-phone-menu" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label={t("hud.search")} title={t("hud.searchTitle")}>⌕</button>
           <button className="chip hud-phone-menu" onClick={() => setWorkOpen("work")} aria-keyshortcuts="Alt+W" title={t("hud.workTitle")}>{t("hud.work")}</button>
+          <button className="chip hud-phone-menu" onClick={() => setDoctor("click")} aria-label={t("sys.check")} title={t("sys.check")}>🩺</button>
           <button className="chip" data-tour="help" onClick={() => dispatchEvent(new Event(TOUR_EVENT))} aria-label={t("hud.help")} title={t("hud.helpTitle")}>?</button>
           <button className="chip hud-more" popoverTarget="hud-menu" aria-label={t("hud.more")} title={t("hud.moreTitle")}>⋯</button>
         </div>
@@ -813,6 +814,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </div>
         <button className="hud-menu-item" aria-pressed={details} onClick={toggleDetails} title={t("menu.detailsTitle")}>{t("menu.details", { state: t(details ? "common.on" : "common.off") })}</button>
         <button className="hud-menu-item" aria-pressed={cmdMode === "task"} onClick={switchMode} title={t("cmd.modeTitle")}>{t("menu.cmdMode", { mode: t(cmdMode === "ask" ? "cmd.ask" : "cmd.task") })}</button>
+        <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => setDoctor("click")}>{t("sys.check")}</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => living.setOpen(true)}>{t("menu.timeTravel")}</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: null, mission: true } }))}>{t("menu.mission")}</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(SHORTCUTS_EVENT))}>{t("menu.shortcuts")} <kbd>?</kbd></button>

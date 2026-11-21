@@ -13,7 +13,7 @@ import { useT } from "./i18n";
 
 const COLS = "id,title,status,result,error,created_at,started_at,finished_at,trace,pending";
 const SHOWN = 2; // home stays calm: the two that matter most (needs-you first), the rest behind "See all"
-const FOLD_KEY = "orbit.home.fold";
+const FOLD_KEY = "orbit.home.fold.v2";
 
 /** Median run time of the finished tasks in the list (ms), the basis for "about X min left"; null with fewer than 3. */
 function typical(rows: { started_at?: string | null; finished_at?: string | null }[]): number | null {
@@ -34,8 +34,13 @@ export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask, onNeeds,
   const [needs, setNeeds] = useState<number | null>(null);
   const [pilots, setPilots] = useState<Progress[]>([]); // autopilot projects: one card each (api/goals?cards=1, pilot-pure fromPilot)
   const [stopAll, setStopAll] = useState(false);
-  const [fold, setFold] = useState(false);
-  useEffect(() => { try { setFold(localStorage.getItem(FOLD_KEY) === "1"); } catch { /* no storage */ } }, []);
+  const [fold, setFold] = useState(true);
+  const [closed, setClosed] = useState(false);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(FOLD_KEY) === "0") setFold(false);
+    } catch { /* no storage */ }
+  }, []);
   useEffect(() => {
     const on = (e: Event) => setStopAll(!!(e as CustomEvent<StopAllDetail>).detail?.on);
     addEventListener(STOP_ALL_EVENT, on); dispatchEvent(new Event(STOP_ALL_REQUEST_EVENT));
@@ -65,15 +70,18 @@ export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask, onNeeds,
   const progKey = (items ?? []).map((p) => `${p.id}:${p.phase}:${p.leftMin ?? ""}`).join(",");
   useEffect(() => { if (items) onProgress?.(items); }, [progKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = () => { const v = !fold; setFold(v); try { localStorage.setItem(FOLD_KEY, v ? "1" : "0"); } catch { /* no storage */ } };
+  const close = () => setClosed(true);
+  if (closed) return null;
 
   return (
-    <section className="glass home-desk" aria-labelledby="home-desk-title" data-tour="progress">
+    <section className="glass home-desk" data-fold={fold || undefined} aria-labelledby="home-desk-title" data-tour="progress">
       <header className="flex items-center gap-2">
         <h2 id="home-desk-title" className="min-w-0 flex-1 truncate text-sm font-medium" role="status">{stopAll ? `🛑 ${t("home.paused")}` : line}</h2>
         <button type="button" className={`chip shrink-0${needN ? " home-needs-on" : ""}`} onClick={onOpenNeeds} data-tour="needs">
           {t("needs.title")}{needN ? ` · ${needN}` : ""}
         </button>
         <button type="button" className="chip shrink-0" onClick={toggle} aria-expanded={!fold} aria-controls="home-desk-list" title={t(fold ? "home.show" : "home.hide")}>{fold ? "▴" : "▾"}<span className="sr-only">{t(fold ? "home.show" : "home.hide")}</span></button>
+        <button type="button" className="chip shrink-0" onClick={close} aria-label={t("common.close")} title={t("common.close")}>×</button>
       </header>
       {!fold && <div id="home-desk-list" className="mt-2">
         {failed && <p className="error text-sm" role="alert">{t("home.loadFailed")}</p>}

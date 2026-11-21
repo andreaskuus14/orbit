@@ -973,9 +973,10 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .progress-steps [data-state="failed"] { color: #fda4af; }
 @media (prefers-reduced-motion: reduce) { .progress-card .progress-dot { animation: none !important; } .progress-bar > i { transition: none; } }
 
-/* Home (owner 21 Nov: very simple): the desk sits right above the one input; the cockpit extras show only with ⋯ → System details. */
-.home-desk { position: absolute; z-index: 29; left: 50%; transform: translateX(-50%); bottom: calc(6.2rem + env(safe-area-inset-bottom, 0px));
-  width: min(38rem, calc(100vw - 1.5rem)); max-height: 34dvh; overflow-y: auto; padding: 0.7rem 0.8rem; border-radius: 18px; }
+/* Home (owner 21 Nov: very simple, out of the galaxy's way): docked bottom-right, folded by default, closable. */
+.home-desk { position: absolute; z-index: 29; right: 1rem; left: auto; bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+  width: min(23rem, calc(100vw - 1.5rem)); max-height: 32dvh; overflow-y: auto; padding: 0.65rem 0.75rem; border-radius: 16px; }
+.home-desk[data-fold] { width: auto; max-width: min(24rem, calc(100vw - 1.5rem)); padding: 0.4rem 0.65rem; overflow: visible; }
 .home-desk .progress-card { background: rgba(8, 16, 34, 0.55); padding: 0.5rem 0.7rem; }
 .home-desk .progress-steps { display: none; } /* home: the live line and the bar; the steps open with the card */
 .home-needs-on { border-color: #fbbf24; color: #fde68a; }
@@ -991,7 +992,7 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .tour-ring { position: fixed; border: 2px solid var(--cyan); border-radius: 16px; box-shadow: 0 0 0 9999px rgba(2, 4, 11, 0.55); transition: all 0.25s ease; }
 .tour-card { position: fixed; pointer-events: auto; width: min(340px, calc(100vw - 24px)); padding: 1rem; border-radius: 16px; outline: none; }
 @media (prefers-reduced-motion: reduce) { .tour-ring { transition: none; } }
-@media (max-width: 640px) { .home-desk { bottom: calc(5.2rem + env(safe-area-inset-bottom, 0px)); max-height: 36dvh; } }
+@media (max-width: 640px) { .home-desk { right: 0.5rem; bottom: calc(5.2rem + env(safe-area-inset-bottom, 0px)); width: min(22rem, calc(100vw - 1rem)); max-height: 34dvh; } }
 .cmdbar[hidden] { display: none; }
 
 /* CORE chat polish: calm, flat blocks inside answers (code, tables, media), the composer, drop zone and "Latest". ChatAnswer.tsx, CoreChat.tsx. */

@@ -100,12 +100,12 @@ export function parseLimitError(text: string, now: number): number | null {
 }
 
 /** A "successful" answer that is really the CLI's limit notice (it sometimes comes back as the result text, not an error). */
-export const isLimitAnswer = (text: string) => text.length < 300 && /^\s*Claude AI usage limit reached|hit your limit/i.test(text);
+export const isLimitAnswer = (text: string) => text.length < 300 && /^\s*Claude AI usage limit reached|hit your (?:\S+\s+)?limit|session limit/i.test(text);
 
 function parseReset(t: string, now: number): number | null {
   const epoch = /limit reached\|(\d{10,13})/i.exec(t);
   if (epoch) { const n = Number(epoch[1]); return n < 1e12 ? n * 1000 : n; }
-  if (!/usage limit reached|limit reached|hit your limit|limit will reset|rate_limit_error|API Error: 429|rate limit (?:reached|exceeded)/i.test(t)) return null;
+  if (!/usage limit reached|session limit|limit reached|hit your (?:\S+\s+)?limit|limit will reset|rate_limit_error|API Error: 429|rate limit (?:reached|exceeded)/i.test(t)) return null;
   const m = /resets?(?:\s+at)?\s+(?:(sun|mon|tue|wed|thu|fri|sat)[a-z]*\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i.exec(t);
   if (!m) return now + LIMIT_PAUSE_MS;
   let h = Number(m[2]);

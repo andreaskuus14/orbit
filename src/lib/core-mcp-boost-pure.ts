@@ -157,7 +157,7 @@ export function downTier(r: Route, m: Models): Route | null {
   if (r.tier === "smart") return { model: m.fast, tier: "fast", why: `${r.why}; Sonnet limit → Haiku` };
   return null;
 }
-export const isLimitError = (e: unknown) => /usage limit|hit your limit|rate_limit|API Error: 429|rate limit (?:reached|exceeded)|overloaded/i.test(e instanceof Error ? e.message : String(e));
+export const isLimitError = (e: unknown) => /usage limit|session limit|hit your (?:\S+\s+)?limit|rate_limit|API Error: 429|rate limit (?:reached|exceeded)|overloaded/i.test(e instanceof Error ? e.message : String(e));
 
 // ---------- 5. stable prompt prefix ----------
 

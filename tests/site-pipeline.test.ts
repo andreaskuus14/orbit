@@ -80,7 +80,9 @@ test("step plan: plan → layout → pages → images → check; progress labels
 
 test("site pipeline research doesn't block the owner's explicit build; still blocks otherwise", () => {
   const s = (t: string) => `You called ${t} {}\nRESULT:\nx`;
-  assert.equal(wsTainted([s("web_search"), s("fetch_url"), s("ws_fetch_image")], "build me a cafe website"), false);
+  assert.equal(wsTainted([s("web_search"), s("fetch_url"), s("browse"), s("read_more"), s("business_status"), s("ws_fetch_image")], "build me a cafe website"), false);
+  assert.equal(wsTainted([s("browse"), s("fetch_url"), s("business_status")], "build it now"), false);
+  assert.equal(wsTainted([s("fetch_url")], "ehita see kohe"), false);
   assert.equal(wsTainted([s("fetch_url")], "yes"), true);
   assert.equal(wsTainted([s("fetch_url")], "how do I build a site?"), true);
   assert.equal(wsTainted([s("ws_read")], "build me a cafe website"), true);
