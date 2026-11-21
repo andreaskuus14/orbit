@@ -294,13 +294,14 @@ export async function runScan(paths: string[]): Promise<ScanResult> {
 }
 
 /** Look-only playtest: start play, walk around, read the console, stop play. Console errors are extracted by ORBIT itself from get_console_output results. */
-export async function runPlaytest(goal: string): Promise<PlaytestResult & { image: string | null }> {
+export async function runPlaytest(goal: string, extra = ""): Promise<PlaytestResult & { image: string | null; text: string; inspect: string }> {
   return exclusive(async () => {
     st.status = undefined;
-    const tap = createToolTap(["get_console_output"]);
-    const r = await runStudio({ mode: "playtest", allowed: toolFlags("playtest").allowed, guard: createToolGuard("playtest"), prompt: playtestPrompt(goal), timeoutMs: TIMEOUT.playtest, onLine: tap.line });
+    const tap = createToolTap(["get_console_output"]), look = createToolTap(["inspect_instance"]); // look: raw values ORBIT checks numbers against (AI playtesters)
+    const onLine = (l: string) => { tap.line(l); look.line(l); };
+    const r = await runStudio({ mode: "playtest", allowed: toolFlags("playtest").allowed, guard: createToolGuard("playtest"), prompt: playtestPrompt(goal, extra), timeoutMs: TIMEOUT.playtest, onLine });
     const out = parsePlaytest(r.text) ?? { done: false, findings: [], notes: "ORBIT couldn't read the bot's findings. Check that play mode stopped in Studio." };
-    return { ...out, consoleErrors: consoleErrors(tap.text()), image: r.image };
+    return { ...out, consoleErrors: consoleErrors(tap.text()), image: r.image, text: r.text, inspect: look.text() };
   });
 }
 

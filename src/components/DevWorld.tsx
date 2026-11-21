@@ -27,6 +27,7 @@ import { PictureTo3D, TextTo3D } from "./LocalAi";
 import { MakeInBlender } from "./BlenderEntry";
 import PlaytestBot from "./PlaytestBot";
 import PersonaPlaytest from "./PersonaPlaytest";
+import AiPlaytesters from "./AiPlaytesters";
 import GameCopilot from "./GameCopilot";
 import DevTrail from "./DevTrail";
 import GridCity from "./GridCity";
@@ -57,7 +58,7 @@ const VIEWS = {
   projects: [["games", "🎮 Games"], ["trends", "📈 Trends"], ["hive", "🐝 Hive"], ["sessions", "🕒 Sessions"], ["core", "⚙ CORE"]],
   overview: [["detail", "🎯 Game"], ["economy", "🪙 Economy"], ["sim", "🧮 Simulator"]],
   build: [["scene", "🏗 Scene"], ["code", "📝 Code"], ["files", "🗂 Files"], ["grid", "🟦 Grid"]],
-  test: [["evidence", "🧾 Results"], ["playtest", "🤖 Playtest"], ["personas", "👥 Personas"]],
+  test: [["evidence", "🧾 Results"], ["playtest", "🤖 Playtest"], ["aitesters", "🧪 AI testers"], ["personas", "👥 Personas"]],
   assets: [["register", "📦 Register"], ["uikit", "🧩 UI kit"], ["refs", "🎨 References"], ["textures", "🧱 Textures"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["model3d", "🧊 Picture to 3D"], ["text3d", "✨ Text to 3D"]],
   release: [["release", "🚀 Package"], ["retention", "📊 Retention"]],
 } as const;
@@ -341,6 +342,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
           <p className="muted mb-1 text-xs">{t("gd.k.runtime")}: {t("gd.runtimeNote")}</p>
           <PlaytestBot key={gk} world={world} commit={commit} gameId={selected} />
         </div>
+        {tab === "aitesters" && !needsGame && <AiPlaytesters />}
         {tab === "personas" && !needsGame && <><p className="muted text-xs">{t("gd.k.simulated")}: {t("gd.simNote")}</p><PersonaPlaytest key={gk} world={world} commit={commit} gameId={selected} /></>}
         {tab === "economy" && !needsGame && <GameCopilot key={gk} world={world} gameId={selected} />}
         <div hidden={tab !== "code" || needsGame}><CodeHelper key={gk} prefill={fix} /></div>
