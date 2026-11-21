@@ -8,7 +8,7 @@ import { LIFE_TOOLS, runLifeTool, type LifeTool } from "./core-life";
 import { checkpointBasis } from "./checkpoint-pure";
 import { WS_PROMPT, WS_TOOLS, loadWsGate, runWsTool, wsTainted, type WsTool } from "./core-workspace";
 import { OPS_PROMPT, OPS_TOOLS, type OpsTool } from "./core-operator-pure";
-import { TERM_PROMPT, TERM_TOOLS, type TermTool } from "./core-terminal";
+import { TERM_PROMPT, type TermTool } from "./core-terminal";
 import { decisionMemory, decisionPreview, parseDecision, rememberPreview, takePreview } from "./decisions-pure";
 import { validateMemory } from "./reflect-pure";
 import { saveCoreMemory } from "./reflect";
@@ -151,7 +151,7 @@ const MODULES: CoreModule[] = [
   },
   {
     // a shell in his connected project folders (shell-session.ts); every command gets a command-policy-pure level
-    name: "TERMINAL", tools: [...TERM_TOOLS], writes: ["terminal_run", "terminal_stop"], prompt: TERM_PROMPT,
+    name: "TERMINAL", tools: ["terminal_run", "terminal_status", "terminal_stop"], writes: ["terminal_run", "terminal_stop"], prompt: TERM_PROMPT,
     run: async (t, i, c) => (await import("./core-terminal")).runTermTool(t as TermTool, i, { userId: c.userId, steps: c.steps, pinned: c.pinned }),
   },
   {

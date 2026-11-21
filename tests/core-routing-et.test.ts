@@ -78,6 +78,9 @@ const PAIRS: [string, string, string][] = [
   ["DECISIONS", "Revisit what I decided next month", "Vaata üle see, mida ma otsustasin"],
   ["DECISIONS", "Remind me what I decided about the shop", "Tuleta mulle meelde, mida ma poe kohta otsustasin"],
   ["LOCALAI", "Make me a photo of a calm lake", "Tee mulle foto rahulikust järvest"],
+  ["TERMINAL", "Run the tests in the terminal", "Käivita testid terminalis"],
+  ["TERMINAL", "Open a shell and activate the venv", "Ava käsurea aken ja aktiveeri venv"],
+  ["TERMINAL", "Run this command with powershell", "Käivita see käsk powershelliga"],
 ];
 
 test("every keyword-gated module has ≥3 EN/ET pairs and a capability line", () => {
