@@ -119,10 +119,10 @@ test("the command bar runs commands directly in both Ask and Task modes", async 
     const h = component("Orbit.tsx");
     let tree = h.render();
     if (task) {
-      find(tree, (e) => e.type === "button" && String(e.props["aria-label"]).startsWith("Mode:"))!.props.onClick();
+      find(tree, (e) => e.type === "button" && String(e.props.children).startsWith("Box sends to:"))!.props.onClick(); // the mode lives in ⋯ (simple home)
       tree = h.render();
     }
-    find(tree, (e) => e.type === "input" && String(e.props["aria-label"]).startsWith("Command bar:"))!.props.onChange({ target: { value: text } });
+    find(tree, (e) => e.type === "input" && /^(Command bar:|What do you need)/.test(String(e.props["aria-label"])))!.props.onChange({ target: { value: text } });
     tree = h.render();
     await find(tree, (e) => e.type === "form")!.props.onSubmit({ preventDefault() {} });
     assert.deepEqual(h.calls, [nav.parseNavCommand(text, { current: null })], text);

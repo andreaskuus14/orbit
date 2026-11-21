@@ -121,11 +121,11 @@ test("resolved problems disappear from Herald; quiet scout actions remain availa
 test("real bell keeps quiet items, shows the red fix chip, and clears it only on resolution", () => {
   const h = ui("NotificationCenter"); h.emit(d("scout", "scout")); h.emit(d("disk-full", "disk"));
   assert.ok(h.nodes("button").some((b) => b.props["aria-label"] === "Unread: Update scout"));
-  const red = h.nodes("button").find((b) => String(b.props["aria-label"]).startsWith("Red alert:")); assert.ok(red); red.props.onClick();
+  const red = h.nodes("button").find((b) => String(b.props["aria-label"]).startsWith("Problem:")); assert.ok(red); red.props.onClick();
   assert.deepEqual(clone(h.nav.at(-1)), { panel: "studio" });
   h.nodes("button").find((b) => b.props.children === "Clear history").props.onClick(); h.flush();
-  assert.ok(h.nodes("button").some((b) => String(b.props["aria-label"]).startsWith("Red alert:")));
-  h.event(rules.RESOLVE_ALERT, "disk-full"); assert.equal(h.nodes("button").some((b) => String(b.props["aria-label"]).startsWith("Red alert:")), false); h.close();
+  assert.ok(h.nodes("button").some((b) => String(b.props["aria-label"]).startsWith("Problem:")));
+  h.event(rules.RESOLVE_ALERT, "disk-full"); assert.equal(h.nodes("button").some((b) => String(b.props["aria-label"]).startsWith("Problem:")), false); h.close();
 });
 test("real bell Unmute clears that kind's dismissal count", () => {
   const h = ui("NotificationCenter"); h.store.saveJudgment(rules.dismissKind(rules.dismissKind(rules.emptyJudgment(), "briefing", T), "briefing", T)); h.flush();
