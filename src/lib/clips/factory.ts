@@ -905,7 +905,10 @@ async function followKeys(ff: string, src: string, start: number, duration: numb
 }
 const FACE_FAIL = "Follow action: face detection unavailable, framed by motion only";
 
-async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o: Required<ClipOptions> & { style?: "karaoke" | "classic" }, clip: Clip, words: Word[], rms: number[], audio: boolean, signal: AbortSignal, onWait?: (text: string) => void) {
+// onPlan (bilingual dub, dub.ts): sees the edit plan with his words on the edited timeline before anything is drawn, and may change the
+// clip's title/hook (the dub's language) that the hook line and the thumbnails then use.
+type PlanHook = (p: { words: Word[]; total: number }) => Promise<void>;
+async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o: Required<ClipOptions> & { style?: "karaoke" | "classic" }, clip: Clip, words: Word[], rms: number[], audio: boolean, signal: AbortSignal, onWait?: (text: string) => void, onPlan?: PlanHook) {
   const duration = clip.end - clip.start;
   const ass = `${clip.id}.ass`, video = `${clip.id}.mp4`, frame = `${clip.id}.frame.jpg`;
   const pts = clipLoudness(rms, clip.start, clip.end);
@@ -913,6 +916,7 @@ async function renderClip(ff: string, src: string, dir: string, job: ClipJob, o:
   // Viral-study playbook ({} until 5 studies): tunes zoom/cut rhythm, default caption style and the thumbnail; the edit options still decide on/off.
   const tune: EditTune = await import("./study").then((m) => m.editTune(), () => ({}));
   const { segs, zooms, teaser, words: capWords, total } = editPlan(local, pts, duration, audio, o, tune);
+  if (onPlan) await onPlan({ words: editPlan(local, pts, duration, audio, { ...o, captions: true }, tune).words, total });
   const { readBrandKit } = await import("./brand-kit"), { kitId } = await import("../brand-kit-pure"), kit = await readBrandKit();
   clip.brand = kitId(kit); // the look this render has; publish checks compare it with the kit as it is then
   await writeFile(path.join(dir, ass), buildAss({ hook: clip.hook, words: capWords, duration: total, style: o.style ?? tune.style, kit }), "utf8");
@@ -1088,6 +1092,21 @@ async function renderVersion(jobId: string, clipId: string, suggest: { title: bo
     if (signal.aborted) return;
     await finish((c) => { c.status = "failed"; c.error = e instanceof Error ? e.message : String(e); });
   }
+}
+
+/** Bilingual dub, first pass (dub.ts): the dub version rendered like its original (same cuts, layout, zooms) but without captions and
+ *  with the original audio; onPlan gets his words on the edited timeline first. Leaves clip.video / thumbnails set. */
+export async function renderDubBase(job: ClipJob, clip: Clip, a: Analysis, signal: AbortSignal, onPlan: PlanHook): Promise<void> {
+  const ff = await ffmpegPath();
+  if (!ff) throw new Error("ffmpeg not found: run npm install (ffmpeg-static) or set ORBIT_FFMPEG");
+  if (!isInboxName(job.source)) throw new Error("The job's source isn't a plain inbox file name");
+  const src = path.join(inboxDir(), job.source);
+  await stat(src).catch(() => { throw new Error(`${job.source} is no longer in the inbox`); });
+  const e = { ...baseEdit(job.options), ...clip.edit };
+  const o = { ...(validOptions({}) as Required<ClipOptions>), ...job.options, ...e, captions: false, style: undefined };
+  const dir = path.join(clipsDir(), job.id);
+  await mkdir(dir, { recursive: true });
+  await renderClip(ff, src, dir, job, o, clip, a.words, a.rms, a.hasAudio, signal, undefined, onPlan);
 }
 
 // ---- downloads ("Add from link" via yt-dlp) ----

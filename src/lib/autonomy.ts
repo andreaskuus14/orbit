@@ -129,7 +129,7 @@ async function fireSend(sb: SupabaseClient, userId: string, p: { ref: string; se
 // The filter sees title + description (scheduleAll's default description is the hook); the version covers video, title and description.
 async function publishCandidates(): Promise<Candidate[]> {
   const [{ listJobs }, { originalityIssue }] = await Promise.all([import("./clips/factory"), import("./clips/publish-checks-pure")]);
-  return (await listJobs()).flatMap((j) => j.clips.filter((c) => c.status === "ready" && !c.retryOf && !c.publish && c.video && !originalityIssue(j, c))
+  return (await listJobs()).flatMap((j) => j.clips.filter((c) => c.status === "ready" && !c.retryOf && !c.dub && !c.publish && c.video && !originalityIssue(j, c)) // dubs: only with his own click
     .map((c) => ({ ref: `${j.id}/${c.id}`, seen: clipVersion(c), changedAt: j.createdAt, label: `Short: ${c.title.slice(0, 80)}`, text: `${c.title}\n${c.hook}` })));
 }
 
@@ -138,7 +138,7 @@ async function firePublish(p: { ref: string; seen: string }): Promise<Fired> {
   const [jobId, clipId] = p.ref.split("/");
   const approved = await withJobLock(async () => {
     const job = await getJob(jobId), clip = job?.clips.find((c) => c.id === clipId);
-    if (!job || !clip || clip.status !== "ready" || clip.retryOf || clip.publish || clipVersion(clip) !== p.seen || originalityIssue(job, clip)) return false; // reviewed or changed meanwhile
+    if (!job || !clip || clip.status !== "ready" || clip.retryOf || clip.dub || clip.publish || clipVersion(clip) !== p.seen || originalityIssue(job, clip)) return false; // reviewed or changed meanwhile
     if (!allows("studio-publish", "auto", { doneToday: doneToday(autonomyState(), "studio-publish", Date.now()), text: `${clip.title}\n${clip.hook}`, known: true }).ok) return false;
     autoApprove(job, clip, Date.now());
     const { contentHash, clipContent } = await import("./approval-pure");

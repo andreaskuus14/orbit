@@ -36,7 +36,8 @@ type ClipStatus = "rendering" | "ready" | "failed" | "approved" | "rejected";
 type Clip = { id: string; start: number; end: number; title: string; hook: string; reason: string; score: number;
   retryOf?: { videoId: string; title: string }; notes?: string[];
   status: ClipStatus; video?: string; thumb?: string; error?: string; publish?: ClipPublish; variantOf?: string; edit?: VersionEdit; original?: string;
-  titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; virality?: Virality; hookLab?: { of: string; label: string; pattern: string } };
+  titleOptions?: { text: string; score: number }[]; thumbOptions?: string[]; virality?: Virality; hookLab?: { of: string; label: string; pattern: string };
+  dub?: { lang: "en" | "et"; of: string } }; // bilingual dub version (dub-pure.ts): always uploaded with YouTube's altered/synthetic label
 // Mirrors GET …/[job]/[clip]/hooklab (src/lib/clips/hooklab.ts).
 type HookLabRank = { ranked: { id: string; label: string; pattern: string; hook: string; score: number; why: string[] }[]; winner?: string; why: string; pending: number; total: number };
 type ClipPublish = { status: "uploading" | "done" | "scheduled" | "failed" | "unknown"; progress?: number; videoId?: string; url?: string; privacy?: string; error?: string; at: string; scheduledFor?: string };
@@ -1476,7 +1477,7 @@ function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublis
   const [sched, setSched] = useState<Schedule | null>(null);
   const p = c.publish;
   const unsure = p?.status === "unknown" || stale; // the last upload may be on YouTube: only an explicit "Upload again anyway" re-uploads
-  const open = () => { setAt(""); setMode("now"); void api<Schedule>(`${API}/schedule`).then(setSched, () => setSched(null)); setForm({ title: c.title.replace(/[<>]/g, "").slice(0, 100), description: `${c.hook.replace(/[<>]/g, "")}\n\n${devlog ? devlogHashtags() : "#shorts"}`.trim(), privacy: "private", original: c.original ?? "", aiContent: false }); };
+  const open = () => { setAt(""); setMode("now"); void api<Schedule>(`${API}/schedule`).then(setSched, () => setSched(null)); setForm({ title: c.title.replace(/[<>]/g, "").slice(0, 100), description: `${c.hook.replace(/[<>]/g, "")}\n\n${devlog ? devlogHashtags() : "#shorts"}`.trim(), privacy: "private", original: c.original ?? "", aiContent: !!c.dub }); };
   const submit = async () => {
     if (!form) return;
     const publishAt = mode === "next" ? "next" : mode === "pick" && at ? new Date(at).toISOString() : undefined;
