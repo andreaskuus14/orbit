@@ -434,6 +434,7 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
         ? <Markdown text={numberCitations(withoutCard(m.content), (m.citations ?? []).map((c) => c.id))} openMemory={onOpenMemory} />
         : <div className="whitespace-pre-wrap">{m.content}</div>}
       {m.live && <CoreActivity rows={m.live.rows} running={false} totalMs={m.live.ms} />}
+      {m.role === "assistant" && m.trace?.some((x) => x.step === "local") && <p className="muted mt-1 text-xs" role="note">{tr("core.offlineNote")}</p>}
       {m.role === "assistant" && !m.error && (() => { const g = parseGoalCard(m.content); return g && <GoalCardView card={g} onChange={() => { setInput(""); inputRef.current?.focus(); }} />; })()}
       {!!m.citations?.length && (
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -462,7 +463,7 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
           {i === msgs.length - 1 && lastQ.current && !busy && (
             <button type="button" className="chip" title={tr("core.retryTitle")} onClick={() => void send(lastQ.current)}>↻ {tr("task.retry")}</button>
           )}
-          {m.trace?.some((x) => x.step === "local") && <span className="chip !py-0 !text-[10px]" title={tr("core.localTitle")}>{tr("core.local")}</span>}
+          {m.trace?.some((x) => x.step === "local") && <span className="chip !py-0 !text-[10px]" title={tr("core.localTitle")} role="status">{tr("core.local")}</span>}
           {m.model && <span className="muted ml-auto opacity-60" title={m.model === "fast" ? "Quick reply from the fast model" : m.model === "deep" ? (m.trace?.some((x) => x.step === "review") ? "Deep answer: planned, then self-checked by the strongest model" : "Deep answer from the strongest model") : "Answered by the main model"}>{m.model}</span>}
         </div>
       )}
