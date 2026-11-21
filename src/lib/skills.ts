@@ -6,8 +6,8 @@ import { orbitDataDir } from "./data-dir";
 import { askClaude, recordUsage, FAST_MODEL } from "./claude";
 import { stopAllOn } from "./stop-all";
 import { usageHold } from "./usage-meter";
-import { DRAFT_SYSTEM, PROPOSALS_KEPT, PROPOSED_MAX, SKILLS_MAX, addVersion, currentVersion, detectRepeats, draftFromCandidate, draftPrompt, findSkill, isKnown,
-  parseModelDraft, parseRunSkill, parseStore, rollback, skillPrompt, uniqueName, usagesFromMessages, validateDraft, type Skill, type Store,
+import { DRAFT_SYSTEM, PROPOSALS_KEPT, PROPOSED_MAX, SKILLS_MAX, addVersion, currentVersion, detectRepeats, draftFromCandidate, draftPrompt, findSkill, formatSkillsBlock, isKnown,
+  matchSkills, parseModelDraft, parseRunSkill, parseStore, rollback, skillPrompt, uniqueName, usagesFromMessages, validateDraft, type Skill, type Store,
   cleanCard, logRun, pickVersion, promote, recordEval, setCard, splitVersion } from "./skills-pure";
 
 // Skill forge I/O (logic: skills-pure.ts). State: <ORBIT data dir>/skills.json (local, single owner, like recipes).
@@ -139,7 +139,7 @@ export function deleteSkill(id: string): Promise<boolean> {
 }
 
 /** "run skill <name>[: input]" → the CORE turn text to run instead (null when it isn't that command). Never throws. */
-export async function skillTurn(text: string): Promise<string | null> {
+export async function skillTurn(text: string, userId?: string): Promise<string | null> {
   const cmd = parseRunSkill(text);
   if (!cmd) return null;
   try {
@@ -149,6 +149,19 @@ export async function skillTurn(text: string): Promise<string | null> {
     const ver = pickVersion(k, want.v);
     if (typeof ver === "string") return `(Note from ORBIT: ${ver})`;
     await mutate(k.id, (x) => logRun(x, ver.v, new Date().toISOString())); // the run keeps the version it ran
-    return skillPrompt(ver, cmd.input);
+    const pitfalls = userId ? await import("./mistake-memory").then((m) => m.mistakesContext(userId, `${ver.name} ${ver.instruction} ${cmd.input}`, ver.tools), () => "") : "";
+    return skillPrompt(ver, cmd.input, pitfalls);
   } catch (e) { console.warn("[skills] run:", e instanceof Error ? e.message : e); return null; }
+}
+
+/** Auto-recall block for CORE: top 1-2 kept skills strongly matching `question` (+ tool-matched pitfalls), "" when none match. Never throws. */
+export async function skillsContext(userId: string, question: string): Promise<string> {
+  try {
+    const s = await load();
+    const matches = matchSkills(s.skills, question);
+    if (!matches.length) return "";
+    const tools = [...new Set(matches.flatMap((m) => m.version.tools))];
+    const pitfalls = await import("./mistake-memory").then((m) => m.mistakesContext(userId, `${question} ${matches.map((x) => x.version.name).join(" ")}`, tools), () => "");
+    return formatSkillsBlock(matches, pitfalls);
+  } catch { return ""; }
 }

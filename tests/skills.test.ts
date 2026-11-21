@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addVersion, currentVersion, detectRepeats, draftFromCandidate, findSkill, isKnown, parseModelDraft, parseRunSkill, rollback, skillDenied,
-  skillPrompt, uniqueName, usagesFromMessages, validateDraft, type Skill, type Usage } from "../src/lib/skills-pure.ts";
+import { addVersion, currentVersion, detectRepeats, draftFromCandidate, findSkill, formatSkillsBlock, isKnown, matchSkills, MAX_SKILLS_BLOCK, parseModelDraft, parseRunSkill, rollback, skillDenied,
+  skillPrompt, turnTools, uniqueName, usagesFromMessages, validateDraft, type Skill, type Usage } from "../src/lib/skills-pure.ts";
 
 const u = (id: string, request: string, tools: string[], day = 1): Usage => ({ id, request, tools, at: `2026-10-${String(day).padStart(2, "0")}T10:00:00Z` });
 
@@ -97,4 +97,41 @@ test("a skill's instruction can't satisfy explicit-ask write guards: the questio
   assert.equal(skillDenied("create_goal", block), null);
   assert.equal(decide("create_goal", { title: "Post daily" }, ctx).allow, false);
   assert.equal(decide("save_memory", { title: "x", content: "y", kind: "note" }, ctx).allow, false);
+});
+
+test("verified-only trace mining: failed steps, policy refusals and failed receipts never become skills", () => {
+  assert.deepEqual(turnTools([{ step: "web_search", ok: true }, { step: "fetch_url", ok: false }, { step: "ws_write", ok: true }]), ["web_search", "ws_write"]);
+  assert.deepEqual(turnTools([{ step: "web_search", ok: true }, { step: "ws_write", policy: "refused" }]), []);
+  assert.deepEqual(turnTools([{ step: "web_search", ok: true }, { step: "ws_write", ok: true, receipt: { status: "failed" } }]), []);
+  assert.deepEqual(turnTools([{ step: "web_search", ok: true }, { step: "ws_write", ok: true, receipt: { status: "verified" } }]), ["web_search", "ws_write"]);
+});
+
+test("auto-recall matchSkills + formatSkillsBlock + Mistake Memory link: high precision, Rule 6 private wall, capped length", () => {
+  const s1: Skill = {
+    id: "s1", current: 1, created_at: "t",
+    versions: [{ name: "rakvere-demo-build", instruction: "Research Rakvere concrete company and build demo site with quote form", tools: ["web_search", "ws_create", "ws_write"], example: "Betonaator VX", v: 1, at: "t", note: "kept", eval: { at: "t", pass: true, note: "clean" } }],
+    runs: [{ at: "t", v: 1 }, { at: "t2", v: 1 }],
+  };
+  const sPriv: Skill = {
+    id: "s2", current: 1, created_at: "t",
+    versions: [{ name: "journal-recap", instruction: "Summarize my private journal entries", tools: ["web_search"], example: "diary", v: 1, at: "t", note: "kept" }],
+  };
+  const hits = matchSkills([s1, sPriv], "build a demo site for a Rakvere concrete company");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].skill.id, "s1");
+  assert.equal(matchSkills([s1, sPriv], "how is the weather in Tokyo").length, 0); // zero bloat on unrelated asks
+  assert.equal(matchSkills([s1, sPriv], "run skill rakvere-demo-build").length, 0); // explicit run skill handled separately
+  assert.equal(matchSkills([sPriv], "summarize my private journal entries").length, 0); // Rule 6 privacy wall
+
+  const block = formatSkillsBlock(hits, "PAST MISTAKES:\n- Avoid CDN links in offline preview");
+  assert.match(block, /COMPILED SKILLS/);
+  assert.match(block, /rakvere-demo-build \(web_search → ws_create → ws_write, verified\)/);
+  assert.match(block, /Avoid CDN links/);
+  assert.ok(block.length <= MAX_SKILLS_BLOCK);
+
+  const p = skillPrompt(currentVersion(s1), "Betonaator VX", "PAST MISTAKES:\n- Verify facts before publishing");
+  assert.match(p, /^\[SKILL rakvere-demo-build v1 · tools: web_search, ws_create, ws_write\]/);
+  assert.match(p, /Verify facts before publishing/);
+  assert.equal(skillDenied("web_search", p), null);
+  assert.equal(skillDenied("ask_agent", p)?.allow, false);
 });
