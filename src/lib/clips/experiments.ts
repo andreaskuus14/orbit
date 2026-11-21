@@ -2,7 +2,9 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { listJobs, readState, saveState, studioRoot } from "./factory";
 import { emptyLearn, learnProblem, type LearnState } from "./learn-pure";
-import { addExperiment, compareArms, emptyExperiments, experimentsProblem, judge, lessonsFrom, removalProblem, versionOf, type Comparison, type ExpState, type Experiment, type Result } from "./experiments-pure";
+import { normText } from "../lessons-pure";
+import type { Verdict } from "../abtest-pure";
+import { addExperiment, compareArms, emptyExperiments, experimentsProblem, judge, lessonTests, lessonsFrom, removalProblem, versionOf, type Comparison, type ExpState, type Experiment, type Result } from "./experiments-pure";
 
 // Shorts experiments (STUDIO Stats): <studio>/experiments.json. Reads learn.json and the clip jobs; never touches YouTube.
 
@@ -18,7 +20,7 @@ function update(fn: (s: ExpState) => Promise<ExpState | string>): Promise<ExpSta
   return p;
 }
 
-export type ExperimentsView = { items: (Experiment & Result & { title: string; compare?: Comparison })[]; clips: { jobId: string; clipId: string; title: string }[] };
+export type ExperimentsView = { items: (Experiment & Result & { title: string; compare?: Comparison; test?: { verdict: Verdict; more?: number; n: number } })[]; clips: { jobId: string; clipId: string; title: string }[] };
 
 export async function experimentsView(): Promise<ExperimentsView> {
   const [s, jobs, rs] = await Promise.all([load(), listJobs(), recs()]);
@@ -26,7 +28,12 @@ export async function experimentsView(): Promise<ExperimentsView> {
   const used = new Set(s.items.map((e) => `${e.jobId}/${e.clipId}`));
   const clips = jobs.flatMap((j) => j.clips.filter((c) => !used.has(`${j.id}/${c.id}`) && versionOf({ jobId: j.id, clipId: c.id } as Experiment, [j]))
     .map((c) => ({ jobId: j.id, clipId: c.id, title: c.title }))).slice(0, 50);
-  return { items: s.items.map((e) => ({ ...e, ...judge(e, jobs, rs), title: title(e), ...(e.variants?.length && { compare: compareArms(e, jobs, rs) }) })), clips };
+  const tests = lessonTests(s.items, jobs, rs);
+  return { items: s.items.map((e) => {
+    const t = tests.get(normText(e.lesson));
+    return { ...e, ...judge(e, jobs, rs), title: title(e), ...(e.variants?.length && { compare: compareArms(e, jobs, rs) }),
+      ...(t && { test: { verdict: t.decision.verdict, ...(t.decision.more !== undefined && Number.isFinite(t.decision.more) && { more: t.decision.more }), n: t.n } }) };
+  }), clips };
 }
 
 export const addExp = async (b: Record<string, unknown>) => { const jobs = await listJobs(); return update(async (s) => addExperiment(s, b, jobs, randomBytes(6).toString("hex"), new Date().toISOString())); };
@@ -41,5 +48,5 @@ export const removeExp = async (id: string) => {
 /** Proposed lessons from experiments, for the nightly lessons reconcile (lessons.ts). */
 export async function experimentLessons(now: number) {
   const [s, jobs, rs] = await Promise.all([load(), listJobs(), recs()]);
-  return lessonsFrom(s.items, s.items.map((e) => judge(e, jobs, rs)), now);
+  return lessonsFrom(s.items, jobs, rs, now);
 }

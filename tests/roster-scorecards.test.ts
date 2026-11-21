@@ -28,7 +28,14 @@ test("AGT02 routing: default stays with tiny samples; switches only on a clear l
     ...Array.from({ length: 8 }, (_, i) => row("atlas", i < 3 ? "done" : "failed", i < 3)), // usual: 3/8 verified
     ...Array.from({ length: MIN_SAMPLE }, () => row("nova", "done", true)), // 5/5 verified
   ];
-  const r = routes(scorecards(units(rows)))[0];
+  const early = routes(scorecards(units(rows)))[0]; // 3/8 vs 5/5: a big lead on a handful, too early to switch
+  assert.equal(early.agent, "atlas");
+  assert.equal(early.why, "agt.rt.notSure");
+  const lots = [
+    ...Array.from({ length: 60 }, (_, i) => row("atlas", i < 20 ? "done" : "failed", i < 20)), // 33 %
+    ...Array.from({ length: 40 }, (_, i) => row("nova", i < 36 ? "done" : "failed", i < 36)), // 90 %
+  ];
+  const r = routes(scorecards(units(lots)))[0];
   assert.equal(r.usual, "atlas");
   assert.equal(r.agent, "nova");
   assert.equal(r.why, "agt.rt.better");

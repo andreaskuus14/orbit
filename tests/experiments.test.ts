@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BASE_MIN, judge, lessonsFrom, versionOf, type Experiment } from "../src/lib/clips/experiments-pure.ts";
+import { BASE_MIN, compareArms, judge, lessonTests, lessonsFrom, observation, versionOf, type Experiment } from "../src/lib/clips/experiments-pure.ts";
 import { destinationProblem, mediaProblem, retryProblem } from "../src/lib/clips/handoff-pure.ts";
-import { reconcile } from "../src/lib/lessons-pure.ts";
+import { normText, reconcile } from "../src/lib/lessons-pure.ts";
 import type { LearnRec } from "../src/lib/clips/learn-pure.ts";
 
 const H = "a".repeat(64), H2 = "b".repeat(64);
@@ -39,15 +39,35 @@ test("baseline is like-for-like when enough exist, else any comparable", () => {
   assert.equal(judge(exp(0), jobs(1), [...base.slice(1), ...long, rec(100, 150)]).likeForLike, false);
 });
 
-test("one supported Short never becomes a lesson; three do, as a proposal only", () => {
-  const recs = [...base, ...[0, 1, 2].map((i) => rec(100 + i, 200))];
-  const es = [exp(0), exp(1), exp(2)], rs = es.map((e) => judge(e, jobs(3), recs));
-  assert.deepEqual(lessonsFrom(es.slice(0, 1), rs, 0), []);
-  const ls = lessonsFrom(es, rs, 0);
+test("a lesson needs the sequential test to be sure: never from 1-4 Shorts, a clear lift over 5+ is proposed, no lift isn't", () => {
+  // comparables: spread-out views (log-normal-ish), so the test has a real spread to work with
+  const spread = [60, 80, 100, 125, 160];
+  const base2 = spread.map((v, i) => rec(i, v));
+  const lifted = (n: number, v: number) => [...base2, ...Array.from({ length: n }, (_, i) => rec(100 + i, v, { snaps: { "48h": { at: `2026-10-0${3 + (i % 5)}T00:00:00Z`, views: v, likes: 0, comments: 0 } } }))];
+  const es = (n: number) => Array.from({ length: n }, (_, i) => exp(i));
+  for (const n of [1, 2, 3, 4]) assert.deepEqual(lessonsFrom(es(n), jobs(n), lifted(n, 2000), 0), [], `${n} Shorts`);
+  const ls = lessonsFrom(es(8), jobs(8), lifted(8, 2000), 0);
   assert.equal(ls.length, 1);
+  assert.equal(ls[0].support, 8);
+  assert.ok(ls[0].confidence >= 0.95);
   assert.equal(reconcile([], ls, 0)[0].status, "proposed");
-  const mixed = [...rs.slice(0, 2), { ...rs[2], verdict: "not-supported" as const }];
-  assert.deepEqual(lessonsFrom(es, mixed, 0), []); // 2 supported, 1 against: below LESSON_MIN
+  assert.deepEqual(lessonsFrom(es(8), jobs(8), lifted(8, 100), 0), []); // the usual: no lesson
+  const t = lessonTests(es(4), jobs(4), lifted(4, 2000)).get(normText("Cold opens beat slow intros"))!;
+  assert.equal(t.decision.verdict, "early");
+  assert.ok(Number.isFinite(t.decision.more!) && t.decision.more! >= 1);
+});
+
+test("a pair is shown, never judged alone; it feeds the lesson test with main − variant", () => {
+  const two = [{ id: "j", clips: [0, 1].map((i) => ({ id: `x${i}`, publish: { status: "done", videoId: vid(100 + i), mediaHash: H, at: "2026-10-01T00:00:00Z" } })) }] as never;
+  const e: Experiment = { ...exp(0), variants: [{ jobId: "j", clipId: "x1" }], window: "48h" };
+  const recs = [...[60, 80, 100, 125, 160].map((v, i) => rec(i, v)), rec(100, 900), rec(101, 100)];
+  const c = compareArms(e, two, recs);
+  assert.equal(c.status, "read");
+  assert.equal(c.ratio, 9);
+  const o = observation(e, two, recs)!;
+  assert.ok(Math.abs(o.x - Math.log(9)) < 1e-9);
+  assert.equal(o.w, 2);
+  assert.equal(compareArms(e, two, recs.slice(0, -1)).status, "waiting");
 });
 
 test("handoff: published media must hash the same as the reviewed media", () => {
