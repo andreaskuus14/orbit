@@ -31,7 +31,7 @@ import { asksWhatToDo } from "./insights-pure";
 import { escapeTags, type MemoryProject } from "./core-chats-pure";
 import { olderTurnsSummary, selectChatSummaries } from "./core-context-pure";
 import { stopAllOn } from "./stop-all";
-import { operatorAllows, carriesPrivate, localPluginReads, decide, outsideTextIn, policyEvent } from "./policy-pure";
+import { OPERATOR_REASON, operatorAllows, carriesPrivate, localPluginReads, decide, outsideTextIn, policyEvent } from "./policy-pure";
 import { FOLLOW_THROUGH, leadCheckHint, ownLeadsIn } from "./core-operator-pure";
 import { undoOf } from "./activity-pure";
 import { privateResults } from "./outbound-pure";
@@ -545,7 +545,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       // Every tool call passes policy first (policy-pure.ts: Stop-all, navigate-first, attachment/private/link taint, explicit asks,
       // T3 only behind an owner approval path). T2/T3 verdicts go to the ledger: tool, tier, verdict, reason; never inputs.
       const verdict = authorizeTool(reply.tool, skillDenied(reply.tool, attach?.block ?? "") ?? decide(reply.tool, reply.input ?? {}, { ...policyCtx(), steps }));
-      const operated = verdict.allow && operatorAllows(reply.tool, { ...policyCtx(), steps }); // standing grant: module runners skip their explicit-ask check
+      const operated = verdict.allow && (operatorAllows(reply.tool, { ...policyCtx(), steps }) || verdict.reason === OPERATOR_REASON); // standing grant: module runners skip their explicit-ask check
       const policyRow = policyEvent(reply.tool, verdict);
       if (policyRow) void emit(sb, userId, "policy.decision", "core", { ...policyRow, turn: turnId }); // never throws
       try { out = !verdict.allow ? `Error: ${verdict.reason}` : await exec(reply.tool, reply.input ?? {}, evidence, operated); }
