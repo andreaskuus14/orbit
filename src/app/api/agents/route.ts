@@ -4,30 +4,42 @@ import { BUILTIN_ONLY_TOOLS } from "@/lib/agent-defs-pure";
 import { slugify, str } from "@/lib/pure";
 import { CHAIN_TITLE } from "@/lib/chains-pure";
 import { capabilityState } from "@/lib/capability";
+import { agentStat, countTasks, type TaskCount } from "@/lib/agent-counts-pure";
+import { loadUsageTotals } from "@/lib/analytics-usage";
+import { missingUsageRpc } from "@/lib/analytics-usage-pure";
+
+type Sb = NonNullable<Awaited<ReturnType<typeof requireUser>>["sb"]>;
+/** Grouped counts (migrations 0028 + 0014); the old full scan when ORBIT_AGENT_COUNTS=0 or before 0028 is applied. */
+async function loadAgentCounts(sb: Sb, since: string): Promise<{ tasks: TaskCount[]; usage: Parameters<typeof agentStat>[2] } | { error: { message: string } }> {
+  const scan = async () => {
+    const [tasks, usage] = await Promise.all([
+      sb.from("tasks").select("agent, status, title"),
+      sb.from("usage").select("purpose, input_tokens, output_tokens").like("purpose", "agent.%").gte("created_at", since),
+    ]);
+    const error = tasks.error || usage.error;
+    if (error) return { error };
+    return { tasks: countTasks(tasks.data ?? [], CHAIN_TITLE), usage: (usage.data ?? []).map((u) => ({ ...u, calls: 1 })) };
+  };
+  if (process.env.ORBIT_AGENT_COUNTS === "0") return scan();
+  const { data, error } = await sb.rpc("agent_task_counts");
+  if (error) return missingUsageRpc(error) ? scan() : { error };
+  try { return { tasks: (data ?? []) as TaskCount[], usage: await loadUsageTotals(sb, 30) }; }
+  catch (e) { return { error: { message: e instanceof Error ? e.message : String(e) } }; }
+}
 
 /** All agents with live status, task history counts and token usage (last 30 days). */
 export async function GET() {
   const { sb, res } = await requireUser();
   if (res) return res;
   const since = new Date(Date.now() - 30 * 86400_000).toISOString();
-  const [custom, tasks, usage] = await Promise.all([
+  const [custom, counts] = await Promise.all([
     sb.from("agents").select("slug, name, role, instructions, tools, enabled, created_at").order("created_at"),
-    sb.from("tasks").select("agent, status, title"),
-    sb.from("usage").select("purpose, input_tokens, output_tokens").like("purpose", "agent.%").gte("created_at", since),
+    loadAgentCounts(sb, since),
   ]);
-  const err = custom.error || tasks.error || usage.error;
+  const err = custom.error || ("error" in counts ? counts.error : null);
   if (err) return Response.json({ error: err.message }, { status: 500 });
-  const stats = (slug: string) => {
-    const t = (tasks.data ?? []).filter((x) => x.agent === slug && !String(x.title).startsWith(CHAIN_TITLE)); // a team's parent row isn't Nova working
-    const u = (usage.data ?? []).filter((x) => x.purpose === `agent.${slug}`);
-    return {
-      running: t.filter((x) => x.status === "running").length,
-      done: t.filter((x) => x.status === "done" || x.status === "awaiting_approval").length,
-      failed: t.filter((x) => x.status === "failed").length,
-      calls: u.length,
-      tokens: u.reduce((a, x) => a + x.input_tokens + x.output_tokens, 0),
-    };
-  };
+  const { tasks, usage } = counts as { tasks: TaskCount[]; usage: Parameters<typeof agentStat>[2] };
+  const stats = (slug: string) => agentStat(slug, tasks, usage);
   const agents = [
     ...BUILTIN_AGENTS.map((a) => ({ ...a, enabled: true, stats: stats(a.slug) })),
     ...(custom.data ?? []).map((a) => ({ ...a, builtin: false, color: "#e879f9", stats: stats(a.slug) })),

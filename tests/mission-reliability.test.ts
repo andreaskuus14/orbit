@@ -45,7 +45,7 @@ function fakeDb(tables: Record<string, Row[]>) {
 function load(file: string, mods: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   const exports: Record<string, any> = {};
   const source = ts.transpileModule(readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  const ctx: Record<string, any> = { exports, console, setTimeout, AbortController, crypto, require: (n: string) => mods[n] ?? (n === "./execution" ? execution : {}), ...extra };
+  const ctx: Record<string, any> = { exports, console, setTimeout, AbortController, crypto, require: (n: string) => mods[n] ?? (n === "./execution" ? execution : n === "./dirty-marks" ? { markResumeDirty: () => {}, markEventsDirty: () => {} } : {}), ...extra };
   vm.runInNewContext(source, ctx);
   return { exports, ctx };
 }

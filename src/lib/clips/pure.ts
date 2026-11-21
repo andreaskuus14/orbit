@@ -1045,3 +1045,8 @@ export function youtubePauseUntil(all: Pick<Download, "status" | "error" | "crea
   const last = blocked.length ? Math.max(...blocked) : 0;
   return last && now - last < YT_PAUSE_MS ? last + YT_PAUSE_MS : 0;
 }
+
+/** The clip list's jobs (GET /api/studio/clips, /api/mission): the newest 30, plus any older job still running or holding clips
+ *  to review/publish, so those never drop off the list. `jobs` are newest first. */
+export const shownJobs = <J extends { status: string; clips: { status: string }[] }>(jobs: J[]) =>
+  jobs.filter((j, i) => i < 30 || !["done", "failed"].includes(j.status) || j.clips.some((c) => c.status === "ready" || c.status === "approved"));
