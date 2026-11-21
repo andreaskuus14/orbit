@@ -88,8 +88,8 @@ export function ArchDraw({ storeKey, onBuild, onWalk }: { storeKey: string; onBu
   return (
     <section className="card space-y-2" aria-labelledby="arch-draw-h">
       <h3 id="arch-draw-h" className="h3">{t("as.title")}</h3>
-      <div className="flex flex-wrap gap-1" role="radiogroup" aria-label={t("as.from")}>
-        {(["sketch", "photo", "brief"] as const).map((k) => <button key={k} type="button" role="radio" aria-checked={kind === k} className="chip text-xs" onClick={() => setKind(k)}>{t(`as.${k}`)}</button>)}
+      <div className="flex flex-wrap gap-1" role="group" aria-label={t("as.from")}>
+        {(["sketch", "photo", "brief"] as const).map((k) => <button key={k} type="button" aria-pressed={kind === k} className="chip text-xs" onClick={() => setKind(k)}>{t(`as.${k}`)}</button>)}
       </div>
       <form className="space-y-1.5" onSubmit={(e) => { e.preventDefault(); void go(); }}>
         {kind !== "brief" && <label className="block text-xs">{t(kind === "sketch" ? "as.pickSketch" : "as.pickPhoto")}
