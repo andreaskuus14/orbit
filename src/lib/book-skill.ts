@@ -21,7 +21,7 @@ export async function makeSkill(name: string, signal?: AbortSignal): Promise<{ s
   if (!out.length) throw new VaultError("The model returned no usable chapter notes", 502);
   const file = skillName(name);
   if ((await listVault()).some((f) => f.name === file)) await deleteFile(file); // rebuild: the old one goes to the trash
-  const saved = await saveUpload(new File([JSON.stringify({ title: name.replace(/\.[^.]+$/, ""), source: name, chapters: out }, null, 1)], file, { type: "application/json" }));
+  const saved = await saveUpload(new File([JSON.stringify({ title: name.replace(/\.[^.]+$/, ""), source: name, chapters: out }, null, 1)], file, { type: "application/json" }), { made: "Book turned into a skill" });
   return { skill: saved, chapters: out.length, skipped: parts.length - out.length };
 }
 

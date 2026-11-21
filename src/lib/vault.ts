@@ -101,7 +101,8 @@ export async function usage(files?: VaultFile[]) {
 /** Store one uploaded file (tmp + rename). Returns the stored name. exact: keep the name or refuse (restore from cloud).
  *  taken: extra names to avoid (cloud-only files, so a new file never claims — and later overwrites — their cloud copy). */
 /** restore: the file comes back from its own cloud copy, so it keeps the id its record already has (desk/contract links survive). */
-export function saveUpload(file: File, opts: { exact?: boolean; taken?: string[]; restore?: boolean } = {}): Promise<string> {
+/** made: ORBIT made this file (a picture, a video, a 3D model…): the reason, and it goes on the TIME MACHINE with Undo (to the trash). */
+export function saveUpload(file: File, opts: { exact?: boolean; taken?: string[]; restore?: boolean; made?: string } = {}): Promise<string> {
   return locked(async () => {
     const dir = await ensureDir();
     const files = await listVault();
@@ -131,6 +132,7 @@ export function saveUpload(file: File, opts: { exact?: boolean; taken?: string[]
       }).catch(() => {});
     } catch (e) { await unlink(tmp).catch(() => {}); throw e; }
     markStale();
+    if (opts.made) void import("./time-machine").then((m) => m.recordVaultMade(name, opts.made!)).catch(() => {});
     return name;
   });
 }
