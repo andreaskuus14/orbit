@@ -118,7 +118,6 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
   const [whisperOk, setWhisperOk] = useState(true); // false once the server said the model can't load
   const asrLang = whisperLang(s.lang);
   useEffect(() => { if (pttEngine === "whisper") void fetch(`/api/voice/transcribe?lang=${asrLang}`).then((r) => setWhisperOk(r.status !== 503)).catch(() => {}); }, [pttEngine, asrLang]);
-  useEffect(() => { if (asrLang !== "en") void fetch("/api/voice/speak?warm=1").catch(() => {}); }, [asrLang]); // Eesti / auto: fetch the Estonian models once, in the background
 
   // Voices load asynchronously in Chrome.
   useEffect(() => {
@@ -235,7 +234,7 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
           </label>
           <p className="muted text-[10px] voice-note">Local means the audio stays on this PC. Your words (text) still go to Claude to answer; memories are stored in your Supabase.</p>
           <label className="voice-col">Language (Chrome)
-            <select className="field" value={s.lang} onChange={(e) => update({ lang: e.target.value })}>
+            <select className="field" value={s.lang} onChange={(e) => { update({ lang: e.target.value }); if (whisperLang(e.target.value) !== "en") void fetch("/api/voice/speak?warm=1").catch(() => {}); }}>
               <option value="en-US">English (US)</option>
               <option value="en-GB">English (UK)</option>
               <option value="en-IE">English (Ireland)</option>
