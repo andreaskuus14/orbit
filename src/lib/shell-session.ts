@@ -43,7 +43,7 @@ type Cfg = Awaited<ReturnType<typeof termConfig>>;
 const view = (s: Session): SessionView => ({ id: s.id, name: s.name, shell: s.shell, cwd: s.cwd, venv: s.env.VIRTUAL_ENV ? path.basename(s.env.VIRTUAL_ENV) : "", busy: !!s.proc, runs: s.runs, createdAt: s.createdAt });
 export const listSessions = (): SessionView[] => [...S.sessions.values()].map(view);
 const byName = (name: string) => [...S.sessions.values()].find((s) => s.name === name);
-const findRun = (id: string) => { for (const s of S.sessions.values()) { const r = s.runs.find((x) => x.id === id); if (r) return { s, r }; } return null; };
+const findRun = (id: string): { s: Session; r: Run } | null => { for (const s of S.sessions.values()) { const r = s.runs.find((x) => x.id === id); if (r) return { s, r }; } return null; };
 
 function openSession(name: string, shell: Shell, cwd: string): Session | string {
   const have = byName(name);
@@ -66,7 +66,7 @@ export function closeSession(name: string): boolean {
 }
 
 async function branchOf(cwd: string): Promise<string> {
-  return new Promise((res) => execFile("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd, timeout: 5000, windowsHide: true, env: { ...cleanEnv(process.env) } }, (e, out) => res(e ? "" : String(out).trim())));
+  return new Promise((res) => execFile("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd, timeout: 5000, windowsHide: true, env: cleanEnv(process.env) as unknown as NodeJS.ProcessEnv }, (e, out) => res(e ? "" : String(out).trim())));
 }
 
 export type Submit = { userId: string; session?: string; command: string; source: "core" | "owner"; shell?: Shell; cwd?: string; timeoutS: number; outside?: boolean };
@@ -146,7 +146,7 @@ function start(s: Session, run: Run) {
     }
     const w = wrap(s.shell, run.command, s.cwd, state, WINDOWS);
     if (w.batch) await writeFile(state + ".cmd", w.batch);
-    const p = spawn(w.file, w.args, { cwd: s.cwd, env: s.env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], detached: !WINDOWS, windowsVerbatimArguments: s.shell === "cmd" });
+    const p = spawn(w.file, w.args, { cwd: s.cwd, env: s.env as unknown as NodeJS.ProcessEnv, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], detached: !WINDOWS, windowsVerbatimArguments: s.shell === "cmd" });
     s.proc = p; S.procs.set(run.id, p);
     const onData = (b: Buffer) => { const t = cleanOutput(b.toString("utf8")); run.outLen += t.length; run.output = appendCapped(run.output, t, BUFFER_MAX); };
     p.stdout?.on("data", onData); p.stderr?.on("data", onData);

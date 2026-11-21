@@ -79,7 +79,7 @@ test("bash wrapper keeps cd and export between commands (real bash)", { skip: pr
   const step = (cmd: string) => {
     const w = wrap("bash", cmd, cwd, st, false);
     let out = "", code = 0;
-    try { out = execFileSync(w.file, w.args, { cwd, env, encoding: "utf8" }); } catch (e) { code = (e as { status: number }).status; out = String((e as { stdout: string }).stdout); }
+    try { out = execFileSync(w.file, w.args, { cwd, env: env as unknown as NodeJS.ProcessEnv, encoding: "utf8" }); } catch (e) { code = (e as { status: number }).status; out = String((e as { stdout: string }).stdout); }
     const s = parseState("bash", readFileSync(st + ".cwd", "utf8"), readFileSync(st + ".env", "utf8"));
     if (s.cwd) cwd = s.cwd; if (s.env) env = s.env;
     return { out, code };
