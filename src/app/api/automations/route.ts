@@ -3,6 +3,7 @@ import { getAgent } from "@/lib/agents";
 import { startAutomation } from "@/lib/automations";
 import { describeTrigger, validateAutomation } from "@/lib/pure";
 import { validateAutomationPatch } from "@/lib/automation-edit-pure";
+import { lastRunFailing } from "@/lib/run-recovery-pure";
 
 const COLS = "id, user_id, name, enabled, trigger, schedule, event, kind_filter, agent, prompt, last_run_at, run_count, created_at";
 
@@ -14,13 +15,13 @@ export async function GET() {
   if (error) return Response.json({ error: error.message }, { status: 500 });
   const ids = (data ?? []).map((a) => a.id);
   const { data: runs } = ids.length
-    ? await sb.from("tasks").select("id, automation_id, status, created_at, error").in("automation_id", ids).order("created_at", { ascending: false }).limit(200)
+    ? await sb.from("tasks").select("id, automation_id, status, created_at, finished_at, error").in("automation_id", ids).order("created_at", { ascending: false }).limit(200)
     : { data: [] };
   const automations = (data ?? []).map((a) => {
     const mine = (runs ?? []).filter((r) => r.automation_id === a.id);
     return { ...a, when: describeTrigger(a), last: mine[0] ?? null, runs: mine.slice(0, 5) };
   });
-  return Response.json({ automations, failing: automations.some((a) => a.enabled && a.last?.status === "failed") });
+  return Response.json({ automations, failing: automations.some((a) => a.enabled && lastRunFailing(a.last, Date.now())) });
 }
 
 /** Create an automation, or {run: id} to run one now. */

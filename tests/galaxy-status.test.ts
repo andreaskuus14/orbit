@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkWorld, countBadge, galaxyStatus, needWorld, progressWorld, sentenceRest, statusLook, PULSE_PERIOD, type PlacedProgress } from "../src/lib/galaxy-status-pure.ts";
+import { checkWorld, countBadge, failedStillCounts, galaxyStatus, markTone, needWorld, progressWorld, sentenceRest, statusLook, PULSE_PERIOD, type PlacedProgress } from "../src/lib/galaxy-status-pure.ts";
 import { studioWork } from "../src/lib/planet-page-pure.ts";
 
 const card = (o: Partial<PlacedProgress> & { id: string }): PlacedProgress => ({ title: "Task", phase: "working", steps: [], now: null, leftMin: null, result: null, action: null, at: "2026-11-21T10:00:00Z", ...o });
@@ -36,7 +36,7 @@ test("priority: broke beats needs beats working; secondary work is still mention
   }, NAMES, "en").studio!;
   assert.equal(s.state, "needs");
   assert.equal(s.line, "STUDIO: 1 thing needs you: Make a thumbnail for the video, still working on 1");
-  const b = galaxyStatus({ progress: [card({ id: "clip:a", phase: "failed", result: { text: "It took too long." } }), card({ id: "clip:b", phase: "needs" })] }, NAMES, "en").studio!;
+  const b = galaxyStatus({ progress: [card({ id: "clip:a", phase: "failed", result: { text: "It took too long." } }), card({ id: "clip:b", phase: "needs" })], now: Date.parse("2026-11-21T12:00:00Z") }, NAMES, "en").studio!;
   assert.equal(b.state, "broke");
   assert.equal(b.line, "STUDIO: something broke: it took too long");
 });
@@ -92,16 +92,18 @@ test("bad input never throws and stays idle", () => {
   assert.equal(s.studio!.state, "idle");
 });
 
-test("looks: idle dim, working breathes slowly (still with reduced motion), needs amber ring, broke red ring", () => {
+test("looks: idle dim, working breathes slowly (still with reduced motion), needs an amber dot, broke a rose dot, never a ring", () => {
   const w = { state: "working", working: 2, needs: 0, broke: 0, leftMin: null, line: "" } as const;
-  assert.deepEqual(statusLook(undefined, 0, false), { dim: 0, glow: 0, ring: null, ringOpacity: 0, count: 0 });
+  assert.deepEqual(statusLook(undefined, 0, false), { dim: 0, glow: 0, mark: null, count: 0 });
   assert.ok(statusLook({ ...w, state: "idle", working: 0 }, 0, false).dim > 0);
   const a = statusLook(w, 0, false).glow, b = statusLook(w, PULSE_PERIOD / 2, false).glow;
   assert.ok(b > a && b <= 0.3 + 1e-9, "a gentle pulse");
   assert.equal(statusLook(w, 0, true).glow, statusLook(w, 1.3, true).glow, "reduced motion: steady");
   assert.equal(statusLook(w, 0, false).count, 2);
-  assert.equal(statusLook({ ...w, state: "needs" }, 0, false).ring, "amber");
-  assert.equal(statusLook({ ...w, state: "broke" }, 0, false).ring, "red");
+  assert.equal(statusLook({ ...w, state: "needs" }, 0, false).mark, "amber");
+  assert.equal(statusLook({ ...w, state: "broke" }, 0, false).mark, "rose");
+  assert.ok(!("ring" in statusLook({ ...w, state: "broke" }, 0, false)), "no ring at all");
+  assert.equal(markTone(undefined, true), "rose"); assert.equal(markTone({ ...w, state: "needs" }), "amber"); assert.equal(markTone(w), null);
   assert.ok(Number.isFinite(statusLook(w, NaN, false).glow));
 });
 
@@ -109,4 +111,16 @@ test("badge and sentence helpers", () => {
   assert.equal(countBadge(undefined), "");
   assert.equal(countBadge({ state: "working", working: 12, needs: 0, broke: 0, leftMin: null, line: "" }), "9+");
   assert.equal(sentenceRest("STUDIO: making the Shorts"), "Making the Shorts");
+});
+
+test("a failed run stops counting once a later run of the same work is done, or after 24 h", () => {
+  const now = Date.parse("2026-11-22T12:00:00Z");
+  const fail = card({ id: "t1", title: "⚙ Morning Brief", phase: "failed", at: "2026-11-22T08:00:00Z", result: { text: "Interrupted" } });
+  assert.equal(galaxyStatus({ progress: [fail], now }, NAMES, "en").agents!.state, "broke");
+  const ok = card({ id: "t2", title: "⚙ Morning Brief", phase: "done", at: "2026-11-22T09:00:00Z" });
+  assert.equal(galaxyStatus({ progress: [fail, ok], now }, NAMES, "en").agents!.state, "idle", "a later good run clears it");
+  const older = card({ ...ok, at: "2026-11-22T07:00:00Z" });
+  assert.equal(failedStillCounts(fail, [fail, older], now), true, "an earlier good run does not");
+  assert.equal(failedStillCounts({ ...fail, at: "2026-11-21T11:00:00Z" }, [], now), false, "older than 24 h");
+  assert.equal(failedStillCounts({ ...fail, at: "" }, [], now), true, "unknown time still counts");
 });

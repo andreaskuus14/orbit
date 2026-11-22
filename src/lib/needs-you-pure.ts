@@ -12,6 +12,7 @@ import { opsStatus, type OpsStatus } from "./ops-status-pure.ts";
 import type { Blocker } from "./business-overview-pure.ts";
 import type { ReceiptStatus } from "./receipt-pure.ts";
 import { isExpiredError } from "./approval-expiry-pure.ts";
+import { liveFailures } from "./run-recovery-pure.ts";
 
 export type NeedKind = "decide" | "unblock" | "review";
 /** Always navigate (href = a checked result file). Never a one-tap approve: Decide items open where the exact content and its
@@ -108,7 +109,10 @@ export function needsYou(x: NeedsIn, lang: Lang = "en", snoozed: string[] = []):
   for (const m of x.missions ?? []) if (m.status === "waiting-input" || m.status === "failed") // waiting-approval: its task is already a Decide item
     add({ ref: m.chain_id ? `task:${m.chain_id}` : `mission:${m.id}`, kind: "unblock", cause: m.status === "failed" ? "failed" : "input", status: opsStatus(m.status), // one card per task: its chain task's failure is the same cause
       title: s.mission + m.objective.slice(0, 90), detail: m.blocker, at: m.updated_at, act: { open: { panel: "agents" } } });
-  for (const w of x.work ?? []) if (w.status === "failed" || w.status === "blocked") add({ ref: `${w.kind}:${w.id}`, kind: "unblock", cause: w.status === "failed" ? "failed" : "blocked", status: opsStatus(w.status), title: w.title, detail: w.detail, act: { open: { work: w } } });
+  // A failed run is a problem only while it is today's state: not once a later run of its automation finished, not after 24 h, and
+  // one per automation (run-recovery-pure liveFailures). OPERATIONS keeps the full history.
+  const liveFail = new Set(liveFailures((x.work ?? []).filter((w) => w.status === "failed"), now));
+  for (const w of x.work ?? []) if ((w.status === "failed" && liveFail.has(w)) || w.status === "blocked") add({ ref: `${w.kind}:${w.id}`, kind: "unblock", cause: w.status === "failed" ? "failed" : "blocked", status: opsStatus(w.status), title: w.title, detail: w.detail, act: { open: { work: w } } });
   for (const i of x.night?.failed ?? []) add({ ref: nightRef(i), kind: "unblock", cause: "failed", status: "failed", title: i.label, detail: s.failed, act: { open: nightOpen(i) } });
   for (const l of x.loops ?? []) add({ ref: recordRef(l.key), kind: "unblock", cause: "loop", title: l.title, detail: l.next, at: l.since, act: { open: { mission: true } } });
 

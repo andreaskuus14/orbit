@@ -4,7 +4,8 @@ import { unsure } from "./completion-pure.ts";
 // "Continue my work": a small inbox built from existing task and goal records (IO: work-continuation.ts, UI: ContinueWork.tsx).
 // at: when this attempt started (shown so an old failure never reads as today's); state: one of the task/goal statuses, or
 // "uncertain" for a task marked running with no live worker in this ORBIT process.
-export type WorkItem = { kind: "task" | "goal"; id: string; title: string; status: string; detail: string; action: string; at?: string; next?: string };
+// automation / superseded (failed tasks only): its automation id, and whether a later run of it finished without a failed receipt.
+export type WorkItem = { kind: "task" | "goal"; id: string; title: string; status: string; detail: string; action: string; at?: string; next?: string; automation?: string; superseded?: boolean };
 export type WorkSummary = { items: WorkItem[]; more: number; problems: string[] };
 // exec: execution evidence from this process (agents.ts taskExecution): active = a worker here runs it now; restart = it started
 // before this ORBIT process booted (the scheduler marks it interrupted); unknown = marked running but no worker found here.
@@ -83,7 +84,7 @@ export function continueWork(tasks: WorkTask[], goals: WorkGoal[], problems: str
       const later = t.automation_id ? newerOk[t.automation_id] : undefined;
       const newer = later && Date.parse(later.at) > Date.parse(at) ? later : null;
       // only a verified newer run is called a success; a finished-but-unverified one is named as such and still asks for a check
-      rows.push({ item: { ...base, status: "failed",
+      rows.push({ item: { ...base, status: "failed", ...(t.automation_id && { automation: t.automation_id }), ...(newer && { superseded: true }),
         detail: !newer ? `Failed ${day(at)}: ${reason}` : newer.verified ? `Earlier attempt (${day(at)}): ${reason}. A newer run succeeded ${day(newer.at)} (verified).`
           : `Earlier attempt (${day(at)}): ${reason}. A newer run finished ${day(newer.at)}, but its result isn't verified.`,
         next: !newer ? next : newer.verified ? "Nothing to redo: open it only to see what went wrong" : "Check the newer run's result before relying on it", action: "Review issue" },
