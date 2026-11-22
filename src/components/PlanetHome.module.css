@@ -7,7 +7,7 @@
 .ask :global(.field) { flex: 1; min-width: 0; }
 .block { display: flex; flex-direction: column; gap: 0.5rem; }
 .h { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.02em; color: #94a3b8; text-transform: none; font-family: inherit; }
-.count { display: inline-grid; place-items: center; min-width: 1.3rem; height: 1.3rem; padding: 0 0.35rem; border-radius: 999px; background: #1e293b; color: #e2e8f0; font-size: 0.72rem; }
+.count { display: inline-grid; place-items: center; min-width: 1.3rem; height: 1.3rem; padding: 0 0.35rem; border-radius: 999px; background: color-mix(in srgb, var(--planet) 22%, #1e293b); color: #f1f5f9; font-size: 0.72rem; animation: ph-pop 0.35s cubic-bezier(0.3, 1.4, 0.5, 1) both; }
 .empty { color: #94a3b8; font-size: 0.85rem; }
 .need, .result { display: flex; align-items: center; gap: 0.6rem; }
 .more { border-top: 1px solid rgba(148, 163, 184, 0.18); padding-top: 0.6rem; }
@@ -35,3 +35,78 @@
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45) !important; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
 }
 :global(.world-panel):has(.page)::before, :global(.drawer):has(.page)::before, :global(.drawer):has(.page)::after { display: none !important; }
+
+/* ── Motion (21 Nov, motion pass). One language for every planet: things arrive by rising 6 px and fading (180–320 ms,
+   ease-out), in reading order; live work breathes; nothing loops that isn't live. All of it is off under reduced motion. ── */
+.page > * { animation: ph-rise 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.page > :nth-child(2) { animation-delay: 40ms; } .page > :nth-child(3) { animation-delay: 80ms; }
+.page > :nth-child(4) { animation-delay: 120ms; } .page > :nth-child(5) { animation-delay: 160ms; } .page > :nth-child(n + 6) { animation-delay: 200ms; }
+.page li { animation: ph-rise 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.page li:nth-child(2) { animation-delay: 50ms; } .page li:nth-child(3) { animation-delay: 100ms; } .page li:nth-child(n + 4) { animation-delay: 150ms; }
+@keyframes ph-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes ph-pop { from { transform: scale(0.6); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* Each planet's own colour, quietly: the field's focus ring and the "working" progress. The page stays calm slate otherwise. */
+.page :global(.field) { transition: border-color 0.18s, box-shadow 0.18s; }
+.page :global(.field:focus) { border-color: color-mix(in srgb, var(--planet) 70%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--planet) 18%, transparent); outline: none; }
+.page :global(.field)::placeholder { transition: opacity 0.25s; }
+
+/* Press feedback: a button gives under the finger (and the hover lift says it is a button). */
+.page :global(:is(.btn, .chip)) { transition: transform 0.12s ease, filter 0.15s, border-color 0.15s, background-color 0.15s; }
+.page :global(:is(.btn, .chip):hover:not(:disabled)) { transform: translateY(-1px); }
+.page :global(:is(.btn, .chip):active:not(:disabled)) { transform: translateY(0) scale(0.97); transition-duration: 0.05s; }
+
+/* Progress cards on the planet page: what needs him is amber at the edge; live work's bar carries a slow sheen. */
+.page :global(.progress-card) { position: relative; transition: border-color 0.2s, transform 0.2s; }
+.page :global(.progress-card[data-phase="needs"]) { border-color: rgba(251, 191, 36, 0.35); box-shadow: inset 3px 0 0 #fbbf24; }
+.page :global(.progress-card[data-phase="needs"] .btn) { border-image: none; border-color: #fbbf24; background: rgba(251, 191, 36, 0.12); color: #fde68a; }
+.page :global(.progress-card[data-phase="failed"]) { box-shadow: inset 3px 0 0 #fb7185; }
+.page :global(.progress-card[data-phase="working"] .progress-bar > i) { position: relative; overflow: hidden; background: var(--planet) !important; }
+.page :global(.progress-card[data-phase="working"] .progress-bar > i)::after {
+  content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  transform: translateX(-100%); animation: ph-sheen 1.8s ease-in-out infinite;
+}
+.page :global(.progress-card[data-phase="working"] .progress-dot) { background: var(--planet) !important; box-shadow: 0 0 0 0 var(--planet); animation: ph-ping 2s ease-out infinite; }
+@keyframes ph-sheen { to { transform: translateX(100%); } }
+@keyframes ph-ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--planet) 60%, transparent); } 70%, 100% { box-shadow: 0 0 0 6px transparent; } }
+
+/* A finished job, as a result: one line with a tick that lands. */
+.done .tick { display: inline-grid; place-items: center; width: 1.4rem; height: 1.4rem; flex: none; border-radius: 50%; background: rgba(110, 231, 183, 0.14); color: #6ee7b7; font-size: 0.75rem; animation: ph-pop 0.4s 0.15s cubic-bezier(0.3, 1.4, 0.5, 1) both; }
+
+/* Loading: placeholder cards with a soft moving light, the shape of what arrives (no layout jump). */
+.skeleton { display: flex; flex-direction: column; gap: 0.5rem; }
+.skeleton > span { display: block; height: 3.4rem; border-radius: 12px; border: 1px solid rgba(148, 163, 184, 0.1);
+  background: linear-gradient(100deg, #0f1828 30%, #172338 50%, #0f1828 70%) 0 0 / 250% 100%; animation: ph-shimmer 1.4s linear infinite; }
+.skeleton > span + span { height: 2.6rem; opacity: 0.7; }
+@keyframes ph-shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+
+/* More: the chevron turns and the contents unfold instead of popping. */
+.more > summary { transition: color 0.15s; }
+.more > summary:hover { color: #f1f5f9; }
+.more > summary::before { display: inline-block; content: "▸"; margin-right: 0.35rem; transition: transform 0.2s ease; }
+.more[open] > summary::before { content: "▸"; transform: rotate(90deg); }
+.more[open] > :not(summary) { animation: ph-rise 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .page *, .page > *, .page li, .skeleton > span, .done .tick, .count { animation: none !important; transition: none !important; }
+  .page :global(.progress-card[data-phase="working"] .progress-bar > i)::after { display: none; }
+}
+
+
+/* BUSINESS today queue on the simple page: one dot per kind (follow-up amber, send cyan, write a first message slate). */
+.today { gap: 0.65rem; }
+.todayDot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #64748b; }
+.todayDot[data-kind="followup"] { background: #fbbf24; box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.15); }
+.todayDot[data-kind="send"] { background: var(--planet); box-shadow: 0 0 0 3px color-mix(in srgb, var(--planet) 20%, transparent); }
+
+/* LIFE habits on the simple page: a round check that fills with the planet's colour and pops when done. */
+.habit { gap: 0.7rem; transition: opacity 0.25s; }
+.habit[data-done] b { color: #94a3b8; text-decoration: line-through; text-decoration-color: rgba(148, 163, 184, 0.5); }
+.check { display: grid; place-items: center; width: 1.6rem; height: 1.6rem; flex: none; border-radius: 50%; cursor: pointer;
+  border: 1.5px solid color-mix(in srgb, var(--planet) 65%, #475569); background: transparent; color: #04110b; font-size: 0.85rem; font-weight: 700;
+  transition: background-color 0.2s, border-color 0.2s, transform 0.12s; }
+.check:hover:not(:disabled) { transform: scale(1.08); }
+.check:active:not(:disabled) { transform: scale(0.92); }
+.check[aria-pressed="true"] { background: var(--planet); border-color: var(--planet); }
+.check[aria-pressed="true"] > span { animation: ph-pop 0.35s cubic-bezier(0.3, 1.4, 0.5, 1) both; }
+@media (prefers-reduced-motion: reduce) { .check, .check > span { transition: none !important; animation: none !important; } }

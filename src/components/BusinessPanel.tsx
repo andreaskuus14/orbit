@@ -49,7 +49,7 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
   const [showMap, setShowMap] = useState<boolean | null>(null); // null = default: map when there are businesses
   const [lit, setLit] = useState("");
   const { t } = useT();
-  const views = (["today", "pipeline", "client", "money", "setup"] as const).map((id) => ({ id, label: t(`bizws.${id}`), secondary: id === "setup" }));
+  const views = (["today", "pipeline", "client", "money", "insights", "setup"] as const).map((id) => ({ id, label: t(`bizws.${id}`), secondary: id === "setup" || id === "insights" }));
   const [view, setView] = useWorkspaceView("business", views);
 
   const load = useCallback(() => call("GET").then((j: State) => { setSt(j); setErr(""); }, (e: Error) => setErr(e.message)), []);
@@ -80,9 +80,6 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
       {err ? <StateNote state="failed" what={err} kept={st ? t("state.keptScreen") : undefined} action={{ label: t("state.retry"), run: () => void load() }} />
         : !st && <StateNote state="loading" action={{ label: t("state.retry"), run: () => void load() }} />}
       {missing && <p className="muted" role="status">{t("link.missingClient")} <button className="chip" onClick={() => onFocus?.(null)}>{t("link.back")}</button></p>}
-      <BusinessOverview onClient={pick} onMoney={() => setView("money")} />
-      <WeeklyOutcome />
-
       {view === "today" && st && (
         <section className="space-y-2" aria-label={t("bizws.today")}>
           {queue.length ? (
@@ -97,6 +94,7 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
           ) : <p className="muted">{t("bizws.empty")}</p>}
         </section>
       )}
+      {view === "today" && <><BusinessOverview onClient={pick} onMoney={() => setView("money")} /><WeeklyOutcome /></>}
 
       {view === "pipeline" && st && (
         <>
@@ -118,10 +116,10 @@ export default function BusinessPanel({ focusId = null, onFocus }: { focusId?: s
           <LeadLoopBox busy={busy} setBusy={setBusy} setErr={setErr} done={load} />
           <RegistryBox done={() => void load()} />
           <div id="biz-add"><AddForm busy={busy === "add"} onAdd={(b) => act("add", { action: "add", ...b })} /></div>
-          <Scorecard ps={st.prospects} />
-          <VisibilityPanel />
         </>
       )}
+
+      {view === "insights" && st && <><Scorecard ps={st.prospects} /><VisibilityPanel /></>}
 
       {view === "client" && st && (
         <>

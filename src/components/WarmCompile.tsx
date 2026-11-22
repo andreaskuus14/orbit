@@ -23,7 +23,28 @@ let scratch: THREE.WebGLRenderTarget | null = null;
 export function compileAs(gl: THREE.WebGLRenderer, scene: THREE.Object3D, camera: THREE.Camera, intoTarget: boolean, target?: THREE.Scene) {
   const prev = gl.getRenderTarget();
   if (intoTarget) gl.setRenderTarget(scratch ??= new THREE.WebGLRenderTarget(1, 1));
-  try { return gl.compileAsync(scene, camera, target); } finally { gl.setRenderTarget(prev); } // programs are collected synchronously
+  try { return compileSafe(gl, scene, camera, target); } finally { gl.setRenderTarget(prev); } // programs are collected synchronously
+}
+
+/** three's compileAsync, minus its crash: when a material is disposed while it compiles (a world unmounting, a part
+ *  remounting), three reads `currentProgram.isReady()` on undefined inside a timer, the throw escapes, and the promise never
+ *  settles, so the canvas waited for its 20 s cap with a blank veil. A disposed or released material counts as done here,
+ *  and a minute is the limit. */
+export function compileSafe(gl: THREE.WebGLRenderer, scene: THREE.Object3D, camera: THREE.Camera, target?: THREE.Scene | null): Promise<void> {
+  const mats = gl.compile(scene, camera, target ?? null) as Set<THREE.Material>;
+  const parallel = gl.extensions.has("KHR_parallel_shader_compile"), t0 = performance.now();
+  return new Promise((resolve) => {
+    const check = () => {
+      for (const m of mats) {
+        const prog = (gl.properties.get(m) as { currentProgram?: { isReady?: () => boolean } }).currentProgram;
+        let ok = true;
+        try { ok = !prog?.isReady || prog.isReady(); } catch { /* lost context */ }
+        if (ok) mats.delete(m);
+      }
+      if (!mats.size || performance.now() - t0 > 60_000) resolve(); else setTimeout(check, 10);
+    };
+    if (parallel) check(); else setTimeout(check, 10); // without the extension: give the driver a moment first, as three does
+  });
 }
 
 /* Background warm-ups: what is not on screen at start (hidden parts, close-up shader variants, the window planets) compiles

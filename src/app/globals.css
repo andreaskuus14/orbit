@@ -1030,3 +1030,10 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 /* The phone chat app (/chat): one full-height column, safe areas respected, no galaxy behind it. */
 .chat-app { position: fixed; inset: 0; display: flex; flex-direction: column; padding: max(0.6rem, env(safe-area-inset-top)) 0.75rem max(0.6rem, env(safe-area-inset-bottom)); background: var(--bg); }
 .chat-app > .core-ws { flex: 1; min-height: 0; }
+
+/* PlanetBoundary: one section failed; the rest of ORBIT keeps running. */
+.planet-boundary { display: flex; flex-direction: column; gap: 0.5rem; max-width: 26rem; margin: 1rem auto; padding: 1rem 1.1rem; border-color: rgba(251, 113, 133, 0.35) !important; animation: panel-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.kept > .planet-boundary { position: absolute; inset: 0; margin: auto; height: fit-content; z-index: 20; background: rgba(9, 14, 26, 0.94); }
+.planet-boundary-mark { width: 10px; height: 10px; border-radius: 50%; background: #fb7185; box-shadow: 0 0 0 4px rgba(251, 113, 133, 0.18); }
+@media (prefers-reduced-motion: reduce) { .planet-boundary { animation: none; } }
+

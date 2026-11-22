@@ -456,3 +456,35 @@ summary.core-step::-webkit-details-marker { display: none; }
 }
 @keyframes planet-entry-progress { from { transform: scaleX(.08); } to { transform: scaleX(1); } }
 @media (prefers-reduced-motion: reduce) { .planet-entry-progress { animation: none; } }
+
+/* ── Workspace frame, calm pass (21 Nov): the "All tools" screens get the planet page's look. Readable headings (no tiny
+   wide-spaced caps), one card style, the planet's colour for the selected tab, which slides instead of jumping. ── */
+.ws { --ws-card: #111a2b; --ws-line: rgba(148, 163, 184, 0.16); color: #e6edf5; }
+.ws .ws-tabs { position: relative; isolation: isolate; padding-block: 2px; }
+.ws .ws-tab { position: relative; z-index: 1; background: transparent !important; border-color: transparent !important; box-shadow: none !important;
+  color: #94a3b8; text-transform: none; letter-spacing: normal; font-family: inherit; font-size: 0.8rem; transition: color 0.18s; }
+.ws .ws-tab:hover { color: #e2e8f0; }
+.ws .ws-tab[aria-selected="true"] { color: #f8fafc; }
+.ws-pill { position: absolute; z-index: 0; top: 2px; bottom: 2px; left: 0; border-radius: 999px; pointer-events: none;
+  background: color-mix(in srgb, var(--planet) 18%, #16213a); border: 1px solid color-mix(in srgb, var(--planet) 55%, transparent);
+  transition: transform 0.32s cubic-bezier(0.3, 1.2, 0.4, 1), width 0.32s cubic-bezier(0.3, 1.2, 0.4, 1); }
+.ws .ws-more { text-transform: none; letter-spacing: normal; font-family: inherit; }
+.ws .ws-menu { animation: ws-drop 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: top right; }
+@keyframes ws-drop { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
+.ws .ws-title { text-transform: none; letter-spacing: 0.01em; font-size: 0.8rem; font-weight: 600; color: #94a3b8; }
+/* Section labels written as tiny caps (text-[10px]/[11px] uppercase tracking-widest) read as plain small headings here. */
+.ws :is(h3, h4, div, span, p).uppercase.tracking-widest { text-transform: none; letter-spacing: 0.01em; font-size: 0.78rem; font-weight: 600; color: #94a3b8; }
+.ws .card { background: var(--ws-card); border: 1px solid var(--ws-line); box-shadow: none; border-radius: 12px; }
+.ws .chip { text-transform: none; letter-spacing: normal; font-family: inherit; transition: transform 0.12s, border-color 0.15s, background-color 0.15s; }
+.ws .btn { text-transform: none; letter-spacing: normal; font-family: inherit; }
+.ws :is(.chip, .btn):active:not(:disabled) { transform: scale(0.97); }
+.ws .chip[aria-pressed="true"] { border-color: color-mix(in srgb, var(--planet) 60%, transparent); background: color-mix(in srgb, var(--planet) 14%, transparent); }
+.ws .field { background: #0b1322; border-color: rgba(148, 163, 184, 0.28); }
+.ws .field:focus { border-color: color-mix(in srgb, var(--planet) 70%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--planet) 18%, transparent); outline: none; }
+.ws .ws-panel > * { animation: ws-rise 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.ws .ws-panel > :nth-child(2) { animation-delay: 40ms; } .ws .ws-panel > :nth-child(3) { animation-delay: 80ms; } .ws .ws-panel > :nth-child(n + 4) { animation-delay: 120ms; }
+@keyframes ws-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .ws-pill, .ws .ws-menu, .ws .ws-panel > *, .ws .chip { transition: none !important; animation: none !important; } }
+/* ARCH tools: Undo · Walk · View · More tools share one row; an opened fold takes the full width below it. */
+.ws :is(.arch-view, .arch-more)[open] { flex-basis: 100%; }
+.ws .h3 { text-transform: none; letter-spacing: 0.01em; font-family: inherit; font-size: 0.8rem; font-weight: 600; color: #cbd5e1; }

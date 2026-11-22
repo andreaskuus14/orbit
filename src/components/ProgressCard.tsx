@@ -43,7 +43,7 @@ export function ProgressCard({ p, onAction, onOpen, compact = false }: {
       </header>
       {p.phase !== "done" && <div className="progress-bar" aria-hidden="true"><i style={{ width: `${Math.round(doneShare(p) * 100)}%`, background: TONE[p.phase] }} /></div>}
       {p.now && <p className="progress-now text-sm" role="status">{p.now}…</p>}
-      {steps.length > 1 && (
+      {steps.length > 1 && p.phase !== "done" && ( /* done: every step is ✓, the result line says it */
         <ol className="progress-steps text-xs" aria-label={t("prog.steps")}>
           {steps.map((s, i) => <li key={i} data-state={s.state}><span aria-hidden="true">{MARK[s.state]}</span> {s.label}<span className="sr-only"> ({t(`prog.step.${s.state}`)})</span></li>)}
           {hidden > 0 && <li><button type="button" className="link" onClick={() => setAll(true)}>{t("prog.allSteps", { n: p.steps.length })}</button></li>}

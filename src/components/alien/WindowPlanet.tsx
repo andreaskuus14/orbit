@@ -9,7 +9,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from "rea
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { warmLater } from "../WarmCompile";
+import { compileSafe, warmLater } from "../WarmCompile";
 import { PLANETS, type PanelId, type PlanetId } from "@/lib/planets";
 import { DIVE_CROSS, diveFov, diveRadii, stepWindow, windowCrop, windowTarget, type Crop, type DiveRequest, type WindowState } from "@/lib/window-pure";
 
@@ -265,7 +265,7 @@ export function WindowPlanets({ hover, dive, positions, sizes, scales }: {
       if (!alive) return Promise.resolve();
       const prev = gl.getRenderTarget();
       gl.setRenderTarget(W.rt);
-      try { return Promise.all([gl.compileAsync(W.mini, W.cam), shell.current && gl.compileAsync(shell.current, camera, scene)]).then(() => { ready.current = alive; }); }
+      try { return Promise.all([compileSafe(gl, W.mini, W.cam), shell.current && compileSafe(gl, shell.current, camera, scene)]).then(() => { ready.current = alive; }); }
       finally { gl.setRenderTarget(prev); }
     });
     return () => { alive = false; };

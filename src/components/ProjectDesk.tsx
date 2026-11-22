@@ -100,7 +100,7 @@ export function ProjectDesk({ project, onSelect, disabled = false, productions, 
     try { const j = await api<{ task: Task }>("/api/tasks", { request: request.trim(), project_id: project, agent: "nova" }); setTasks((ts) => [j.task, ...ts]); setRequest(""); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
-  return <details open className="card space-y-2" aria-label={t("desk.title")}>
+  return <details className="card space-y-2" aria-label={t("desk.title")}> {/* closed by default: the project name in the summary is enough until he switches */}
     <summary className="cursor-pointer font-semibold">{projects.find((p) => p.id === project)?.name ?? t("desk.title")}</summary>
     <label className="block text-xs">{t("desk.project")}
       <select className="field mt-1 w-full" value={project} disabled={disabled || busy || dirty || !!request} onChange={(e) => onSelect(e.target.value)}>
