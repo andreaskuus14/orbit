@@ -80,9 +80,12 @@ export async function mcpTurn(t: McpTurn): Promise<{ text: string; sessionId: st
     const { out, verdict, operated } = await gated(name, input, t.policy, t.steps, (op) => t.exec(name, input, evidence, op), t.attachBlock, authorizeTool);
     const row = policyEvent(name, verdict);
     if (row) void emit(t.sb, t.userId, "policy.decision", "core", { ...row, turn: t.turnId });
-    t.record(name, input, out, evidence, Date.now() - at, operated);
+    t.record(name, input, out, evidence, Date.now() - at, operated, !verdict.allow);
     if (!verdict.allow && t.turnId) t.trace.at(-1)!.policy = { verdict: "refuse", turn: t.turnId, ...(verdict.allowOnce ? { allowOnce: verdict.allowOnce } : {}) };
-    return toolResult(fixHint(name, out));
+    const modelOut = !verdict.allow && (verdict.tier === "T2" || verdict.tier === "T3")
+      ? `${fixHint(name, out)} (Blocked by ORBIT rule — do not retry this blocked action in a loop; tell the user immediately what was blocked and why.)`
+      : fixHint(name, out);
+    return toolResult(modelOut);
   });
   const gate = () => (signal.aborted || stopAllOn() ? { block: false as const } : doneGate(t.question, t.tools, blocks));
   const stop = async () => {

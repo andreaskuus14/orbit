@@ -24,7 +24,7 @@ export type Turn = {
   // (any model below Opus reaching for a T2/T3 tool stops too, opus: true → core.ts redoes it on Opus, once)
   /** core.ts's dispatch for an allowed call (navigate / module / runCoreTool) and its eval/trace/activity record, shared with the CLI loop. */
   exec: (tool: string, input: Record<string, unknown>, evidence: WriteEvidence[], operator?: boolean) => Promise<string>;
-  record: (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number, operator?: boolean) => void;
+  record: (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number, operator?: boolean, blocked?: boolean) => void;
   onDelta?: (d: string) => void; onReset?: () => void; onRoute?: (model: string) => void; onStep?: (tool: string, input: Record<string, unknown>, done?: StepDone) => void;
   /** core.ts's independent verifier (verifier.ts): null = not run; the MCP engine continues once on "not verified". */
   verify?: (answer: string) => Promise<{ ok: boolean; reason: string } | null>;
@@ -47,11 +47,14 @@ export async function sdkTurn(t: Turn): Promise<{ text: string; sessionId: strin
     const { out, verdict, operated } = await gated(name, input, t.policy, t.steps, (op) => t.exec(name, input, evidence, op), t.attachBlock, authorizeTool);
     const row = policyEvent(name, verdict);
     if (row) void emit(t.sb, t.userId, "policy.decision", "core", { ...row, turn: t.turnId });
-    t.record(name, input, out, evidence, Date.now() - at, operated);
+    t.record(name, input, out, evidence, Date.now() - at, operated, !verdict.allow);
     // Mistake memory (#699): an allowed call that still failed is remembered so the next turn avoids it (filters private/transient errors itself).
     if (verdict.allow && /^Error:/i.test(out)) void import("./mistake-memory").then((m) => m.recordToolFailure(t.userId, name, input, out)).catch(() => {});
     if (!verdict.allow && t.turnId) t.trace.at(-1)!.policy = { verdict: "refuse", turn: t.turnId, ...(verdict.allowOnce ? { allowOnce: verdict.allowOnce } : {}) };
-    return toolResult(out);
+    const modelOut = !verdict.allow && (verdict.tier === "T2" || verdict.tier === "T3")
+      ? `${out} (Blocked by ORBIT rule — do not retry this blocked action in a loop; tell the user immediately what was blocked and why.)`
+      : out;
+    return toolResult(modelOut);
   });
   const names = sdkTools([...MODULE_TOOLS, ...pluginToolNames()]); // + his MCP plugins, each still behind decide()
   const server = createSdkMcpServer({

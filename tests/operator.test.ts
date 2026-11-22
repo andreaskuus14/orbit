@@ -106,4 +106,14 @@ test("explicit same-message asks succeed after safe status/public-research reads
   assert.equal(decide("higgsfield_draft", {}, ctx({ steps: [s("web_search")], question: "make 2 images of a fox" })).allow, false);
   assert.equal(decide("propose_rule", {}, ctx({ steps: [s("web_search")], question: "every Sunday check prices" })).allow, false);
   assert.equal(decide("automation_create", {}, ctx({ steps: [s("fetch_url")], question: "create an automation every day" })).allow, false);
+
+  // Explicit website redesign / build succeeds after ws_read, attachments (mockups) or pins; vault/journal/plugins/unasked still blocked
+  assert.equal(decide("ws_write", { workspace: "betonaator-vx-demo" }, ctx({ steps: [s("ws_read")], question: "redesign my website" })).allow, true);
+  assert.equal(decide("ws_edit", { workspace: "betonaator-vx-demo" }, ctx({ steps: [s("ws_read"), s("browse")], question: "redesign it" })).allow, true);
+  assert.equal(decide("ws_write", { workspace: "betonaator-vx-demo" }, ctx({ attach: true, question: "redesign my website like this screenshot\n\n[attached: ref.png]" })).allow, true);
+  assert.equal(decide("ws_write", { workspace: "betonaator-vx-demo" }, ctx({ pins: true, question: "upgrade betonaator", ws: { workspaces: ["betonaator-vx-demo"] } })).allow, true);
+  assert.equal(decide("ws_write", { workspace: "betonaator-vx-demo" }, ctx({ steps: [s("ws_read")], question: "what does index.html say?" })).allow, false);
+  assert.equal(decide("ws_write", { workspace: "betonaator-vx-demo" }, ctx({ steps: [s("vault_read")], question: "redesign my website" })).allow, false);
+  assert.equal(decide("ws_write", { workspace: "betonaator-vx-demo" }, ctx({ steps: [s("life_journal")], question: "redesign my website" })).allow, false);
+  assert.equal(decide("ws_write", { workspace: "betonaator-vx-demo" }, ctx({ steps: [s("plugin__foo__bar")], question: "redesign my website" })).allow, false);
 });
