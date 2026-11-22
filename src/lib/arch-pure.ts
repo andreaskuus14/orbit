@@ -78,6 +78,14 @@ export const mm = (n: number) => Math.round(n * 1000) / 1000 + 0; // + 0 turns -
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 /** A thin block is one straight wall; anything wider is the outer shell of a floor. */
 export const isStraightWall = (p: Part) => Math.min(p.w, p.d) <= 2 * RULES.wallThick;
+const EXTERIOR_DOOR_NAME = /front|exterior|entry|terrace|patio|balcony|välisuks/i;
+/** Interior door vs exterior insulated door: explicit group wins, then exterior name cues, then host wall (straight partition = interior, outer shell = exterior). */
+export const isInteriorDoor = (door: Part, wall?: Part): boolean => {
+  if (door.group === "exterior") return false;
+  if (door.group === "interior") return true;
+  if (EXTERIOR_DOOR_NAME.test(door.name)) return false;
+  return wall ? isStraightWall(wall) : false;
+};
 export const OPENING = { margin: 0.3, lintel: 0.1, min: 0.3, windowH: 1.2, windowSill: 0.9, doorH: 2.1, depth: 0.08 };
 
 /** Fit an opening into its host wall face: clamp size/offset/sill so it stays inside, and derive x, y, z. null = it can't fit
@@ -156,12 +164,12 @@ export const RULES = {
   riserMaxMm: 190, // same as STAIR.maxR in arch-plan-pure: a stair part of height h has ceil(h / 190 mm) risers
 };
 /** wallM2 = net wall face (openings off), slabM2 = all slab plan area, windowM2 = glazed area: the areas the materials lab prices. */
-export type Boq = { concreteM3: number; rebarT: number; blocks: number; wallM3: number; roofM2: number; windows: number; doors: number; risers: number; wallM2: number; slabM2: number; windowM2: number };
+export type Boq = { concreteM3: number; rebarT: number; blocks: number; wallM3: number; roofM2: number; windows: number; doors: number; exteriorDoors?: number; interiorDoors?: number; risers: number; wallM2: number; slabM2: number; windowM2: number };
 
 /** Walls: a block is the outer shell (a thin one is one straight wall); foundations are strips; slabs are solid.
  *  Windows and doors are cut out of their wall's face and volume and counted per piece. */
 export function boq(parts: Part[]): Boq {
-  let concreteM3 = 0, wallM3 = 0, wallFace = 0, roofM2 = 0, windows = 0, doors = 0, risers = 0, slabM2 = 0, windowM2 = 0;
+  let concreteM3 = 0, wallM3 = 0, wallFace = 0, roofM2 = 0, windows = 0, exteriorDoors = 0, interiorDoors = 0, risers = 0, slabM2 = 0, windowM2 = 0;
   for (const p of parts) {
     if (p.kind === "slab") { concreteM3 += p.w * p.d * p.h; slabM2 += p.w * p.d; }
     else if (p.kind === "foundation") { // a strip under the outer walls; a narrow block is a single strip or pad
@@ -170,7 +178,9 @@ export function boq(parts: Part[]): Boq {
     } else if (isOpening(p.kind)) {
       const wall = parts.find((q) => q.id === p.host);
       if (!wall) continue;
-      if (p.kind === "window") { windows++; windowM2 += p.w * p.h; } else doors++;
+      if (p.kind === "window") { windows++; windowM2 += p.w * p.h; }
+      else if (isInteriorDoor(p, wall)) interiorDoors++;
+      else exteriorDoors++;
       wallFace -= p.w * p.h; wallM3 -= p.w * p.h * (isStraightWall(wall) ? Math.min(wall.w, wall.d) : RULES.wallThick);
     } else if (p.kind === "wall") {
       if (isStraightWall(p)) { wallFace += Math.max(p.w, p.d) * p.h; wallM3 += p.w * p.d * p.h; } // one straight wall
@@ -179,12 +189,13 @@ export function boq(parts: Part[]): Boq {
     else if (p.kind === "roof") roofM2 += p.w * p.d * RULES.roofPitchFactor;
     else if (p.kind === "stair") risers += Math.ceil(r2((p.h * 1000) / RULES.riserMaxMm));
   }
-  return { concreteM3: r2(concreteM3), rebarT: r2((concreteM3 * RULES.rebarKgPerM3) / 1000), blocks: Math.max(0, Math.ceil(r2(wallFace) / RULES.blockFace)), wallM3: Math.max(0, r2(wallM3)), roofM2: r2(roofM2), windows, doors, risers, wallM2: Math.max(0, r2(wallFace)), slabM2: r2(slabM2), windowM2: r2(windowM2) };
+  const doors = exteriorDoors + interiorDoors;
+  return { concreteM3: r2(concreteM3), rebarT: r2((concreteM3 * RULES.rebarKgPerM3) / 1000), blocks: Math.max(0, Math.ceil(r2(wallFace) / RULES.blockFace)), wallM3: Math.max(0, r2(wallM3)), roofM2: r2(roofM2), windows, doors, exteriorDoors, interiorDoors, risers, wallM2: Math.max(0, r2(wallFace)), slabM2: r2(slabM2), windowM2: r2(windowM2) };
 }
 
 /** Unit prices in EUR (VAT excluded). source + date are shown next to every price so it can be checked. eur null = unknown
  *  (never counted as 0). waste = extra share bought on top of the net quantity (offcuts, breakage). */
-export type PriceItem = { key: keyof Omit<Boq, "wallM3" | "wallM2" | "slabM2" | "windowM2">; label: string; unit: string; eur: number | null; source: string; date: string; waste?: number };
+export type PriceItem = { key: keyof Omit<Boq, "wallM3" | "wallM2" | "slabM2" | "windowM2" | "exteriorDoors">; label: string; unit: string; eur: number | null; source: string; date: string; waste?: number };
 export const STARTER_PRICES: PriceItem[] = [
   { key: "concreteM3", label: "Ready-mix C25/30 XC2/XC3", unit: "m³", eur: 110, source: "starter estimate, unverified: press Check live prices", date: "" },
   { key: "rebarT", label: "Rebar B500B", unit: "t", eur: 900, source: "starter estimate, unverified: press Check live prices", date: "" },
@@ -192,18 +203,21 @@ export const STARTER_PRICES: PriceItem[] = [
   { key: "roofM2", label: "Roof (steel sheet + battens)", unit: "m²", eur: 28, source: "starter estimate, unverified: press Check live prices", date: "" },
   { key: "windows", label: "Window, PVC triple-glazed (~1.2×1.2 m)", unit: "pc", eur: 350, source: "starter estimate, unverified: press Check live prices", date: "" },
   { key: "doors", label: "Exterior door, insulated", unit: "pc", eur: 900, source: "starter estimate, unverified: press Check live prices", date: "" },
+  { key: "interiorDoors", label: "Interior door, solid core", unit: "pc", eur: 320, source: "starter estimate, unverified: press Check live prices", date: "" },
   { key: "risers", label: "Stair, timber dogleg (treads, stringers, handrail)", unit: "riser", eur: 150, source: "starter estimate, unverified (~2 400 € for a 16-riser house stair): press Check live prices", date: "" },
 ];
 
 /** ARC04: default waste factors (teaching values, typical site allowances) and how each quantity is derived from the model. */
-export const WASTE: Record<PriceItem["key"], number> = { concreteM3: 0.05, rebarT: 0.05, blocks: 0.05, roofM2: 0.1, windows: 0, doors: 0, risers: 0 };
-const LINE_KINDS: Record<PriceItem["key"], Part["kind"][]> = { concreteM3: ["slab", "foundation"], rebarT: ["slab", "foundation"], blocks: ["wall", "window", "door"], roofM2: ["roof"], windows: ["window"], doors: ["door"], risers: ["stair"] };
+export const WASTE: Record<PriceItem["key"], number> = { concreteM3: 0.05, rebarT: 0.05, blocks: 0.05, roofM2: 0.1, windows: 0, doors: 0, interiorDoors: 0, risers: 0 };
+const LINE_KINDS: Record<PriceItem["key"], Part["kind"][]> = { concreteM3: ["slab", "foundation"], rebarT: ["slab", "foundation"], blocks: ["wall", "window", "door"], roofM2: ["roof"], windows: ["window"], doors: ["door"], interiorDoors: ["door"], risers: ["stair"] };
 export const DERIVATION: Record<PriceItem["key"], string> = {
   concreteM3: `slabs w×d×h + foundation strips ${RULES.stripWidth} m wide under the outer walls`,
   rebarT: `concrete m³ × ${RULES.rebarKgPerM3} kg/m³ ÷ 1000`,
   blocks: `net wall face (shell perimeter or straight wall × height, openings cut out) ÷ ${RULES.blockFace} m² per block, rounded up`,
   roofM2: `roof w×d × ${RULES.roofPitchFactor} pitch factor`,
-  windows: "count of windows hosted on a wall", doors: "count of doors hosted on a wall",
+  windows: "count of windows hosted on a wall",
+  doors: "count of exterior doors hosted on outer walls",
+  interiorDoors: "count of interior doors hosted on partition walls",
   risers: `stair height ÷ ${RULES.riserMaxMm} mm max riser, rounded up`,
 };
 export const COST_EXCLUDED = ["labour", "transport and crane", "VAT", "excavation and earthworks", "insulation, cladding and finishes (see Materials lab)", "services (heating, plumbing, electrics)", "permits and design fees"];
@@ -215,9 +229,18 @@ const knownPrice = (e: number | null | undefined): e is number => typeof e === "
  *  that produced it (an opening with no host is left out, like in boq). total sums the known lines; unknown names the others. */
 export function costLines(q: Boq, prices: PriceItem[], parts: Part[] = []) {
   const lines = prices.map((p) => {
-    const waste = p.waste ?? WASTE[p.key] ?? 0, qty = q[p.key];
+    const waste = p.waste ?? WASTE[p.key] ?? 0;
+    const qty = p.key === "doors" ? (q.exteriorDoors ?? q.doors) : p.key === "interiorDoors" ? (q.interiorDoors ?? 0) : (q[p.key] ?? 0);
     const buy = p.unit === "pc" || p.unit === "riser" ? Math.ceil(r2(qty * (1 + waste))) : r2(qty * (1 + waste));
-    const from = parts.filter((x) => LINE_KINDS[p.key].includes(x.kind) && (!isOpening(x.kind) || parts.some((w) => w.id === x.host))).map((x) => x.name || x.id);
+    const from = parts.filter((x) => {
+      if (!LINE_KINDS[p.key].includes(x.kind)) return false;
+      if (!isOpening(x.kind)) return true;
+      const wall = parts.find((w) => w.id === x.host);
+      if (!wall) return false;
+      if (p.key === "doors") return !isInteriorDoor(x, wall);
+      if (p.key === "interiorDoors") return isInteriorDoor(x, wall);
+      return true;
+    }).map((x) => x.name || x.id);
     return { ...p, qty, waste, buy, total: knownPrice(p.eur) ? Math.round(buy * p.eur) : null, how: DERIVATION[p.key], from };
   });
   return { lines, total: lines.reduce((s, l) => s + (l.total ?? 0), 0), unknown: lines.filter((l) => l.total === null && l.qty > 0).map((l) => l.label), currency: "EUR" as const };
