@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ref: [a0d704a298ec701163d4f3c875d4dd276dd1e47e, 7f2b28d]
+        ref: [a0d704a298ec701163d4f3c875d4dd276dd1e47e, 7f2b28d14806d0d3d38b0eece9341cf09650d18c]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
