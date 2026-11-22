@@ -24,6 +24,9 @@ export async function register() {
     startHeraldWatch();
     const { startResultsLoop } = await import("./lib/clips/learn");
     startResultsLoop(); // capture 48h outcomes even when the STUDIO drawer is closed
+    // Local embedding model + Ollama: loaded/started in the background, so the first CORE chat after a start doesn't wait for them.
+    setTimeout(() => { void import("./lib/embeddings").then((m) => m.warmEmbeddings()).catch(() => {}); }, 20_000);
+    setTimeout(() => { void import("./lib/ollama-start").then((m) => m.ensureOllama("boot")).catch(() => {}); }, 10_000);
     // Self-test once the server answers requests; /api/doctor shares the same run (and starts it itself if asked first).
     setTimeout(() => { void import("./lib/doctor-boot").then((m) => m.bootSelfTest()).catch(() => {}); }, 15_000);
   }

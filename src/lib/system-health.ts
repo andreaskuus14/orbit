@@ -52,7 +52,7 @@ async function probes(sb: SupabaseClient, events: { type: string; created_at: st
   const [db, cal, local, push, stories] = await Promise.all([
     within(Promise.resolve(sb.from("profiles").select("id", { head: true }).limit(1))).then((r) => (r.error ? r.error.message : ""), msg),
     import("./gcal").then(async (m) => ((await m.readCal()) ? within(m.calendarEvents(1, now), 12_000).then(() => "", calMsg) : (await m.calExpired()) ? EXPIRED : null)).catch(calMsg),
-    LOCAL_MODEL ? fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(2000) }).then((r) => r.json(), () => null).then((t) => localStatus(LOCAL_MODEL, t)) : null,
+    LOCAL_MODEL ? fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(2000) }).then((r) => r.json(), () => null).then((t) => { if (t === null) void import("./ollama-start").then((m) => m.ensureOllama("health check")).catch(() => {}); return localStatus(LOCAL_MODEL, t); }) : null, // down: start it (the next tick shows it)
     import("./remote-push").then(async (m) => ({ problem: m.pushProblem(), last: m.lastPushOk(), phones: (await (await import("./remote")).listDevices()).filter((d) => d.push).length })).catch(() => null),
     import("./clips/story").then((m) => m.listStories()).catch(() => []),
   ]);

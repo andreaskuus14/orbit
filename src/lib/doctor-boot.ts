@@ -7,6 +7,7 @@ import { CLAUDE_BIN } from "./claude";
 import { runDoctor } from "./doctor";
 import { check, summarize, type Check } from "./doctor-pure";
 import { lookup } from "node:dns/promises";
+import { selfTestRerun } from "./net-wait-pure";
 import { bootNotice, consumed, effortCheck, parseState, readRange, scanLogs, waitForNet, type BootResult, type Mark } from "./doctor-boot-pure";
 
 // Startup self-test: once per server boot (globalThis guard survives dev hot reloads and Next's separate module copies), runs the doctor
@@ -79,29 +80,43 @@ async function saveState(server: Mark | null, launcher: Mark | null) {
   await rename(tmp, f); // atomic: a crash mid-write never leaves a half file
 }
 
-async function selfTest(): Promise<BootResult> {
+// again: the re-run after the network came back keeps the first run's log scan (its marks are already saved, so a rescan finds nothing).
+async function selfTest(again?: BootResult["scan"]): Promise<BootResult & { netOk: boolean }> {
   const t0 = Date.now();
-  const prev = parseState(await readFile(stateFile(), "utf8").catch(() => null));
-  const [srv, lch] = await Promise.all([readSince(path.join(process.cwd(), "orbit-server.log"), prev.server ?? null), readSince(path.join(process.cwd(), "orbit-launcher.log"), prev.launcher ?? null)]);
-  const scan = scanLogs(srv.text, lch.text);
+  const prev = again ? null : parseState(await readFile(stateFile(), "utf8").catch(() => null));
+  const [srv, lch] = prev ? await Promise.all([readSince(path.join(process.cwd(), "orbit-server.log"), prev.server ?? null), readSince(path.join(process.cwd(), "orbit-launcher.log"), prev.launcher ?? null)]) : [null, null];
+  const scan = again ?? scanLogs(srv!.text, lch!.text);
   // No user session at boot: the anon client is enough to prove the database answers (RLS just returns nothing).
   // Missing settings still run the doctor (its env check names them); the placeholder URL just makes the database check fail.
   const host = (() => { try { return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").hostname; } catch { return ""; } })();
-  if (!(await waitForNet(host, lookup))) console.warn("[orbit] boot self-test: still no network after 60 s; checking anyway");
+  const netOk = await waitForNet(host, lookup);
+  if (!netOk) console.warn("[orbit] boot self-test: still no network after 60 s; checking anyway (it runs again once the network is back)");
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:9", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "missing", { auth: { persistSession: false, autoRefreshToken: false } });
   // CLAUDE_BIN comes from env/constants, never from a request. The version comes from the doctor's own claude check.
   const [doc, extra, help] = await Promise.all([runDoctor(sb).then((r) => r.checks), smokeChecks(), run(`"${CLAUDE_BIN}" --help`)]);
   const cl = doc.find((c) => c.id === "claude");
   const report = summarize([...doc, ...extra, effortCheck(help, cl?.status === "ok" ? cl.detail : null)], Date.now() - t0);
   // Only now: if the self-test failed above, the next try rescans the same log part instead of losing it.
-  await saveState(srv.mark, lch.mark).catch(() => {}); // data dir unwritable: reported by the datadir check
+  if (srv && lch) await saveState(srv.mark, lch.mark).catch(() => {}); // data dir unwritable: reported by the datadir check
   const d = new Date(), today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  return { bootId: BOOT_ID, at: report.at, report, scan, notice: bootNotice(scan, report.checks, today) };
+  return { bootId: BOOT_ID, at: report.at, report, scan, notice: bootNotice(scan, report.checks, today), netOk };
 }
 
-/** The once-per-boot self-test (starts it on first call). */
+/** The once-per-boot self-test (starts it on first call). When it ran without internet (the laptop's Wi-Fi wasn't up yet), it runs
+ *  once more after the network is back and that result replaces the first one, so a wake-up blip doesn't stay a red check. */
 export function bootSelfTest(): Promise<BootResult> {
-  return (g.__orbitBoot ??= selfTest().catch((e) => {
+  return (g.__orbitBoot ??= selfTest().then(async (r) => {
+    const net = await import("./net-wait");
+    if (selfTestRerun(r.netOk, await net.online(), r.report.checks)) {
+      void new Promise((w) => setTimeout(w, 30_000)).then(() => net.whenOnline()).then((up) => { // 30 s first: the network often comes back in steps
+        if (!up) return;
+        console.log("[orbit] boot self-test: the network is back, checking again");
+        const next = selfTest(r.scan);
+        void next.then((n) => { g.__orbitBoot = Promise.resolve(n); }, () => {});
+      });
+    }
+    return r;
+  }).catch((e) => {
     g.__orbitBoot = undefined; // let the next call retry
     throw e;
   }));

@@ -73,7 +73,7 @@ export const skippedNote = (n: number, cap: number) => (n > 0 ? `(${n} more scan
 export function ocrCheck(env: Record<string, string | undefined>, tags: unknown): Check {
   const L = "Document OCR", c = ocrConfig(env);
   if (!c.on) return check("ocr", L, "ok", "Off (ORBIT_OCR=0, or the model is a cloud one): scanned pages fall back to Docling if installed");
-  if (tags === null) return check("ocr", L, "warn", "Ollama isn't answering, so scans can't be read by the local OCR model yet", "Start Ollama (ORBIT starts it by itself when OPERATIONS -> Local AI is open), then run this check again.");
+  if (tags === null) return check("ocr", L, "warn", "Ollama isn't answering, so scans can't be read by the local OCR model yet", "ORBIT tried to start Ollama by itself: see the Local brain (Ollama) line above for why it could not.");
   if (!hasModel(tags, c.model)) return check("ocr", L, "warn", `${c.model} isn't pulled (optional): scanned PDFs and photos give no text, or go through Docling if that is installed`, "Run: powershell -ExecutionPolicy Bypass -File tools\\ollama\\setup.ps1 -Ocr   (about 2.7 GB, MIT license)");
   return check("ocr", L, "ok", `${c.model} ready (reads scanned PDFs and photos on this PC, up to ${c.maxPages} pages per file)`);
 }

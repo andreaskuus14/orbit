@@ -46,6 +46,7 @@ import type { ChatLoad } from "./hype";
 import { chatBurst, focusText, fusedPeaks, fuseSignals, heatmapCurve, packHeatmap, packReplay, parseSourceMeta, reasonsFor, storeMeta, talkExcitement, topWindows, windowLines, windowMoments,
   type HeatPoint, type Signals, type SignalWindow, type SourceMeta } from "./moments-pure";
 import { focusGuide, resolveFocus, type ResolvedFocus } from "./game-pure";
+import { isNetworkError, NET_MAX_TRIES, netBackoff } from "../net-wait-pure";
 
 // Clip Factory: long videos dropped in <studio>/inbox become vertical Shorts in <studio>/clips/<jobId>/.
 // One job at a time, in-process; state is one JSON file per job so it survives restarts.
@@ -76,7 +77,7 @@ type State = {
   started?: boolean; recovered?: boolean; busy?: boolean; again?: boolean;
   asrModels?: Map<string, Promise<Asr>>; wordTs?: Map<string, boolean>; // per model: loaded pipeline, supports word timestamps
   running?: { job: ClipJob; ctrl: AbortController; done: Promise<void> };
-  dl?: { d: Download; ctrl: AbortController; done: Promise<void> }; dlBusy?: boolean; dlAgain?: boolean; dlRecovered?: boolean;
+  dl?: { d: Download; ctrl: AbortController; done: Promise<void> }; dlBusy?: boolean; dlAgain?: boolean; dlRecovered?: boolean; dlTimer?: NodeJS.Timeout;
   pub?: { job: string; clip: string; ctrl: AbortController; done: Promise<void> };
   ver?: { job: string; ctrl: AbortController; done: Promise<void> }; verChain?: Promise<void>; verPending?: Set<string>; // "<job>/<clip>" versions queued or rendering
   write: Promise<unknown>; edit?: Promise<unknown>; deleted: Set<string>;
@@ -1188,8 +1189,14 @@ function kickDownloads() {
     while (S.dlAgain) {
       S.dlAgain = false;
       for (;;) {
-        const next = (await listDownloads()).filter((d) => d.status === "queued" && !S.deleted.has(d.id)).pop(); // oldest first
-        if (!next) break;
+        const queued = (await listDownloads()).filter((d) => d.status === "queued" && !S.deleted.has(d.id));
+        const next = queued.filter((d) => !d.retryAt || Date.parse(d.retryAt) <= Date.now()).pop(); // oldest first; a network retry waits for its time
+        if (!next) { wakeAt(queued); break; }
+        if (next.netTries && !(await import("../net-wait").then((m) => m.online(), () => true))) { // still offline: wait, without spending a try
+          Object.assign(next, { retryAt: new Date(Date.now() + 30_000).toISOString() });
+          await saveDownload(next);
+          continue;
+        }
         const ctrl = new AbortController();
         const done = runDownload(next, ctrl.signal);
         S.dl = { d: next, ctrl, done };
@@ -1198,6 +1205,15 @@ function kickDownloads() {
       }
     }
   })().catch((e) => console.error("[orbit] download queue error:", e?.message ?? e)).finally(() => { S.dlBusy = false; });
+}
+
+/** One timer for the earliest download waiting on a network retry. */
+function wakeAt(queued: Download[]) {
+  const at = Math.min(...queued.map((d) => (d.retryAt ? Date.parse(d.retryAt) : Infinity)).filter(Number.isFinite));
+  if (!Number.isFinite(at)) return;
+  clearTimeout(S.dlTimer);
+  S.dlTimer = setTimeout(kickDownloads, Math.max(1_000, at - Date.now()));
+  S.dlTimer.unref?.();
 }
 
 /** Inbox-relative base name of a path yt-dlp printed, or null if it isn't directly inside the inbox. */
@@ -1243,7 +1259,14 @@ async function runDownload(d: Download, signal: AbortSignal) {
     Object.assign(d, { status: "done", progress: 1, step: d.autoClip ? "Downloaded — making clips" : "Downloaded" });
     await saveDownload(d);
   } catch (e) {
-    Object.assign(d, { status: "failed", step: "Failed", parts: await rmParts(d.parts), error: signal.aborted ? "Cancelled" : e instanceof Error ? e.message : String(e) });
+    const msg = e instanceof Error ? e.message : String(e), tries = (d.netTries ?? 0) + 1;
+    if (!signal.aborted && !S.deleted.has(d.id) && isNetworkError(msg) && tries <= NET_MAX_TRIES) { // no internet: not a real failure, try again by itself
+      Object.assign(d, { status: "queued", step: "No internet: tries again soon", progress: 0, parts: await rmParts(d.parts), netTries: tries, retryAt: new Date(Date.now() + netBackoff(tries)).toISOString(), error: undefined });
+      await saveDownload(d);
+      console.log(`[orbit] download ${d.id} failed without internet; retry ${tries} of ${NET_MAX_TRIES} at ${d.retryAt}`);
+      return;
+    }
+    Object.assign(d, { status: "failed", step: "Failed", parts: await rmParts(d.parts), error: signal.aborted ? "Cancelled" : msg, retryAt: undefined });
     await saveDownload(d);
     throw e;
   }

@@ -47,6 +47,22 @@ export function checkModelFiles(
   return { status: "ok" };
 }
 
+/** Proof that the files were fully hashed once: per file its size, change times and the expected SHA-256 it matched. A later
+ *  start with the same files (same size, mtime and ctime) skips re-hashing ~309 MB twice, which made the first CORE search after
+ *  a start take seconds. Any rewrite, a new expected hash or a missing entry means hash again. */
+export type FileTimes = { size: number; mtimeMs: number; ctimeMs: number } | null;
+export type VerifiedStamp = Record<string, { size: number; mtimeMs: number; ctimeMs: number; sha256: string }>;
+export const VERIFIED_STAMP = ".orbit-verified.json";
+export function stampCovers(stamp: unknown, files: Record<string, FileTimes>, specs: readonly ModelFileSpec[] = LOCAL_EMBED_FILES): boolean {
+  if (!stamp || typeof stamp !== "object" || !specs.length) return false;
+  return specs.every((spec) => {
+    const f = files[spec.relPath], v = (stamp as VerifiedStamp)[spec.relPath];
+    return !!f && !!v && f.size === spec.size && v.size === f.size && v.mtimeMs === f.mtimeMs && v.ctimeMs === f.ctimeMs && String(v.sha256).toLowerCase() === spec.sha256.toLowerCase();
+  });
+}
+export const makeStamp = (files: Record<string, FileTimes>, specs: readonly ModelFileSpec[] = LOCAL_EMBED_FILES): VerifiedStamp =>
+  Object.fromEntries(specs.flatMap((s) => { const f = files[s.relPath]; return f ? [[s.relPath, { size: f.size, mtimeMs: f.mtimeMs, ctimeMs: f.ctimeMs, sha256: s.sha256 }]] : []; }));
+
 const CORRUPT_ERR_RE = /out of bounds|can not be read in full|Deserialize tensor|External initializer|Protobuf|Unexpected end of JSON/i;
 
 /** True when an ONNX/transformers.js load failure looks like a truncated or corrupted cached file. */

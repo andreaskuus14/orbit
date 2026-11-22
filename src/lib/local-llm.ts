@@ -50,6 +50,7 @@ export async function resolveLocalModel(): Promise<LocalPick> {
 /** One plain Ollama chat call (no tools, no streaming) to this PC. */
 export async function chatLocal(prompt: string, system: string, o: { signal?: AbortSignal; timeoutMs?: number; numCtx?: number } = {}) {
   const t0 = Date.now(), ms = o.timeoutMs ?? 120_000;
+  if (LOCAL_MODEL && (await cachedTags()) === null) await wakeOllama("local brain call"); // after a reboot: start it, then answer
   const pick = await resolveLocalModel();
   if (!pick.model) throw new Error(`Local model isn't available${pick.hint ? `. ${pick.hint}` : ""}`);
   const res = await fetch(`${OLLAMA_URL}/api/chat`, {
@@ -73,21 +74,16 @@ export async function chatLocalTools(model: string, messages: OllamaMsg[], tools
 
 const tags = () => fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) }).then((r) => (r.ok ? r.json() : null), () => null);
 
-/** Ollama not answering: start `ollama serve` hidden, once a minute at most (the Windows installer usually runs it in the tray already). */
-const G = globalThis as unknown as { __orbitOllamaStart?: number };
-async function startOllama() {
-  if (Date.now() - (G.__orbitOllamaStart ?? 0) < 60_000) return;
-  G.__orbitOllamaStart = Date.now();
-  const { spawn } = await import("node:child_process");
-  const child = spawn("ollama", ["serve"], { detached: true, windowsHide: true, stdio: "ignore", env: { ...process.env, OLLAMA_HOST: new URL(OLLAMA_URL).host } });
-  child.on("error", () => {}); // not installed: the health line already says how to set it up
-  child.unref();
+/** Ollama not answering: start it (ollama-start.ts: found in its install folder or PATH, hidden, once a minute at most), then forget the cached "down". */
+async function wakeOllama(reason: string) {
+  const r = await import("./ollama-start.ts").then((m) => m.ensureOllama(reason), () => null);
+  if (r?.state === "started") T.__orbitOllamaTags = undefined;
 }
 
 /** Health for OPERATIONS → Local AI; starts Ollama in the background when it's down (the next check shows it). */
 export async function localBrainHealth(): Promise<LocalStatus & { using?: string }> {
   const t = LOCAL_MODEL ? await tags() : null;
-  if (LOCAL_MODEL && t === null) void startOllama();
+  if (LOCAL_MODEL && t === null) void wakeOllama("Local AI check");
   const st = localStatus(LOCAL_MODEL, t);
   if (st.state !== "ok" && st.state !== "fallback") return st;
   const using = (await resolveLocalModel()).model;

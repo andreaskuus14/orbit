@@ -47,7 +47,7 @@ async function rungFetch(url: string, maxChars: number, ms: number): Promise<Got
 async function rungScraper(url: string, maxChars: number, ms: number): Promise<Got> {
   const r = await scrapePage(url, "fast", undefined, ms);
   if ("error" in r) {
-    if (/isn't installed|ModuleNotFoundError|No module named|helper exited/i.test(r.error)) { markDown("scraper", r.error); return { text: "", error: r.error, code: "unavailable" }; }
+    if (/isn't installed|ModuleNotFoundError|No module named/i.test(r.error)) { markDown("scraper", r.error); return { text: "", error: r.error, code: "unavailable" }; }
     return { text: "", error: r.error };
   }
   const text = r.text.replace(/\n{3,}/g, "\n\n").trim();

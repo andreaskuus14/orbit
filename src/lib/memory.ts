@@ -6,7 +6,8 @@ import { request as httpsRequest } from "node:https";
 import { pipeline } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { embed, journalVectorsComparable } from "./embeddings";
+import { embed, embedWarm, journalVectorsComparable } from "./embeddings";
+import { COLD_EMBED_MS, withBudget } from "./prep-budget-pure";
 import { rerankEnabled, rerankScores } from "./rerank";
 import { emit } from "./claude";
 import { dropPrivate, memoryEventPayload } from "./private-pure";
@@ -130,7 +131,10 @@ export async function findSimilar(sb: SupabaseClient, text: string, min = 0.9, c
 /** Hybrid search: Postgres full-text + pgvector similarity, fused by reciprocal rank. */
 /** userId is required when sb bypasses row-level security (background automations); harmless otherwise. */
 export async function searchMemories(sb: SupabaseClient, query: string, limit = 10, userId?: string, options: MemorySearchOptions = {}) {
-  return retrieveMemories(sb, query, limit, userId, embed, { ...options, journalVectors: journalVectorsComparable(), ...(rerankEnabled() && !options.rerank ? { rerank: rerankScores } : {}) });
+  // Local model still loading (first search after a start): wait at most COLD_EMBED_MS for the vector, then search by keywords;
+  // the load goes on, so the next search is hybrid again. A warm model is never cut short.
+  const quick = (text: string, type: "query") => embedWarm() ? embed(text, type) : withBudget(embed(text, type), COLD_EMBED_MS, null);
+  return retrieveMemories(sb, query, limit, userId, quick, { ...options, journalVectors: journalVectorsComparable(), ...(rerankEnabled() && !options.rerank ? { rerank: rerankScores } : {}) });
 }
 
 type Pinned = { address: string; family: number };

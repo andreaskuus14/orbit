@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { safeFetch } from "./memory";
 import { logActivity } from "./activity";
-import { parseStealthDomains, robotsAllows, stealthLog, stealthRefusal, waitMs, type Mode } from "./scrape-pure";
+import { helperFailure, helperLimits, parseStealthDomains, robotsAllows, stealthLog, stealthRefusal, waitMs, type Mode } from "./scrape-pure";
 
 const last = new Map<string, number>(); // domain → last request time (this server process)
 // tools/scrapling/setup.ps1 installs Scrapling into its own venv; ORBIT_PYTHON overrides, the system Python is the last resort.
@@ -30,13 +30,18 @@ export async function scrapePage(raw: string, mode: Mode, select?: string, timeo
   const host = url.hostname.toLowerCase(), wait = waitMs(last.get(host), mode, Date.now());
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   last.set(host, Date.now());
+  const lim = helperLimits(mode, timeoutMs);
   const out = await new Promise<Scraped>((resolve) => {
-    const p = spawn(PY, [HELPER], { stdio: ["pipe", "pipe", "pipe"], timeout: timeoutMs ?? (mode === "fast" ? 30_000 : 90_000), windowsHide: true });
+    const p = spawn(PY, [HELPER], { stdio: ["pipe", "pipe", "pipe"], timeout: lim.killMs, windowsHide: true });
     let so = "", se = "";
     p.stdout.on("data", (d) => (so += d)); p.stderr.on("data", (d) => (se = (se + d).slice(-2000)));
     p.on("error", (e) => resolve({ error: `Scrapling isn't installed (${e.message}). Run once: powershell -File tools\\scrapling\\setup.ps1` }));
-    p.on("close", (code) => { try { resolve(JSON.parse(so.trim().split("\n").pop() ?? "")); } catch { resolve({ error: `the helper exited ${code}: ${se.slice(-300) || "no output"}` }); } });
-    p.stdin.end(JSON.stringify({ url: url.toString(), mode, ...(select ? { select } : {}) }));
+    p.on("close", (code, signal) => {
+      try { resolve(JSON.parse(so.trim().split("\n").pop() ?? "")); } catch {
+        resolve({ error: helperFailure(code, signal, se, lim.killMs).error }); // only "isn't installed" switches the ladder's scraper rung off
+      }
+    });
+    p.stdin.end(JSON.stringify({ url: url.toString(), mode, timeout: lim.requestS, retries: lim.retries, ...(select ? { select } : {}) }));
   });
   if (mode === "stealth") logActivity({ area: "core", title: stealthLog(url, !("error" in out)) });
   return out;

@@ -13,7 +13,10 @@ const tags = () => fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout
 /** Is OCR switched on and the model pulled? (A quick tags call; never takes the GPU.) */
 export async function ocrReady(): Promise<boolean> {
   const c = ocrSettings();
-  return c.on && hasModel(await tags(), c.model);
+  if (!c.on) return false;
+  let t = await tags();
+  if (t === null && (await import("./ollama-start.ts").then((m) => m.ensureOllama("document OCR"), () => null))?.state === "started") t = await tags(); // after a reboot
+  return hasModel(t, c.model);
 }
 /** For the doctor: Ollama's tag list, or null when Ollama isn't answering. */
 export const ocrTags = tags;
