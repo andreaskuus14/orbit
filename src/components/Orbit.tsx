@@ -84,7 +84,7 @@ import { BrandMark } from "./BrandMark";
 import { orbitTitle } from "@/lib/jarvis-pure";
 import { HomeDesk } from "./HomeDesk";
 import type { Progress } from "@/lib/progress-pure";
-import { AMBER, countBadge, galaxyStatus, RED, sentenceRest, type CheckLike, type GalaxyStatus, type NeedLike, type StatusWorld } from "@/lib/galaxy-status-pure";
+import { AMBER, countBadge, galaxyStatus, ROSE, sentenceRest, type CheckLike, type GalaxyStatus, type NeedLike, type StatusWorld } from "@/lib/galaxy-status-pure";
 import { sharedJson } from "./use-poll";
 import { Tour, TOUR_EVENT } from "./Tour";
 import { corePhase, useUiMotion } from "./motion/motion";
@@ -803,7 +803,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
               <b><WorldEmblem id="core" size={26} className="planet-card-emblem" />CORE</b><span className="muted text-sm">{busy ? t("overview.thinking") : warning ? t("overview.lastFailed") : t("overview.core")}</span></button></li>
             {PLANETS.map((p) => {
               const st = galaxySt[p.id], badge = countBadge(st);
-              const border = st?.state === "broke" ? RED : st?.state === "needs" ? AMBER : p.color;
+              const border = st?.state === "broke" ? ROSE : st?.state === "needs" ? AMBER : p.color;
               const sub = st && st.state !== "idle" ? sentenceRest(st.line)
                 : p.id === "memory" ? tn("overview.memories", memoryShown) : p.id === "intelligence" && pulseBusy ? t("overview.pulseBusy") : p.id === "intelligence" && pulseFailed ? t("overview.pulseFailed") : p.id === "operations" && automationFailing ? t("overview.autoFailed") : p.id === "life" && lifeLine ? lifeLine : p.id === "agents" && runningTasks.length ? tn("overview.running", runningTasks.length) : t(`planet.${p.id}.blurb`);
               return (

@@ -184,6 +184,13 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .script-dc svg { position: absolute; left: 50%; top: 50%; width: 0.62em; height: 0.62em; transform: translate(-50%, -50%); color: #8fd3ff; opacity: .85; overflow: visible; }
 @media (prefers-reduced-motion: reduce) { .story-script path { animation: none; } }
 .planet-label { opacity: 0; font-family: var(--font-display); font-weight: 500; font-size: 11px; letter-spacing: 0.26em; white-space: nowrap; text-shadow: 0 0 2px #000, 0 0 6px #000, 0 0 12px rgba(0, 0, 0, 0.9); } /* calm (c11): a dark halo for legibility, no coloured glow */
+/* A world's problem marker (Galaxy Flag): one small soft dot after its name instead of a ring (owner, 22 Nov). A slow fade, no
+   flashing; reduced motion (OS setting or ORBIT's own) keeps it steady. */
+.planet-flag { display: inline-block; width: 6px; height: 6px; margin: 0 0 1px 0.45em; border-radius: 50%; vertical-align: middle; background: #f5b25c; box-shadow: 0 0 5px rgba(245, 178, 92, 0.55); animation: planet-flag 3.2s ease-in-out infinite; }
+.planet-flag[data-tone="rose"] { background: #eeaab6; box-shadow: 0 0 5px rgba(238, 170, 182, 0.55); }
+.planet-flag[data-still] { animation: none; }
+@keyframes planet-flag { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .planet-flag { animation: none; } }
 /* CORE thinking (InkGlyph): an Arrival logogram around the label. Every arc grows out of its own seed point at once
    (a dash centred on --c), the ink sharpens as it forms, then blooms out and fades. No glow, no flicker. */
 .ink-glyph { position: absolute; left: 50%; top: 50%; width: 96px; height: 96px; margin: -48px 0 0 -48px; overflow: visible; pointer-events: none; opacity: .75;
@@ -226,7 +233,7 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .status-hud dd { font-family: var(--font-mono); }
 .status-hud dd.ok { color: var(--mint); font-size: inherit; }
 .status-hud dd.warn { color: var(--amber); }
-.status-hud dd.bad { color: var(--rose); }
+.status-hud dd.bad { color: #eeaab6; } /* soft rose text, not alarm red (owner, 22 Nov) */
 @media (max-width: 1100px) { .status-hud { display: none; } }
 /* WHAT'S NEW sits top-left above the SYSTEM panel (bottom-left, ~15rem tall): scroll inside instead of running into it. */
 .whats-new { max-height: max(10rem, calc(100dvh - 21rem)); overflow-y: auto; overscroll-behavior: contain; }

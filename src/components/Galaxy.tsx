@@ -52,7 +52,7 @@ import { useT } from "./i18n";
 import { ET, translate, type Lang } from "@/lib/i18n-pure";
 import { AlienScript } from "./AlienScript";
 import { hoverParts, planetLife, toolPlanet, QUIET, WARM, WORK } from "@/lib/living-galaxy-pure";
-import { AMBER, countBadge, RED, sentenceRest, statusLook, type GalaxyStatus, type WorldStatus } from "@/lib/galaxy-status-pure";
+import { countBadge, markTone, sentenceRest, statusLook, type GalaxyStatus, type WorldStatus } from "@/lib/galaxy-status-pure";
 import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
 import { arrivalSecs, arrivalSpread, easeInStop, offscreenEdge } from "@/lib/alien-behaviour-pure";
 import { DUR, flyEase } from "@/lib/ui-motion-pure";
@@ -153,12 +153,12 @@ const CORE_RING = 3.7 * 0.62; // the CORE's outer ring at the overview (coreScal
 
 /* ---------- scene pieces ---------- */
 
-function OrbitPath({ r, warn = false }: { r: number; warn?: boolean }) {
+function OrbitPath({ r }: { r: number }) {
   return (
     <mesh rotation-x={Math.PI / 2}>
-      {/* a problem: a faint rose orbit, not a thick red ring around the whole system (owner, 22 Nov) */}
-      <ringGeometry args={[r - (warn ? 0.01 : 0.007), r + (warn ? 0.01 : 0.007), 256]} />
-      <meshBasicMaterial color={warn ? "#f9a8b8" : "#cfe0ff"} transparent opacity={warn ? 0.16 : 0.05} side={THREE.DoubleSide} depthWrite={false} />
+      {/* always the same faint path: a problem is a small dot by the world's name, never a coloured ring (owner, 22 Nov) */}
+      <ringGeometry args={[r - 0.007, r + 0.007, 256]} />
+      <meshBasicMaterial color="#cfe0ff" transparent opacity={0.05} side={THREE.DoubleSide} depthWrite={false} />
     </mesh>
   );
 }
@@ -375,11 +375,11 @@ function Lightning({ size, reduced, flash }: { size: number; reduced: boolean; f
   );
 }
 
-function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, scoutMoons = 0, reduced, agentBusy = 0, failing = false, life = null, still = false, segs = 128, vitality, shell = 0, level = 1, scales, feel, arrive, fresh = false, status }: {
+function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memoryCount, scoutMoons = 0, reduced, agentBusy = 0, life = null, still = false, segs = 128, vitality, shell = 0, level = 1, scales, feel, arrive, fresh = false, status }: {
   p: PlanetDef; fresh?: boolean; // something new in the last 24 h: the rim warms on hover
   index: number; selected: boolean; onSelect: (id: PanelId) => void; onHover: (id: PlanetId, on: boolean) => void;
   positions: Positions; pulses: RefObject<Record<string, number>>; memoryCount: number; scoutMoons?: number; reduced: boolean;
-  agentBusy?: number; failing?: boolean; // agentBusy = number of satellites to show
+  agentBusy?: number; // agentBusy = number of satellites to show
   life?: { done: number; total: number } | null; still?: boolean; // still = reduced motion or low quality: no animation
   segs?: number; // sphere segments: fewer on lower quality levels
   vitality?: number; // living galaxy: 7-day activity 0..1 (undefined = no ledger yet: neutral look)
@@ -520,7 +520,7 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
 
   return (
     <>
-      <OrbitPath r={p.radius} warn={failing || status?.state === "broke"} />
+      <OrbitPath r={p.radius} />
       <group ref={group}>
         <mesh
           ref={mesh}
@@ -555,12 +555,6 @@ function Planet({ p, index, selected, onSelect, onHover, positions, pulses, memo
         {p.id === "memory" && <Moons count={memoryCount} reduced={reduced} spread={spread} />}
         {p.id === "operations" && scoutMoons > 0 && <ScoutMoons count={scoutMoons} size={size} reduced={reduced} spread={spread} onOpen={() => { requestScoutTab(); onSelect("operations"); }} />}
         {p.id === "life" && life && <LifeRing size={size} done={life.done} total={life.total} still={still} />}
-        {(status?.state === "needs" || status?.state === "broke") && (
-          <mesh rotation-x={Math.PI / 2}>
-            <ringGeometry args={[size * 1.48, size * 1.62, 64]} />
-            <meshBasicMaterial color={status.state === "broke" ? RED : AMBER} transparent opacity={0.5} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} />
-          </mesh>
-        )}
         {Array.from({ length: Math.min(agentBusy, 5) }, (_, k) => (
           <AgentSatellite key={k} size={size} active reduced={reduced} offset={(k * Math.PI * 2) / Math.min(agentBusy, 5)} spread={spread} />
         ))}
@@ -741,7 +735,8 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, l
     <group>
       <pointLight intensity={2.7} decay={0} color="#fff1dc" /> {/* no falloff: inner worlds would blow out, outer ones go dark */}
       <Singularity live={live} reduced={reduced} level={level} aligned={aligned} approval={approval} />
-      {swarm && <group scale={0.62}><ParticleCore side={particles} busy={busy} warning={warning} live={live} onFail={onPcFail} /></group>}
+      {/* warning: no red tint and no red torus any more (owner, 22 Nov); the CORE label carries a small rose dot instead */}
+      {swarm && <group scale={0.62}><ParticleCore side={particles} busy={busy} warning={false} live={live} onFail={onPcFail} /></group>}
       {/* Invisible hit area. */}
       <mesh ref={hit} onClick={(e) => { e.stopPropagation(); onSelect("core"); }}
         onPointerOver={() => (document.body.style.cursor = "pointer")} onPointerOut={() => (document.body.style.cursor = "")}>
@@ -749,14 +744,14 @@ function NeuralCore({ onSelect, pulses, busy, warning, reduced, particles = 0, l
         <meshBasicMaterial visible={false} /> {/* not drawn (one draw call saved); raycasting ignores material visibility */}
       </mesh>
       <mesh ref={sat} visible={false}><sphereGeometry args={[0.14, 16, 16]} /><meshBasicMaterial color="#67e8f9" toneMapped={false} /></mesh>
-      {warning && (
-        <mesh rotation-x={Math.PI / 2}>
-          <torusGeometry args={[3.2, 0.035, 8, 96]} />
-          <meshBasicMaterial color="#f43f5e" toneMapped={false} />
-        </mesh>
-      )}
     </group>
   );
+}
+
+/** A problem marker: one small soft dot after a world's name (amber = needs him, rose = something failed). A slow fade in and
+ *  out draws the eye without alarm; still (reduced motion) = a steady dot. The one-line status text says what it is. */
+function Flag({ tone, still }: { tone: "amber" | "rose" | null; still: boolean }) {
+  return tone ? <span className="planet-flag" data-tone={tone} data-still={still ? "" : undefined} /> : null;
 }
 
 const BODIES = ["core", ...PLANETS.map((p) => p.id)];
@@ -1142,7 +1137,6 @@ export default function Galaxy(props: GalaxyProps) {
           <Planet key={p.id} p={p} index={i} selected={props.selected === p.id} onSelect={props.onSelect} onHover={onHover}
             positions={positions} pulses={props.pulses} memoryCount={props.memoryCount} scoutMoons={p.id === "operations" ? props.scoutMoons : 0} reduced={props.reduced}
             agentBusy={p.id === "intelligence" ? (props.pulseBusy ? 1 : 0) : p.id === "agents" ? props.agentsWorking : 0}
-            failing={(p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing)}
             status={props.status?.[p.id]}
             life={p.id === "life" ? props.lifeProgress : null} still={props.reduced || level === 0} segs={level >= 2 ? 128 : 64} vitality={props.universe?.vitality[p.id]} fresh={!!props.universe?.today?.[p.id]} shell={shellCount(level)} level={level} scales={scales} feel={feel} arrive={arrive} />
         ))}
@@ -1195,17 +1189,17 @@ export default function Galaxy(props: GalaxyProps) {
       {!props.reduced && <StoryRail stop={stop} on={!intro && selected === null} onGo={(n) => story.current.goTo(n)} />}
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         {BODIES.map((id) => <span key={`l-${id}`} ref={(el) => { leaders.current[id] = el; }} className="planet-leader" />)}
-        <span ref={(el) => { labels.current.core = el; }} className="planet-label absolute left-0 top-0" style={{ color: props.warning || props.status?.core?.state === "broke" ? RED : props.status?.core?.state === "needs" ? AMBER : "#efe6d6" }}>
-          CORE{props.warning ? " · last request failed" : countBadge(props.status?.core) ? ` · ${countBadge(props.status?.core)}` : ""}
+        <span ref={(el) => { labels.current.core = el; }} className="planet-label absolute left-0 top-0" style={{ color: "#efe6d6" }}>
+          CORE<Flag tone={markTone(props.status?.core, props.warning)} still={props.reduced} />{props.warning ? " · last request failed" : countBadge(props.status?.core) ? ` · ${countBadge(props.status?.core)}` : ""}
           <AlienScript text="CORE" className="planet-script" />
           {props.busy && <InkGlyph reduced={props.reduced} />}
         </span>
         {PLANETS.map((p) => { // calm labels (c11): pearl, with a breath of the world's identity colour; quiet badge while working
           const st = props.status?.[p.id], badge = countBadge(st);
-          const color = st?.state === "broke" ? RED : st?.state === "needs" ? AMBER : `color-mix(in srgb, ${p.color} 38%, #e4e9f2)`;
-          return (
-            <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" style={{ color }}>
-              {t(`planet.${p.id}`)}{badge ? ` · ${badge}` : ""}<AlienScript text={p.name} className="planet-script" />
+          const failing = (p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing);
+          return ( // the name keeps its calm colour; a problem adds one small soft dot after it (no ring, no red name)
+            <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" style={{ color: `color-mix(in srgb, ${p.color} 38%, #e4e9f2)` }}>
+              {t(`planet.${p.id}`)}<Flag tone={markTone(st, failing)} still={props.reduced} />{badge ? ` · ${badge}` : ""}<AlienScript text={p.name} className="planet-script" />
             </span>
           );
         })}

@@ -19,6 +19,7 @@ import { EVIDENCE_CHARS } from "./mission-checks-pure";
 import { needsSelfReview } from "./core-ui";
 import { stopAllOn } from "./stop-all";
 import { authorizeAction } from "./authority";
+import { restartRerun, requeuePatch } from "./run-recovery-pure";
 import { PAUSED_MSG } from "./stop-all-pure";
 import { isRisky, modelForJob, reviewerFor, riskFlags, type JobKind } from "./agent-defs-pure";
 import { runData } from "./model-log-pure";
@@ -798,7 +799,8 @@ export async function cancelTask(sb: SupabaseClient, taskId: string) {
   return !!data?.length;
 }
 
-// shortcut: in-process queue (max 2 tasks at once); a server restart marks running tasks failed on next list.
+// shortcut: in-process queue (max 2 tasks at once); after a server restart reclaimInterrupted re-queues a cut-off task once (when
+// that repeats nothing), else marks it interrupted.
 const running = (g.__orbitTaskQueue ??= new Set());
 
 /** Start queued top-level tasks while fewer than MAX_RUNNING are active. */
@@ -809,13 +811,28 @@ const BOOT = (G2.__orbitBootAt ??= Date.now()), reclaimed = (G2.__orbitReclaimed
 async function reclaimInterrupted(sb: SupabaseClient, userId: string) {
   if (reclaimed.has(userId)) return;
   reclaimed.add(userId);
-  const { data, error } = await sb.from("tasks").select("id, pending, started_at").eq("user_id", userId).eq("status", "running").lt("started_at", new Date(BOOT).toISOString())
+  const { data, error } = await sb.from("tasks").select("id, title, pending, started_at, automation_id").eq("user_id", userId).eq("status", "running").lt("started_at", new Date(BOOT).toISOString())
     .is("parent_id", null).not("title", "like", "Team: %").not("title", "like", "Goal step %").limit(100); // teams and goals resume their own steps (chains.ts, goals.ts)
   if (error) throw error; // kickQueue clears the cached sweep on failure, so the next kick retries it
   const resumable = await import("./bg-resume").then((m) => m.bgTurnIds()).catch(() => new Set<string>()); // background CORE turns: bg-resume finishes those, never "press Retry" (unreadable: as before)
-  for (const t of data ?? []) if (startedBeforeBoot(t.started_at, BOOT) && !running.has(t.id) && !resumable.has(t.id)) {
-    const { error: updateError } = await sb.from("tasks").update(interruptedPatch(t.pending, INTERRUPTED)).eq("user_id", userId).eq("id", t.id).eq("status", "running").lt("started_at", new Date(BOOT).toISOString());
+  const cut = (data ?? []).filter((t) => startedBeforeBoot(t.started_at, BOOT) && !running.has(t.id) && !resumable.has(t.id));
+  if (!cut.length) return;
+  // Re-run once by itself when that repeats nothing (run-recovery-pure restartRerun): a restart for a live update is not a failure.
+  // Stop-all on, or the marks unreadable: nothing re-runs; each is marked interrupted, as before.
+  const rec = stopAllOn() ? null : await import("./run-recovery").catch(() => null);
+  const marks = rec ? await rec.readRetried().catch(() => null) : null;
+  const { data: kids } = marks ? await sb.from("tasks").select("parent_id").eq("user_id", userId).in("parent_id", cut.map((t) => t.id)).limit(500) : { data: [] };
+  const withKids = new Set((kids ?? []).map((k) => k.parent_id as string));
+  for (const t of cut) {
+    let again = !!rec && !!marks && !stopAllOn() && restartRerun({ id: t.id, title: t.title, pending: t.pending, children: withKids.has(t.id) ? 1 : 0 }, new Set(Object.keys(marks)));
+    if (again && t.automation_id) again = (await authorizeAction("automations.start", { entry: "automation", workflow: `automation:${t.automation_id}`, ownerClick: false })).ok;
+    if (again) again = await rec!.markRetried([t.id]).catch(() => false); // the mark is on disk before the re-queue: never twice
+    const { error: updateError } = await sb.from("tasks").update(again ? requeuePatch() : interruptedPatch(t.pending, INTERRUPTED)).eq("user_id", userId).eq("id", t.id).eq("status", "running").lt("started_at", new Date(BOOT).toISOString());
     if (updateError) throw updateError;
+    if (again) {
+      console.log(`[orbit] "${t.title}" was cut off by a restart; starting it again`);
+      void import("./activity").then((m) => m.logActivity({ area: "system", title: `Started again after a restart: ${String(t.title).slice(0, 120)}` })).catch(() => {});
+    }
   }
 }
 
