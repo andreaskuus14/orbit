@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/supabase/server";
-import { decideLesson, lessonsView, mineLessons } from "@/lib/lessons";
+import { decideLesson, editLesson, lessonsView, mineLessons } from "@/lib/lessons";
 import { emit } from "@/lib/claude";
 
 const fail = (e: unknown) => Response.json({ error: e instanceof Error ? e.message : "Lessons failed" }, { status: 500 });
@@ -18,6 +18,11 @@ export async function POST(req: Request) {
   const b = (await req.json().catch(() => null)) as { id?: unknown; decision?: unknown; action?: unknown } | null;
   try {
     if (b?.action === "mine") await mineLessons(sb, user.id);
+    else if (b?.action === "edit") {
+      if (typeof b.id !== "string" || b.id.length > 300) return Response.json({ error: "id is required" }, { status: 400 });
+      const err = await editLesson(user.id, b.id, (b as { text?: unknown }).text);
+      if (err) return Response.json({ error: err }, { status: 409 });
+    }
     else {
       if (typeof b?.id !== "string" || b.id.length > 300 || (b.decision !== "keep" && b.decision !== "reject")) return Response.json({ error: "id and decision (keep|reject) are required" }, { status: 400 });
       const err = b.id.startsWith("persona|") ? await import("@/lib/persona").then((m) => m.decideProposal(user.id, b.decision === "keep")) : await decideLesson(user.id, b.id, b.decision, sb); // a kept correction also becomes evals/corrections/<id>.json

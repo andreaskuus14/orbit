@@ -15,7 +15,7 @@ export type UsedExtras = {
 export const USED_CAP = 6;
 const DAY = 86_400_000;
 // Steps that are the engine's own bookkeeping, not something the answer drew on.
-const META = new Set(["search_memory", "think", "review", "fallback", "reflex", "local", "verify", "error", "budget", "cancelled", "answer_eval", "sources", "route", "native", "receipt", "navigate", "used"]);
+const META = new Set(["search_memory", "think", "review", "fallback", "reflex", "local", "verify", "error", "budget", "cancelled", "answer_eval", "sources", "route", "native", "receipt", "navigate", "used", "level", "cite"]);
 const PAGES = new Set(["fetch_url", "read_url"]), SEARCHES = new Set(["web_search", "read_news"]);
 const RUNG_NAMES = ["fetch", "scraper", "browser"]; // web-ladder-pure RUNGS (kept local: this file is shipped to the browser)
 const isPrivateKind = (k: string) => /^(journal|life)/i.test(k);

@@ -6,8 +6,11 @@ import { useT } from "./i18n";
 
 export const safeHref = (u: string) => (/^https?:\/\//i.test(u) ? u : "#");
 
-export function inline(text: string, openMemory?: (id: string) => void, memLabel = "memory"): ReactNode[] {
-  return text.split(/(\[[^\]]+\]\(https?:\/\/[^)\s]+\)|\[m:[0-9a-f-]{36}\]|\*\*[^*]+\*\*|`[^`]+`)/gi).map((part, i) => {
+/** cite: renders an inline citation marker ([[c3]], [[c3!]], [[nosrc]]: core-cite-pure.ts); without it markers stay plain text. */
+export type CiteRender = (token: string, key: number) => ReactNode;
+export function inline(text: string, openMemory?: (id: string) => void, memLabel = "memory", cite?: CiteRender): ReactNode[] {
+  return text.split(/(\[[^\]]+\]\(https?:\/\/[^)\s]+\)|\[\[c\d+[!?]?\]\]|\[\[nosrc\]\]|\[m:[0-9a-f-]{36}\]|\*\*[^*]+\*\*|`[^`]+`)/gi).map((part, i) => {
+    if (cite && /^\[\[(c\d+[!?]?|nosrc)\]\]$/.test(part)) return <Fragment key={i}>{cite(part, i)}</Fragment>;
     const link = part.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
     if (link) return <a key={i} className="link" href={safeHref(link[2])} target="_blank" rel="noreferrer noopener">{link[1]}</a>;
     const mem = part.match(/^\[m:([0-9a-f-]{36})\]$/i);
@@ -18,7 +21,7 @@ export function inline(text: string, openMemory?: (id: string) => void, memLabel
   });
 }
 
-export function Markdown({ text, openMemory }: { text: string; openMemory?: (id: string) => void }) {
+export function Markdown({ text, openMemory, cite }: { text: string; openMemory?: (id: string) => void; cite?: CiteRender }) {
   const mem = useT().t("ops.memory");
   const out: ReactNode[] = [];
   const lines = text.split("\n");
@@ -33,10 +36,10 @@ export function Markdown({ text, openMemory }: { text: string; openMemory?: (id:
     const s = t.trim();
     if (!s) continue;
     if (/^\|.*\|$/.test(s)) { out.push(<p key={i} className="font-mono text-xs">{s}</p>); continue; }
-    if (s.startsWith("### ")) out.push(<h4 key={i} className="mt-3 font-semibold">{inline(s.slice(4), openMemory, mem)}</h4>);
+    if (s.startsWith("### ")) out.push(<h4 key={i} className="mt-3 font-semibold">{inline(s.slice(4), openMemory, mem, cite)}</h4>);
     else if (s.startsWith("## ") || s.startsWith("# ")) out.push(<h3 key={i} className="h3 mt-4">{s.replace(/^#+\s/, "")}</h3>);
-    else if (/^([-*]|\d+\.)\s/.test(s)) out.push(<p key={i} className="pl-4">{/^\d/.test(s) ? `${s.split(".")[0]}.` : "•"} {inline(s.replace(/^([-*]|\d+\.)\s/, ""), openMemory, mem)}</p>);
-    else out.push(<p key={i}>{inline(s, openMemory, mem)}</p>);
+    else if (/^([-*]|\d+\.)\s/.test(s)) out.push(<p key={i} className="pl-4">{/^\d/.test(s) ? `${s.split(".")[0]}.` : "•"} {inline(s.replace(/^([-*]|\d+\.)\s/, ""), openMemory, mem, cite)}</p>);
+    else out.push(<p key={i}>{inline(s, openMemory, mem, cite)}</p>);
   }
   return <div className="space-y-2 text-sm leading-relaxed">{out}</div>;
 }

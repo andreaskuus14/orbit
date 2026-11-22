@@ -15,6 +15,7 @@ const OWNER_ONLY = new Set([
   "src/app/api/search/route.ts", // owner's own search (includeJournal: unfiltered by design)
   "src/lib/life-journal.ts", // LIFE → Journal for the owner only (opens encrypted journal rows; never to a model)
   "src/lib/doctor.ts", // journal check: counts rows still in plain text, no text leaves the function
+  "src/lib/knows.ts", // "What ORBIT knows about you": the owner's own editable list, never sent to a model (tests/knows.test.ts)
 ]);
 const walk = (d: string): string[] => readdirSync(d).flatMap((f) => { const p = path.join(d, f); return statSync(p).isDirectory() ? walk(p) : /\.tsx?$/.test(f) ? [p] : []; });
 const READ = /from\("memories"\)\s*\.select\(\s*(?:MEMORY_COLUMNS|"[^"]*\b(?:title|content)\b[^"]*")/;

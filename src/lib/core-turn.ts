@@ -19,6 +19,7 @@ import { chatProjectContext, updateChats } from "@/lib/core-chats";
 import { describeFailure } from "@/lib/core-capability-pure";
 import { MAX_MESSAGES, chatTitle, isId, moveChat } from "@/lib/core-chats-pure";
 import { parseLang } from "@/lib/i18n-pure";
+import { parseChoice } from "@/lib/think-level-pure";
 import { noteOwnerTurn, noteReceipts, projectRecordFor } from "@/lib/checkpoint";
 import { checkpointPrompt, isContinue } from "@/lib/checkpoint-pure";
 import { chatQueue, onceById } from "@/lib/session-bound-pure";
@@ -42,6 +43,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
   const message = typed === null ? null : typed || (files.files.length ? "Take a look at what I attached." : null);
   const voice = body.voice === true; // asked out loud: answer short enough to listen to
   const lang = parseLang(body.lang); // the UI language switch: "et" = CORE answers in Estonian
+  const level = parseChoice(body.level); // thinking level: "auto" (default) | "quick" | "normal" | "deep" (think-level-pure.ts)
   if (!message) return Response.json({ error: "Message is required (max 8000 chars)" }, { status: 400 });
   const turnT0 = Date.now(); // live step times count from here
   const content = files.files.length ? message + attachedSuffix(files.files.map((f) => f.name)) : message;
@@ -123,7 +125,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
         const t0 = Date.now();
         const ctx = (checkpoint ? checkpointPrompt(checkpoint, isContinue(message)) : "") + record + project.text + contextLine(safeLink(body.here));
         let out: Awaited<ReturnType<typeof runCore>>;
-        try { out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, withSkill, ctx, project.tainted, project.memoryProject, cid, lang, onRoute); }
+        try { out = await runCore(sb, userId, history, onDelta, signal, onReset, voice, onNavigate, onStep, withSkill, ctx, project.tainted, project.memoryProject, cid, lang, onRoute, level); }
         catch (e) {
           // Out of interactive time on a long step: the turn continues server-side; reply now, notify when done (never "timed out").
           if (!(e instanceof CoreHandoff) || signal?.aborted) throw e;
@@ -131,7 +133,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
           onReset?.();
           // Not for the phone remote: its clients read "done" as the end. In-app, the open stream keeps showing the background work.
           const follow = !opts.remote;
-          const bg = await inBackground(sb, userId, cid, message, handoff.carry?.trace ?? [], lang, (sig) => runCoreFor(BACKGROUND_TURN_MS, handoff, sb, userId, history, follow ? onDelta : undefined, sig, follow ? onReset : undefined, voice, undefined, follow ? onStep : undefined, withSkill, ctx, project.tainted, project.memoryProject, cid, lang, follow ? onRoute : undefined));
+          const bg = await inBackground(sb, userId, cid, message, handoff.carry?.trace ?? [], lang, (sig) => runCoreFor(BACKGROUND_TURN_MS, handoff, sb, userId, history, follow ? onDelta : undefined, sig, follow ? onReset : undefined, voice, undefined, follow ? onStep : undefined, withSkill, ctx, project.tainted, project.memoryProject, cid, lang, follow ? onRoute : undefined, level));
           const taskId = bg.taskId;
           if (follow) { background = bg.finished; send({ type: "background", taskId }); }
           out = { text: handoffReply(taskId, lang), citations: [], trace: [{ step: "fallback", detail: "turn time limit → background task", ms: 0, ok: false }], model: "smart" };
@@ -142,7 +144,7 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
         await sb.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", cid); // Recents sort by last activity
         await emit(sb, userId, "core.completed", "core", { conversationId: cid });
         // counts only, never message text: tools = steps that ran a tool (not CORE's own memory search, thinking, review, fallbacks or reflexes)
-        const tools = out.trace.filter((s) => !["search_memory", "think", "review", "fallback", "reflex"].includes(s.step)).length;
+        const tools = out.trace.filter((s) => !["search_memory", "think", "review", "fallback", "reflex", "level"].includes(s.step)).length;
         await emit(sb, userId, "core.turn", "core", { model: out.model, tools, ms: Date.now() - t0 });
         void reflectOnTurn(sb, userId, cid); // learn in the background; never delays the answer, never throws
         void learnFacts(sb, userId, message, userMsg?.id ?? null, files.files.length > 0); // beliefs from the user's own words only (none on attachment turns); never throws
