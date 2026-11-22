@@ -6,7 +6,7 @@ import { typedText } from "./attach-pure.ts";
 import { actionBlocked, STUDIO_TOOLS, type StudioTool } from "./core-studio.ts";
 import { LIFE_TOOLS, lifeWriteBlocked, type LifeTool } from "./core-life.ts";
 import { WS_TOOLS, wsTainted, wsWriteBlocked } from "./core-workspace.ts";
-import type { WsGate } from "./ws-intent-pure.ts";
+import { explicitBuild, namedWorkspace, type WsGate } from "./ws-intent-pure.ts";
 import { createGoalBlocked } from "./goals-pure.ts";
 import { asksToRemember } from "./reflect-pure.ts";
 import { confirmsDecision } from "./decisions-pure.ts";
@@ -264,6 +264,8 @@ export function operatorAllows(tool: string, ctx: Pick<PolicyCtx, "stopAll" | "a
 // Public read-only research tools that an owner's explicit same-message request may naturally run before a safe local T2 write
 // (e.g. "find example.com's pricing page and watch it", "research X and queue tonight: ..."). Never plugins, vault, mail, agents or T3.
 const PUBLIC_RESEARCH = ["web_search", "fetch_url", "scrape_page", "browse", "read_more"] as const;
+const WS_REDESIGN_TOOLS = new Set(["ws_create", "ws_write", "ws_edit", "ws_fetch_image"]);
+const WS_SAFE_READS = ["ws_read", "web_search", "fetch_url", "scrape_page", "browse", "read_more", "ws_fetch_image", "ws_inspire_image", "find_lead_candidates", "business_status"] as const;
 const STATUS_AFTER_AREA: Record<string, Area> = {
   run_scout: "operator-build", run_niche: "operator-build", plan_task: "operator-build",
   life_check: "operator-organize", life_add_habit: "operator-organize", life_remind: "operator-organize",
@@ -273,7 +275,18 @@ const RESEARCH_AFTER_AREA: Record<string, Area> = {
   watch_add: "operator-organize",
   create_goal: "operator-build", queue_tonight: "operator-build", start_mission: "operator-build",
 };
-function explicitAfterSafeRead(tool: string, question: string, ctx: PolicyCtx): boolean {
+function explicitAfterSafeRead(tool: string, question: string, ctx: PolicyCtx, input?: Record<string, unknown>): boolean {
+  if (WS_REDESIGN_TOOLS.has(tool)) {
+    // Sandboxed local workspaces (offline preview, Undo in Time Machine): when the owner's OWN typed words explicitly ask
+    // to build or redesign a site, allow after reading the existing site (ws_read), public research, attachments (mockups) or pins.
+    // Still refuses journal/LIFE, vault, agents, plugins, calendar, terminal, questions, negations, and unasked/injected writes.
+    if (ctx.stopAll || denied(tool, question)) return false;
+    if ((ctx.autonomy?.["operator-build"] ?? AREA_INFO["operator-build"].def) !== "do") return false;
+    if (untrustedIn(ctx.steps, WS_SAFE_READS) || called(ctx.steps, LIFE_TOOLS as unknown as string[])) return false;
+    const asked = explicitBuild(question) || (!!ctx.ws?.workspaces?.length && !!namedWorkspace(question, ctx.ws.workspaces));
+    if (!asked) return false;
+    return wsWriteBlocked(question, false, { ...ctx.ws, target: tool !== "ws_create" ? input?.workspace : input?.name }) === null;
+  }
   const statusArea = STATUS_AFTER_AREA[tool], researchArea = RESEARCH_AFTER_AREA[tool];
   const area = statusArea ?? researchArea;
   if (!area || ctx.stopAll || ctx.attach || ctx.pins || denied(tool, question)) return false;
@@ -383,9 +396,9 @@ function decideRaw(tool: string, input: Record<string, unknown> | undefined, ctx
   else if (tool === "save_checkpoint") blocked = checkpointBlocked(question);
   else if (isOpsTool(tool)) { if (ctx.stopAll) return no(PAUSED_MSG); blocked = opsBlocked(tool, question, dataIn, input, ctx.attach || ctx.pins ? [] : [...createdLeads(ctx.steps), ...(ctx.ownLeads ?? [])]) ?? ""; } // Stop-all halts operator writes outright
   else if (tool === "save_memory" && !asksToRemember(question)) blocked = "only save when the user asks; reflection handles the rest"; // core.ts:287
-  if (blocked && (operatorAllows(tool, ctx) || explicitAfterSafeRead(tool, question, ctx))) return { allow: true, tier, reason: OPERATOR_REASON };
+  if (blocked && (operatorAllows(tool, ctx) || explicitAfterSafeRead(tool, question, ctx, input))) return { allow: true, tier, reason: OPERATOR_REASON };
   if (blocked) return no(blocked);
-  if (tool === "start_mission" && dataIn && !operatorAllows(tool, ctx) && explicitAfterSafeRead(tool, question, ctx)) return { allow: true, tier, reason: OPERATOR_REASON };
+  if (tool === "start_mission" && dataIn && !operatorAllows(tool, ctx) && explicitAfterSafeRead(tool, question, ctx, input)) return { allow: true, tier, reason: OPERATOR_REASON };
   return { allow: true, tier, reason: "allowed" };
 }
 

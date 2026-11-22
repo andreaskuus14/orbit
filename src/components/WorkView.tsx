@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { WORK_TABS, type WorkTab } from "@/lib/work-vocab-pure";
 import { useT } from "./i18n";
 import { ContinueWork } from "./ContinueWork";
+import { OutcomeCockpit } from "./OutcomeCockpit";
 import MissionsPanel from "./MissionsPanel";
 import { RulesView } from "./RulesView";
 import SkillsPanel from "./SkillsPanel";
@@ -47,7 +48,7 @@ export function WorkView({ tab, onTab, onOpenTask, onOpenGoal }: { tab: WorkTab;
         ))}
       </div>
       <div id="work-tabpanel" role="tabpanel" tabIndex={0} aria-labelledby={`work-tab-${tab}`} className="space-y-4">
-        {tab === "work" ? <><ContinueWork onOpenTask={onOpenTask} onOpenGoal={onOpenGoal} /><MissionsPanel visible onOpenTask={onOpenTask} /></>
+        {tab === "work" ? <><OutcomeCockpit /><ContinueWork onOpenTask={onOpenTask} onOpenGoal={onOpenGoal} /><MissionsPanel visible onOpenTask={onOpenTask} /></>
           : tab === "routines" ? <RulesView onOpenTask={onOpenTask} />
           : tab === "workflows" ? <><SkillsPanel /><RecipesPanel onOpenTask={onOpenTask} /></>
           : <GoalsPanel agents={agents} visible onOpenTask={onOpenTask} />}

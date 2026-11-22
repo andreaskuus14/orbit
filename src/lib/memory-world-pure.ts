@@ -18,7 +18,7 @@ export function searchStars(items: StarMeta[], query: string): number[] {
   if (!words.length) return [];
   const out: number[] = [];
   items.forEach((m, i) => {
-    const hay = `${m.title} ${m.kind} ${m.tags.join(" ")}`.toLowerCase();
+    const hay = `${m.title} ${m.kind} ${(m.tags ?? []).join(" ")}`.toLowerCase();
     if (words.every((w) => hay.includes(w))) out.push(i);
   });
   return out;
@@ -61,11 +61,11 @@ export function connections(i: number, items: { id: string }[], links: { from: s
 /** MEM06: one project's subgraph (its "scope:" tag or folder), with the similarity edges re-indexed to the kept stars. */
 export function subgraph<T extends { id: string; tags: string[]; folder?: string | null }>(items: T[], edges: [number, number, number][] | undefined, project: string) {
   const p = project.trim().toLowerCase(), keep: number[] = [];
-  items.forEach((m, i) => { const of = (m.tags.find((t) => t.startsWith("scope:"))?.slice(6) || m.folder || "").toLowerCase(); if (of === p) keep.push(i); });
+  items.forEach((m, i) => { const of = ((m.tags ?? []).find((t) => t.startsWith("scope:"))?.slice(6) || m.folder || "").toLowerCase(); if (of === p) keep.push(i); });
   const map = new Map(keep.map((old, j) => [old, j]));
   return { items: keep.map((i) => items[i]), edges: (edges ?? []).filter(([a, b]) => map.has(a) && map.has(b)).map(([a, b, s]) => [map.get(a)!, map.get(b)!, s] as [number, number, number]) };
 }
 
 /** Project names present on the stars, for the project filter. */
 export const starProjects = (items: { tags: string[]; folder?: string | null }[]) =>
-  [...new Set(items.map((m) => m.tags.find((t) => t.startsWith("scope:"))?.slice(6) || m.folder || "").filter(Boolean))].sort();
+  [...new Set(items.map((m) => (m.tags ?? []).find((t) => t.startsWith("scope:"))?.slice(6) || m.folder || "").filter(Boolean))].sort();

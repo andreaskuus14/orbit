@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { generatePlans, parseBrief, planScene, shared, slabAround, stairDesign, straightFit, STARTER_BRIEF, withCore } from "../src/lib/arch-plan-pure.ts";
-import { boq } from "../src/lib/arch-pure.ts";
+import { checkConnectivity, classifySpace, ensureConnectedDoors, generatePlans, parseBrief, planScene, shared, slabAround, stairDesign, straightFit, STARTER_BRIEF, windowSizeForRoom, withCore } from "../src/lib/arch-plan-pure.ts";
+import { boq, costLines, isStraightWall, STARTER_PRICES } from "../src/lib/arch-pure.ts";
 import { wallRects } from "../src/lib/arch-walk-pure.ts";
 
 const brief = parseBrief(STARTER_BRIEF.rooms, STARTER_BRIEF.adj, { w: 30, d: 25 }, 1);
@@ -54,7 +54,9 @@ test("pinned rooms stay on their floor; floors balance", () => {
 test("planScene builds a valid ARCH model: doors where wishes are met, walls, roof on top", () => {
   const o = generatePlans(brief, 7)[0], s = planScene(brief, o);
   const doors = s.parts.filter((p) => p.kind === "door"), walls = s.parts.filter((p) => p.kind === "wall");
-  assert.equal(doors.length, o.met.filter(([a, b]) => a >= 0 && b >= 0).length + 1, "one door per met wish + front door");
+  assert.ok(doors.length >= o.met.filter(([a, b]) => a >= 0 && b >= 0).length + 1, "at least one door per met wish + front door (plus connectivity doors)");
+  assert.deepEqual(o.unreachableRooms, []);
+  assert.equal(o.connectivityScore, 1);
   for (const d of doors) assert.ok(walls.some((w) => w.id === d.host));
   assert.ok(walls.length >= 1 + brief.rooms.length - 1, "shell + one wall per cut");
   assert.ok(s.parts.some((p) => p.kind === "window"));
@@ -113,4 +115,105 @@ test("multi-floor plans get a stair core aligned on every floor, next to the hal
   const area = up.reduce((a, p) => a + p.w * p.d, 0);
   assert.ok(Math.abs(area - (o.w * o.d - (S.x1 - S.x0) * (S.z1 - S.z0))) < 0.05);
   assert.equal(sc.parts.filter((p) => p.kind === "slab" && /^Floor 1/.test(p.name)).length, 1, "ground slab stays whole");
+});
+
+test("outdoor / unheated space classification and terrace deck representation", () => {
+  for (const n of ["Terrace", "South terrace", "Balcony", "Porch", "Patio", "Deck", "Veranda", "Carport", "Terrass", "Rõdu", "Varjualune"]) {
+    assert.equal(classifySpace(n), "outdoor", `${n} should be outdoor`);
+  }
+  for (const n of ["Garage", "Garaaž", "Storage", "Panipaik"]) {
+    assert.equal(classifySpace(n), "unheated", `${n} should be unheated`);
+  }
+  for (const n of ["Living", "Kitchen", "Bedroom", "Bath", "Entrance hall"]) {
+    assert.equal(classifySpace(n), "heated", `${n} should be heated`);
+  }
+
+  const baseRooms = "Entrance hall 8\nLiving 28\nKitchen 12\nBedroom 14\nBath 6\nStorage 4";
+  const baseAdj = "Living - Entrance hall\nLiving - Kitchen\nBedroom - Entrance hall\nBath - Entrance hall\nEntrance hall - outside";
+  const withTerrace = parseBrief(`${baseRooms}\nTerrace 20`, `${baseAdj}\nLiving - Terrace`, { w: 30, d: 25 }, 1);
+  const withoutTerrace = parseBrief(baseRooms, baseAdj, { w: 30, d: 25 }, 1);
+  const oT = generatePlans(withTerrace, 2)[0];
+  const oNo = generatePlans(withoutTerrace, 2)[0];
+  const sT = planScene(withTerrace, oT);
+  const sNo = planScene(withoutTerrace, oNo);
+
+  // Heated area excludes terrace (and unheated storage), outdoorAreaM2 tracks terrace
+  assert.ok(oT.outdoorAreaM2 >= 18 && oT.outdoorAreaM2 <= 22, `outdoorAreaM2=${oT.outdoorAreaM2}`);
+  assert.ok(oT.heatedAreaM2 < oT.w * oT.d + oT.outdoorAreaM2, "terrace excluded from heatedAreaM2");
+  assert.equal(oT.w, oNo.w, "indoor footprint width unchanged by outdoor terrace");
+  assert.equal(oT.d, oNo.d, "indoor footprint depth unchanged by outdoor terrace");
+
+  // Terrace is a low exterior deck slab, NOT enclosed in exterior walls/roof/windows
+  const deck = sT.parts.find((p) => p.kind === "slab" && p.group === "exterior" && /terrace/i.test(p.name));
+  assert.ok(deck, "terrace gets an exterior deck slab");
+  assert.ok(deck.h <= 0.2, `deck height ${deck.h} should be low`);
+  const shell = sT.parts.find((p) => p.kind === "wall" && !isStraightWall(p))!;
+  assert.equal(shell.w, oT.w);
+  assert.equal(shell.d, oT.d);
+  assert.ok(Math.abs(deck.x) >= shell.w / 2 || Math.abs(deck.z) >= shell.d / 2, "deck sits outside the heated shell");
+  assert.ok(!sT.parts.some((p) => p.kind === "window" && /terrace/i.test(p.name)), "terrace has no exterior window");
+
+  // BOQ roof area is identical with or without outdoor terrace (terrace is not roofed)
+  assert.equal(boq(sT.parts).roofM2, boq(sNo.parts).roofM2, "terrace does not inflate roof BOQ");
+});
+
+test("multi-storey 12+ room house has 0 unreachable rooms on F1 and F2 via BFS connectivity", () => {
+  const rooms = [
+    "Entrance hall 8 @1", "Living 28 @1", "Kitchen 14 @1", "Dining 12 @1", "Study 10 @1", "Utility 6 @1", "WC 3 @1",
+    "Master bedroom 16 @2", "Bedroom 2 12 @2", "Bedroom 3 12 @2", "Bath 8 @2", "Wardrobe 5 @2", "Office 10 @2",
+  ].join("\n");
+  const adj = "Living - Kitchen\nLiving - Entrance hall\nEntrance hall - outside\nMaster bedroom - Bath";
+  const b = parseBrief(rooms, adj, { w: 30, d: 25 }, 2);
+  const B = withCore(b);
+  const o = generatePlans(b, 3)[0];
+  assert.deepEqual(o.unreachableRooms, [], "0 unreachable rooms across all floors");
+  assert.equal(o.connectivityScore, 1);
+
+  // Independently verify BFS on both F1 and F2 using the doors from the plan
+  o.floors.forEach((fl, f) => {
+    const res = checkConnectivity(B, fl, f, fl.doors ?? [], { w: o.w, d: o.d });
+    assert.deepEqual(res.unreachable, [], `floor ${f + 1} has 0 unreachable rooms`);
+    assert.equal(res.score, 1, `floor ${f + 1} connectivity score = 1`);
+  });
+
+  // Verify checkConnectivity detects disconnected rooms and ensureConnectedDoors repairs them
+  const fl0 = o.floors[0];
+  const broken = checkConnectivity(B, fl0, 0, [], { w: o.w, d: o.d });
+  assert.ok(broken.unreachable.length > 0, "empty door set leaves rooms unreachable");
+  assert.ok(broken.score < 1);
+  const repaired = ensureConnectedDoors(B, fl0, 0, [], { w: o.w, d: o.d });
+  assert.deepEqual(repaired.connectivity.unreachable, []);
+  assert.equal(repaired.connectivity.score, 1);
+  assert.ok(repaired.added.length >= broken.unreachable.length);
+
+  // Scene BOQ prices interior doors separately from exterior doors
+  const sc = planScene(b, o), q = boq(sc.parts), c = costLines(q, STARTER_PRICES, sc.parts);
+  assert.ok((q.interiorDoors ?? 0) >= 8, `expected many interior doors, got ${q.interiorDoors}`);
+  assert.equal(q.exteriorDoors, 1, "only front door is exterior");
+  const extLine = c.lines.find((l) => l.key === "doors")!;
+  const intLine = c.lines.find((l) => l.key === "interiorDoors")!;
+  assert.ok(intLine.eur! < extLine.eur!, "interior door costs less than exterior insulated door");
+});
+
+test("proportional habitable window sizing achieves >= 12% WFR for large living room", () => {
+  // Direct unit check on windowSizeForRoom
+  const livingWin = windowSizeForRoom("Living", 28, 6);
+  assert.ok(livingWin && livingWin.w >= 1.2 && livingWin.w <= 3.6 && livingWin.h >= 1.4 && livingWin.h <= 2.1);
+  assert.ok((livingWin.w * livingWin.h) / 28 >= 0.12, `28 m² living WFR = ${((livingWin.w * livingWin.h) / 28).toFixed(3)}`);
+  const bathWin = windowSizeForRoom("Bath", 6, 3);
+  assert.ok(bathWin && bathWin.w >= 0.8 && bathWin.w <= 1.0, "bath gets compact window");
+  assert.equal(windowSizeForRoom("Terrace", 20, 5), null, "outdoor terrace gets no window");
+
+  // Full plan + scene check: ~28 m² Living room gets >= 12% WFR (much more than hardcoded 1.44 m²)
+  const b = parseBrief("Entrance hall 8\nLiving 28\nKitchen 12\nBedroom 14\nBath 6", "Living - Entrance hall\nLiving - Kitchen\nBedroom - Entrance hall\nEntrance hall - outside", { w: 30, d: 25 }, 1);
+  const o = generatePlans(b, 1)[0];
+  const s = planScene(b, o);
+  const livingIdx = b.rooms.findIndex((r) => r.name === "Living");
+  const livingRect = o.floors[0].rooms.find((r) => r.i === livingIdx)!.r;
+  const livingArea = (livingRect.x1 - livingRect.x0) * (livingRect.z1 - livingRect.z0);
+  const livingWindows = s.parts.filter((p) => p.kind === "window" && /Window Living/.test(p.name));
+  assert.ok(livingWindows.length >= 1, "living room has at least one window");
+  const glazedM2 = livingWindows.reduce((sum, w) => sum + w.w * w.h, 0);
+  assert.ok(glazedM2 > 1.44, `living glazing ${glazedM2} m² exceeds old hardcoded 1.44 m²`);
+  assert.ok(glazedM2 / livingArea >= 0.12, `living WFR ${(glazedM2 / livingArea * 100).toFixed(1)}% >= 12%`);
 });

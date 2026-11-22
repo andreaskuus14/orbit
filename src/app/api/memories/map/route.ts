@@ -36,7 +36,9 @@ export async function GET() {
     const pts = stabilize(placed.get(user.id), layout(rows.map((r, i) => ({ id: r.id, kind: r.kind, tags: r.tags ?? [], embedding: vecs[i] })), links));
     const edges = similarEdges(vecs); // [a, b, sim] as item indexes: the similarity web, aged client-side
     const r2 = (n: number) => (Number.isFinite(n) ? Math.round(n * 100) / 100 : 0);
-    const items = rows.map((r, i) => ({ id: r.id, title: r.kind === "journal" ? "Journal entry" : r.title, kind: r.kind, // journal titles are encrypted tags: r.tags ?? [], folder: r.folder, created_at: r.created_at, source: r.source,
+    // journal titles are encrypted, so a journal row shows only "Journal entry"
+    const items = rows.map((r, i) => ({ id: r.id, title: r.kind === "journal" ? "Journal entry" : r.title, kind: r.kind,
+      tags: r.tags ?? [], folder: r.folder, created_at: r.created_at, source: r.source,
       x: r2(pts[i].x), y: r2(pts[i].y), z: r2(pts[i].z) }));
     const graph = await import("@/lib/memory-graph").then((m) => m.getGraph(sb, user.id)).catch(() => null); // cluster halos + list; best-effort
     placed.set(user.id, new Map(items.map((m) => [m.id, [m.x, m.y, m.z] as [number, number, number]])));

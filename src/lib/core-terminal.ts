@@ -2,6 +2,9 @@
 // judged by command-policy-pure.ts: level 1 runs now, level 2 after a snapshot (Undo), level 3 waits for his click in
 // OPERATIONS → Terminal. Output from VAULT/journal/LIFE never reaches the model (modelOutput hides it).
 import { termOutside } from "./policy-pure";
+import { getPcPerms } from "./pc-permissions";
+import { pcPermDisabledReason } from "./pc-permissions-pure";
+import { stopAllOn } from "./stop-all";
 import { SHELLS, sessionName, timeoutOf, waitOf, modelOutput, statusWords } from "./shell-session-pure";
 import type { Shell } from "./command-policy-pure";
 import { redactText } from "./trace-export-pure";
@@ -33,10 +36,13 @@ export async function runTermTool(tool: TermTool, input: Record<string, unknown>
   }
   const command = typeof input.command === "string" ? input.command : "";
   if (!command.trim()) return "Error: terminal_run needs a command";
+  const perms = getPcPerms();
+  const off = pcPermDisabledReason("terminal", perms, stopAllOn());
+  if (off) return `Error: ${off}`;
   // Pages, agent results and other outside text in this answer or an earlier turn of the chat, and the output of a command that
   // read the network (policy-pure termOutside): file-changing commands then wait for his click, so injected text can't run code without him.
   const outside = termOutside(c.steps, c.pinned, !!c.earlier);
-  const res = await t.submit({ userId: c.userId, session: name, command, source: "core", shell: shellOf(input.shell), cwd: typeof input.cwd === "string" ? input.cwd : undefined, timeoutS: timeoutOf(input.timeout_sec), outside });
+  const res = await t.submit({ userId: c.userId, session: name, command, source: "core", shell: shellOf(input.shell), cwd: typeof input.cwd === "string" ? input.cwd : undefined, timeoutS: timeoutOf(input.timeout_sec), outside, autoLocal: perms.terminalAuto });
   if ("error" in res) return `Error: ${res.error}`;
   const run = res.run.status === "running" ? (await t.waitRun(res.run.id, waitOf(input.wait_sec))) ?? res.run : res.run;
   const session = t.listSessions().find((s) => s.id === run.session) ?? res.session;

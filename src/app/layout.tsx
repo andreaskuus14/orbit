@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono, Rajdhani } from "next/font/google";
 import "./globals.css";
 import "./observatory.css";
+import "./motion.css";
+import { motionOn } from "@/lib/ui-motion-pure";
 
 // Self-hosted at build time by Next.js: no request to Google from the browser.
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
@@ -22,7 +24,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${rajdhani.variable} ${jetbrains.variable}`}>
+    <html lang="en" className={`${inter.variable} ${rajdhani.variable} ${jetbrains.variable}`} data-motion={motionOn(process.env.ORBIT_UI_MOTION) ? "on" : "off"}>
       <body>{children}</body>
     </html>
   );

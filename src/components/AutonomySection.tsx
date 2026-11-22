@@ -6,6 +6,7 @@ import { useT } from "./i18n";
 import { AREAS, AREA_INFO, AUTO_CONFIRM, LEVEL_TEXT, LIMIT_MAX, type Area, type Level, type Levels, type Limits, type Pending } from "@/lib/autonomy-pure";
 import { changeStopAll } from "./nav-command";
 import { TwinCard } from "./TwinCard";
+import { PcPermissionsCard } from "./PcPermissionsCard";
 import { KIND_LABEL, type TwinKind } from "@/lib/twin-pure";
 import type { TrustSuggestion } from "@/lib/trust-pure";
 import type { Key } from "@/lib/i18n-pure";
@@ -57,6 +58,7 @@ export function AutonomySection() {
         {v?.stopAll ? "All autonomy is paused (Stop-all is on)" : "Pause all autonomy"}
       </button>
       <p id="autonomy-pause" className="muted text-xs">Turns on Stop-all: running work stops and queued auto actions are cancelled. Resume from the Stop-all button.</p>
+      <PcPermissionsCard />
       <dl className="muted space-y-1 text-xs">
         {(["off", "ask", "do", "auto"] as const).map((l) => <div key={l}><dt className="inline font-semibold">{LEVEL_TEXT[l].label}: </dt><dd className="inline">{LEVEL_TEXT[l].means}</dd></div>)}
       </dl>

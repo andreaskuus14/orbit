@@ -207,6 +207,9 @@ export async function runBrowseTool(i: Record<string, unknown>): Promise<string>
   if ("error" in c) return `Error: ${c.error}`;
   if ("needsClick" in c) return ask(c.needsClick);
   if (stopAllOn()) return "Error: ORBIT is paused (Stop-all is on)";
+  const [{ getPcPerms }, { pcPermDisabledReason }] = await Promise.all([import("./pc-permissions"), import("./pc-permissions-pure")]);
+  const off = pcPermDisabledReason("chrome", getPcPerms(), stopAllOn());
+  if (off) return `Error: ${off}`;
   const blocked = robotsGate(await robots(new URL(c.url).origin), c.url);
   if (blocked) return `Error: ${blocked}`;
   try {

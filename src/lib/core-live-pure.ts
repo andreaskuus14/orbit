@@ -2,9 +2,9 @@
 // content never shows (only "read a private note") and outside text shows only as titles/domains. Pure: tests and browser.
 import { stepLabel } from "./core-ui.ts";
 
-export type StepDone = { out: string; ms: number; ok: boolean };
+export type StepDone = { out: string; ms: number; ok: boolean; blocked?: boolean };
 export type LiveStart = { type: "step"; id: number; tool: string; label: string; key?: string; vars?: Record<string, string>; detail?: string; t: number };
-export type LiveDone = { type: "step_done"; id: number; ok: boolean; ms: number; result?: string; t: number };
+export type LiveDone = { type: "step_done"; id: number; ok: boolean; ms: number; result?: string; blocked?: boolean; t: number };
 export type LiveEvent = LiveStart | LiveDone;
 
 const clip = (s: string, n: number) => { const x = s.replace(/\s+/g, " ").trim(); return x.length > n ? x.slice(0, n - 1) + "…" : x; };
@@ -40,9 +40,16 @@ export function liveStep(tool: string, input: Record<string, unknown>, priv: boo
   return { label: stepLabel(tool, input), ...(KEYED.has(tool) && (tool !== "ask_agent" || agent) && { key: `live.${tool}` }), ...(tool === "ask_agent" && agent && { vars: { agent } }), ...(detail && { detail }) };
 }
 
-/** A finished step's short result: counts, ORBIT's own check line, a page title or result domains; never page/agent/private text. */
-export function liveResult(tool: string, out: string, priv: boolean): string {
-  if (priv || out.startsWith("Error:")) return "";
+/** A finished step's short result: counts, ORBIT's own check line, a page title or result domains, or a redacted policy-block reason; never page/agent/private text. */
+export function liveResult(tool: string, out: string, priv: boolean, blocked = false): string {
+  if (priv) return "";
+  if (blocked) {
+    const clean = out.replace(/^Error:\s*/i, "").replace(/\s+/g, " ").trim();
+    if (!clean) return "Blocked by an ORBIT safety rule";
+    if (/would send private text out|would carry private text|journal\/life/i.test(clean)) return "Blocked: would carry private text out of ORBIT";
+    return clip(clean, 140);
+  }
+  if (out.startsWith("Error:")) return "";
   if (tool === "search_memory") return clip(out, 40);
   const check = /^Check: ([^\n]+)/m.exec(out);
   if (check) return clip(check[1].replace(/\. Give the user.*$/, ""), 120);
@@ -81,8 +88,8 @@ export function liveTracker(priv: (tool: string, input: Record<string, unknown>)
       if (id === undefined) return [];
       const s = open.get(id)!;
       open.delete(id);
-      const result = liveResult(tool, d.out, s.priv);
-      return [{ type: "step_done", id, ok: d.ok, ms: d.ms, t: now() - t0, ...(result && { result }) }];
+      const result = liveResult(tool, d.out, s.priv, !!d.blocked);
+      return [{ type: "step_done", id, ok: d.ok, ms: d.ms, t: now() - t0, ...(result && { result }), ...(d.blocked && { blocked: true }) }];
     },
     /** Turn over: close whatever is still open. */
     end: (): LiveEvent[] => close(() => true),
@@ -90,7 +97,7 @@ export function liveTracker(priv: (tool: string, input: Record<string, unknown>)
 }
 
 // --- client side: the list the activity view renders ---
-export type LiveRow = { id: number; tool: string; label: string; key?: string; vars?: Record<string, string>; detail?: string; at: number; ms?: number; ok?: boolean; result?: string };
+export type LiveRow = { id: number; tool: string; label: string; key?: string; vars?: Record<string, string>; detail?: string; at: number; ms?: number; ok?: boolean; result?: string; blocked?: boolean };
 
 export function coreRunPhase(rows: LiveRow[], streaming: boolean, taskId?: string | null) {
   if (taskId) return "background";
@@ -101,7 +108,7 @@ export function coreRunPhase(rows: LiveRow[], streaming: boolean, taskId?: strin
 /** Applies one stream event to the rows (immutable). `at` = the event's server time (ms since the turn started). */
 export function applyLive(rows: LiveRow[], ev: LiveEvent): LiveRow[] {
   if (ev.type === "step") return [...rows, { id: ev.id, tool: ev.tool, label: ev.label, key: ev.key, vars: ev.vars, detail: ev.detail, at: ev.t }];
-  return rows.map((r) => (r.id === ev.id ? { ...r, ms: ev.ms, ok: ev.ok, result: ev.result } : r));
+  return rows.map((r) => (r.id === ev.id ? { ...r, ms: ev.ms, ok: ev.ok, result: ev.result, ...(ev.blocked && { blocked: true }) } : r));
 }
 
 /** "12 steps · 1m 40s" parts. */

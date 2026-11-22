@@ -18,6 +18,7 @@
     "check:team-status": "node --no-warnings --experimental-strip-types scripts/team-status-ui.mjs",
     "check:continue-work": "node --no-warnings --experimental-strip-types scripts/continue-ui.mjs",
     "check:luau": "node --no-warnings --experimental-strip-types scripts/luau-check.ts",
+    "check:ui-motion": "node --no-warnings scripts/ui-motion-check.mjs",
     "secrets": "node scripts/secret-scan.mjs",
     "deps:outdated": "node scripts/deps-update.mjs",
     "gate": "node scripts/secret-scan.mjs && node -e \"require('fs').rmSync('.next/types',{recursive:true,force:true})\" && tsc --noEmit -p . && npm test && npm run eval:ai && next build",

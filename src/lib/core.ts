@@ -353,11 +353,11 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
     // module tools (core-modules.ts) keep their own explicit-ask guards as a second check
     : isModuleTool(tool) ? await runModuleTool(tool, input, { sb, userId, chat: sessionKey, question, tainted: dataIn(), pinned: !!attach || pinsIn, operator, earlier: outsideEarlier, steps, onEvidence: (e) => evidence.push(e) })
     : await runCoreTool(sb, userId, tool, input, question, signal, stopped, deepLeft() - 60_000, (e) => evidence.push(e), { chat: sessionKey, project: memoryProject?.scope });
-  const record = (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number, operator = false) => {
+  const record = (tool: string, input: Record<string, unknown>, out: string, evidence: WriteEvidence[], ms: number, operator = false, blocked = false) => {
     evalTools.push({ tool, input, output: out.slice(0, STEP_CHARS), evidence });
     const via = parseVia(out); // web-ladder rungs that read this tool's pages ("what I used" shows them)
     trace.push({ step: tool, detail: `${JSON.stringify(input).slice(0, 140)} → ${out.slice(0, 140)}`, ms, ok: !out.startsWith("Error:"), ...(via.length ? { via } : {}), ...(evidence.length ? { evidence } : {}) });
-    onStep?.(tool, input, { out, ms, ok: !out.startsWith("Error:") }); // the live view's step end (core-live-pure.ts redacts it)
+    onStep?.(tool, input, { out, ms, ok: !out.startsWith("Error:"), ...(blocked && { blocked: true }) }); // the live view's step end (core-live-pure.ts redacts it)
     if (LOGGED.includes(tool) && !out.startsWith("Error:")) logActivity({ area: operator ? "operator" : "core", title: `CORE ${tool}: ${activityLine(tool, out)}`, ...undoOf(tool, out) }); // no inputs: memory / reminder / file text stays out of the log
   };
   // Offline mode (offline-tools.ts): Claude unreachable, rate-limited or on hold → the local brain answers with SAFE read tools, each
@@ -550,9 +550,12 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       if (policyRow) void emit(sb, userId, "policy.decision", "core", { ...policyRow, turn: turnId }); // never throws
       try { out = !verdict.allow ? `Error: ${verdict.reason}` : await exec(reply.tool, reply.input ?? {}, evidence, operated); }
       catch (e) { out = `Error: ${e instanceof Error ? e.message : String(e)}`; }
-      record(reply.tool, reply.input ?? {}, out, evidence, Date.now() - t, operated);
+      record(reply.tool, reply.input ?? {}, out, evidence, Date.now() - t, operated, !verdict.allow);
       if (!verdict.allow) trace.at(-1)!.policy = { verdict: "refuse", turn: turnId, ...(verdict.allowOnce ? { allowOnce: verdict.allowOnce } : {}) };
-      steps.push(`You called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 300)}\nRESULT:\n${out.slice(0, STEP_CHARS)}`);
+      const stepOut = !verdict.allow && (verdict.tier === "T2" || verdict.tier === "T3")
+        ? `${out} (Blocked by ORBIT rule — do not retry this blocked action in a loop; tell the user immediately what was blocked and why.)`
+        : out;
+      steps.push(`You called ${reply.tool} ${JSON.stringify(reply.input ?? {}).slice(0, 300)}\nRESULT:\n${stepOut.slice(0, STEP_CHARS)}`);
     }
   } catch (e) {
     if (signal?.aborted && stopped.length) throw new CoreStopped(stopped.join("\n\n"));

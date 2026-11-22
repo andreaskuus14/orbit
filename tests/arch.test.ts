@@ -176,3 +176,31 @@ test("quantities: a straight wall along z; an opening without a host deducts not
     P({ id: "x", kind: "window", w: 2, d: 0.08, h: 2, host: "gone", face: "e" })]);
   assert.equal(q.wallM2, 11); assert.equal(q.wallM3, 3.3); assert.equal(q.windows, 1); // 4·3 − 1; 0.3·4·3 − 1·0.3
 });
+
+test("BOQ separates exterior insulated doors (~900 EUR) from interior doors (~280-350 EUR)", () => {
+  const parts: Part[] = [
+    P({ id: "shell", kind: "wall", name: "Walls, floor 1", w: 10, d: 8, h: 2.8, y: 0.2 }),
+    P({ id: "inner1", kind: "wall", name: "Partition 1", w: 9.4, d: 0.2, h: 2.8, y: 0.2 }),
+    P({ id: "inner2", kind: "wall", name: "Partition 2", w: 0.2, d: 7.4, h: 2.8, y: 0.2 }),
+    P({ id: "d-ext", kind: "door", name: "Front door", w: 1.0, d: 0.08, h: 2.1, host: "shell", face: "s" }),
+    P({ id: "d-int1", kind: "door", name: "Door Hall–Living", w: 0.9, d: 0.08, h: 2.1, host: "inner1", face: "s" }),
+    P({ id: "d-int2", kind: "door", name: "Door Hall–Bed", w: 0.9, d: 0.08, h: 2.1, host: "inner1", face: "s" }),
+    P({ id: "d-int3", kind: "door", name: "Door Hall–Bath", w: 0.9, d: 0.08, h: 2.1, host: "inner2", face: "e" }),
+  ];
+  const q = boq(parts);
+  assert.equal(q.doors, 4, "total doors stays backwards-compatible");
+  assert.equal(q.exteriorDoors, 1);
+  assert.equal(q.interiorDoors, 3);
+  const c = costLines(q, STARTER_PRICES, parts);
+  const extLine = c.lines.find((l) => l.key === "doors")!;
+  const intLine = c.lines.find((l) => l.key === "interiorDoors")!;
+  assert.equal(extLine.qty, 1);
+  assert.equal(extLine.eur, 900);
+  assert.equal(extLine.total, 900);
+  assert.deepEqual(extLine.from, ["Front door"]);
+  assert.equal(intLine.qty, 3);
+  assert.ok(intLine.eur! >= 280 && intLine.eur! <= 350, `interior door price ${intLine.eur} in 280-350 EUR`);
+  assert.equal(intLine.total, 3 * intLine.eur!);
+  assert.equal(intLine.from.length, 3);
+  assert.ok(extLine.total! + intLine.total! < 4 * 900, "interior doors are NOT priced as 900 EUR exterior doors");
+});

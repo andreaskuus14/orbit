@@ -30,7 +30,7 @@ export function ProgressCard({ p, onAction, onOpen, compact = false }: {
   const link = p.result?.open || p.action?.open || "";
   const left = leftText(p.leftMin, lang);
   return (
-    <article className="card progress-card space-y-1.5" data-phase={p.phase} aria-label={`${p.title}: ${t(`prog.phase.${p.phase}`)}`}>
+    <article className="card progress-card space-y-1.5" data-phase={p.phase} data-progress-id={p.id} aria-label={`${p.title}: ${t(`prog.phase.${p.phase}`)}`}>
       <header className="flex items-start gap-2">
         <span className="progress-dot mt-1.5" style={{ background: TONE[p.phase] }} aria-hidden="true" />
         <span className="min-w-0 flex-1">
@@ -42,10 +42,10 @@ export function ProgressCard({ p, onAction, onOpen, compact = false }: {
           onClick={() => (onAction ? onAction(p.action!, p) : openProgress(p.action!.open))}>{p.action.label}</button>}
       </header>
       {p.phase !== "done" && <div className="progress-bar" aria-hidden="true"><i style={{ width: `${Math.round(doneShare(p) * 100)}%`, background: TONE[p.phase] }} /></div>}
-      {p.now && <p className="progress-now text-sm" role="status">{p.now}…</p>}
+      {p.now && <p key={p.now} className="progress-now text-sm" role="status">{p.now}…</p>}
       {steps.length > 1 && p.phase !== "done" && ( /* done: every step is ✓, the result line says it */
         <ol className="progress-steps text-xs" aria-label={t("prog.steps")}>
-          {steps.map((s, i) => <li key={i} data-state={s.state}><span aria-hidden="true">{MARK[s.state]}</span> {s.label}<span className="sr-only"> ({t(`prog.step.${s.state}`)})</span></li>)}
+          {steps.map((s, i) => <li key={i} data-state={s.state}><span className="pmark" key={s.state} aria-hidden="true">{MARK[s.state]}</span> <span className="plabel">{s.label}</span><span className="sr-only"> ({t(`prog.step.${s.state}`)})</span></li>)}
           {hidden > 0 && <li><button type="button" className="link" onClick={() => setAll(true)}>{t("prog.allSteps", { n: p.steps.length })}</button></li>}
         </ol>
       )}

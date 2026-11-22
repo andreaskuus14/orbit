@@ -87,6 +87,12 @@ import type { Progress } from "@/lib/progress-pure";
 import { AMBER, countBadge, galaxyStatus, RED, sentenceRest, type CheckLike, type GalaxyStatus, type NeedLike, type StatusWorld } from "@/lib/galaxy-status-pure";
 import { sharedJson } from "./use-poll";
 import { Tour, TOUR_EVENT } from "./Tour";
+import { corePhase, useUiMotion } from "./motion/motion";
+import { CorePresence } from "./motion/CorePresence";
+import { FocusWork, JumpPill, useFocusProgress } from "./motion/FocusWork";
+import { HomeDepth } from "./motion/HomeDepth";
+import { useFollowWork } from "./motion/useFollowWork";
+import { followHome, followPlanet } from "@/lib/follow-pure";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const PerfRun = dynamic(() => import("./PerfRun"), { ssr: false }); // only with ?perfrun=1
@@ -448,7 +454,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         if (e.type === "pulse.failed") { setPulseBusy(false); setPulseFailed(true); }
         const taskId = (payload.new as { payload?: { taskId?: string } }).payload?.taskId;
         if (e.type === "goal.update") { const p = (payload.new as { payload?: { title?: string; text?: string } }).payload; notify({ signal: "routine", title: `🎯 ${String(p?.title ?? "Goal")}`, body: String(p?.text ?? ""), kind: "agents", nav: { panel: "agents" } }); }
-        if (e.type === "agent.started" && taskId) setRunningTasks((r) => (r.includes(taskId) ? r : [...r, taskId]));
+        if (e.type === "agent.started" && taskId) { setRunningTasks((r) => (r.includes(taskId) ? r : [...r, taskId])); startedRef.current(taskId); }
         if ((e.type === "agent.completed" || e.type === "agent.failed") && taskId) {
           setRunningTasks((r) => r.filter((x) => x !== taskId)); refreshAutomations();
           const status = (payload.new as { payload?: { status?: string } }).payload?.status;
@@ -553,6 +559,25 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     origin?.focus();
   }, [shown, panel, dive, view]);
   useEffect(() => { if (quiet && shown !== quiet) setQuiet(null); }, [shown, quiet]);
+  // ui-motion (ORBIT_UI_MOTION, default on): follow the work. A job he asked for flies the camera to its planet and opens the
+  // focused "Working on it" view; while he types/reads, or inside a world, only a "Jump to it" pill shows (follow-pure.ts).
+  const motion = useUiMotion();
+  const fw = useFollowWork({ enabled: motion, onHome: followHome({ shown, panel, behind, busy: !!approach || !!dive || !!workOpen || !!needsOpen }),
+    canFly: view === "3d" && !reduced && quality !== "low", leave: () => { setWorkOpen(false); setNeedsOpen(false); closeWorld(); } });
+  const focusLive = useFocusProgress(fw.job?.id ?? null);
+  const offerTask = useCallback((t: { id: string; title?: string | null; agent?: string | null; request?: string | null }, mine: boolean) => {
+    fw.offer({ id: t.id, title: t.title || "", planet: followPlanet({ title: t.title ?? "", agent: t.agent ?? "", request: t.request ?? null }) }, mine);
+  }, [fw]);
+  const openFocus = useCallback((id: string) => { // a home card: the card grows into the focused view (and the camera flies there)
+    const p = deskProgress.find((x) => x.id === id);
+    fw.open({ id, title: p?.title ?? "", planet: followPlanet({ title: p?.title ?? "", agent: "", request: null }) });
+  }, [deskProgress, fw]);
+  const startedRef = useRef<(id: string) => void>(() => {});
+  startedRef.current = (id: string) => { // a job started (realtime): look it up, then maybe follow it
+    if (!motion) return;
+    void fetch(`/api/tasks?id=${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : null)).then((j) => { const t = j?.tasks?.[0]; if (t) offerTask(t, false); }, () => {});
+  };
+  useEffect(() => { if (!motion) return; corePhase({ type: voice.listening ? "listen" : "listen_end" }); }, [voice.listening, motion]);
   const openTask = useCallback((id: string) => { setWorkOpen(false); setFocusTask(id); setFocusGoal(null); setPanel("operations"); }, []);
   const ships = useMemo(() => ({ tasks: shipTasks, onOpen: openTask }), [shipTasks, openTask]);
   useEffect(() => { // agent events refresh the fleet; polling catches changes without events (the home desk reads its own list)
@@ -696,15 +721,17 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     }
     if (runRecipeCommand(text, (msg, ok) => { if (ok) setCmdReply(msg); else setCmdErr(msg); })) { setCmd(""); return; } // "run recipe daily ideas": no CORE call
     if (runFollowCommand(text, (msg, ok) => { if (!ok) setCmdErr(msg); })) { setCmd(""); return; } // "follow Estonia" / "unfollow AI"
-    if (cmdMode === "ask") { setCmd(""); setPending({ text, here: askHere(hereLink(), shown) }); openCore(); return; } // CORE is told which planet he is on
+    if (cmdMode === "ask") { fw.markRequest(); setCmd(""); setPending({ text, here: askHere(hereLink(), shown) }); openCore(); return; } // CORE is told which planet he is on
     // Task mode: Nova interprets the request, delegates to the right agents and reports back.
     try {
+      if (motion) { fw.markRequest(); corePhase({ type: "submit" }); }
       const res = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ request: text }) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Could not create the task");
       setCmd("");
-      openTask(json.task.id);
-    } catch (err) { setCmdErr(err instanceof Error ? err.message : "Could not create the task"); }
+      if (motion) { corePhase({ type: "done" }); offerTask({ ...json.task, request: json.task.request ?? text }, true); } // he watches it in the focused view
+      else openTask(json.task.id);
+    } catch (err) { if (motion) corePhase({ type: "error" }); setCmdErr(err instanceof Error ? err.message : "Could not create the task"); }
   }
 
   async function signOut() { try { clearProjectSession(sessionStorage); } catch { /* storage off */ } await sb.auth.signOut(); location.href = "/login"; }
@@ -737,10 +764,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {view && <WakeSequence skip={view === "3d"} />} {/* 3D has its own BootSequence intro; a 3D start uses up the wake */}
       {view === "3d" && (
         <div className="galaxy-layer absolute inset-0" data-dim={(panel === "core" && !dive) || undefined} style={galaxyGone && !staged ? { visibility: "hidden" } : undefined} inert={(galaxyGone && !staged) || undefined}>
-          <Galaxy selected={approach ?? panel} onSelect={galaxySelect} memoryCount={memoryCount} scoutMoons={scoutMoons} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={!!panel && !dive} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={galaxyGone} universe={living.universe} ships={ships} dilation={dilation} status={galaxySt}
+          <Galaxy selected={fw.cam ?? approach ?? panel} followFly={!!fw.cam} onSelect={galaxySelect} memoryCount={memoryCount} scoutMoons={scoutMoons} pulses={pulses} busy={busy} warning={warning} pulseBusy={pulseBusy} bloomScale={amb.bloomScale} pulseFailed={pulseFailed} agentsWorking={runningTasks.length} automationFailing={automationFailing} reduced={reduced} panelOpen={(!!panel && !dive) || !!fw.job} fast={!!approach} quality={quality} lifeProgress={lifeProgress} paused={galaxyGone} universe={living.universe} ships={ships} dilation={dilation} status={galaxySt}
             flight={flight} onDiveCross={onDiveCross} onDiveCancel={onDiveCancel} onIdle={onGalaxyIdle} />
         </div>
       )}
+      {motion && !covered && <HomeDepth shell={shell} dim={!!panel || !!fw.job} />}
       {divePlanet && !shown && <div key={divePlanet.id} className="planet-entry-status" role="status">
         <span>{t("explore.entering", { world: t(`planet.${divePlanet.id}`) })}</span>
         <span className="planet-entry-progress" aria-hidden="true" style={{ background: divePlanet.color }} />
@@ -851,7 +879,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <WhatsNew home={!shown && !approach} />
         <MorningBrief home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
       </>}
-      {activityHome && !workOpen && <HomeDesk refresh={runningTasks.length + shipTasks.length} onOpenNeeds={() => setNeedsOpen(true)} onOpenAll={() => setWorkOpen("work")} onOpenTask={openTask} onNeeds={setDeskNeeds} onProgress={setDeskProgress} />}
+      {activityHome && !workOpen && <div style={{ display: fw.job ? "none" : "contents" }}><HomeDesk refresh={runningTasks.length + shipTasks.length} onOpenNeeds={() => setNeedsOpen(true)} onOpenAll={() => setWorkOpen("work")} onOpenTask={motion ? openFocus : openTask} onNeeds={setDeskNeeds} onProgress={setDeskProgress} /></div>}
       {activityHome && needsOpen && <NeedsYou open onClose={() => setNeedsOpen(false)} extra={deskNeeds} onOpenTask={(id) => { setNeedsOpen(false); openTask(id); }} onOpenGoal={(id) => { setNeedsOpen(false); openGoal(id); }} />}
       {boot >= 3 && <Tour ready={activityHome} />}
       {details && boot >= 2 && !shown && !approach && <HalEye />}
@@ -884,6 +912,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </button>
       )}
 
+      {motion && activityHome && !fw.job && <CorePresence size="lg" hideIdle className="home-presence" />}
+      {motion && fw.job && fw.sheet && <FocusWork p={focusLive.p} planet={fw.job.planet} at={focusLive.at} onBack={fw.back} follow={fw.follow} onFollow={fw.setFollow} leaving={fw.leaving} />}
+      {motion && fw.pill && !fw.job && <JumpPill title={fw.pill.title} planet={fw.pill.planet} onJump={fw.jump} onDismiss={fw.dismissPill} />}
       <form onSubmit={runCommand} className="glass cmdbar" data-tour="ask" data-home={activityHome || undefined} hidden={panel === "core" || undefined /* CORE has its own box: one place to type */}>
         <div className="flex gap-2">
           {cmdMode === "task" && <button type="button" className="chip shrink-0" onClick={switchMode} title={t("cmd.modeTitle")}
