@@ -39,16 +39,21 @@ export function useFollowWork(o: { enabled: boolean; onHome: boolean; canFly: bo
   useEffect(() => {
     if (!o.enabled) return;
     const key = (e: Event) => { if ((e.target as Element | null)?.closest?.(FIELD)) lastInput.current = Date.now(); };
+    // His own scrolling only (wheel/touch): "scroll" also fires when the CORE chat auto-scrolls a streaming answer, which
+    // made every chat-started job look like "he is reading" and fall back to the pill.
     const scroll = (e: Event) => { const t = e.target; if (t instanceof Element && t.closest(READING)) lastScroll.current = Date.now(); };
-    const phase = (e: Event) => { if ((e as CustomEvent<PhaseEvent>).detail?.type === "submit") lastRequest.current = Date.now(); };
+    // Sending is not typing: the Enter that sent the request must not hold the follow back.
+    const phase = (e: Event) => { if ((e as CustomEvent<PhaseEvent>).detail?.type === "submit") { lastRequest.current = Date.now(); lastInput.current = 0; } };
     addEventListener("keydown", key, true);
-    document.addEventListener("scroll", scroll, { capture: true, passive: true });
+    addEventListener("wheel", scroll, { capture: true, passive: true });
+    addEventListener("touchmove", scroll, { capture: true, passive: true });
     addEventListener(CORE_PHASE_EVENT, phase);
-    return () => { removeEventListener("keydown", key, true); document.removeEventListener("scroll", scroll, true); removeEventListener(CORE_PHASE_EVENT, phase); };
+    return () => { removeEventListener("keydown", key, true); removeEventListener("wheel", scroll, true); removeEventListener("touchmove", scroll, true); removeEventListener(CORE_PHASE_EVENT, phase); };
   }, [o.enabled]);
 
   const go = useCallback((j: FollowJob, move: Exclude<FollowMove, "pill">) => {
     setPill(null); setLeaving(false);
+    ctx.current.leave(); // the CORE chat steps aside so the camera and the focused view are seen (nothing else is open on home)
     if (move === "fly") { setCam(j.planet); setJob(j); setSheet(false); later(() => setSheet(true), openDelay("fly")); return; }
     sharedTransition(() => { setCam(null); setJob(j); setSheet(true); }, { id: j.id, dir: "open" });
   }, []);
@@ -66,7 +71,7 @@ export function useFollowWork(o: { enabled: boolean; onHome: boolean; canFly: bo
   /** His click on a card: open it now (rules don't apply to a click). */
   const open = useCallback((j: FollowJob) => { seen.current.add(j.id); go(j, ctx.current.canFly && ctx.current.onHome ? "fly" : "open"); }, [go]);
 
-  const markRequest = useCallback(() => { lastRequest.current = Date.now(); }, []);
+  const markRequest = useCallback(() => { lastRequest.current = Date.now(); lastInput.current = 0; }, []);
 
   const jump = useCallback(() => {
     const j = pill;

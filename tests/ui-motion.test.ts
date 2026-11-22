@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { bezier, countdown, CURVE, cssCurve, DUR, dur, ease, fadeTier, FADE_MS, flyEase, motionCssVars, motionOn, paceReveal, ringOffset, springStep, stepChanges } from "../src/lib/ui-motion-pure.ts";
 import { HOLD, idlePhase, nextTickIn, phaseLabel, phaseReduce, phaseTick, SETTLE, type PhaseEvent, type PhaseState } from "../src/lib/core-phase-pure.ts";
-import { followMove, followPlanet, followStored, fromHisRequest, newJobs, openDelay, QUIET_MS, REQUEST_WINDOW_MS, type FollowCtx } from "../src/lib/follow-pure.ts";
+import { followHome, followMove, followPlanet, followStored, fromHisRequest, newJobs, openDelay, QUIET_MS, REQUEST_WINDOW_MS, type FollowCtx } from "../src/lib/follow-pure.ts";
 
 test("ORBIT_UI_MOTION: on by default, 0/off/false restore the old look", () => {
   for (const v of [undefined, null, "", "1", "on", "yes"]) assert.equal(motionOn(v), true, String(v));
@@ -176,4 +176,14 @@ test("follow: only his own requests, only new jobs, the view overlaps the fly's 
   assert.equal(openDelay("open"), 0);
   assert.equal(followPlanet({ title: "Make 3 Shorts from my last video", agent: "nova", request: null }), "studio");
   assert.equal(followPlanet({ title: "Fix the pet follow lag", agent: "forge", request: "roblox game" }), "creation");
+});
+
+test("follow: the CORE chat over the galaxy counts as home; a world, another drawer or a busy view does not", () => {
+  const h = (o: Partial<Parameters<typeof followHome>[0]> = {}) => followHome({ shown: null, panel: null, behind: null, busy: false, ...o });
+  assert.equal(h(), true);
+  assert.equal(h({ panel: "core" }), true, "a job CORE starts from the chat flies like the demo");
+  assert.equal(h({ panel: "core", behind: "arch" }), false, "CORE opened over a world: pill only");
+  assert.equal(h({ panel: "settings" }), false);
+  assert.equal(h({ shown: "studio" }), false);
+  assert.equal(h({ busy: true }), false);
 });
