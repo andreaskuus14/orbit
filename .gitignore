@@ -70,3 +70,5 @@ restic.pass
 /tools/kaggle/.venv/
 kaggle.json
 access_token
+__pycache__/
+*.pyc

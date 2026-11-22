@@ -170,7 +170,7 @@ _ready = True
 # subprocess.Popen, ctypes.dlopen/call_function etc. all raise events the hook refuses. Fresh imports of them are refused outright.
 
 code_path = os.path.join(WORK, "main.py")
-src = open(code_path, encoding="utf-8").read()
+src = open(code_path, encoding="utf-8-sig").read()  # -sig: a BOM from Windows editors is dropped
 g = {"__name__": "__main__", "__file__": code_path, "__builtins__": __builtins__}
 status = 0
 try:

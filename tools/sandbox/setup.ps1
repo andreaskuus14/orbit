@@ -17,7 +17,7 @@ if (-not (Test-Py "import numpy, pandas, matplotlib, openpyxl")) {
 # A short self-test inside the sandbox harness: a chart is made and the network is refused.
 $tmp = Join-Path $env:TEMP ("orbit-sandbox-setup-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 New-Item -ItemType Directory -Path $tmp | Out-Null
-Set-Content -Path (Join-Path $tmp "main.py") -Encoding UTF8 -Value @"
+$code = @"
 import matplotlib.pyplot as plt
 plt.plot([1, 2, 3], [1, 4, 9]); plt.savefig('check.png')
 try:
@@ -25,6 +25,8 @@ try:
 except PermissionError:
     print('network blocked')
 "@
+# no BOM: Windows PowerShell's -Encoding UTF8 adds one and Python refuses it
+[IO.File]::WriteAllText((Join-Path $tmp "main.py"), $code, (New-Object System.Text.UTF8Encoding $false))
 Set-Content -Path (Join-Path $tmp "limits.json") -Value '{"memoryMb":1024,"cpuSec":60,"wallSec":60}'
 Push-Location $tmp
 # through cmd: PowerShell 5.1 turns any stderr line into a fatal error under "Stop"
