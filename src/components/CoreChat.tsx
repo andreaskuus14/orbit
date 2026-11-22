@@ -44,6 +44,9 @@ import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT, CORE_PROJECT_REQUEST_KEY, projectChatRe
 import { sentenceStream, speechChunks } from "./voice/speech-text";
 import { CORE_BUSY } from "@/lib/interruption-pure";
 import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
+import { corePhase } from "./motion/motion";
+import { createPacer, useStreamFade } from "./motion/stream";
+import { CorePresence } from "./motion/CorePresence";
 import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
 
@@ -244,6 +247,7 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
       return;
     }
     setBusy(true);
+    corePhase({ type: "submit" });
     setRows([]); setBgTask(null); setRoute(null);
     since.current = Date.now();
     let steps: LiveRow[] = []; // mirrors `rows` so "done" can keep them under the answer
@@ -257,8 +261,9 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
     abort.current = ac;
     let partial = "";
     let navTo: NavTarget | null = null; // CORE's navigate tool: fly once the answer is done, so leaving the panel can't cut it off
-    let raf = 0, cid = "";
-    const flush = () => { cancelAnimationFrame(raf); raf = 0; };
+    let cid = "";
+    const pacer = createPacer((t) => { if (here()) setLive(t); }); // ui-motion: bursts spread over a few frames (off: one render per frame, as before)
+    const flush = () => pacer.stop();
     try {
       const res = await fetch("/api/core?stream=1", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
@@ -292,14 +297,17 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
           partial += ev.text;
           say(voiceOut.push(ev.text));
           // One render per frame at most, and only the streaming bubble changes.
-          if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (here()) setLive(partial); });
+          pacer.push(partial);
+          corePhase({ type: "delta" });
         } else if (ev.type === "step" || ev.type === "step_done") {
           steps = applyLive(steps, ev as unknown as LiveEvent); setRows(steps);
           if (ev.type === "step" && ev.tool) dispatchEvent(new CustomEvent<CoreSignal>(CORE_SIGNAL, { detail: { type: "step", tool: ev.tool } })); // the singularity shows it (E4)
+          corePhase(ev.type === "step" ? { type: "tool", tool: ev.tool ?? ev.label ?? "" } : { type: "tool_end" });
         } else if (ev.type === "navigate" && ev.to) {
           navTo = ev.to;
         } else if (ev.type === "reset") {
           partial = "";
+          pacer.push("");
           voiceOut.reset();
           if (talk && speechGen() === myGen) { stopSpeech(); myGen = speechGen(); } // restart, unless the user already silenced it
           setLive("");
@@ -311,6 +319,7 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
         } else if (ev.type === "done") {
           finished = true;
           flush();
+          corePhase({ type: "done" });
           // The final answer equals the streamed text up to citation markers (stripped for speech): speak only the tail.
           say(partial.trim() ? voiceOut.flush() : speechChunks(ev.answer ?? "", true));
           setLive(null);
@@ -335,6 +344,7 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
       if (talk) stopSpeech();
       if (!stopped) ac.abort(); // e.g. a malformed line: stop the server-side CLI too
       if (!stopped) dispatchEvent(new CustomEvent<CoreSignal>(CORE_SIGNAL, { detail: { type: "error" } }));
+      corePhase({ type: stopped ? "reset" : "error" });
       if (handedOff && !stopped && bgId) { // the stream dropped (sleep, proxy, server timeout) but the task runs on the server: wait for it
         const t = await waitTask(bgId, here);
         if (t && here()) setMsgs((m) => [...m, t.status === "done" ? { role: "assistant", content: t.result ?? "", live: { rows: steps, ms: Date.now() - since.current } }
@@ -540,11 +550,12 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
         {busy && <div className="bubble core">
               {/* Steps first, text under them: new text only ever grows downwards, so nothing above it moves while it streams.
                   Long work (handed off, or past LONG_TURN_MS) shows the shared "Working on it" card instead of the step list. */}
+              <CorePresence className="mb-2" />
               {long ? <ProgressCard p={turnProgress({ id: bgTask ?? "turn", title: lastQ.current.slice(0, 80) || tr("prog.title"), rows, streaming: !!live, taskId: bgTask, startedAt: since.current, lang,
                   label: (r) => (r.key ? tr(r.key as Parameters<typeof tr>[0], (r as LiveRow).vars) : r.label.replace(/…$/, "")) })} />
                 : <CoreActivity rows={rows} running streaming={!!live} since={since.current} taskId={bgTask} route={route} projectName={chats.projects.find((p) => p.id === project)?.name} />}
               {/* Citation numbers arrive with the final answer; hide raw [m:id] markers until then. */}
-              {live && <><ChatAnswer text={numberCitations(live, [])} openMemory={onOpenMemory} streaming />
+              {live && <><LiveAnswer text={numberCitations(live, [])} openMemory={onOpenMemory} />
               <span aria-hidden className="chat-caret" /></>}
             </div>}
         {behind && <button type="button" className="chat-latest" onClick={toBottom}>↓ {tr("chat.latest")}</button>}
@@ -576,6 +587,13 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
 
 /** "CORE suggests": one compact line (count + expand) over up to 3 proactive suggestions (src/lib/insights-pure.ts),
  *  each with its one-click action and dismiss. Hidden while a turn runs, so the chat keeps its height. */
+/** The answer while it streams: fresh words fade in (ui-motion; plain text without it). */
+function LiveAnswer({ text, openMemory }: { text: string; openMemory?: (id: string) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useStreamFade(ref, text, true);
+  return <div ref={ref} className="contents"><ChatAnswer text={text} openMemory={openMemory} streaming /></div>;
+}
+
 function CoreSuggests({ tick, busy }: { tick: number; busy: boolean }) {
   const { t: tr } = useT();
   const [open, setOpen] = useState(false);

@@ -66,6 +66,11 @@ function component(file: string, attachments = false) {
       if (name.endsWith("/CoreChats")) return { useCoreChats: () => ({ map: {}, chats: [], projects: [], reload: noop }) };
       if (name.endsWith("/speech-text")) return { sentenceStream: () => ({}) };
       if (name.endsWith("/wake")) return { isSleepCommand: () => false };
+      // ui-motion pieces (off here, as with ORBIT_UI_MOTION=0): inert stand-ins with the same shape.
+      if (name.endsWith("/motion/stream")) return { createPacer: (show: (t: string) => void) => ({ push: show, flush: noop, stop: noop }), useStreamFade: noop };
+      if (name.endsWith("/motion/motion")) return { corePhase: noop, useUiMotion: () => false };
+      if (name.endsWith("/motion/useFollowWork")) return { useFollowWork: () => ({ follow: true, setFollow: noop, cam: null, job: null, sheet: false, leaving: false, pill: null, offer: noop, open: noop, jump: noop, back: noop, markRequest: noop, dismissPill: noop }) };
+      if (name.endsWith("/motion/FocusWork")) return { useFocusProgress: () => ({ p: null, task: null, at: 0 }), FocusWork: noop, JumpPill: noop };
       if (name.endsWith("/useDragPanel")) return { useDragPanel: () => ({ ref: { current: null }, handle: {} }) };
       if (name === "./i18n") return { useT: () => ({ lang: "en", t: (k: any, v?: any) => i18n.translate("en", k, v), tn: (k: any, n: number) => i18n.plural("en", k, n) }), getLang: () => "en", LangSwitch: noop };
       return new Proxy({}, { get: () => noop });
