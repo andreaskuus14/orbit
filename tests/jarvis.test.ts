@@ -22,7 +22,7 @@ test("private windows: ORBIT LIFE, password managers, banking → nothing captur
 });
 
 test("the Python helper's private-window list is the same as jarvis-pure's", () => {
-  const py = readFileSync(new URL("../tools/voice/orbit_voice.py", import.meta.url), "utf8");
+  const py = readFileSync(new URL("../tools/voice/orbit_voice.py", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   const m = /# BEGIN PRIVATE_WINDOW[^\n]*\nPRIVATE_WINDOW = (\{[\s\S]*?\})\n# END PRIVATE_WINDOW/.exec(py);
   assert.ok(m, "marker block in orbit_voice.py");
   assert.deepEqual(JSON.parse(m![1]), PRIVATE_WINDOW);

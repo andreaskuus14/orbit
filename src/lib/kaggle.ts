@@ -49,11 +49,14 @@ function save(): Promise<unknown> {
 // ---------- the CLI and the token ----------
 
 const cliBin = () => process.env.ORBIT_KAGGLE_CLI?.trim() || "kaggle";
+/** A .js/.mjs CLI (the test fake) runs through Node: Windows can't execute a shebang script directly. */
+const cliCmd = (args: string[]): [string, string[]] => { const b = cliBin(); return /\.[cm]?js$/i.test(b) ? [process.execPath, [b, ...args]] : [b, args]; };
 /** Runs the official Kaggle CLI (no shell). Never throws: ok + combined output. */
 export function kaggleCli(args: string[], ms = 120_000): Promise<{ ok: boolean; out: string }> {
   return new Promise((resolve) => {
     try {
-      execFile(cliBin(), args, { timeout: ms, windowsHide: true, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: "utf-8" } },
+      const [bin, argv] = cliCmd(args);
+      execFile(bin, argv, { timeout: ms, windowsHide: true, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: "utf-8" } },
         (e, out, err) => resolve({ ok: !e, out: `${out ?? ""}${err ?? ""}${e && !out && !err ? String((e as NodeJS.ErrnoException).code ?? e.message) : ""}`.trim() }));
     } catch (e) { resolve({ ok: false, out: e instanceof Error ? e.message : String(e) }); }
   });

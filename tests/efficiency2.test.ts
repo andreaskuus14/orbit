@@ -11,7 +11,7 @@ import { conditionalHeaders, validatorsFrom } from "../src/lib/feed-cache-pure.t
 import { bridgeStudio, studioSummary } from "../src/lib/mission-pure.ts";
 import { shownJobs } from "../src/lib/clips/pure.ts";
 
-const read = (f: string) => readFileSync(path.join(import.meta.dirname, "..", f), "utf8");
+const read = (f: string) => readFileSync(path.join(import.meta.dirname, "..", f), "utf8").replace(/\r\n/g, "\n"); // Windows checkouts may be CRLF
 
 test("EFF2-1: the job cache serves a file only while its stamp is unchanged and forgets deleted files", () => {
   const c = createJobCache<{ id: string }>();
