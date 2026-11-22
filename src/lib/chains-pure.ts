@@ -8,8 +8,10 @@
 // Step limits (saved workflows, research-pilot-pure.ts): minutes (time budget), tools (allow-list ∩ the agent's tools), priv (fetch_url only
 // opens links the search tools returned). Each can only narrow what the step may do.
 export type Limits = { calls?: number; minutes?: number; tools?: string[]; priv?: true };
-export type Draft = { goal: string; steps: ({ agent: string; request: string } & Limits)[] };
-export type ChainMeta = { chain: 1; goal: string; steps: ({ agent: string; len: number } & Limits)[]; company?: 1 };
+// after (Outcome Engine PR 2): the earlier steps this one needs. Missing = the previous step, so every older chain runs exactly
+// as before; [] = needs nothing (starts at once); [0, 2] = a fan-in. Only earlier indexes, so there can be no cycle.
+export type Draft = { goal: string; steps: ({ agent: string; request: string; after?: number[] } & Limits)[] };
+export type ChainMeta = { chain: 1; goal: string; steps: ({ agent: string; len: number; after?: number[] } & Limits)[]; company?: 1 };
 export type StepStatus = "queued" | "running" | "done" | "failed" | "awaiting_approval" | "cancelled";
 export type ChainStatus = "running" | "done" | "failed" | "waiting" | "cancelled";
 export type ChildRow = { id: string; agent: string; title: string; request: string; status: string; result: string | null; error: string | null; started_at?: string | null };
@@ -36,8 +38,11 @@ export function validateChain(x: unknown): Draft | string {
     if (raw.calls !== undefined && !(Number.isInteger(raw.calls) && (raw.calls as number) >= 1 && (raw.calls as number) <= 12)) return `step ${i + 1}: calls must be 1-12`;
     if (raw.minutes !== undefined && !(Number.isInteger(raw.minutes) && (raw.minutes as number) >= 1 && (raw.minutes as number) <= 15)) return `step ${i + 1}: minutes must be 1-15`;
     if (raw.tools !== undefined && !(Array.isArray(raw.tools) && raw.tools.length <= 20 && raw.tools.every((t) => typeof t === "string" && /^[a-z_]{1,40}$/.test(t)))) return `step ${i + 1}: tools must be a list of tool names`;
+    if (raw.after !== undefined && !(Array.isArray(raw.after) && raw.after.length <= 4 && raw.after.every((a) => Number.isInteger(a) && (a as number) >= 0 && (a as number) < i)
+      && new Set(raw.after).size === raw.after.length)) return `step ${i + 1}: after must list earlier step numbers (0-based, each once)`;
     steps.push({ agent, request, ...(raw.calls !== undefined ? { calls: raw.calls as number } : {}), ...(raw.minutes !== undefined ? { minutes: raw.minutes as number } : {}),
-      ...(raw.tools !== undefined ? { tools: raw.tools as string[] } : {}), ...(raw.priv === true ? { priv: true as const } : {}) });
+      ...(raw.tools !== undefined ? { tools: raw.tools as string[] } : {}), ...(raw.priv === true ? { priv: true as const } : {}),
+      ...(raw.after !== undefined ? { after: raw.after as number[] } : {}) });
   }
   return { goal, steps };
 }
@@ -110,6 +115,46 @@ export function nextMove(meta: ChainMeta, children: ChildRow[]): Move {
     return { do: "finish", status: cancelled ? "cancelled" : "failed", result: null, error: cancelled ? `Step ${k + 1} was cancelled` : `Step ${k + 1} (${c.agent}) failed: ${c.error ?? "unknown error"}` };
   }
   return { do: "finish", status: "done", result: rows[rows.length - 1]?.result ?? null, error: null };
+}
+
+/** The steps step k waits for (its after list, or the previous step). */
+export const depsOf = (meta: ChainMeta, k: number): number[] => meta.steps[k]?.after ?? (k ? [k - 1] : []);
+/** At most this many steps of one chain run at the same time (each still needs one of kickQueue's shared agent slots). */
+export const MAX_PARALLEL = 3;
+
+export type Plan = { do: "run"; steps: { k: number; task: ChildRow; prevs: ChildRow[] }[] } | { do: "busy"; task: ChildRow } | { do: "wait" }
+  | { do: "finish"; status: "done" | "failed" | "cancelled"; result: string | null; error: string | null };
+
+/** nextMove for chains with dependencies: every queued step whose steps-it-needs are all done can start (up to `cap`). A failed or
+ *  cancelled step blocks only the steps that need it; others keep going, and the chain ends failed once nothing else can move.
+ *  With no `after` anywhere this decides exactly what nextMove does (tests/chains.test.ts runs both on the same cases). */
+export function nextMoves(meta: ChainMeta, children: ChildRow[], cap = MAX_PARALLEL): Plan {
+  const rows = byStep(meta, children);
+  const missing = rows.findIndex((c) => !c);
+  if (missing >= 0) return { do: "finish", status: "failed", result: null, error: `Step ${missing + 1} task is missing` };
+  const r = rows as ChildRow[];
+  const ready = r.flatMap((c, k) => (c.status === "queued" && depsOf(meta, k).every((d) => r[d].status === "done") ? [{ k, task: c, prevs: depsOf(meta, k).map((d) => r[d]) }] : []));
+  if (ready.length) return { do: "run", steps: ready.slice(0, Math.max(1, cap)) };
+  const running = r.find((c) => c.status === "running");
+  if (running) return { do: "busy", task: running };
+  if (r.some((c) => c.status === "awaiting_approval")) return { do: "wait" };
+  if (r.every((c) => c.status === "done")) return { do: "finish", status: "done", result: r[r.length - 1].result ?? null, error: null };
+  const k = r.findIndex((c) => c.status === "failed" || c.status === "cancelled");
+  if (k >= 0) {
+    const cancelled = r[k].status === "cancelled";
+    return { do: "finish", status: cancelled ? "cancelled" : "failed", result: null, error: cancelled ? `Step ${k + 1} was cancelled` : `Step ${k + 1} (${r[k].agent}) failed: ${r[k].error ?? "unknown error"}` };
+  }
+  return { do: "finish", status: "failed", result: null, error: "No step can start (an unknown step status)" };
+}
+
+/** The one "previous result" a step's handoff carries: its single dependency, or for a fan-in the finished results of all of
+ *  them, each labelled, as one data row (its id lists the sources, so any change to any of them shows as a stale input). */
+export function handoffSource(prevs: ChildRow[]): ChildRow | null {
+  if (!prevs.length) return null;
+  if (prevs.length === 1) return prevs[0];
+  if (prevs.some((p) => p.status !== "done" || !p.result?.trim())) return null;
+  return { ...prevs[0], id: prevs.map((p) => p.id).join("+"), agent: prevs.map((p) => p.agent).join("+"), status: "done",
+    result: prevs.map((p) => `## From ${p.agent}\n${p.result}`).join("\n\n") };
 }
 
 // AGT03 handoff contract: step k receives a validated record of step k-1's output as a delimited JSON data block (never instructions).

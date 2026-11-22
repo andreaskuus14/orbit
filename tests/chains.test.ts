@@ -85,3 +85,80 @@ test("handoff: structured data block, stale input blocks, duplicate ignored, inj
   const big = acceptHandoff("c", 1, "x".repeat(2000), {}, { ...prev, result: '"'.repeat(9000) }, "") as { request: string };
   assert.ok(big.request.length <= 8000 && readHandoff(big.request));
 });
+
+// ── Outcome Engine PR 2: steps with dependencies ──
+import { depsOf, handoffSource, nextMoves, MAX_PARALLEL } from "../src/lib/chains-pure.ts";
+import { validateMission } from "../src/lib/missions-pure.ts";
+
+const dag = (after: (number[] | undefined)[]) => toMeta({ goal: "g", steps: after.map((a, i) => ({ agent: ["atlas", "forge", "qa", "muse", "nova"][i], request: `s${i}`, ...(a ? { after: a } : {}) })) });
+const kidN = (meta: ReturnType<typeof dag>, k: number, status: string, extra: Partial<ChildRow> = {}): ChildRow =>
+  ({ id: `t${k}`, agent: meta.steps[k].agent, title: stepTitle(k, meta.steps.length, meta.steps[k].agent, `s${k}`), request: `s${k}`, status, result: null, error: null, ...extra });
+
+test("nextMoves decides exactly what nextMove does for every ordinary (sequential) chain", () => {
+  const m = toMeta(draft());
+  const S = ["queued", "running", "done", "failed", "awaiting_approval", "cancelled"];
+  for (const a of S) for (const b of S) {
+    if (!(b === "queued" || a === "done")) continue; // a sequential chain only reaches these (step 2 starts after step 1 is done)
+    const kids = [kid(0, a, a === "done" ? { result: "R0" } : a === "failed" ? { error: "boom" } : {}), kid(1, b, b === "done" ? { result: "R1" } : b === "failed" ? { error: "x" } : {})];
+    const old = nextMove(m, kids), neu = nextMoves(m, kids);
+    if (old.do === "run") assert.deepEqual(neu, { do: "run", steps: [{ k: old.k, task: old.task, prevs: old.prev ? [old.prev] : [] }] }, `${a}/${b}`);
+    else assert.deepEqual(neu, old, `${a}/${b}`);
+  }
+  assert.deepEqual(depsOf(m, 0), []);
+  assert.deepEqual(depsOf(m, 1), [0]);
+});
+
+test("fan-out then fan-in: independent steps start together, the joining step waits for all of them", () => {
+  const m = dag([undefined, [], [], [0, 1, 2]]); // 0, 1, 2 need nothing; 3 needs all three
+  const all = [0, 1, 2, 3].map((k) => kidN(m, k, "queued"));
+  const p = nextMoves(m, all);
+  assert.equal(p.do, "run");
+  assert.deepEqual(p.do === "run" && p.steps.map((x) => x.k), [0, 1, 2]);
+  assert.equal(MAX_PARALLEL, 3);
+  assert.deepEqual((nextMoves(m, all, 2) as { steps: { k: number }[] }).steps.map((x) => x.k), [0, 1]);
+  // two done, one still running: the join can't start yet
+  const mid = [kidN(m, 0, "done", { result: "A" }), kidN(m, 1, "done", { result: "B" }), kidN(m, 2, "running"), kidN(m, 3, "queued")];
+  assert.equal(nextMoves(m, mid).do, "busy");
+  const done3 = [kidN(m, 0, "done", { result: "A" }), kidN(m, 1, "done", { result: "B" }), kidN(m, 2, "done", { result: "C" }), kidN(m, 3, "queued")];
+  const j = nextMoves(m, done3);
+  assert.ok(j.do === "run" && j.steps.length === 1 && j.steps[0].k === 3 && j.steps[0].prevs.map((x) => x.id).join() === "t0,t1,t2");
+  // a restart sees the same rows and picks the same ready set (pure)
+  assert.deepEqual(nextMoves(m, [...done3].reverse()), j);
+});
+
+test("a failed step blocks only the steps that need it; the chain ends failed once nothing else can move", () => {
+  const m = dag([undefined, [], [0], [1]]); // 2 needs 0; 3 needs 1
+  const p = nextMoves(m, [kidN(m, 0, "failed", { error: "boom" }), kidN(m, 1, "done", { result: "B" }), kidN(m, 2, "queued"), kidN(m, 3, "queued")]);
+  assert.ok(p.do === "run" && p.steps.map((x) => x.k).join() === "3"); // 3 still runs
+  const end = nextMoves(m, [kidN(m, 0, "failed", { error: "boom" }), kidN(m, 1, "done", { result: "B" }), kidN(m, 2, "queued"), kidN(m, 3, "done", { result: "D" })]);
+  assert.deepEqual(end, { do: "finish", status: "failed", result: null, error: "Step 1 (atlas) failed: boom" });
+  assert.equal(nextMoves(m, [kidN(m, 0, "awaiting_approval"), kidN(m, 1, "done", { result: "B" }), kidN(m, 2, "queued"), kidN(m, 3, "done", { result: "D" })]).do, "wait");
+  assert.deepEqual(nextMoves(m, [kidN(m, 0, "done", { result: "A" })]), { do: "finish", status: "failed", result: null, error: "Step 2 task is missing" });
+});
+
+test("after is validated: only earlier steps, each once; missions pass it through", () => {
+  const steps = (a: unknown) => [{ agent: "atlas", request: "a" }, { agent: "forge", request: "b", after: a }];
+  assert.ok(typeof validateChain({ goal: "g", steps: steps([]) }) !== "string");
+  assert.deepEqual((validateChain({ goal: "g", steps: steps([0]) }) as { steps: { after?: number[] }[] }).steps[1].after, [0]);
+  for (const bad of [[1], [2], [-1], [0, 0], ["0"], 0, [0.5]]) assert.match(String(validateChain({ goal: "g", steps: steps(bad) })), /after must list earlier step numbers/, JSON.stringify(bad));
+  const mission = validateMission({ objective: "make a shop", acceptance: "site passes checks", steps: steps([]) });
+  assert.ok(typeof mission !== "string");
+  assert.deepEqual((mission as { steps: { after?: number[] }[] }).steps[1].after, []);
+  assert.deepEqual(toMeta(validateChain({ goal: "g", steps: steps([]) }) as never).steps[1].after, []);
+});
+
+test("handoffSource: one dependency is handed over as is; a fan-in becomes one labelled data row naming every source", () => {
+  const m = dag([undefined, [], [0, 1]]);
+  const a = kidN(m, 0, "done", { result: "facts" }), b = kidN(m, 1, "done", { result: "draft" });
+  assert.equal(handoffSource([]), null);
+  assert.equal(handoffSource([a]), a);
+  const j = handoffSource([a, b])!;
+  assert.equal(j.id, "t0+t1");
+  assert.match(j.result!, /## From atlas\nfacts\n\n## From forge\ndraft/);
+  assert.equal(handoffSource([a, kidN(m, 1, "running")]), null);
+  // the fan-in record pins both inputs: a changed source makes the stored handoff stale (acceptHandoff blocks, never guesses)
+  const first = acceptHandoff("c", 2, "join", {}, j, "join");
+  assert.equal(first.do, "write");
+  const changed = handoffSource([a, { ...b, result: "draft v2" }])!;
+  assert.equal(acceptHandoff("c", 2, "join", {}, changed, (first as { request: string }).request).do, "block");
+});

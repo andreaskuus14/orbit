@@ -6,7 +6,7 @@ import { allows } from "./autonomy";
 import { createBudget, emit } from "./claude";
 import { interruptedPatch } from "./completion-pure";
 import { COMPANY_PREFIX, resolvedStep, roleOf, stepStatus } from "./company-pure";
-import { CHAIN_TITLE, acceptHandoff, byStep, chainView, nextMove, parseMeta, stepTitle, toMeta, validateChain, type ChainView, type ChildRow } from "./chains-pure";
+import { CHAIN_TITLE, acceptHandoff, byStep, chainView, handoffSource, nextMoves, parseMeta, stepTitle, toMeta, validateChain, type ChainView, type ChildRow } from "./chains-pure";
 import { markResumeDirty } from "./dirty-marks";
 
 // AGENT TEAMS runner: the chain lives in the tasks table (see chains-pure.ts), so it survives restarts. drive() walks the steps in order,
@@ -141,7 +141,7 @@ export async function withSlot(sb: SupabaseClient, userId: string, taskId: strin
   finally { slots().delete(taskId); void kickQueue(sb, userId); }
 }
 
-/** Run the chain's next steps in order until it ends, waits for an approval, is cancelled, or has run maxSteps steps (the night shift: 1).
+/** Run the chain's next steps (in order, or side by side where `after` allows) until it ends, waits for an approval, is cancelled, or has run maxSteps steps (the night shift: 1).
  *  gate: MISSIONS pause, checked before each step.
  *  Idempotent: one driver per chain. Returns the last step it ran and runTask's status, or null when it ran none. */
 export async function drive(sb: SupabaseClient, userId: string, id: string, gate?: () => Promise<boolean>, maxSteps = Infinity): Promise<{ taskId: string; status: string } | null> {
@@ -163,39 +163,44 @@ export async function drive(sb: SupabaseClient, userId: string, id: string, gate
         await stopKids(sb, kids);
         return last;
       }
-      const move = nextMove(meta, kids);
-      if (move.do === "wait") return last;
-      if (move.do === "finish") { await finish(sb, id, move.status, move.result, move.error); return last; }
-      if (move.do === "busy") {
+      const plan = nextMoves(meta, kids); // Outcome Engine PR 2: every step whose steps-it-needs are done may start (old chains: one at a time, as before)
+      if (plan.do === "wait") return last;
+      if (plan.do === "finish") { await finish(sb, id, plan.status, plan.result, plan.error); return last; }
+      if (plan.do === "busy") {
         // Not ours (we await our own steps): an approval executing in resolvePending, or orphaned by a restart.
-        if (live().has(move.task.id) || Date.parse(move.task.started_at ?? "") > Date.now() - STALE_MS) return last;
-        const { data: t } = await sb.from("tasks").select("pending").eq("id", move.task.id).maybeSingle();
-        await sb.from("tasks").update(interruptedPatch(t?.pending, "Interrupted (ORBIT restarted)")).eq("id", move.task.id).eq("status", "running");
+        if (live().has(plan.task.id) || Date.parse(plan.task.started_at ?? "") > Date.now() - STALE_MS) return last;
+        const { data: t } = await sb.from("tasks").select("pending").eq("id", plan.task.id).maybeSingle();
+        await sb.from("tasks").update(interruptedPatch(t?.pending, "Interrupted (ORBIT restarted)")).eq("id", plan.task.id).eq("status", "running");
         continue;
       }
       if (gate && !(await gate())) return last;
       if (ran >= maxSteps) return last;
-      ran++;
-      // run: wait for a free agent slot (shared with kickQueue), then run the step like any task.
-      const ready = async () => { // state may have changed while waiting for the slot: chain cancelled/finished, step taken, mission paused
-        const { data: now } = await sb.from("tasks").select("id, status").in("id", [id, move.task.id]);
-        const st = new Map((now ?? []).map((r) => [r.id, r.status]));
-        return st.get(id) === "running" && st.get(move.task.id) === "queued" && (!gate || (await gate()));
+      const batch = plan.steps.slice(0, Math.max(1, maxSteps - ran));
+      ran += batch.length;
+      // run: each step waits for a free agent slot (shared with kickQueue), then runs like any task. Independent steps run side by side.
+      const runOne = (move: (typeof batch)[number]) => {
+        const ready = async () => { // state may have changed while waiting for the slot: chain cancelled/finished, step taken, mission paused
+          const { data: now } = await sb.from("tasks").select("id, status").in("id", [id, move.task.id]);
+          const st = new Map((now ?? []).map((r) => [r.id, r.status]));
+          return st.get(id) === "running" && st.get(move.task.id) === "queued" && (!gate || (await gate()));
+        };
+        return withSlot(sb, userId, move.task.id, ac.signal, async () => {
+          const prev = handoffSource(move.prevs);
+          if (move.prevs.length) {
+            const own = move.task.request.slice(0, meta.steps[move.k].len);
+            const h = acceptHandoff(id, move.k, own, meta.steps[move.k], prev, move.task.request); // AGT03 contract
+            if (h.do === "block") { await sb.from("tasks").update({ status: "failed", error: h.reason, finished_at: new Date().toISOString() }).eq("id", move.task.id).eq("status", "queued"); return; }
+            if (h.do === "write") await sb.from("tasks").update({ request: h.request }).eq("id", move.task.id).eq("status", "queued");
+          }
+          const st = meta.steps[move.k], role = meta.company ? roleOf(st.agent) : null; // company runs log ids/roles only to the ledger
+          if (role) await emit(sb, userId, "company.step", "agents", { chain: id, role, status: "started" });
+          const r = await runTask(sb, userId, move.task.id, 0, st.calls || st.minutes ? createBudget(st.minutes ? st.minutes * 60_000 : undefined, st.calls) : undefined, ac.signal, { tools: st.tools, priv: st.priv });
+          last = { taskId: move.task.id, status: r.status };
+          if (r.status === "blocked") { blocked = true; return; } // 0021 missing: the step stays queued, the drive stops (not failed)
+          if (role) await emit(sb, userId, "company.step", "agents", { chain: id, role, status: stepStatus(r.status) });
+        }, ready);
       };
-      const started = await withSlot(sb, userId, move.task.id, ac.signal, async () => {
-        if (move.prev) {
-          const own = move.task.request.slice(0, meta.steps[move.k].len);
-          const h = acceptHandoff(id, move.k, own, meta.steps[move.k], move.prev, move.task.request); // AGT03 contract
-          if (h.do === "block") { await sb.from("tasks").update({ status: "failed", error: h.reason, finished_at: new Date().toISOString() }).eq("id", move.task.id).eq("status", "queued"); return; }
-          if (h.do === "write") await sb.from("tasks").update({ request: h.request }).eq("id", move.task.id).eq("status", "queued");
-        }
-        const st = meta.steps[move.k], role = meta.company ? roleOf(st.agent) : null; // company runs log ids/roles only to the ledger
-        if (role) await emit(sb, userId, "company.step", "agents", { chain: id, role, status: "started" });
-        const r = await runTask(sb, userId, move.task.id, 0, st.calls || st.minutes ? createBudget(st.minutes ? st.minutes * 60_000 : undefined, st.calls) : undefined, ac.signal, { tools: st.tools, priv: st.priv });
-        last = { taskId: move.task.id, status: r.status };
-        if (r.status === "blocked") { blocked = true; return; } // 0021 missing: the step stays queued, the drive stops (not failed)
-        if (role) await emit(sb, userId, "company.step", "agents", { chain: id, role, status: stepStatus(r.status) });
-      }, ready);
+      const started = (await Promise.all(batch.map(runOne))).some(Boolean);
       if ((!started && !ac.signal.aborted) || blocked) return last;
     }
   } catch (e) {
