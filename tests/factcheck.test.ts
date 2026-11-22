@@ -98,3 +98,39 @@ test("ORBIT_FACTCHECK=0 turns it off; on by default", () => {
   assert.equal(f.factcheckOn({ ORBIT_FACTCHECK: "0" }), false);
   assert.equal(f.factcheckOn({ ORBIT_FACTCHECK: "1" }), true);
 });
+
+test("atoms: a joined sentence splits into its facts; a single fact stays whole", () => {
+  assert.deepEqual(f.atoms("Rescuers said 15 survivors had been located, and four others were taken to hospital."),
+    ["Rescuers said 15 survivors had been located", "four others were taken to hospital"]);
+  assert.deepEqual(f.atoms("The raid left 11 dead; he was flown to Mexico City."), ["The raid left 11 dead", "he was flown to Mexico City"]);
+  assert.deepEqual(f.atoms("A fire in Banten province, west of Jakarta, killed three."), ["A fire in Banten province, west of Jakarta, killed three."]);
+});
+
+test("checkPairs (22 Nov midday): a claim backed fact by fact across two outlets is backed, not flagged", () => {
+  const src = new Map<string, f.Source>([
+    ["a", { id: "a", text: `${"Filler sentence about the region and its weather today. ".repeat(12)}The raid left four soldiers and seven gunmen dead.` }],
+    ["b", { id: "b", text: `${"Other filler about the city and the local economy here. ".repeat(12)}He was then flown to Mexico City on an air force plane.` }],
+  ]);
+  const claims = [{ key: 0, sentence: "The raid left four soldiers and seven gunmen dead, and he was flown to Mexico City.", sources: ["a", "b"] }];
+  const { pairs, decide } = f.checkPairs(claims, src);
+  assert.ok(pairs.some((p) => p.atom === -1) && pairs.some((p) => p.atom === 1), "whole claim and each fact are scored");
+  assert.ok(pairs.findIndex((p) => p.atom >= 0) > pairs.findLastIndex((p) => p.atom === -1), "whole-claim pairs come first");
+  const s = pairs.map((p) => (p.atom === -1 ? [0.3, 0.6, 0.1] : p.premise.includes(p.atom === 0 ? "gunmen" : "flown") ? [0.97, 0.02, 0.01] : [0.1, 0.8, 0.1]) as f.Nli);
+  assert.equal(decide(s).get(0), "backed");
+});
+
+test("checkPairs: snippet-only sources are never flagged; a read source is; removal needs no part near backed", () => {
+  const short = new Map<string, f.Source>([["s", { id: "s", text: "Factory fire kills three. Dozens missing after the blaze." }]]);
+  const c = [{ key: 0, sentence: "A company representative said 300 workers were inside.", sources: ["s"] }];
+  const a = f.checkPairs(c, short);
+  assert.equal(a.decide(a.pairs.map(() => [0.05, 0.9, 0.05] as f.Nli)).get(0), "unchecked", "we only had the headline: no mark");
+  const long = new Map<string, f.Source>([["l", { id: "l", text: "Officials said 60 people were inside the factory when it caught fire. ".repeat(12) }]]);
+  const b = f.checkPairs([{ ...c[0], sources: ["l"] }], long);
+  assert.equal(b.decide(b.pairs.map(() => [0.05, 0.9, 0.05] as f.Nli)).get(0), "not_backed");
+  assert.equal(b.decide(b.pairs.map(() => [0.01, 0.01, 0.98] as f.Nli)).get(0), "contradicted");
+  const two = [{ key: 0, sentence: "He was on the FBI list, and he evaded capture for a decade.", sources: ["l"] }];
+  const t = f.checkPairs(two, long);
+  const sc = t.pairs.map((p) => (p.atom === 0 ? [0.6, 0.3, 0.1] : [0.01, 0.01, 0.98]) as f.Nli);
+  assert.notEqual(t.decide(sc).get(0), "contradicted", "a part close to backed keeps a true claim from being deleted");
+  assert.equal(t.decide(t.pairs.map(() => null)).get(0), "unchecked", "out of time: no mark");
+});

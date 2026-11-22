@@ -52,6 +52,66 @@ export function pairsFor(claims: Claim[], sources: Map<string, Source>, k = WIND
   }));
 }
 
+// ---------- multi-fact claims (v2) ----------
+// A briefing sentence often joins several facts, from several cited outlets ("X killed three, and Y said 15 were rescued [1][2]").
+// Checked whole against one two-sentence window it almost never reaches "backed" (22 Nov midday: 11 true claims flagged, one
+// true claim deleted). So each claim is also split into its facts; a fact may be backed by any window of any source it cites.
+
+/** The separate facts of a claim (the claim itself when it has only one). Splits on "; " and on ", and/but/while/with/saying"
+ *  and " and " before a new subject; pieces under 3 words stay with the piece before them. */
+export function atoms(sentence: string): string[] {
+  const s = sentence.replace(/\s+/g, " ").trim();
+  const bits = s.split(/;\s+|,\s+(?=(?:and|but|while|with|saying|after which|although)\s)|\s+and\s+(?=(?:he|she|they|it|the|a|an|his|her|their|its|four|three|two|\d+|[A-Z][a-z]+)\s)/)
+    .map((b) => b.replace(/^(?:and|but|while|with|although|after which)\s+/i, "").replace(/[.;,\s]+$/, "").trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const b of bits) { if (b.split(" ").length < 3 && out.length) out[out.length - 1] += `, ${b}`; else out.push(b); }
+  return out.length > 1 ? out : [s];
+}
+/** The k windows (one-, two- and three-sentence) across all given texts that share the most words with the text. */
+export function bestAcross(text: string, sources: string[], k: number): string[] {
+  const all = sources.flatMap((t) => { const s = sentences(t); return [...s, ...windows(t), ...s.slice(0, -2).map((x, i) => `${x} ${s[i + 1]} ${s[i + 2]}`)]; });
+  return [...new Set(all)].map((w, i) => ({ w, i, s: overlap(text, w) })).sort((a, b) => b.s - a.s || a.i - b.i).slice(0, k).map((x) => x.w);
+}
+/** A source counts as read when we have more than a headline and a snippet of it. */
+export const READ_MIN = 600;
+export const ATOM_BACKED_AT = 0.9;
+export type Pair2 = { claim: number; atom: number; premise: string; hypothesis: string }; // atom -1 = the whole sentence
+
+/** Model inputs for the v2 check, and the rule that turns their scores into verdicts. */
+export function checkPairs(claims: Claim[], sources: Map<string, Source>, k = 6) {
+  const pairs: Pair2[] = [], factPairs: Pair2[] = []; // whole claims first: under a tight time budget they decide most claims
+  const meta = new Map<number, { atoms: number; read: boolean }>();
+  for (const c of claims) {
+    const texts = c.sources.map((id) => sources.get(id)?.text).filter((t): t is string => !!t);
+    if (!texts.length) continue;
+    const parts = atoms(c.sentence);
+    meta.set(c.key, { atoms: parts.length, read: texts.some((t) => t.length >= READ_MIN) });
+    for (const premise of bestAcross(c.sentence, texts, k)) pairs.push({ claim: c.key, atom: -1, premise, hypothesis: c.sentence });
+    if (parts.length > 1) parts.forEach((a, j) => { for (const premise of bestAcross(a, texts, 4)) factPairs.push({ claim: c.key, atom: j, premise, hypothesis: a }); });
+  }
+  pairs.push(...factPairs);
+  const decide = (scores: (Nli | null)[]): Map<number, Verdict> => {
+    const by = new Map<string, (Nli | null)[]>();
+    pairs.forEach((p, i) => { const key = `${p.claim}:${p.atom}`; by.set(key, [...(by.get(key) ?? []), scores[i] ?? null]); });
+    const max = (l: (Nli | null)[], i: 0 | 2) => Math.max(0, ...l.filter((x): x is Nli => !!x).map((x) => x[i]));
+    return new Map(claims.map((c) => {
+      const m = meta.get(c.key);
+      if (!m) return [c.key, "unchecked" as Verdict];
+      const whole = by.get(`${c.key}:-1`) ?? [];
+      const atomL = Array.from({ length: m.atoms > 1 ? m.atoms : 0 }, (_, j) => by.get(`${c.key}:${j}`) ?? []);
+      const lists = [whole, ...atomL];
+      if (max(whole, 0) >= BACKED_AT || (atomL.length && atomL.every((l) => max(l, 0) >= ATOM_BACKED_AT))) return [c.key, "backed" as Verdict];
+      if (lists.some((l) => l.some((x) => x === null))) return [c.key, "unchecked" as Verdict]; // not all read in time
+      // Removal needs the whole claim clearly contradicted and no part of it close to backed (contradiction alone is noisy).
+      const anyNear = lists.some((l) => max(l, 0) >= 0.5);
+      if (max(whole, 2) >= CONTRA_AT && max(whole, 0) < CONTRA_MAX_ENTAIL && !anyNear) return [c.key, "contradicted" as Verdict];
+      // Flag only what we could really check: a claim resting on headlines and snippets alone stays unmarked.
+      return [c.key, (m.read ? "not_backed" : "unchecked") as Verdict];
+    }));
+  };
+  return { pairs, decide };
+}
+
 /** Scores of one claim's windows → verdict. A null score = that window ran out of time: a claim is only flagged or removed
  *  once all its windows were read (an unread one might have backed it), so partly read and not yet backed = unchecked. */
 export function verdictOf(scores: (Nli | null)[]): Verdict {

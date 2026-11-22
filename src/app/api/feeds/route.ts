@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/supabase/server";
 import { topicFeedUrl, WORLD_PACK } from "@/lib/pulse";
 import { str } from "@/lib/pure";
 import { feedsOpml } from "@/lib/feed-export-pure";
+import { packById } from "@/lib/source-packs-pure";
 
 export async function GET(req: Request) {
   const { sb, res } = await requireUser();
@@ -14,14 +15,16 @@ export async function GET(req: Request) {
   return Response.json({ feeds: data });
 }
 
-/** Add a news topic (becomes a Google News search feed) or any RSS/Atom URL. */
+/** Add a news topic (becomes a Bing News search feed), any RSS/Atom URL, or a source pack ({pack: "world" | an expert pack id}). */
 export async function POST(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const body = await req.json().catch(() => ({}));
-  if (body.pack === "world") {
+  const pack = body.pack === "world" ? WORLD_PACK : packById(body.pack)?.feeds; // world news, or an expert pack (source-packs-pure.ts)
+  if (body.pack !== undefined && !pack) return Response.json({ error: "Unknown source pack" }, { status: 400 });
+  if (pack) {
     const { data, error } = await sb.from("feeds")
-      .upsert(WORLD_PACK.map((f) => ({ ...f, user_id: user.id })), { onConflict: "user_id,url", ignoreDuplicates: true }).select("id");
+      .upsert(pack.map((f) => ({ ...f, user_id: user.id })), { onConflict: "user_id,url", ignoreDuplicates: true }).select("id");
     if (error) return Response.json({ error: error.message }, { status: 400 });
     return Response.json({ added: data?.length ?? 0 }, { status: 201 });
   }

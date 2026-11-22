@@ -160,7 +160,7 @@ export function normalizeUrl(u: string): string {
   try {
     const url = new URL(u);
     url.hash = "";
-    for (const k of [...url.searchParams.keys()]) if (/^(utm_|fbclid|gclid|ref$|ocid$)/i.test(k)) url.searchParams.delete(k);
+    for (const k of [...url.searchParams.keys()]) if (/^(utm_|at_|fbclid|gclid|ref$|ocid$|traffic_source$|cmp$|intcmp$|ito$)/i.test(k)) url.searchParams.delete(k); // at_ = BBC RSS, traffic_source = Al Jazeera RSS
     url.hostname = url.hostname.replace(/^www\./, "");
     return url.toString().replace(/\/$/, "");
   } catch {

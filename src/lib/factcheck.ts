@@ -3,7 +3,7 @@
 // returns null and the caller keeps today's text. Pure logic and the briefing/CORE text changes: factcheck-pure.ts.
 import path from "node:path";
 import { createPool } from "./asr-pool";
-import { factcheckOn, pairsFor, verdicts, type Claim, type Nli, type Source, type Verdict } from "./factcheck-pure";
+import { checkPairs, factcheckOn, type Claim, type Nli, type Source, type Verdict } from "./factcheck-pure";
 
 const MODEL = () => process.env.ORBIT_FACTCHECK_MODEL || "Xenova/DeBERTa-v3-base-mnli-fever-anli";
 const IDLE_MS = 10 * 60_000; // the model (~500 MB RAM) leaves memory after 10 idle minutes
@@ -49,10 +49,10 @@ async function score(pairs: [string, string][], budgetMs: number): Promise<(Nli 
 /** Verdict per claim key, or null when the check didn't run (then nothing in the text changes). */
 export async function checkClaimsLocal(claims: Claim[], sources: Map<string, Source>, budgetMs: number): Promise<{ v: Map<number, Verdict>; ms: number; pairs: number } | null> {
   const t = Date.now();
-  const pairs = pairsFor(claims, sources);
+  const { pairs, decide } = checkPairs(claims, sources); // each claim whole and fact by fact, across every source it cites
   if (!pairs.length) return null;
   const scores = await score(pairs.map((p) => [p.premise, p.hypothesis]), budgetMs);
-  return scores ? { v: verdicts(claims, pairs, scores), ms: Date.now() - t, pairs: pairs.length } : null;
+  return scores ? { v: decide(scores), ms: Date.now() - t, pairs: pairs.length } : null;
 }
 
 /** Time budget for a briefing's check (it runs in the background job) and for a CORE answer (the owner is waiting). */

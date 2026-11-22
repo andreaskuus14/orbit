@@ -8,7 +8,7 @@
 //   [fail]                    answer with an error
 //   [failonce:ID]             fail the first time, behave normally after (Retry check)
 //   [propose:create_project]  first agent step proposes that approval tool (interrupted-action checks)
-// A Pulse briefing prompt ("NEWS EVENTS") gets a short briefing citing its first article ([a:<id>]), as Pulse requires.
+// A Pulse briefing prompt ("NEWS EVENTS") gets a short briefing citing its first article ([a:N]), as Pulse requires.
 // Every call is logged to FAKE_CLAUDE_LOG ("start" lines carry the prompt's first 80 characters, so checks can count calls per task).
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 
@@ -51,7 +51,7 @@ process.stdin.on("end", async () => {
     log("fail");
     process.exit(1);
   }
-  const article = /NEWS EVENTS/.test(prompt) && /\[a:([0-9a-f-]{36})\]/i.exec(prompt);
+  const article = /NEWS EVENTS/.test(prompt) && /\[a:([0-9a-f-]{36}|\d+)\]/i.exec(prompt); // Pulse lists articles as [a:N]
   const story = /Target length: (\d+) seconds/.exec(prompt); // AI Story's script request (story.ts writeStory)
   const text = story ? JSON.stringify(fakeStory(Number(story[1])))
     : article ? `## Today\n\nThe top story of the day, in one line [a:${article[1]}].`
