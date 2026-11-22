@@ -4,11 +4,11 @@
 import { existsSync } from "node:fs";
 import { OLLAMA_URL, localModelName } from "./local-model-pure.ts";
 import { ocrConfig } from "./ocr-pure.ts";
-import { ollamaExeCandidates, ollamaWanted, type OllamaStart } from "./ollama-start-pure.ts";
+import { ollamaExeCandidates, ollamaLaunch, ollamaRetryMs, ollamaWanted, type OllamaStart } from "./ollama-start-pure.ts";
 
-const G = globalThis as unknown as { __orbitOllama?: { last: OllamaStart; run?: Promise<OllamaStart>; tried: number } };
+const G = globalThis as unknown as { __orbitOllama?: { last: OllamaStart; run?: Promise<OllamaStart>; tried: number; fails?: number } };
 const st = (G.__orbitOllama ??= { last: { state: "running" }, tried: 0 });
-const RETRY_MS = 60_000, WAIT_MS = 20_000;
+const WAIT_MS = 20_000;
 
 const up = () => fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(2500) }).then((r) => r.ok, () => false);
 
@@ -18,7 +18,8 @@ async function spawnServe(exe: string): Promise<{ ok: boolean; why?: string }> {
   const { spawn } = await import("node:child_process");
   return new Promise((resolve) => {
     let done = false;
-    const child = spawn(exe, ["serve"], { detached: true, windowsHide: true, stdio: "ignore", env: { ...process.env, OLLAMA_HOST: new URL(OLLAMA_URL).host } });
+    const how = ollamaLaunch(exe, process.platform, existsSync);
+    const child = spawn(how.file, how.args, { detached: how.detached, windowsHide: true, stdio: "ignore", env: { ...process.env, OLLAMA_HOST: new URL(OLLAMA_URL).host } });
     child.on("error", (e: NodeJS.ErrnoException) => { if (!done) { done = true; resolve({ ok: false, why: e.code === "ENOENT" ? undefined : e.message }); } });
     child.on("spawn", () => { if (!done) { done = true; child.unref(); resolve({ ok: true }); } });
     child.on("exit", (code) => { if (!done) { done = true; resolve({ ok: false, why: `it stopped right away (exit ${code})` }); } });
@@ -51,9 +52,9 @@ async function start(reason: string): Promise<OllamaStart> {
 export async function ensureOllama(reason: string): Promise<OllamaStart> {
   if (!ollamaWanted(localModelName(process.env), ocrConfig(process.env).on)) return (st.last = { state: "unused" });
   if (st.run) return st.run;
-  if (st.last.state === "failed" && Date.now() - st.tried < RETRY_MS) return (await up()) ? (st.last = { state: "running" }) : st.last;
+  if (st.last.state === "failed" && Date.now() - st.tried < ollamaRetryMs(st.fails ?? 1)) return (await up()) ? (st.last = { state: "running" }) : st.last;
   st.tried = Date.now();
   st.run = start(reason).catch((e) => ({ state: "failed" as const, at: Date.now(), why: e instanceof Error ? e.message : String(e) }))
-    .then((r) => (st.last = r.state === "running" && st.last.state === "started" ? st.last : r)).finally(() => { st.run = undefined; });
+    .then((r) => { st.fails = r.state === "failed" ? (st.fails ?? 0) + 1 : 0; return (st.last = r.state === "running" && st.last.state === "started" ? st.last : r); }).finally(() => { st.run = undefined; });
   return st.run;
 }

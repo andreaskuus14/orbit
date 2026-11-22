@@ -7,7 +7,7 @@ import { COLD_EMBED_MS, lateLine, prepBudget, PREP_BUDGET_MS, withBudget } from 
 import { retrieveMemories } from "../src/lib/memory-search.ts";
 import { makeStamp, stampCovers, type ModelFileSpec } from "../src/lib/embeddings-pure.ts";
 import { alertingGroups, failureGroups } from "../src/lib/clips/failure-alert-pure.ts";
-import { ollamaCheck, ollamaExeCandidates, ollamaWanted } from "../src/lib/ollama-start-pure.ts";
+import { ollamaCheck, ollamaExeCandidates, ollamaLaunch, ollamaRetryMs, ollamaWanted } from "../src/lib/ollama-start-pure.ts";
 import { helperFailure, helperLimits } from "../src/lib/scrape-pure.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -194,4 +194,13 @@ test("Scrapling helper: one try that ends before ORBIT's own limit; a timeout or
   assert.equal(crash.unavailable, false); assert.match(crash.error, /exit 1\).*ValueError/); assert.ok(!/Proxy 'None'/.test(crash.error));
   const missing = helperFailure(1, null, "ModuleNotFoundError: No module named 'scrapling'", 15_000);
   assert.equal(missing.unavailable, true); assert.match(missing.error, /isn't installed/);
+});
+
+test("ollama on Windows never opens a console window: tray app if present, else attached serve", () => {
+  const exe = "C:\\Users\\a\\AppData\\Local\\Programs\\Ollama\\ollama.exe";
+  assert.deepEqual(ollamaLaunch(exe, "win32", () => true), { file: "C:\\Users\\a\\AppData\\Local\\Programs\\Ollama\\ollama app.exe", args: [], detached: true });
+  assert.deepEqual(ollamaLaunch(exe, "win32", () => false), { file: exe, args: ["serve"], detached: false });
+  assert.deepEqual(ollamaLaunch("ollama", "win32", () => true), { file: "ollama", args: ["serve"], detached: false });
+  assert.deepEqual(ollamaLaunch("/usr/bin/ollama", "linux", () => true), { file: "/usr/bin/ollama", args: ["serve"], detached: true });
+  assert.deepEqual([1, 2, 3, 9].map(ollamaRetryMs), [60_000, 300_000, 1_800_000, 1_800_000]);
 });
