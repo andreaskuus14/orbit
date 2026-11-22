@@ -21,6 +21,20 @@ export function ollamaExeCandidates(env: Record<string, string | undefined>, pla
   return [...new Set([own, ...list, "ollama"].filter((x): x is string => !!x))];
 }
 
+/** How to launch one candidate. On Windows a console program started "detached" gets its own console window, and with
+ *  Windows Terminal as the default terminal that window shows up despite windowsHide (the owner saw it pop up every minute).
+ *  So: prefer Ollama's own tray app ("ollama app.exe", a GUI program: no console, keeps the server up across ORBIT restarts);
+ *  otherwise run `ollama serve` attached to ORBIT's hidden console (not detached), which never opens a window. */
+export function ollamaLaunch(exe: string, platform: string, appExists: (p: string) => boolean): { file: string; args: string[]; detached: boolean } {
+  if (platform !== "win32") return { file: exe, args: ["serve"], detached: true };
+  const app = /ollama\.exe$/i.test(exe) ? exe.replace(/ollama\.exe$/i, "ollama app.exe") : "";
+  if (app && appExists(app)) return { file: app, args: [], detached: true };
+  return { file: exe, args: ["serve"], detached: false };
+}
+
+/** Wait before the next start attempt after `fails` failed ones in a row: 1 min, 5 min, then 30 min. */
+export const ollamaRetryMs = (fails: number) => (fails <= 1 ? 60_000 : fails === 2 ? 5 * 60_000 : 30 * 60_000);
+
 /** Does anything in ORBIT need Ollama right now? (a local brain model is set, or document OCR is on) */
 export const ollamaWanted = (localModel: string, ocrOn: boolean) => !!localModel || ocrOn;
 
