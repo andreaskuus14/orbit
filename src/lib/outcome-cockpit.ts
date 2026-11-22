@@ -18,6 +18,10 @@ import {
   type OutcomeTemplateId,
   type StepStatus,
 } from "./outcome-cockpit-pure";
+import { endDebate, newPlanDebate } from "./outcome-debate-pure";
+
+/** ORBIT_OUTCOME_DEBATE=0 turns the critic-vs-planner plan review off for new outcomes. */
+const DEBATE_ON = process.env.ORBIT_OUTCOME_DEBATE !== "0";
 
 const file = () => path.join(orbitDataDir(), "outcomes.json");
 const g = globalThis as unknown as { __orbitOutcomesLock?: Promise<unknown> };
@@ -59,8 +63,9 @@ export async function createOutcome(
       now: new Date().toISOString(),
     });
     if (typeof created === "string") return { error: created };
-    u.items.unshift(created);
-    return { project: created };
+    const project: OutcomeProject = DEBATE_ON ? { ...created, debate: newPlanDebate() } : created;
+    u.items.unshift(project);
+    return { project };
   });
 }
 
@@ -99,6 +104,10 @@ export const retryOutcomeStep = (userId: string, id: string, stepId: string) =>
 
 export const decideOutcomeApproval = (userId: string, id: string, approvalId: string, decision: "approved" | "rejected") =>
   mutateOutcome(userId, id, (p, now) => decideApproval(p, approvalId, decision, now));
+
+/** Owner chose to run the plan without the critic review. */
+export const skipPlanReview = (userId: string, id: string) =>
+  mutateOutcome(userId, id, (p, now) => (p.debate?.status === "pending" ? endDebate(p, "skipped", "Skipped by you; the plan runs as written.", now) : "The plan review is not pending."));
 
 export async function deleteOutcome(userId: string, id: string): Promise<boolean> {
   return update((s) => {

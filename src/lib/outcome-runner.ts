@@ -26,6 +26,19 @@ import {
   type OutcomeStep,
   type RunnerSyncSnapshot,
 } from "./outcome-cockpit-pure";
+import { askClaude, recordUsage, SMART_MODEL } from "./claude";
+import {
+  CRITIC_SYSTEM,
+  DEFENSE_SYSTEM,
+  applyDebate,
+  buildCritiquePrompt,
+  buildDefensePrompt,
+  endDebate,
+  judgeDebate,
+  parseObjections,
+  parseReplies,
+  planReviewPending,
+} from "./outcome-debate-pure";
 import { addMistake } from "./mistake-memory";
 import { proposeOutcomeSkill } from "./skills";
 import { auditRemotes } from "./playtesters-pure";
@@ -141,6 +154,7 @@ export async function dispatchStepRun(
   const step = project.steps.find((s) => s.id === stepId);
   if (!step) return { error: "Step not found" };
 
+  if (planReviewPending(project)) return { error: "The plan is still being reviewed; steps start when it is done (or skip the review)." };
   const gate = canDispatchStep(project, step);
   if (!gate.ok) return { error: gate.error };
   if (step.status === "verified") return { error: "Step is already verified." };
@@ -469,6 +483,48 @@ export async function runLocalCheckVerifier(
   return { project: saved.project, verifier, pass, proof };
 }
 
+const reviewsRunning = new Set<string>();
+
+/** Critic vs planner, before any step runs. Two Opus calls with every tool off: the critic attacks the plan, the planner
+ *  answers each objection, and judgeDebate decides deterministically what survives. Surviving objections become new
+ *  checks; nothing is removed or loosened. Any failure ends the review as "failed" and the plan runs unchanged. */
+export async function runPlanReview(
+  sb: SupabaseClient,
+  userId: string,
+  projectId: string,
+): Promise<{ project?: OutcomeProject; error?: string }> {
+  const key = `${userId}:${projectId}`;
+  if (reviewsRunning.has(key)) return { error: "The plan review is already running." };
+  const project = await loadProject(userId, projectId);
+  if (!project) return { error: "Outcome project not found" };
+  if (!planReviewPending(project)) return { project };
+  if (stopAllOn()) return { project, error: "Stop-all is on." };
+  reviewsRunning.add(key);
+  try {
+    const critic = await askClaude(buildCritiquePrompt(project), CRITIC_SYSTEM, { purpose: "outcome.critic.review", model: SMART_MODEL, risky: true });
+    await recordUsage(sb, userId, "outcome.critic.review", critic, SMART_MODEL);
+    const objections = parseObjections(critic.text, project);
+    if (!objections) {
+      return mutateOutcome(userId, projectId, (p, now) => endDebate(p, "failed", "The critic's reply was unreadable; the plan runs as written.", now));
+    }
+    let judged = objections;
+    const open = objections.filter((o) => o.verdict !== "refused");
+    if (open.length) {
+      const planner = await askClaude(buildDefensePrompt(project, open), DEFENSE_SYSTEM, { purpose: "outcome.planner.review", model: SMART_MODEL, risky: true });
+      await recordUsage(sb, userId, "outcome.planner.review", planner, SMART_MODEL);
+      judged = judgeDebate(objections, parseReplies(planner.text));
+    }
+    // the plan may have been edited meanwhile: apply to the latest copy, and only if it is still pending
+    return mutateOutcome(userId, projectId, (p, now) => (planReviewPending(p) ? applyDebate(p, judged, now) : p));
+  } catch (e) {
+    console.error("[orbit] outcome plan review failed", e);
+    const why = e instanceof Error ? e.message.slice(0, 120) : "unknown error";
+    return mutateOutcome(userId, projectId, (p, now) => (planReviewPending(p) ? endDebate(p, "failed", `Plan review failed (${why}); the plan runs as written.`, now) : p));
+  } finally {
+    reviewsRunning.delete(key);
+  }
+}
+
 /** Pillar #5: Advance active outcomes safely in the background (respects Stop-all & Rule 6 approval gates). */
 export async function advanceOutcomesBackground(
   sb: SupabaseClient,
@@ -489,7 +545,9 @@ export async function advanceOutcomesBackground(
 
   for (const item of plan) {
     if (stopAllOn()) break;
-    if (item.action === "sync") {
+    if (item.action === "plan_review") {
+      await runPlanReview(sb, userId, item.projectId);
+    } else if (item.action === "sync") {
       const r = await syncProjectRuns(sb, userId, item.projectId, { autoHeal: true, autoDistill: true });
       synced += r.synced;
       healed += r.healed?.length ?? 0;

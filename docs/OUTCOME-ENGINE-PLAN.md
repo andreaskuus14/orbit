@@ -75,3 +75,10 @@ Run three real outcomes: one Roblox update, one week of Shorts, one client shop.
 - whether it reached verified without his fixes,
 - the number of repair loops,
 - any check that passed but the result was wrong (a false pass is worse than a fail).
+
+## Plan review (critic vs planner, before any step runs)
+`outcome-debate-pure.ts` + `runPlanReview` in `outcome-runner.ts`. New outcomes start with `debate.status = "pending"`; `readySteps` returns nothing until it ends.
+An Opus critic (tools off) lists at most 6 objections, each with a check to add; the planner accepts or rebuts each one. A deterministic judge decides:
+rebutted with a specific reason → dropped (shown with the reason); blockers can't be argued away; no answer → stands; anything that would loosen an approval
+or add an outward action → refused. Surviving blocker/major objections become up to 3 new pending checks, so the outcome can't be verified until they pass.
+It never removes a step, check or approval. A failed or skipped review lets the plan run unchanged and says so on the cockpit. `ORBIT_OUTCOME_DEBATE=0` turns it off.

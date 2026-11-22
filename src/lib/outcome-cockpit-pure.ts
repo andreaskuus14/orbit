@@ -1,6 +1,7 @@
 // ORBIT Outcome Engine — Project Cockpit (pure domain model, parallel DAG scheduler, honest verification gate,
 // Rule 6 privacy & approval walls). Zero I/O; tested in tests/outcome-cockpit.test.ts.
 import { isPrivate } from "./private-pure.ts";
+import type { PlanDebate } from "./outcome-debate-pure.ts";
 
 export const OUTCOME_PLANETS = ["core", "studio", "gamedev", "business", "research", "vault", "operations"] as const;
 export type OutcomePlanet = (typeof OUTCOME_PLANETS)[number];
@@ -87,6 +88,8 @@ export type OutcomeProject = {
   approvals: OutcomeApproval[];
   distilledSkillAt?: string;
   distilledSkillName?: string;
+  /** critic-vs-planner review of the plan before any step runs (outcome-debate-pure.ts); absent on older projects */
+  debate?: PlanDebate;
   createdAt: string;
   updatedAt: string;
 };
@@ -269,6 +272,7 @@ export function createOutcomeFromTemplate(
 
 /** Independent queued steps whose dependencies are all verified — ready to execute in parallel right now. */
 export function readySteps(p: OutcomeProject): OutcomeStep[] {
+  if (p.debate?.status === "pending") return []; // nothing runs until the plan has been argued over
   const verifiedIds = new Set(p.steps.filter((s) => s.status === "verified").map((s) => s.id));
   return p.steps.filter(
     (s) => s.status === "queued" && !s.requiresApproval && s.dependsOn.every((dep) => verifiedIds.has(dep)),
@@ -724,7 +728,7 @@ export function routeModelForStep(
 // ── Pillar #5: Proactive Background Outcome Advancement ─────────────────────────────────────
 export type BackgroundOutcomeAction = {
   projectId: string;
-  action: "sync" | "auto_heal" | "run_ready" | "distill";
+  action: "plan_review" | "sync" | "auto_heal" | "run_ready" | "distill";
   reason: string;
 };
 
@@ -737,6 +741,10 @@ export function pickBackgroundActions(
   const out: BackgroundOutcomeAction[] = [];
   for (const p of projects) {
     if (out.length >= cap) break;
+    if (p.debate?.status === "pending") {
+      out.push({ projectId: p.id, action: "plan_review", reason: "Critic and planner argue over the plan before work starts" });
+      continue;
+    }
     const status = deriveOutcomeStatus(p);
     if (status === "verified") {
       if (!p.distilledSkillAt && distillOutcomeToSkill(p)) {
