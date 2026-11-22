@@ -165,3 +165,38 @@ export async function skillsContext(userId: string, question: string): Promise<s
     return formatSkillsBlock(matches, pitfalls);
   } catch { return ""; }
 }
+
+/** Propose a skill compiled from a verified Outcome Engine project (never auto-activates; awaits owner keep/dismiss). */
+export async function proposeOutcomeSkill(
+  draft: { name: string; instruction: string; tools: string[]; example: string },
+  evidenceId: string,
+): Promise<{ proposed: boolean; name?: string; reason?: string }> {
+  const valid = validateDraft(draft);
+  if (typeof valid === "string") return { proposed: false, reason: valid };
+  const tag = `outcome:${evidenceId}`;
+  return update((s) => {
+    if (s.proposals.some((p) => p.evidence.includes(tag))) {
+      return { proposed: false, reason: "already-proposed" };
+    }
+    const activeProposals = s.proposals.filter((p) => p.status === "proposed");
+    if (activeProposals.length >= PROPOSED_MAX) {
+      return { proposed: false, reason: "proposal-queue-full" };
+    }
+    const taken = [
+      ...s.skills.map((k) => currentVersion(k).name),
+      ...activeProposals.map((p) => p.name),
+    ];
+    const name = uniqueName(valid.name, taken);
+    s.proposals.unshift({
+      ...valid,
+      name,
+      id: randomUUID(),
+      support: 1,
+      evidence: [tag],
+      at: new Date().toISOString(),
+      status: "proposed",
+    });
+    s.proposals = s.proposals.slice(0, PROPOSALS_KEPT);
+    return { proposed: true, name };
+  });
+}
