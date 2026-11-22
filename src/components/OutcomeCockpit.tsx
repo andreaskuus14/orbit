@@ -2,7 +2,14 @@
 // ORBIT Outcome Engine — Project Cockpit: one live cross-planet plan + one Review Desk with honest verification gates
 // and explicit Rule 6 owner-click approvals. Pure rules: src/lib/outcome-cockpit-pure.ts.
 import { useCallback, useEffect, useState } from "react";
-import { readySteps, type OutcomeProject, type OutcomeTemplateId, type ReviewDeskSummary } from "@/lib/outcome-cockpit-pure";
+import {
+  pickRunnerKind,
+  readySteps,
+  type OutcomeProject,
+  type OutcomeRunState,
+  type OutcomeTemplateId,
+  type ReviewDeskSummary,
+} from "@/lib/outcome-cockpit-pure";
 import type { Key } from "@/lib/i18n-pure";
 import { useT } from "./i18n";
 
@@ -15,6 +22,14 @@ const STATUS_TONE: Record<ReviewDeskSummary["status"], string> = {
   waiting_approval: "border-amber-400/60 text-amber-100",
   blocked: "border-rose-400/60 text-rose-200",
   verified: "border-emerald-400/60 text-emerald-200",
+};
+
+const RUN_TONE: Record<OutcomeRunState, string> = {
+  queued: "border-white/20 bg-white/5 text-white/75",
+  running: "border-cyan-400/40 bg-cyan-500/15 text-cyan-200",
+  done: "border-emerald-400/40 bg-emerald-500/15 text-emerald-200",
+  failed: "border-rose-400/50 bg-rose-500/15 text-rose-200",
+  blocked: "border-amber-400/50 bg-amber-500/15 text-amber-200",
 };
 
 const STARTERS: readonly Exclude<OutcomeTemplateId, "custom">[] = ["roblox-update", "week-of-shorts", "client-shop"];
@@ -85,6 +100,7 @@ export function OutcomeCockpit() {
 
   const current = projects.find((p) => p.id === selectedId) ?? projects[0] ?? null;
   const readyIds = new Set(current ? readySteps(current).map((s) => s.id) : []);
+  const linkedSteps = current ? current.steps.filter((s) => Boolean(s.runId)) : [];
 
   return (
     <section className="glass rounded-2xl p-3.5 text-sm" aria-label={t("oe.title")}>
@@ -158,6 +174,14 @@ export function OutcomeCockpit() {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  className="chip text-xs"
+                  disabled={busy || linkedSteps.length === 0}
+                  onClick={() => void act({ action: "sync_runs", id: current.id })}
+                >
+                  ↻ {t("oe.syncLive")}
+                </button>
                 <button type="button" className="chip text-xs" style={view === "plan" ? { borderColor: "var(--cyan)" } : undefined} onClick={() => setView("plan")}>
                   {t("oe.tabPlan")}
                 </button>
@@ -190,45 +214,67 @@ export function OutcomeCockpit() {
                 {current.summary.parallelReady > 0 && (
                   <div className="flex items-center justify-between rounded-lg border border-cyan-400/25 bg-cyan-950/20 px-2.5 py-1.5 text-xs">
                     <span>⚡ {t("oe.ready")}: {current.summary.parallelReady}</span>
-                    <button type="button" className="chip text-xs" disabled={busy} onClick={() => void act({ action: "run_parallel", id: current.id })}>
-                      {t("oe.runParallel", { n: current.summary.parallelReady })}
+                    <button type="button" className="chip text-xs" disabled={busy} onClick={() => void act({ action: "run_ready", id: current.id })}>
+                      {t("oe.runReady", { n: current.summary.parallelReady })}
                     </button>
                   </div>
                 )}
 
                 <ol className="space-y-1.5">
-                  {current.steps.map((s) => (
-                    <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-2 text-xs">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span aria-hidden="true">{s.status === "verified" ? "✓" : s.status === "needs_fix" || s.status === "blocked" ? "✗" : s.status === "running" ? "▸" : s.status === "waiting_approval" ? "⏳" : "○"}</span>
-                          <span className="font-medium">{s.title}</span>
-                          <span className="muted font-mono text-[10px] uppercase">{s.planet} · {s.agent}</span>
-                          {readyIds.has(s.id) && <span className="rounded bg-cyan-500/20 px-1.5 py-0.5 text-[10px] text-cyan-200">{t("oe.ready")}</span>}
-                          {s.reused && <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-200">{t("oe.reused")}</span>}
+                  {current.steps.map((s) => {
+                    const rk = s.runnerKind ?? pickRunnerKind(s);
+                    const canRunStep = !s.requiresApproval && (readyIds.has(s.id) || s.status === "needs_fix" || s.status === "blocked");
+                    return (
+                      <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-2 text-xs">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span aria-hidden="true">{s.status === "verified" ? "✓" : s.status === "needs_fix" || s.status === "blocked" ? "✗" : s.status === "running" ? "▸" : s.status === "waiting_approval" ? "⏳" : "○"}</span>
+                            <span className="font-medium">{s.title}</span>
+                            <span className="muted font-mono text-[10px] uppercase">{s.planet} · {s.agent}</span>
+                            {readyIds.has(s.id) && <span className="rounded bg-cyan-500/20 px-1.5 py-0.5 text-[10px] text-cyan-200">{t("oe.ready")}</span>}
+                            {s.reused && <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-200">{t("oe.reused")}</span>}
+                            {s.runId && (
+                              <span
+                                className={`rounded-full border px-1.5 py-0.5 font-mono text-[10px] ${RUN_TONE[s.runState ?? "running"]}`}
+                                title={s.runNote || s.runId}
+                              >
+                                {t(`oe.runner.${rk}` as Key)} #{s.runId.slice(0, 6)} · {t(`oe.runState.${s.runState ?? "running"}` as Key)}
+                              </span>
+                            )}
+                          </div>
+                          {(s.note || s.runNote) && <p className="muted mt-0.5 text-[11px]">{s.note || s.runNote}</p>}
                         </div>
-                        {s.note && <p className="muted mt-0.5 text-[11px]">{s.note}</p>}
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        {!s.requiresApproval && (s.status === "needs_fix" || s.status === "blocked") && (
-                          <button type="button" className="chip text-[11px]" disabled={busy} onClick={() => void act({ action: "retry_fix", id: current.id, stepId: s.id })}>
-                            {t("oe.fixRetry")}
-                          </button>
-                        )}
-                        {!s.requiresApproval && s.status !== "verified" && (
-                          <>
-                            <button type="button" className="chip text-[11px]" disabled={busy} onClick={() => void act({ action: "step", id: current.id, stepId: s.id, status: "verified" })}>
-                              {t("oe.verify")}
+                        <div className="flex shrink-0 items-center gap-1">
+                          {canRunStep && (
+                            <button
+                              type="button"
+                              className="chip text-[11px]"
+                              disabled={busy}
+                              onClick={() => void act({ action: "run_step", id: current.id, stepId: s.id })}
+                            >
+                              ▶ {t("oe.runStep")}
                             </button>
-                            <button type="button" className="chip text-[11px]" disabled={busy} onClick={() => void act({ action: "step", id: current.id, stepId: s.id, status: "verified", reused: true })}>
-                              {t("oe.reuse")}
+                          )}
+                          {!s.requiresApproval && (s.status === "needs_fix" || s.status === "blocked") && (
+                            <button type="button" className="chip text-[11px]" disabled={busy} onClick={() => void act({ action: "retry_fix", id: current.id, stepId: s.id })}>
+                              {t("oe.fixRetry")}
                             </button>
-                          </>
-                        )}
-                        {s.link && <a className="chip text-[11px]" href={s.link}>{t("oe.open")}</a>}
-                      </div>
-                    </li>
-                  ))}
+                          )}
+                          {!s.requiresApproval && s.status !== "verified" && (
+                            <>
+                              <button type="button" className="chip text-[11px]" disabled={busy} onClick={() => void act({ action: "step", id: current.id, stepId: s.id, status: "verified" })}>
+                                {t("oe.verify")}
+                              </button>
+                              <button type="button" className="chip text-[11px]" disabled={busy} onClick={() => void act({ action: "step", id: current.id, stepId: s.id, status: "verified", reused: true })}>
+                                {t("oe.reuse")}
+                              </button>
+                            </>
+                          )}
+                          {s.link && <a className="chip text-[11px]" href={s.link}>{t("oe.open")}</a>}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ol>
 
                 <div>
@@ -255,6 +301,29 @@ export function OutcomeCockpit() {
               </div>
             ) : (
               <div className="mt-3 space-y-3">
+                {linkedSteps.length > 0 && (
+                  <div>
+                    <h3 className="muted mb-1.5 text-[11px] uppercase tracking-wider">{t("oe.liveRunners")}</h3>
+                    <ul className="space-y-1.5">
+                      {linkedSteps.map((s) => {
+                        const rk = s.runnerKind ?? pickRunnerKind(s);
+                        const st = s.runState ?? "running";
+                        return (
+                          <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-1.5 text-xs">
+                            <div className="min-w-0 flex-1">
+                              <span className="font-medium">{s.title}</span>
+                              {s.runNote && <p className="muted text-[11px]">{s.runNote}</p>}
+                            </div>
+                            <span className={`rounded-full border px-2 py-0.5 font-mono text-[10px] ${RUN_TONE[st]}`}>
+                              {t(`oe.runner.${rk}` as Key)} #{s.runId!.slice(0, 6)} · {t(`oe.runState.${st}` as Key)}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+
                 <div>
                   <h3 className="muted mb-1.5 text-[11px] uppercase tracking-wider">{t("oe.deliverables")}</h3>
                   <ul className="space-y-1.5">

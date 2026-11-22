@@ -11,6 +11,8 @@ export type StepStatus = "queued" | "running" | "verifying" | "needs_fix" | "ver
 export type ApprovalKind = "send" | "publish" | "upload" | "spend";
 export type CheckStatus = "pending" | "pass" | "fail";
 export type OutcomeStatus = "active" | "verifying" | "needs_fix" | "waiting_approval" | "blocked" | "verified";
+export type OutcomeRunnerKind = "mission" | "workspace" | "studio" | "manual";
+export type OutcomeRunState = "queued" | "running" | "done" | "failed" | "blocked";
 
 export type OutcomeStep = {
   id: string;
@@ -27,6 +29,11 @@ export type OutcomeStep = {
   taskId?: string;
   requiresApproval?: ApprovalKind;
   approvalId?: string;
+  runnerKind?: OutcomeRunnerKind;
+  runId?: string;
+  runState?: OutcomeRunState;
+  runNote?: string;
+  lastRunAt?: string;
 };
 
 export type OutcomeCheck = {
@@ -385,6 +392,139 @@ export function decideApproval(
     s.approvalId === approvalId ? { ...s, status: decision === "approved" ? ("verified" as const) : ("blocked" as const) } : s,
   );
   return { ...p, updatedAt: now, approvals, steps };
+}
+
+/** Map an OutcomeStep to its ORBIT live runner. NEVER returns an auto-runner for approval-gated steps (Rule 6). */
+export function pickRunnerKind(step: Pick<OutcomeStep, "planet" | "kind" | "requiresApproval">): OutcomeRunnerKind {
+  if (step.requiresApproval || step.kind === "approval") return "manual";
+  if (step.planet === "studio" || step.planet === "gamedev" || step.kind === "asset") return "studio";
+  if (step.kind === "build" && (step.planet === "core" || step.planet === "business")) return "workspace";
+  return "mission";
+}
+
+/** Rule 6 pre-dispatch gate: refuses approval-gated steps and any LIFE/journal/secret text before a live runner is touched. */
+export function canDispatchStep(
+  p: Pick<OutcomeProject, "title" | "brief">,
+  step: Pick<OutcomeStep, "title" | "planet" | "kind" | "requiresApproval" | "note">,
+): { ok: true; runnerKind: Exclude<OutcomeRunnerKind, "manual"> } | { ok: false; error: string } {
+  const runnerKind = pickRunnerKind(step);
+  if (runnerKind === "manual") {
+    return { ok: false, error: "Approval-gated steps cannot be auto-dispatched; wait for explicit owner approval (Rule 6)." };
+  }
+  const combined = [p.title, p.brief, step.title, step.note ?? ""].join(" ");
+  if (!isSafeOutcomeText(combined)) {
+    return { ok: false, error: "Private journal/LIFE text or credentials cannot be dispatched to a live runner (Rule 6)." };
+  }
+  return { ok: true, runnerKind };
+}
+
+/** Record a newly dispatched live runner (e.g. ORBIT Mission id) onto a step. */
+export function attachStepRun(
+  p: OutcomeProject,
+  stepId: string,
+  run: { runnerKind: OutcomeRunnerKind; runId: string; runNote?: string; now: string },
+): OutcomeProject | string {
+  const step = p.steps.find((s) => s.id === stepId);
+  if (!step) return "Step not found";
+  const gate = canDispatchStep(p, step);
+  if (!gate.ok) return gate.error;
+  const runId = clean(run.runId, 120);
+  if (!runId) return "runId is required";
+  const runNote = run.runNote !== undefined ? clean(run.runNote, 240) : undefined;
+  if (runNote && !isSafeOutcomeText(runNote)) return "Private journal/LIFE text cannot be saved on a step.";
+  const steps = p.steps.map((s) =>
+    s.id === stepId
+      ? {
+          ...s,
+          status: "running" as const,
+          runnerKind: run.runnerKind === "manual" ? gate.runnerKind : run.runnerKind,
+          runId,
+          taskId: runId,
+          runState: "running" as const,
+          ...(runNote ? { runNote } : {}),
+          lastRunAt: run.now,
+        }
+      : s,
+  );
+  const blockers = p.blockers.map((b) => (b.stepId === stepId ? { ...b, resolved: true } : b));
+  return { ...p, updatedAt: run.now, steps, blockers };
+}
+
+export type RunnerSyncSnapshot = {
+  state: OutcomeRunState;
+  note?: string;
+  proof?: string;
+  verified?: boolean;
+  now: string;
+};
+
+/** Reconcile a live runner's status/receipts back into a step honestly — never fakes verified if checks/proof are missing or approvals remain. */
+export function applyRunnerSync(
+  p: OutcomeProject,
+  stepId: string,
+  snapshot: RunnerSyncSnapshot,
+): OutcomeProject | string {
+  const step = p.steps.find((s) => s.id === stepId);
+  if (!step) return "Step not found";
+  if (step.requiresApproval) {
+    return "Approval-gated steps cannot be synced to verified; use Approve on the Review Desk (Rule 6).";
+  }
+  const cleanNote = snapshot.note !== undefined ? clean(snapshot.note, 240) : "";
+  const cleanProof = snapshot.proof !== undefined ? clean(snapshot.proof, 240) : "";
+  if ((cleanNote && !isSafeOutcomeText(cleanNote)) || (cleanProof && !isSafeOutcomeText(cleanProof))) {
+    return "Private journal/LIFE text cannot be synced onto a step (Rule 6).";
+  }
+
+  const bId = `blk-run-${stepId}`;
+  let nextStatus: StepStatus = step.status;
+  let retries = step.retries;
+  let note = step.note;
+  let blockers = p.blockers;
+
+  if (snapshot.state === "queued" || snapshot.state === "running") {
+    if (step.status !== "verified") nextStatus = "running";
+  } else if (snapshot.state === "done") {
+    if (snapshot.verified === false) {
+      // Honest gate: runner finished without verified proof — hold at verifying, never claim verified.
+      nextStatus = "verifying";
+      note = cleanNote || cleanProof || "Runner finished without verified proof — review checks before marking verified.";
+    } else {
+      nextStatus = "verified";
+      note = cleanProof || cleanNote || step.note;
+      blockers = p.blockers.map((b) => (b.stepId === stepId ? { ...b, resolved: true } : b));
+    }
+  } else if (snapshot.state === "failed") {
+    nextStatus = "needs_fix";
+    retries = step.retries + 1;
+    note = cleanNote || "Live runner failed — fix and retry.";
+    blockers = [
+      ...p.blockers.filter((b) => b.id !== bId),
+      { id: bId, stepId, message: `${step.title}: ${cleanNote || "live runner failed"}`, resolved: false, at: snapshot.now },
+    ];
+  } else if (snapshot.state === "blocked") {
+    nextStatus = "blocked";
+    note = cleanNote || "Live runner blocked — needs your input.";
+    blockers = [
+      ...p.blockers.filter((b) => b.id !== bId),
+      { id: bId, stepId, message: `${step.title}: ${cleanNote || "live runner blocked"}`, resolved: false, at: snapshot.now },
+    ];
+  }
+
+  const runNote = cleanNote || cleanProof || step.runNote;
+  const steps = p.steps.map((s) =>
+    s.id === stepId
+      ? {
+          ...s,
+          status: nextStatus,
+          retries,
+          ...(note ? { note } : {}),
+          runState: snapshot.state,
+          ...(runNote ? { runNote } : {}),
+          lastRunAt: snapshot.now,
+        }
+      : s,
+  );
+  return { ...p, updatedAt: snapshot.now, steps, blockers };
 }
 
 export type ReviewDeskSummary = {
