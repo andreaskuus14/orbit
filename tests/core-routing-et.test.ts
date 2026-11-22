@@ -81,6 +81,12 @@ const PAIRS: [string, string, string][] = [
   ["TERMINAL", "Run the tests in the terminal", "Käivita testid terminalis"],
   ["TERMINAL", "Open a shell and activate the venv", "Ava käsurea aken ja aktiveeri venv"],
   ["TERMINAL", "Run this command with powershell", "Käivita see käsk powershelliga"],
+  ["SANDBOX", "Plot a graph of this dataset", "Koosta sellest andmestikust graafik"],
+  ["SANDBOX", "Compute statistics for this spreadsheet", "Arvuta selle tabeli statistika"],
+  ["SANDBOX", "Run a regression on these numbers in pandas", "Analüüsi seda andmestikku graafikuga"],
+  ["RESEARCH", "Start a deep research on 2D game engines", "Alusta süvauuringut 2D mängumootoritest"],
+  ["RESEARCH", "Research this thoroughly with sources", "Uuri seda põhjalikult allikatega raport"],
+  ["RESEARCH", "Give me a market overview of AI video tools", "Anna mulle AI videotööriistade turuülevaade"],
 ];
 
 test("every keyword-gated module has ≥3 EN/ET pairs and a capability line", () => {
