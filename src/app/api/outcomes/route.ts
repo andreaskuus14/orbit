@@ -11,6 +11,7 @@ import {
   setOutcomeCheck,
   setOutcomeStep,
 } from "@/lib/outcome-cockpit";
+import { dispatchReadyRuns, dispatchStepRun, syncProjectRuns } from "@/lib/outcome-runner";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   if (csrfBlock(req, "POST")) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
-  const { user, res } = await requireUser();
+  const { sb, user, res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!b || typeof b !== "object") return Response.json({ error: "Invalid body" }, { status: 400 });
@@ -61,8 +62,23 @@ export async function POST(req: Request) {
   if (!id) return Response.json({ error: "id required" }, { status: 400 });
 
   let out: { project?: Awaited<ReturnType<typeof listOutcomes>>[number]; error?: string };
+  let meta: Record<string, unknown> = {};
   if (action === "run_parallel") {
     out = await runParallelOutcomeSteps(user.id, id);
+  } else if (action === "run_step") {
+    const stepId = typeof b.stepId === "string" ? b.stepId : "";
+    if (!stepId) return Response.json({ error: "stepId required" }, { status: 400 });
+    const resRun = await dispatchStepRun(sb, user.id, id, stepId);
+    out = { project: resRun.project, error: resRun.error };
+    if (resRun.runId) meta = { runId: resRun.runId, runnerKind: resRun.runnerKind };
+  } else if (action === "run_ready") {
+    const resReady = await dispatchReadyRuns(sb, user.id, id);
+    out = { project: resReady.project, error: resReady.error };
+    meta = { dispatched: resReady.dispatched, errors: resReady.errors };
+  } else if (action === "sync_runs") {
+    const resSync = await syncProjectRuns(sb, user.id, id);
+    out = { project: resSync.project, error: resSync.error };
+    meta = { synced: resSync.synced };
   } else if (action === "step") {
     const stepId = typeof b.stepId === "string" ? b.stepId : "";
     const status = typeof b.status === "string" && VALID_STEP_STATUS.has(b.status as Exclude<StepStatus, "waiting_approval">)
@@ -90,7 +106,7 @@ export async function POST(req: Request) {
   }
 
   if (out.error || !out.project) return Response.json({ error: out.error ?? "Update failed" }, { status: 400 });
-  return Response.json({ project: { ...out.project, summary: reviewDeskSummary(out.project) } });
+  return Response.json({ project: { ...out.project, summary: reviewDeskSummary(out.project) }, ...meta });
 }
 
 export async function DELETE(req: Request) {
