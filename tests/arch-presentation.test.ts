@@ -33,7 +33,7 @@ test("presentation reuses the film's frame loop and the exploded view moves open
   assert.equal(exploded.match(/to_track_quat\('-Z'/g)?.length, 1);
   const openings = scene.parts.filter((p) => p.kind === "window" || p.kind === "door");
   assert.ok(openings.length);
-  for (const o of openings) assert.match(exploded, new RegExp(`obj\\["${o.id}"\\] = box\\(`)); // panes and leaves are in obj
+  for (const o of openings) assert.match(exploded, new RegExp(`obj\\["${o.id}"\\] = o`)); // frames, panes and leaves are in obj (one object per opening)
   assert.match(exploded, /"win1":\["opening","n1"\]/);
   assert.match(exploded, /"slab":0\.3/); // up, so it stays above the ground
   assert.match(archPresentation(scene, options, 3, "finished"), /for k in \[\] if k in obj/); // roof left alone

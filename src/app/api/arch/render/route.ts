@@ -1,18 +1,19 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
-import { renderJobs, startRender } from "@/lib/arch-render";
+import { blenderInfo, renderJobs, startRender } from "@/lib/arch-render";
 import { projectScope } from "@/lib/project-access";
 
 export const dynamic = "force-dynamic";
 
-// ARCH → Render in Blender: POST ?project= {quality: "preview"|"detail", lat?, lon?, at?} → {job}; GET → {jobs} for the card.
+// ARCH → Render in Blender: POST ?project= {quality: "preview"|"detail", lat?, lon?, at?} → {job}; GET → {jobs, blender: {found, how}} for the card.
 // Renders the SAVED model on this PC with Blender (free); the picture goes to VAULT. Nothing is uploaded anywhere.
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
 export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
-  return Response.json({ jobs: renderJobs() });
+  const b = blenderInfo();
+  return Response.json({ jobs: renderJobs(), blender: { found: b.found, how: b.how } }); // where it is stays on the server
 }
 
 export async function POST(req: Request) {

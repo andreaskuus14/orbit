@@ -52,3 +52,37 @@ test("plain-words errors and housekeeping", () => {
   const now = Date.parse("2026-11-22T12:00:00Z");
   assert.deepEqual(pruneJobs([j("old", "2026-11-22T01:00:00Z"), j("new", "2026-11-22T11:00:00Z"), j("run", "2026-11-21T00:00:00Z", { stage: "render" })], now).map((x) => x.id), ["new", "run"]);
 });
+
+test("Blender found or not: an existing BLENDER_PATH, then an installed version, then PATH; else the winget hint", async () => {
+  const { findBlender, blenderStatusText, WINGET_BLENDER } = await import("../src/lib/arch-render-pure.ts");
+  const inst = ["C:\\Program Files\\Blender Foundation\\Blender 5.3\\blender.exe"];
+  assert.deepEqual(findBlender("D:\\b.exe", inst, null, (f) => f === "D:\\b.exe"), { found: true, bin: "D:\\b.exe", how: "env" });
+  assert.equal(findBlender("D:\\gone.exe", inst, null, () => false).how, "installed", "a BLENDER_PATH that isn't there is skipped");
+  assert.equal(findBlender(undefined, [], "/usr/bin/blender", () => true).how, "path");
+  const none = findBlender(undefined, [], null, () => false);
+  assert.equal(none.found, false);
+  assert.ok(blenderStatusText(none, "en").includes(WINGET_BLENDER) && blenderStatusText(none, "et").includes(WINGET_BLENDER));
+  assert.match(blenderStatusText({ found: true }, "en"), /Blender found/);
+});
+
+test("a render on the shared progress card: steps, time left, result with the picture, retry on failure", async () => {
+  const { renderProgress } = await import("../src/lib/arch-render-pure.ts");
+  const job = { id: "j1", quality: "preview" as const, stage: "render" as const, startedAt: "2026-11-22T10:00:00Z", at: "2026-11-22T10:00:10Z" };
+  const p = renderProgress(job, "en", Date.parse("2026-11-22T10:00:10Z"));
+  assert.equal(p.phase, "working"); assert.deepEqual(p.steps.map((s) => s.state), ["done", "done", "now", "next"]); assert.equal(p.leftMin, 1);
+  const done = renderProgress({ ...job, stage: "done", saved: "a.png", seconds: 28 }, "en", 0, "/api/vault?file=a.png&raw=1");
+  assert.equal(done.phase, "done"); assert.match(done.result!.text, /a\.png · 28 s/); assert.equal(done.action?.kind, "open");
+  const bad = renderProgress({ ...job, error: "Blender isn't installed." }, "et", 0);
+  assert.equal(bad.phase, "failed"); assert.equal(bad.action?.kind, "retry"); assert.equal(bad.steps[2].state, "failed");
+  assert.equal(renderProgress({ ...job, stage: "gpu", wait: "Waiting for the 3D job" }, "en", 0).phase, "waiting");
+});
+
+test("cleanScene keeps the roof form, pitch, ridge, group and a checked style; drops bad values", () => {
+  const s = { ...starterScene(), style: { facade: "timber", roofMat: "x'); import os #" } };
+  s.parts[3] = { ...s.parts[3], roof: "hip", pitch: 30, ridge: "z", group: "structure" } as never;
+  const c = cleanScene(s)!;
+  assert.deepEqual(c.style, { facade: "timber", roofMat: "metal" });
+  assert.equal(c.parts[3].roof, "hip"); assert.equal(c.parts[3].pitch, 30); assert.equal(c.parts[3].ridge, "z");
+  const bad = cleanScene({ ...s, parts: [{ ...s.parts[3], roof: "dome", pitch: 400, ridge: "y" }] })!;
+  assert.equal(bad.parts[0].roof, undefined); assert.equal(bad.parts[0].pitch, undefined); assert.equal(bad.parts[0].ridge, undefined);
+});

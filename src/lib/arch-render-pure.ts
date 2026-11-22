@@ -3,8 +3,10 @@
 // site and time, straight verticals, physically based materials) and Blender renders it with Cycles on this PC, in the background.
 // Nothing is uploaded: the picture lands in VAULT. The scene is re-checked here before it becomes Python: only known part kinds and
 // finite numbers survive, so nothing stored in the model can reach the script as code.
-import { FACES, KINDS, type Part, type Scene } from "./arch-pure.ts";
+import { FACES, GROUPS, KINDS, ROOF_FORMS, styleOf, type Part, type Scene } from "./arch-pure.ts";
 import type { Quality } from "./arch-blender-pure.ts";
+import type { Lang } from "./i18n-pure.ts";
+import { minutesLeft, stepsFrom, words, type Progress } from "./progress-pure.ts";
 
 export type RenderStage = "script" | "gpu" | "render" | "save";
 export type RenderJob = {
@@ -31,9 +33,14 @@ export function cleanScene(scene: unknown): Scene | null {
       ...(Object.fromEntries([...NUM, ...OPT_NUM].filter((k) => p[k] !== undefined).map((k) => [k, p[k]])) as Pick<Part, (typeof NUM)[number]>),
       id: p.id.slice(0, 64), kind: p.kind as Part["kind"], name: typeof p.name === "string" ? p.name.slice(0, 80) : String(p.kind),
       ...(typeof p.host === "string" && { host: p.host.slice(0, 64) }), ...(p.face !== undefined && { face: p.face as Part["face"] }),
+      ...((GROUPS as readonly unknown[]).includes(p.group) && { group: p.group as Part["group"] }),
+      ...((ROOF_FORMS as readonly unknown[]).includes(p.roof) && { roof: p.roof as Part["roof"] }),
+      ...(typeof p.pitch === "number" && Number.isFinite(p.pitch) && p.pitch >= 0 && p.pitch <= 60 && { pitch: p.pitch }),
+      ...((p.ridge === "x" || p.ridge === "z") && { ridge: p.ridge }),
     });
   }
-  return ok.length ? { ...(scene as object), parts: ok } as Scene : null;
+  const s = scene as Partial<Scene>, plot = s.plot && typeof s.plot === "object" ? s.plot : null;
+  return ok.length ? { ...(s as object), parts: ok, style: styleOf(s), ...(plot && { plot }) } as Scene : null;
 }
 
 /** Where Blender is. BLENDER_PATH wins; then the newest "Blender Foundation\Blender x.y\blender.exe" found; then "blender" on PATH. */
@@ -76,3 +83,38 @@ export const pruneJobs = (jobs: RenderJob[], now: number) =>
 export const STAGE_TEXT: Record<RenderStage, string> = {
   script: "Writing the Blender scene", gpu: "Waiting for the graphics card", render: "Blender is rendering", save: "Saving to VAULT",
 };
+
+// ---------- Blender found or not, in plain words, and the render on the shared "Working on it" card ----------
+export type BlenderInfo = { found: boolean; bin: string; how: "env" | "installed" | "path" | "none" };
+/** Where Blender is and whether it's really there: BLENDER_PATH (if the file exists), an installed version, or blender on PATH. */
+export function findBlender(env: string | undefined, installed: string[], onPath: string | null, exists: (f: string) => boolean): BlenderInfo {
+  if (env?.trim() && exists(env.trim())) return { found: true, bin: env.trim(), how: "env" };
+  const best = pickBlender(undefined, installed);
+  if (best !== "blender") return { found: true, bin: best, how: "installed" };
+  if (onPath) return { found: true, bin: onPath, how: "path" };
+  return { found: false, bin: "blender", how: "none" };
+}
+export const WINGET_BLENDER = "winget install BlenderFoundation.Blender";
+export function blenderStatusText(b: Pick<BlenderInfo, "found"> | null, lang: Lang): string {
+  if (!b) return lang === "et" ? "Kontrollin, kas Blender on olemas…" : "Checking for Blender…";
+  if (b.found) return lang === "et" ? "Blender on olemas. Pilt tehakse selles arvutis, tasuta." : "Blender found. The picture is made on this PC, free.";
+  return lang === "et" ? `Blenderit pole. Paigalda tasuta: ${WINGET_BLENDER}` : `Blender isn't installed. Install it free: ${WINGET_BLENDER}`;
+}
+/** Typical time per quality on the laptop GPU (the owner's preview took 28 s), for "about X min left". */
+export const RENDER_MS: Record<Quality, number> = { preview: 45_000, detail: 8 * 60_000 };
+const STAGES: RenderStage[] = ["script", "gpu", "render", "save"];
+const STAGE_ET: Record<RenderStage, string> = { script: "Kirjutan Blenderi stseeni", gpu: "Ootan graafikakaarti", render: "Blender renderdab", save: "Salvestan VAULTi" };
+/** One render job → the shared progress card. open: the picture in VAULT once it's there. */
+export function renderProgress(job: RenderJob, lang: Lang, nowMs: number, open = ""): Progress {
+  const labels = STAGES.map((s) => (lang === "et" ? STAGE_ET[s] : STAGE_TEXT[s])), w = words(lang);
+  const done = job.stage === "done", i = done ? labels.length : STAGES.indexOf(job.stage as RenderStage);
+  const title = lang === "et" ? (job.quality === "detail" ? "Blenderi detailpilt" : "Blenderi eelvaade") : (job.quality === "detail" ? "Blender detail render" : "Blender preview render");
+  return {
+    id: `arch-render-${job.id}`, title, phase: job.error ? "failed" : done ? "done" : job.wait ? "waiting" : "working",
+    steps: stepsFrom(labels, i, !!job.error), now: job.error || done ? null : job.wait ?? labels[i],
+    leftMin: job.error || done ? null : minutesLeft(job.startedAt, nowMs, RENDER_MS[job.quality]),
+    result: job.error ? { text: job.error } : done ? { text: lang === "et" ? `Salvestatud VAULTi: ${job.saved ?? ""}${job.seconds ? ` · ${job.seconds} s` : ""}` : `Saved to VAULT as ${job.saved ?? ""}${job.seconds ? ` · ${job.seconds} s` : ""}`, open } : null,
+    action: job.error ? { kind: "retry", label: w.retry, open: "" } : done && open ? { kind: "open", label: w.open, open } : null,
+    at: job.at,
+  };
+}

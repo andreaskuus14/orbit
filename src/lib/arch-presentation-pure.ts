@@ -30,7 +30,7 @@ const explode = (scene: Scene) => {
   ];
 };
 const wireframe = [
-  "for part in obj.values():",
+  "for part in list(obj.values()) + [c for o in obj.values() for c in o.children]:",
   "    wire = part.modifiers.new('Presentation wireframe', 'WIREFRAME')",
   "    wire.thickness = 0.025",
 ];
