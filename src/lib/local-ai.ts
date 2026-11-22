@@ -136,6 +136,25 @@ export async function photoScanCall(photos: File[], signal?: AbortSignal): Promi
   return { ply: new Uint8Array(await res.arrayBuffer()), report: res.headers.get("x-orbit-report") };
 }
 
+/** CORE's local_3d, any quality: TRELLIS.2 / Pixal3D in tools/trellis, TripoSR here. A quick ("fast") request falls back to the
+ *  Pixal3D draft when TripoSR is off (its compiled package didn't build), and the reply says so. */
+export async function run3dTool(i: Record<string, unknown>): Promise<string> {
+  const { qualityOf, routeQuality } = await import("./trellis-pure");
+  const asked = qualityOf(i.quality);
+  const q = asked === "fast" ? routeQuality(asked, (await localHealth()).tools.image3d) : asked;
+  if (q === "fast") return runLocalTool("local_3d", i);
+  const reply = await (await import("./trellis")).runTrellisTool(i, q);
+  return asked === "fast" && q === "draft" && !reply.startsWith("Error") ? `${reply} (Quick TripoSR is off on this PC, so this used the Pixal3D draft.)` : reply;
+}
+
+/** The GAME DEV "Picture to 3D" button: TripoSR when it's installed, else the Pixal3D draft, so the button always works. */
+export async function makeModelAny(image: Blob, name: unknown): Promise<string> {
+  if ((await localHealth()).tools.image3d) return makeModel(image, name);
+  const { trellisModel } = await import("./trellis");
+  const bytes = await trellisModel(image, `j${Date.now().toString(36)}`, 10 * 60_000, { quality: "draft" });
+  return save(bytes, assetName(name, "glb", "draft-3d"), "model/gltf-binary");
+}
+
 /** CORE tools local_3d / local_tts / local_transcribe. Errors come back as "Error: ..." text (core.ts's convention). */
 export async function runLocalTool(tool: string, i: Record<string, unknown>): Promise<string> {
   try {

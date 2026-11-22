@@ -128,3 +128,36 @@ test("robloxMaterials: non-metal, fully rough, colour texture kept, valid 4-byte
   assert.deepEqual([...out.subarray(28 + jl2)], [...bin]);
   assert.equal(robloxMaterials(new Uint8Array([1, 2, 3])).length, 3); // not a glb: unchanged
 });
+
+test("match quality: words that ask for the closest match pick textured Pixal3D", async () => {
+  const { qualityOf } = await import("../src/lib/trellis-pure.ts");
+  for (const q of ["match", " Match ", "exact", "faithful", "pixal3d", "pixal", "closest"]) assert.equal(qualityOf(q), "match", q);
+  assert.equal(qualityOf("best"), "best");
+});
+
+test("routeQuality: quick 3D falls back to the Pixal3D draft only when TripoSR is off", async () => {
+  const { routeQuality } = await import("../src/lib/trellis-pure.ts");
+  assert.equal(routeQuality("fast", false), "draft");
+  assert.equal(routeQuality("fast", true), "fast");
+  for (const q of ["draft", "match", "best"] as const) { assert.equal(routeQuality(q, false), q); assert.equal(routeQuality(q, true), q); }
+});
+
+test("matchWorkflow follows ComfyUI's template in Pixal3D mode: Pixal3D model for every stage, Pixal3D conditioning, TRELLIS.2 texture tail", async () => {
+  const { matchWorkflow, graphFor, workflow, DRAFT_FILES: D, FILES: F } = await import("../src/lib/trellis-pure.ts");
+  const w = { image: "pet.png", seed: 7, job: "j9" };
+  const g = matchWorkflow(w), best = workflow(w);
+  assert.deepEqual(graphFor("match", w), g);
+  // every link points at a node that exists
+  for (const [id, n] of Object.entries(g)) for (const v of Object.values(n.inputs)) if (Array.isArray(v) && typeof v[0] === "string") assert.ok(g[v[0]], `${id} -> ${v[0]}`);
+  assert.equal(g["10"].inputs.unet_name, D.unet);                      // pixal3d_int8_convrot for structure, shape AND texture (template node 318)
+  assert.deepEqual(g["29"].inputs.model, ["10", 0]);                   // the texture sampler uses that same model
+  assert.equal(g["6"].class_type, "Pixal3DConditioning");
+  assert.deepEqual(g["6"].inputs.camera_angle_x, ["9", 0]);
+  assert.equal(g["9"].class_type, "MoGeGeometryToFOV");
+  assert.equal(g["7"].inputs.model_name, D.moge);
+  assert.equal(g["5"].inputs.clip_name, D.dino);                       // dino_v3_L_naf, as the template
+  assert.equal(g["4"].inputs.pad_factor, 1.1);
+  assert.equal(g["12"].inputs.vae_name, F.textureVae);                 // texture VAE from the TRELLIS.2 setup
+  for (const k of ["28", "30", "40", "41", "42", "43", "44", "45", "46"]) assert.deepEqual(g[k], best[k], k); // same texture + Roblox tail
+  assert.ok(!JSON.stringify(g).includes(F.unet), "TRELLIS.2's own model isn't loaded in match mode");
+});

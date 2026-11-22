@@ -27,7 +27,7 @@ const PROP_FINISH: { re: RegExp; rgb: V3; rough: number }[] = [
 export const propFinish = (name: string) => PROP_FINISH.find((f) => f.re.test(name)) ?? { rgb: MAT.prop.rgb, rough: MAT.prop.rough };
 
 export const QUALITY: Record<Quality, { samples: number; bevel: number; denoise: boolean; bounces: number }> = {
-  preview: { samples: 32, bevel: 0, denoise: false, bounces: 4 },
+  preview: { samples: 32, bevel: 0, denoise: true, bounces: 4 }, // denoised too: a grainy preview reads as broken (OIDN adds a second or two)
   detail: { samples: 1024, bevel: 0.01, denoise: true, bounces: 12 },
 };
 

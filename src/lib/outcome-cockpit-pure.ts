@@ -11,6 +11,8 @@ export type StepStatus = "queued" | "running" | "verifying" | "needs_fix" | "ver
 export type ApprovalKind = "send" | "publish" | "upload" | "spend";
 export type CheckStatus = "pending" | "pass" | "fail";
 export type OutcomeStatus = "active" | "verifying" | "needs_fix" | "waiting_approval" | "blocked" | "verified";
+export type OutcomeRunnerKind = "mission" | "workspace" | "studio" | "manual";
+export type OutcomeRunState = "queued" | "running" | "done" | "failed" | "blocked";
 
 export type OutcomeStep = {
   id: string;
@@ -27,6 +29,11 @@ export type OutcomeStep = {
   taskId?: string;
   requiresApproval?: ApprovalKind;
   approvalId?: string;
+  runnerKind?: OutcomeRunnerKind;
+  runId?: string;
+  runState?: OutcomeRunState;
+  runNote?: string;
+  lastRunAt?: string;
 };
 
 export type OutcomeCheck = {
@@ -78,6 +85,8 @@ export type OutcomeProject = {
   deliverables: OutcomeDeliverable[];
   blockers: OutcomeBlocker[];
   approvals: OutcomeApproval[];
+  distilledSkillAt?: string;
+  distilledSkillName?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -385,6 +394,374 @@ export function decideApproval(
     s.approvalId === approvalId ? { ...s, status: decision === "approved" ? ("verified" as const) : ("blocked" as const) } : s,
   );
   return { ...p, updatedAt: now, approvals, steps };
+}
+
+/** Map an OutcomeStep to its ORBIT live runner. NEVER returns an auto-runner for approval-gated steps (Rule 6). */
+export function pickRunnerKind(step: Pick<OutcomeStep, "planet" | "kind" | "requiresApproval">): OutcomeRunnerKind {
+  if (step.requiresApproval || step.kind === "approval") return "manual";
+  if (step.planet === "studio" || step.planet === "gamedev" || step.kind === "asset") return "studio";
+  if (step.kind === "build" && (step.planet === "core" || step.planet === "business")) return "workspace";
+  return "mission";
+}
+
+/** Rule 6 pre-dispatch gate: refuses approval-gated steps and any LIFE/journal/secret text before a live runner is touched. */
+export function canDispatchStep(
+  p: Pick<OutcomeProject, "title" | "brief">,
+  step: Pick<OutcomeStep, "title" | "planet" | "kind" | "requiresApproval" | "note">,
+): { ok: true; runnerKind: Exclude<OutcomeRunnerKind, "manual"> } | { ok: false; error: string } {
+  const runnerKind = pickRunnerKind(step);
+  if (runnerKind === "manual") {
+    return { ok: false, error: "Approval-gated steps cannot be auto-dispatched; wait for explicit owner approval (Rule 6)." };
+  }
+  const combined = [p.title, p.brief, step.title, step.note ?? ""].join(" ");
+  if (!isSafeOutcomeText(combined)) {
+    return { ok: false, error: "Private journal/LIFE text or credentials cannot be dispatched to a live runner (Rule 6)." };
+  }
+  return { ok: true, runnerKind };
+}
+
+/** Record a newly dispatched live runner (e.g. ORBIT Mission id) onto a step. */
+export function attachStepRun(
+  p: OutcomeProject,
+  stepId: string,
+  run: { runnerKind: OutcomeRunnerKind; runId: string; runNote?: string; now: string },
+): OutcomeProject | string {
+  const step = p.steps.find((s) => s.id === stepId);
+  if (!step) return "Step not found";
+  const gate = canDispatchStep(p, step);
+  if (!gate.ok) return gate.error;
+  const runId = clean(run.runId, 120);
+  if (!runId) return "runId is required";
+  const runNote = run.runNote !== undefined ? clean(run.runNote, 240) : undefined;
+  if (runNote && !isSafeOutcomeText(runNote)) return "Private journal/LIFE text cannot be saved on a step.";
+  const steps = p.steps.map((s) =>
+    s.id === stepId
+      ? {
+          ...s,
+          status: "running" as const,
+          runnerKind: run.runnerKind === "manual" ? gate.runnerKind : run.runnerKind,
+          runId,
+          taskId: runId,
+          runState: "running" as const,
+          ...(runNote ? { runNote } : {}),
+          lastRunAt: run.now,
+        }
+      : s,
+  );
+  const blockers = p.blockers.map((b) => (b.stepId === stepId ? { ...b, resolved: true } : b));
+  return { ...p, updatedAt: run.now, steps, blockers };
+}
+
+export type RunnerSyncSnapshot = {
+  state: OutcomeRunState;
+  note?: string;
+  proof?: string;
+  verified?: boolean;
+  now: string;
+};
+
+/** Reconcile a live runner's status/receipts back into a step honestly — never fakes verified if checks/proof are missing or approvals remain. */
+export function applyRunnerSync(
+  p: OutcomeProject,
+  stepId: string,
+  snapshot: RunnerSyncSnapshot,
+): OutcomeProject | string {
+  const step = p.steps.find((s) => s.id === stepId);
+  if (!step) return "Step not found";
+  if (step.requiresApproval) {
+    return "Approval-gated steps cannot be synced to verified; use Approve on the Review Desk (Rule 6).";
+  }
+  const cleanNote = snapshot.note !== undefined ? clean(snapshot.note, 240) : "";
+  const cleanProof = snapshot.proof !== undefined ? clean(snapshot.proof, 240) : "";
+  if ((cleanNote && !isSafeOutcomeText(cleanNote)) || (cleanProof && !isSafeOutcomeText(cleanProof))) {
+    return "Private journal/LIFE text cannot be synced onto a step (Rule 6).";
+  }
+
+  const bId = `blk-run-${stepId}`;
+  let nextStatus: StepStatus = step.status;
+  let retries = step.retries;
+  let note = step.note;
+  let blockers = p.blockers;
+
+  if (snapshot.state === "queued" || snapshot.state === "running") {
+    if (step.status !== "verified") nextStatus = "running";
+  } else if (snapshot.state === "done") {
+    if (snapshot.verified === false) {
+      // Honest gate: runner finished without verified proof — hold at verifying, never claim verified.
+      nextStatus = "verifying";
+      note = cleanNote || cleanProof || "Runner finished without verified proof — review checks before marking verified.";
+    } else {
+      nextStatus = "verified";
+      note = cleanProof || cleanNote || step.note;
+      blockers = p.blockers.map((b) => (b.stepId === stepId ? { ...b, resolved: true } : b));
+    }
+  } else if (snapshot.state === "failed") {
+    nextStatus = "needs_fix";
+    retries = step.retries + 1;
+    note = cleanNote || "Live runner failed — fix and retry.";
+    blockers = [
+      ...p.blockers.filter((b) => b.id !== bId),
+      { id: bId, stepId, message: `${step.title}: ${cleanNote || "live runner failed"}`, resolved: false, at: snapshot.now },
+    ];
+  } else if (snapshot.state === "blocked") {
+    nextStatus = "blocked";
+    note = cleanNote || "Live runner blocked — needs your input.";
+    blockers = [
+      ...p.blockers.filter((b) => b.id !== bId),
+      { id: bId, stepId, message: `${step.title}: ${cleanNote || "live runner blocked"}`, resolved: false, at: snapshot.now },
+    ];
+  }
+
+  const runNote = cleanNote || cleanProof || step.runNote;
+  const steps = p.steps.map((s) =>
+    s.id === stepId
+      ? {
+          ...s,
+          status: nextStatus,
+          retries,
+          ...(note ? { note } : {}),
+          runState: snapshot.state,
+          ...(runNote ? { runNote } : {}),
+          lastRunAt: snapshot.now,
+        }
+      : s,
+  );
+  return { ...p, updatedAt: snapshot.now, steps, blockers };
+}
+
+export const MAX_AUTO_HEAL_RETRIES = 2;
+
+export type HealableStep = {
+  step: OutcomeStep;
+  runnerKind: Exclude<OutcomeRunnerKind, "manual">;
+  reason: string;
+  failedChecks: string[];
+};
+
+/** Failed (`needs_fix`) non-approval steps eligible for a targeted self-heal retry (capped at MAX_AUTO_HEAL_RETRIES). */
+export function healableSteps(p: OutcomeProject, maxRetries = MAX_AUTO_HEAL_RETRIES): HealableStep[] {
+  const out: HealableStep[] = [];
+  for (const step of p.steps) {
+    if (step.status !== "needs_fix" || step.requiresApproval) continue;
+    if (step.retries > maxRetries) continue;
+    const gate = canDispatchStep(p, step);
+    if (!gate.ok) continue;
+    const failedChecks = p.checks
+      .filter((c) => c.status === "fail" && (!c.fixesStepId || c.fixesStepId === step.id))
+      .map((c) => `${c.label}${c.proof ? ` (${c.proof})` : ""}`);
+    const openBlocker = p.blockers.find((b) => !b.resolved && b.stepId === step.id)?.message;
+    const reason = clean(openBlocker || failedChecks[0] || step.note || step.runNote || "Failed verification check", 240);
+    if (!isSafeOutcomeText(reason)) continue;
+    out.push({ step, runnerKind: gate.runnerKind, reason, failedChecks });
+  }
+  return out;
+}
+
+/** Targeted self-heal repair prompt: fixes ONLY the failing step while reusing already-verified work. */
+export function buildAutoHealPrompt(p: OutcomeProject, h: HealableStep): string {
+  const verifiedReuse = p.steps
+    .filter((s) => s.status === "verified")
+    .map((s) => `- ${s.title}${s.note ? ` (${clean(s.note, 80)})` : ""}`)
+    .slice(0, 6);
+  const lines = [
+    `SELF-HEAL FIX (attempt ${h.step.retries}/${MAX_AUTO_HEAL_RETRIES}) for Outcome: ${p.title}`,
+    `Failing step (${h.step.planet} / ${h.runnerKind}): ${h.step.title}`,
+    `Failure reason: ${h.reason}`,
+  ];
+  if (h.failedChecks.length) lines.push(`Failed checks: ${h.failedChecks.join("; ")}`);
+  if (verifiedReuse.length) lines.push(`Reuse these already-verified steps (do NOT redo them):\n${verifiedReuse.join("\n")}`);
+  lines.push(
+    "Fix ONLY the failing part, re-verify with concrete proof, and report honestly if still blocked.",
+    "Rules: Never send, publish, upload, spend, log in, or delete anything (Rule 6). Never read/include journal/LIFE text or secrets.",
+  );
+  return lines.join("\n").slice(0, 1200);
+}
+
+export type OutcomeSkillDraft = {
+  name: string;
+  instruction: string;
+  tools: string[];
+  example: string;
+};
+
+const PLANET_SKILL_TOOLS: Record<OutcomePlanet, string[]> = {
+  core: ["plan_task", "ws_read", "ws_write"],
+  research: ["browse", "plan_task"],
+  business: ["business_status", "plan_task"],
+  gamedev: ["ws_read", "ws_write", "plan_task"],
+  studio: ["plan_task", "start_mission"],
+  operations: ["start_mission", "plan_task"],
+  vault: ["plan_task"],
+};
+
+function slugOutcomeName(raw: string): string {
+  const s = raw
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32)
+    .replace(/-+$/, "");
+  return s.length >= 3 ? `outcome-${s}`.slice(0, 40).replace(/-+$/, "") : "outcome-workflow";
+}
+
+/**
+ * Distill a verified Outcome into a reusable Skill Forge draft.
+ * Returns null if any non-approval step is unverified, any check is not passing, or Rule 6 privacy check fails.
+ */
+export function distillOutcomeToSkill(p: OutcomeProject): OutcomeSkillDraft | null {
+  const workSteps = p.steps.filter((s) => !s.requiresApproval);
+  if (!workSteps.length || !workSteps.every((s) => s.status === "verified")) return null;
+  if (!p.checks.length || !p.checks.every((c) => c.status === "pass")) return null;
+  const blob = `${p.title} ${p.brief} ${workSteps.map((s) => s.title).join(" ")} ${p.checks.map((c) => c.label).join(" ")}`;
+  if (!isSafeOutcomeText(blob)) return null;
+
+  const tools = [...new Set(workSteps.flatMap((s) => PLANET_SKILL_TOOLS[s.planet] ?? ["plan_task"]))].slice(0, 5);
+  const stepList = workSteps.map((s, i) => `${i + 1}. [${s.planet}] ${clean(s.title, 60)}`).join(" ");
+  const checkList = p.checks.map((c) => clean(c.label, 50)).join("; ");
+  const instruction = clean(
+    `Run verified workflow "${p.title}": ${stepList} Verify before finishing: ${checkList}. Never send, publish, upload, or spend without owner approval.`,
+    580,
+  );
+  return {
+    name: slugOutcomeName(p.title),
+    instruction,
+    tools: tools.length ? tools : ["plan_task"],
+    example: clean(p.brief || p.title, 260),
+  };
+}
+
+/** Mark an outcome as distilled into a Skill Forge proposal so it isn't proposed twice. */
+export function markOutcomeDistilled(p: OutcomeProject, skillName: string, now: string): OutcomeProject {
+  return {
+    ...p,
+    distilledSkillAt: now,
+    distilledSkillName: clean(skillName, 60),
+    updatedAt: now,
+  };
+}
+
+export type OutcomeMistakeCandidate = {
+  area: string;
+  trigger: string;
+  mistake: string;
+  fix: string;
+  tool: string;
+  tags: string[];
+};
+
+/** Extract a Rule 6-safe Mistake Memory entry from a failed Outcome step so future runs avoid the same pitfall. */
+export function extractOutcomeMistake(p: OutcomeProject, step: OutcomeStep): OutcomeMistakeCandidate | null {
+  if (step.status !== "needs_fix" && step.status !== "blocked") return null;
+  const openBlocker = p.blockers.find((b) => !b.resolved && b.stepId === step.id)?.message;
+  const detail = clean(openBlocker || step.note || step.runNote || "", 200);
+  if (detail.length < 8) return null;
+  if (!isSafeOutcomeText(`${p.title} ${step.title} ${detail}`)) return null;
+  const tool = step.runnerKind && step.runnerKind !== "manual" ? `outcome:${step.runnerKind}` : `outcome:${step.planet}`;
+  return {
+    area: step.planet,
+    trigger: clean(`${step.planet} ${step.title}`, 140),
+    mistake: clean(`Outcome "${p.title}" failed on "${step.title}": ${detail}`, 220),
+    fix: clean(`Verify and resolve before completing "${step.title}": ${detail}`, 220),
+    tool,
+    tags: ["outcome", step.planet, step.kind],
+  };
+}
+
+// ── Pillar #3: Closed-Loop Domain Check Verifiers ───────────────────────────────────────────
+export type CheckVerifierKind = "roblox-audit" | "arch-plan" | "web-smoke" | "mission-proof";
+
+export function selectVerifierForCheck(p: OutcomeProject, check: OutcomeCheck): CheckVerifierKind {
+  const blob = `${p.template} ${p.title} ${check.label} ${check.scope}`.toLowerCase();
+  if (p.template === "roblox-update" || /\b(roblox|luau|remote|exploit|rojo|selene)\b/.test(blob)) return "roblox-audit";
+  if (/\b(arch|floor.?plan|boq|room|terrace|määrus|ifc)\b/.test(blob)) return "arch-plan";
+  if (p.template === "client-shop" || /\b(site|shop|page|route|render|mobile|desktop|chrome)\b/.test(blob)) return "web-smoke";
+  return "mission-proof";
+}
+
+// ── Pillar #4: Zero-Stall Multi-Model Routing & Mid-Task Fallback ───────────────────────────
+export type ModelTier = "fast" | "balanced" | "deep";
+export type ModelRouteDecision = {
+  tier: ModelTier;
+  primary: string;
+  fallbacks: string[];
+  reason: string;
+};
+
+const MODEL_POOLS: Record<ModelTier, readonly string[]> = {
+  fast: ["claude-haiku", "gemini-flash", "openai-mini"],
+  balanced: ["claude-sonnet", "gemini-pro", "openai-4o"],
+  deep: ["claude-opus", "claude-sonnet", "gemini-pro"],
+};
+
+/** Route a step to the right model tier and automatically fall back past any rate/session-limited provider. */
+export function routeModelForStep(
+  step: OutcomeStep,
+  opts?: { exhausted?: readonly string[]; retryCount?: number },
+): ModelRouteDecision {
+  const retries = opts?.retryCount ?? step.retries;
+  const tier: ModelTier =
+    step.status === "needs_fix" || retries >= 1
+      ? "deep"
+      : step.kind === "research" || step.kind === "verify"
+        ? "fast"
+        : "balanced";
+  const exhausted = new Set((opts?.exhausted ?? []).map((m) => m.toLowerCase()));
+  const pool = MODEL_POOLS[tier];
+  const healthy = pool.filter((m) => !exhausted.has(m.toLowerCase()));
+  const ordered = healthy.length ? healthy : [...MODEL_POOLS.fast, ...MODEL_POOLS.balanced].filter((m) => !exhausted.has(m.toLowerCase()));
+  const finalPool = ordered.length ? ordered : [pool[0]];
+  return {
+    tier,
+    primary: finalPool[0],
+    fallbacks: finalPool.slice(1),
+    reason: retries >= 1
+      ? `Escalated to ${tier} tier for self-heal retry #${retries}${exhausted.size ? " (skipped limited providers)" : ""}`
+      : `${tier} tier for ${step.planet}/${step.kind}${exhausted.size ? " (fallback active)" : ""}`,
+  };
+}
+
+// ── Pillar #5: Proactive Background Outcome Advancement ─────────────────────────────────────
+export type BackgroundOutcomeAction = {
+  projectId: string;
+  action: "sync" | "auto_heal" | "run_ready" | "distill";
+  reason: string;
+};
+
+/** Pick safe background actions across active outcomes (NEVER touches approval-gated steps). */
+export function pickBackgroundActions(
+  projects: readonly OutcomeProject[],
+  opts?: { maxActions?: number },
+): BackgroundOutcomeAction[] {
+  const cap = Math.max(1, Math.min(opts?.maxActions ?? 6, 12));
+  const out: BackgroundOutcomeAction[] = [];
+  for (const p of projects) {
+    if (out.length >= cap) break;
+    const status = deriveOutcomeStatus(p);
+    if (status === "verified") {
+      if (!p.distilledSkillAt && distillOutcomeToSkill(p)) {
+        out.push({ projectId: p.id, action: "distill", reason: "Verified outcome ready for Skill Forge distillation" });
+      }
+      continue;
+    }
+    const hasRunning = p.steps.some((s) => !s.requiresApproval && s.runId && (s.status === "running" || s.runState === "queued" || s.runState === "running"));
+    if (hasRunning) {
+      out.push({ projectId: p.id, action: "sync", reason: "Sync active live runner(s)" });
+      continue;
+    }
+    if (healableSteps(p).length > 0) {
+      out.push({ projectId: p.id, action: "auto_heal", reason: "Self-heal failed step(s)" });
+      continue;
+    }
+    if (readySteps(p).length > 0) {
+      out.push({ projectId: p.id, action: "run_ready", reason: "Dispatch ready parallel step(s)" });
+      continue;
+    }
+    if (!p.distilledSkillAt && distillOutcomeToSkill(p)) {
+      out.push({ projectId: p.id, action: "distill", reason: "All checks passed — distill reusable skill" });
+    }
+  }
+  return out;
 }
 
 export type ReviewDeskSummary = {

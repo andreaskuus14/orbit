@@ -5,19 +5,39 @@
 // Areas are gross (to wall centre lines). With 2+ floors a stair core + hall strip is added on the west side (withCore).
 import { fitOpenings, MAX, RULES, type Face, type Part, type Scene } from "./arch-pure.ts";
 
-export type Room = { name: string; area: number; floor?: number }; // floor 1-based; unset = the solver picks
+export type ThermalZone = "heated" | "unheated" | "outdoor";
+export type Room = { name: string; area: number; floor?: number; thermal?: ThermalZone }; // floor 1-based; unset = the solver picks
 export type Brief = { plot: { w: number; d: number }; floors: number; rooms: Room[]; adj: [string, string][]; core?: { stair: number[]; circ: number[] } };
 export type Rect = { x0: number; z0: number; x1: number; z1: number };
 export type Cut = Rect & { a: number[]; b: number[] }; // a wall line (x0 = x1 or z0 = z1) with the rooms on either side
-export type Breakdown = { areaErr: number; adjMet: number; adjTotal: number; corridorPct: number; daylight: number; thin: number };
-export type PlanOption = { score: number; parts: Breakdown; w: number; d: number; floors: { rooms: { i: number; r: Rect }[]; cuts: Cut[] }[]; met: [number, number][] };
+export type Breakdown = {
+  areaErr: number; adjMet: number; adjTotal: number; corridorPct: number; daylight: number; thin: number;
+  connectivity?: number; heatedAreaM2?: number; outdoorAreaM2?: number;
+};
+export type ConnectivityResult = { root: number | null; reachable: number[]; unreachable: number[]; score: number };
+export type PlanFloor = { rooms: { i: number; r: Rect }[]; cuts: Cut[]; doors?: [number, number][] };
+export type PlanOption = {
+  score: number; parts: Breakdown; w: number; d: number; floors: PlanFloor[]; met: [number, number][];
+  unreachableRooms: string[]; connectivityScore: number; heatedAreaM2: number; outdoorAreaM2: number;
+};
 
 export const PLAN = { maxRooms: 16, maxFloors: 3, slab: 0.2, wallH: 2.8, inner: 0.2, setback: 2, minShare: 1, door: 0.9, window: 1.2, options: 5 };
 const OUTSIDE = "outside"; // adjacency pseudo-room: "Entrance - outside" = the room has an exterior wall on floor 1
-const DARK_OK = /bath|wc|toilet|sauna|stor|closet|wardrobe|pantry|utility|hall|corridor|entr|lobby|stair|landing/i; // no window needed
-const CIRC = /hall|corridor|entr|lobby|landing/i;
+const OUTDOOR_RE = /terrace|balcony|porch|patio|deck|veranda|carport|terrass|rõdu|varjualune/i;
+const UNHEATED_RE = /garage|garaaž|garaaz|storage|panipaik|shed|kuur|cellar|kelder/i;
+const COMPACT_WIN = /bath|wc|toilet|utility|laundry|vann|tualett|pesu/i;
+const DARK_OK = /bath|wc|toilet|sauna|stor|closet|wardrobe|pantry|utility|laundry|hall|corridor|entr|lobby|stair|landing|garage|garaaž|garaaz|panipaik/i; // no window needed
+const CIRC = /hall|corridor|entr|lobby|landing|esik|koridor/i;
 const EPS = 1e-6;
 const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Classify a space as heated, unheated (garage/storage), or outdoor (terrace/balcony/porch/deck/veranda/carport). */
+export function classifySpace(name: string): ThermalZone {
+  if (OUTDOOR_RE.test(name)) return "outdoor";
+  if (UNHEATED_RE.test(name)) return "unheated";
+  return "heated";
+}
+const roomThermal = (r: Room): ThermalZone => r.thermal ?? classifySpace(r.name);
 
 /** mulberry32: small seeded PRNG so the same brief always gives the same options. */
 export function rng(seed: number) {
@@ -115,12 +135,161 @@ function outerFaces(r: Rect, w: number, d: number): { face: Face; seg: Rect }[] 
   return f.sort((a, b) => segLen(b.seg) - segLen(a.seg));
 }
 
-type State = number[][]; // per floor, the ordered room indices
+/** Proportional window sizing for a room: habitable rooms target >= 12% WFR (14% design target, clamped to wall width minus margins);
+ *  bathrooms/utility get compact windows; dark-ok utility/circulation and outdoor spaces get none. */
+export function windowSizeForRoom(name: string, areaM2: number, wallLen: number): { w: number; h: number; sill: number } | null {
+  if (classifySpace(name) === "outdoor") return null;
+  if (COMPACT_WIN.test(name)) {
+    const maxW = r2(Math.min(1.0, wallLen - 0.6));
+    if (maxW < 0.6) return null;
+    return { w: r2(Math.min(maxW, 0.9)), h: 0.9, sill: 1.2 };
+  }
+  if (DARK_OK.test(name)) return null;
+  const maxW = r2(Math.min(3.6, wallLen - 0.6));
+  if (maxW < 0.8) return null;
+  const target = areaM2 * 0.14;
+  const isLiving = areaM2 >= 20 || /living|lounge|elutuba|dining/i.test(name);
+  let h = isLiving ? 2.0 : 1.5;
+  if (target / maxW > h) h = r2(Math.min(2.1, Math.max(h, target / maxW)));
+  const sill = h >= 2.0 ? r2(Math.max(0.5, 2.6 - h)) : r2(Math.min(0.9, 2.5 - h));
+  const minW = Math.min(1.2, maxW);
+  const w = r2(Math.min(maxW, Math.max(minW, target / h)));
+  return { w, h, sill };
+}
+
+/** BFS reachability check for indoor rooms on a floor, starting from the entry/hall/landing (F1: hall/entry/living; F2+: landing/stair core). */
+export function checkConnectivity(
+  brief: Brief,
+  floor: { rooms: { i: number; r: Rect }[] },
+  floorIndex: number,
+  doorPairs: [number, number][],
+  footprintSize?: { w: number; d: number },
+): ConnectivityResult {
+  const indoor = floor.rooms.filter(({ i }) => roomThermal(brief.rooms[i]) !== "outdoor");
+  if (!indoor.length) return { root: null, reachable: [], unreachable: [], score: 1 };
+  const indoorSet = new Set(indoor.map((x) => x.i));
+  const hasOuter = (r: Rect) => (footprintSize ? outerFaces(r, footprintSize.w, footprintSize.d).length > 0 : true);
+  let root: number | null = null;
+  if (brief.core && indoorSet.has(brief.core.circ[floorIndex])) {
+    root = brief.core.circ[floorIndex];
+  } else if (floorIndex > 0) {
+    root = indoor.find(({ i }) => /landing|stair|hall|corridor/i.test(brief.rooms[i].name))?.i ?? indoor[0].i;
+  } else {
+    root =
+      indoor.find(({ i, r }) => CIRC.test(brief.rooms[i].name) && hasOuter(r))?.i ??
+      indoor.find(({ i }) => CIRC.test(brief.rooms[i].name))?.i ??
+      indoor.find(({ i, r }) => /living|lounge|elutuba/i.test(brief.rooms[i].name) && hasOuter(r))?.i ??
+      indoor.find(({ r }) => hasOuter(r))?.i ??
+      indoor[0].i;
+  }
+  const adj = new Map<number, Set<number>>();
+  for (const { i } of indoor) adj.set(i, new Set());
+  for (const [a, b] of doorPairs) {
+    if (indoorSet.has(a) && indoorSet.has(b) && a !== b) { adj.get(a)!.add(b); adj.get(b)!.add(a); }
+  }
+  if (brief.core) { // stair opens directly onto the hall/landing on each floor
+    const s = brief.core.stair[floorIndex], c = brief.core.circ[floorIndex];
+    if (indoorSet.has(s) && indoorSet.has(c)) { adj.get(s)!.add(c); adj.get(c)!.add(s); }
+  }
+  const visited = new Set<number>([root]);
+  const queue = [root];
+  for (let head = 0; head < queue.length; head++) {
+    const cur = queue[head];
+    for (const nxt of adj.get(cur) ?? []) if (!visited.has(nxt)) { visited.add(nxt); queue.push(nxt); }
+  }
+  const reachable = indoor.map((x) => x.i).filter((i) => visited.has(i));
+  const unreachable = indoor.map((x) => x.i).filter((i) => !visited.has(i));
+  return { root, reachable, unreachable, score: r2(reachable.length / indoor.length) };
+}
+
+/** Ensure every indoor room on a floor has a walkable door path from the entry/hall/landing.
+ *  Adds interior doors on shared walls between unreachable and reachable components (preferring hall/landing/corridor walls). */
+export function ensureConnectedDoors(
+  brief: Brief,
+  floor: { rooms: { i: number; r: Rect }[] },
+  floorIndex: number,
+  initialPairs: [number, number][],
+  footprintSize?: { w: number; d: number },
+): { pairs: [number, number][]; added: [number, number][]; connectivity: ConnectivityResult } {
+  const rect = new Map(floor.rooms.map(({ i, r }) => [i, r]));
+  const indoorSet = new Set(floor.rooms.filter(({ i }) => roomThermal(brief.rooms[i]) !== "outdoor").map((x) => x.i));
+  const pairKey = (a: number, b: number) => (a < b ? `${a}:${b}` : `${b}:${a}`);
+  const seen = new Set<string>();
+  const pairs: [number, number][] = [];
+  for (const [a, b] of initialPairs) {
+    if (!indoorSet.has(a) || !indoorSet.has(b) || a === b) continue;
+    const k = pairKey(a, b);
+    if (!seen.has(k)) { seen.add(k); pairs.push([a, b]); }
+  }
+  const added: [number, number][] = [];
+  let connectivity = checkConnectivity(brief, floor, floorIndex, pairs, footprintSize);
+  const PRIVATE_RE = /bath|wc|toilet|sauna|bed|vann|tualett|magam/i;
+  while (connectivity.unreachable.length > 0) {
+    const reachSet = new Set(connectivity.reachable);
+    type Cand = { u: number; v: number; wide: number; isCirc: number; notStair: number; notPriv: number; len: number };
+    const cands: Cand[] = [];
+    for (const u of connectivity.reachable) {
+      const ru = rect.get(u)!;
+      const uname = brief.rooms[u].name;
+      for (const v of connectivity.unreachable) {
+        if (reachSet.has(v)) continue;
+        const rv = rect.get(v)!;
+        const s = shared(ru, rv);
+        if (!s) continue;
+        const len = segLen(s);
+        cands.push({
+          u, v,
+          wide: len >= PLAN.minShare + 0.6 ? 2 : len >= PLAN.door ? 1 : 0,
+          isCirc: CIRC.test(uname) ? 1 : 0,
+          notStair: /stair/i.test(uname) ? 0 : 1,
+          notPriv: PRIVATE_RE.test(uname) ? 0 : 1,
+          len,
+        });
+      }
+    }
+    if (!cands.length) break;
+    cands.sort((a, b) => (b.wide - a.wide) || (b.isCirc - a.isCirc) || (b.notStair - a.notStair) || (b.notPriv - a.notPriv) || (b.len - a.len));
+    const pick = cands[0];
+    const k = pairKey(pick.u, pick.v);
+    if (!seen.has(k)) { seen.add(k); pairs.push([pick.u, pick.v]); added.push([pick.u, pick.v]); }
+    connectivity = checkConnectivity(brief, floor, floorIndex, pairs, footprintSize);
+  }
+  return { pairs, added, connectivity };
+}
+
+/** Place an outdoor space (terrace, deck, balcony, etc.) flush against an exterior face of the heated envelope. */
+function placeOutdoorRect(area: number, target: Rect | undefined, w: number, d: number, used: Rect[]): Rect {
+  const faces = target ? outerFaces(target, w, d) : [];
+  const chosen = faces[0] ?? { face: "s" as Face, seg: { x0: -w / 2, x1: w / 2, z0: d / 2, z1: d / 2 } };
+  const ns = chosen.face === "n" || chosen.face === "s";
+  const spanLimit = ns ? w : d;
+  const alongLen = r2(Math.min(spanLimit, Math.max(2, Math.sqrt(area * 1.8))));
+  const depth = r2(Math.max(1.2, area / alongLen));
+  const segCenter = ns ? (chosen.seg.x0 + chosen.seg.x1) / 2 : (chosen.seg.z0 + chosen.seg.z1) / 2;
+  const half = spanLimit / 2;
+  let c0 = r2(Math.max(-half, Math.min(half - alongLen, segCenter - alongLen / 2)));
+  const makeRect = (start: number): Rect => {
+    const end = r2(start + alongLen);
+    if (chosen.face === "s") return { x0: start, x1: end, z0: d / 2, z1: r2(d / 2 + depth) };
+    if (chosen.face === "n") return { x0: start, x1: end, z0: r2(-d / 2 - depth), z1: -d / 2 };
+    if (chosen.face === "e") return { x0: w / 2, x1: r2(w / 2 + depth), z0: start, z1: end };
+    return { x0: r2(-w / 2 - depth), x1: -w / 2, z0: start, z1: end };
+  };
+  const overlaps = (a: Rect, b: Rect) => a.x0 < b.x1 - EPS && a.x1 > b.x0 + EPS && a.z0 < b.z1 - EPS && a.z1 > b.z0 + EPS;
+  let rect = makeRect(c0);
+  if (used.some((u) => overlaps(rect, u))) {
+    c0 = r2(c0 + alongLen);
+    rect = makeRect(c0);
+  }
+  return rect;
+}
+
+type State = number[][]; // per floor, the ordered indoor room indices
 const key = (s: State) => s.map((f) => f.join(",")).join("|");
 
 function evaluate(b: Brief, st: State, w: number, d: number): PlanOption {
   const D = stairDesign(PLAN.slab + PLAN.wallH).dogleg, cw = b.core ? D.w : 0, X = r2(-w / 2 + cw);
-  const area = b.rooms.map((r) => r.area), floors = st.map((order, f) => {
+  const area = b.rooms.map((r) => r.area), floors: PlanFloor[] = st.map((order, f) => {
     const rooms: { i: number; r: Rect }[] = [], cuts: Cut[] = [];
     if (order.length) slice(order, area, { x0: X, z0: -d / 2, x1: w / 2, z1: d / 2 }, rooms, cuts);
     if (b.core) { // the core strip: stairs at the north end, the hall/landing below, same place on every floor
@@ -130,34 +299,85 @@ function evaluate(b: Brief, st: State, w: number, d: number): PlanOption {
     }
     return { rooms, cuts };
   });
-  const auto = new Set(b.core ? [...b.core.stair, ...b.core.circ.filter((i) => /^(Hall|Landing \d)$/.test(b.rooms[i].name))] : []);
   const at = new Map<number, { f: number; r: Rect }>();
   floors.forEach((fl, f) => fl.rooms.forEach(({ i, r }) => at.set(i, { f, r })));
+  const idx = (n: string) => (n === OUTSIDE ? -1 : b.rooms.findIndex((r) => r.name === n));
+  // Attach outdoor spaces (terrace, balcony, deck, etc.) flush outside the heated envelope
+  const outdoorUsed: Rect[][] = Array.from({ length: floors.length }, () => []);
+  b.rooms.forEach((room, oi) => {
+    if (roomThermal(room) !== "outdoor") return;
+    const f = Math.min(floors.length - 1, Math.max(0, (room.floor ?? 1) - 1));
+    const wish = b.adj.find(([an, bn]) => (idx(an) === oi && idx(bn) >= 0) || (idx(bn) === oi && idx(an) >= 0));
+    const partnerIdx = wish ? (idx(wish[0]) === oi ? idx(wish[1]) : idx(wish[0])) : -1;
+    const partner = partnerIdx >= 0 ? at.get(partnerIdx) : undefined;
+    const targetRect = partner && partner.f === f ? partner.r : undefined;
+    const r = placeOutdoorRect(room.area, targetRect, w, d, outdoorUsed[f]);
+    outdoorUsed[f].push(r);
+    floors[f].rooms.push({ i: oi, r });
+    at.set(oi, { f, r });
+  });
+  const auto = new Set(b.core ? [...b.core.stair, ...b.core.circ.filter((i) => /^(Hall|Landing \d)$/.test(b.rooms[i].name))] : []);
   const sz = (r: Rect) => [r.x1 - r.x0, r.z1 - r.z0];
-  let err = 0, circ = 0, total = 0, lit = 0, needLit = 0, thin = 0;
+  let err = 0, circ = 0, total = 0, lit = 0, needLit = 0, thin = 0, heatedAreaM2 = 0, outdoorAreaM2 = 0;
   for (const [i, { r }] of at) {
-    const [x, z] = sz(r), a = x * z;
+    const [x, z] = sz(r), a = x * z, thermal = roomThermal(b.rooms[i]);
+    if (thermal === "outdoor") { outdoorAreaM2 += a; continue; }
+    if (thermal === "heated") heatedAreaM2 += a;
     if (!auto.has(i)) err += Math.abs(a - area[i]) / area[i]; total += a; // the core's size is fixed by the stair
     if (CIRC.test(b.rooms[i].name)) circ += a;
     if (!DARK_OK.test(b.rooms[i].name)) { needLit++; if (outerFaces(r, w, d).some((o) => segLen(o.seg) >= PLAN.window + 0.6)) lit++; }
     if (!DARK_OK.test(b.rooms[i].name) && (Math.min(x, z) < 2 || Math.max(x, z) / Math.min(x, z) > 3)) thin++;
   }
   const met: [number, number][] = [];
-  const idx = (n: string) => (n === OUTSIDE ? -1 : b.rooms.findIndex((r) => r.name === n));
   for (const [an, bn] of b.adj) {
     const ia = idx(an), ib = idx(bn), A = at.get(ia), B = at.get(ib);
     if (ia < 0 || ib < 0) { const R = at.get(Math.max(ia, ib)); if (R && R.f === 0 && outerFaces(R.r, w, d).some((o) => segLen(o.seg) >= PLAN.minShare + 0.6)) met.push([ia, ib]); continue; }
     const s = A && B && A.f === B.f ? shared(A.r, B.r) : null;
     if (s && segLen(s) >= PLAN.minShare + 0.6) met.push([ia, ib]); // + 0.6: the door keeps 0.3 m clear at each end
   }
-  const parts: Breakdown = { areaErr: r2(at.size > auto.size ? err / (at.size - auto.size) : 0), adjMet: met.length, adjTotal: b.adj.length, corridorPct: r2(total ? (100 * circ) / total : 0), daylight: r2(needLit ? lit / needLit : 1), thin };
-  const score = 30 * Math.max(0, 1 - 3 * parts.areaErr) + 35 * (b.adj.length ? met.length / b.adj.length : 1) + 25 * parts.daylight + 10 * (1 - parts.corridorPct / 100) - 4 * thin;
-  return { score: Math.round(score * 10) / 10, parts, w, d, floors, met };
+  // Connectivity check + automatic door linking per floor
+  const unreachableRooms: string[] = [];
+  let totalIndoor = 0, totalReachable = 0;
+  floors.forEach((fl, f) => {
+    const rect = new Map(fl.rooms.map(({ i, r }) => [i, r]));
+    const initialPairs: [number, number][] = met.filter(([ia, ib]) => ia >= 0 && ib >= 0 && rect.has(ia) && rect.has(ib) && roomThermal(b.rooms[ia]) !== "outdoor" && roomThermal(b.rooms[ib]) !== "outdoor");
+    if (b.core) {
+      const c = b.core.circ[f], C = rect.get(c)!;
+      for (const { i, r } of fl.rooms) {
+        if (roomThermal(b.rooms[i]) === "outdoor") continue;
+        const s = shared(C, r);
+        if (i !== b.core.stair[f] && s && segLen(s) >= PLAN.minShare + 0.6 && !initialPairs.some((p) => p.includes(i) && p.includes(c))) initialPairs.push([c, i]);
+      }
+    }
+    const linked = ensureConnectedDoors(b, fl, f, initialPairs, { w, d });
+    fl.doors = linked.pairs;
+    totalIndoor += linked.connectivity.reachable.length + linked.connectivity.unreachable.length;
+    totalReachable += linked.connectivity.reachable.length;
+    for (const ui of linked.connectivity.unreachable) unreachableRooms.push(b.rooms[ui].name);
+  });
+  const connectivityScore = totalIndoor ? r2(totalReachable / totalIndoor) : 1;
+  const indoorCount = [...at.keys()].filter((i) => roomThermal(b.rooms[i]) !== "outdoor").length;
+  const nonAutoIndoor = Math.max(0, indoorCount - auto.size);
+  const parts: Breakdown = {
+    areaErr: r2(nonAutoIndoor > 0 ? err / nonAutoIndoor : 0),
+    adjMet: met.length,
+    adjTotal: b.adj.length,
+    corridorPct: r2(total ? (100 * circ) / total : 0),
+    daylight: r2(needLit ? lit / needLit : 1),
+    thin,
+    connectivity: connectivityScore,
+    heatedAreaM2: r2(heatedAreaM2),
+    outdoorAreaM2: r2(outdoorAreaM2),
+  };
+  const score = 30 * Math.max(0, 1 - 3 * parts.areaErr) + 35 * (b.adj.length ? met.length / b.adj.length : 1) + 25 * parts.daylight + 10 * (1 - parts.corridorPct / 100) - 4 * thin - 20 * unreachableRooms.length;
+  return { score: Math.round(score * 10) / 10, parts, w, d, floors, met, unreachableRooms, connectivityScore, heatedAreaM2: r2(heatedAreaM2), outdoorAreaM2: r2(outdoorAreaM2) };
 }
 
-/** Footprint for a floor area, shaped like the plot (× stretch), kept `setback` metres inside it. Rounded to 0.1 m. */
+/** Footprint for a floor area (indoor rooms only), shaped like the plot (× stretch), kept `setback` metres inside it. Rounded to 0.1 m. */
 function footprint(b: Brief, stretch: number) {
-  const a = b.rooms.reduce((s, r) => s + r.area, 0) / b.floors, k = (b.plot.w / b.plot.d) * stretch;
+  const indoor = b.rooms.filter((r) => roomThermal(r) !== "outdoor");
+  const list = indoor.length ? indoor : b.rooms;
+  const a = list.reduce((s, r) => s + r.area, 0) / b.floors, k = (b.plot.w / b.plot.d) * stretch;
   const w = Math.min(b.plot.w - 2 * PLAN.setback, Math.sqrt(a * k)), d = Math.min(b.plot.d - 2 * PLAN.setback, a / Math.max(w, 1));
   return { w: Math.max(3, Math.round(w * 10) / 10), d: Math.max(3, Math.round(d * 10) / 10) };
 }
@@ -176,6 +396,7 @@ function* moves(b: Brief, st: State): Generator<State> {
 export function generatePlans(brief: Brief, seed = 1): PlanOption[] {
   if (!brief.rooms.length) return [];
   const b = withCore(brief), core = new Set(b.core ? [...b.core.stair, ...b.core.circ] : []);
+  const outdoor = new Set(b.rooms.map((r, i) => (roomThermal(r) === "outdoor" ? i : -1)).filter((i) => i >= 0));
   const runs: { o: PlanOption; k: string }[] = [];
   for (const stretch of [1, 1.35, 1 / 1.35]) {
     const { w, d } = footprint(b, stretch);
@@ -184,7 +405,7 @@ export function generatePlans(brief: Brief, seed = 1): PlanOption[] {
       const st: State = Array.from({ length: b.floors }, () => []);
       const load = new Array(b.floors).fill(0);
       const order = b.rooms.map((_, i) => i).sort((x, y) => b.rooms[y].area - b.rooms[x].area || rand() - 0.5);
-      for (const i of order) { if (core.has(i)) continue; // pinned rooms to their floor, the rest to the lightest floor
+      for (const i of order) { if (core.has(i) || outdoor.has(i)) continue; // pinned rooms to their floor, the rest to the lightest floor
         const f = b.rooms[i].floor ? b.rooms[i].floor! - 1 : load.indexOf(Math.min(...load));
         st[f].push(i); load[f] += b.rooms[i].area;
       }
@@ -215,14 +436,15 @@ export function slabAround(w: number, d: number, h: Rect): { side: string; x: nu
 }
 
 /** An option → an ARCH scene in the usual part format: per floor a slab, an outer shell and one straight wall per slicing
- *  cut; a door wherever a wish is met, the front door on the first floor's entrance/hall, a window on each room that wants
- *  daylight. Openings are fitted by fitOpenings, so they sit inside their wall like hand-made ones. */
+ *  cut; interior doors for met wishes + connectivity, the front door on the first floor's entrance/hall, proportional windows
+ *  on indoor rooms, and low exterior deck slabs for outdoor spaces (never enclosed in insulated walls or roof). */
 export function planScene(brief: Brief, o: PlanOption): Scene {
   const b = withCore(brief), D = stairDesign(PLAN.slab + PLAN.wallH);
   const { w, d } = o, T = RULES.wallThick, H = PLAN.slab + PLAN.wallH, parts: Part[] = [], openings: Part[] = [];
   let n = 0;
   const id = () => `f${(n++).toString(36)}`;
   const name = (i: number) => b.rooms[i].name;
+  const isOutdoor = (i: number) => roomThermal(b.rooms[i]) === "outdoor";
   parts.push({ id: id(), kind: "foundation", name: "Strip foundation", x: 0, y: -0.8, z: 0, w, d, h: 0.8 });
   o.floors.forEach((fl, f) => {
     const y = f * H, shell = id();
@@ -240,12 +462,23 @@ export function planScene(brief: Brief, o: PlanOption): Scene {
         : { id: wid, kind: "wall", name: label, x: c.x0, y: y + PLAN.slab, z: mid, w: PLAN.inner, d: len, h: PLAN.wallH });
     }
     const rect = new Map(fl.rooms.map(({ i, r }) => [i, r]));
-    const pairs = o.met.filter(([ia, ib]) => ia >= 0 && ib >= 0); // "outside" wishes get the front door below
-    if (b.core) { // every room on the hall/landing gets a door to it, so each floor is reachable from the stair
-      const c = b.core.circ[f], C = rect.get(c)!;
-      for (const { i, r } of fl.rooms) { const s = shared(C, r); if (i !== b.core.stair[f] && s && segLen(s) >= PLAN.minShare + 0.6 && !pairs.some((p) => p.includes(i) && p.includes(c))) pairs.push([c, i]); }
-      if (f < o.floors.length - 1) { const S = rect.get(b.core.stair[f])!;
-        parts.push({ id: id(), kind: "stair", name: `Stairs ${f + 1}→${f + 2}: dogleg, ${D.risers} risers ${D.R}/${D.G} mm, 2R+G ${D.rule}`, x: r2((S.x0 + S.x1) / 2), y: y + PLAN.slab, z: r2((S.z0 + S.z1) / 2), w: r2(S.x1 - S.x0 - T), d: r2(S.z1 - S.z0 - T), h: H }); }
+    const indoorRooms = fl.rooms.filter(({ i }) => !isOutdoor(i));
+    const outdoorRooms = fl.rooms.filter(({ i }) => isOutdoor(i));
+    // Compute connected interior door pairs (reuse fl.doors from evaluate, or compute if absent)
+    let pairs: [number, number][];
+    if (fl.doors) {
+      pairs = fl.doors;
+    } else {
+      const init = o.met.filter(([ia, ib]) => ia >= 0 && ib >= 0 && rect.has(ia) && rect.has(ib) && !isOutdoor(ia) && !isOutdoor(ib));
+      if (b.core) {
+        const c = b.core.circ[f], C = rect.get(c)!;
+        for (const { i, r } of indoorRooms) { const s = shared(C, r); if (i !== b.core.stair[f] && s && segLen(s) >= PLAN.minShare + 0.6 && !init.some((p) => p.includes(i) && p.includes(c))) init.push([c, i]); }
+      }
+      pairs = ensureConnectedDoors(b, fl, f, init, { w, d }).pairs;
+    }
+    if (b.core && f < o.floors.length - 1) {
+      const S = rect.get(b.core.stair[f])!;
+      parts.push({ id: id(), kind: "stair", name: `Stairs ${f + 1}→${f + 2}: dogleg, ${D.risers} risers ${D.R}/${D.G} mm, 2R+G ${D.rule}`, x: r2((S.x0 + S.x1) / 2), y: y + PLAN.slab, z: r2((S.z0 + S.z1) / 2), w: r2(S.x1 - S.x0 - T), d: r2(S.z1 - S.z0 - T), h: H });
     }
     for (const [ia, ib] of pairs) {
       const A = rect.get(ia), B = rect.get(ib), s = A && B && shared(A, B);
@@ -255,17 +488,43 @@ export function planScene(brief: Brief, o: PlanOption): Scene {
       const wall = c && parts.find((p) => p.id === wallOf.get(c));
       if (!wall) continue;
       const off = alongX ? (s.x0 + s.x1) / 2 - wall.x : (s.z0 + s.z1) / 2 - wall.z;
-      openings.push({ id: id(), kind: "door", name: `Door ${name(ia)}–${name(ib)}`.slice(0, 60), host: wall.id, face: alongX ? "s" : "e", off: r2(off), x: 0, y: 0, z: 0, w: PLAN.door, d: 0, h: 2.1 });
+      openings.push({ id: id(), kind: "door", group: "interior", name: `Door ${name(ia)}–${name(ib)}`.slice(0, 60), host: wall.id, face: alongX ? "s" : "e", off: r2(off), x: 0, y: 0, z: 0, w: PLAN.door, d: 0, h: 2.1 });
     }
     const along = (face: Face, seg: Rect) => r2(face === "n" || face === "s" ? (seg.x0 + seg.x1) / 2 : (seg.z0 + seg.z1) / 2);
-    if (f === 0) { // front door: the entrance/hall room if it has an outer wall, else the first room that does
-      const pick = [...fl.rooms].sort((p, q) => Number(CIRC.test(name(q.i))) - Number(CIRC.test(name(p.i)))).find(({ r }) => outerFaces(r, w, d).length);
-      const of = pick && outerFaces(pick.r, w, d)[0];
-      if (pick && of) openings.push({ id: id(), kind: "door", name: `Front door (${name(pick.i)})`.slice(0, 60), host: shell, face: of.face, off: along(of.face, of.seg), x: 0, y: 0, z: 0, w: 1, d: 0, h: 2.1 });
+    // Outdoor spaces: low deck/terrace slab flush with the envelope (no insulated walls, roof, or window)
+    for (const { i, r } of outdoorRooms) {
+      parts.push({ id: id(), kind: "slab", group: "exterior", name: `${name(i)} deck`.slice(0, 60), x: r2((r.x0 + r.x1) / 2), y, z: r2((r.z0 + r.z1) / 2), w: r2(r.x1 - r.x0), d: r2(r.z1 - r.z0), h: 0.15 });
+      const touch = indoorRooms
+        .map((ir) => ({ ir, s: shared(ir.r, r) }))
+        .filter((x): x is { ir: { i: number; r: Rect }; s: Rect } => !!x.s && segLen(x.s) >= PLAN.door)
+        .sort((a, b) => segLen(b.s) - segLen(a.s))[0];
+      if (touch) {
+        const face: Face = Math.abs(touch.s.z0 - d / 2) < EPS ? "s" : Math.abs(touch.s.z0 + d / 2) < EPS ? "n" : Math.abs(touch.s.x0 - w / 2) < EPS ? "e" : "w";
+        openings.push({ id: id(), kind: "door", group: "exterior", name: `Terrace door (${name(touch.ir.i)}–${name(i)})`.slice(0, 60), host: shell, face, off: along(face, touch.s), x: 0, y: 0, z: 0, w: 1.2, d: 0, h: 2.1 });
+      }
     }
-    for (const { i, r } of fl.rooms) {
-      const of = DARK_OK.test(name(i)) ? undefined : outerFaces(r, w, d).find((x) => segLen(x.seg) >= PLAN.window + 0.6);
-      if (of) openings.push({ id: id(), kind: "window", name: `Window ${name(i)}`.slice(0, 60), host: shell, face: of.face, off: along(of.face, of.seg), sill: 0.9, x: 0, y: 0, z: 0, w: PLAN.window, d: 0, h: 1.2 });
+    if (f === 0) { // front door: the entrance/hall room if it has an outer wall, else the first indoor room that does
+      const pick = [...indoorRooms].sort((p, q) => Number(CIRC.test(name(q.i))) - Number(CIRC.test(name(p.i)))).find(({ r }) => outerFaces(r, w, d).length);
+      const of = pick && outerFaces(pick.r, w, d)[0];
+      if (pick && of) openings.push({ id: id(), kind: "door", group: "exterior", name: `Front door (${name(pick.i)})`.slice(0, 60), host: shell, face: of.face, off: along(of.face, of.seg), x: 0, y: 0, z: 0, w: 1, d: 0, h: 2.1 });
+    }
+    for (const { i, r } of indoorRooms) {
+      const faces = outerFaces(r, w, d);
+      if (!faces.length) continue;
+      const roomArea = (r.x1 - r.x0) * (r.z1 - r.z0);
+      const primary = faces.map((of) => ({ of, win: windowSizeForRoom(name(i), roomArea, segLen(of.seg)) })).find((x) => x.win);
+      if (!primary || !primary.win) continue;
+      openings.push({ id: id(), kind: "window", name: `Window ${name(i)}`.slice(0, 60), host: shell, face: primary.of.face, off: along(primary.of.face, primary.of.seg), sill: primary.win.sill, x: 0, y: 0, z: 0, w: primary.win.w, d: 0, h: primary.win.h });
+      // For habitable rooms, if a single face wasn't wide enough for >= 12% WFR, add a second window on a second exterior face
+      const glazed = primary.win.w * primary.win.h;
+      if (!DARK_OK.test(name(i)) && glazed < roomArea * 0.12 && faces.length > 1) {
+        const secondFace = faces.find((x) => x.face !== primary.of.face && segLen(x.seg) >= 1.4);
+        if (secondFace) {
+          const remaining = Math.max(1.2, roomArea * 0.14 - glazed);
+          const secondWin = windowSizeForRoom(name(i), remaining / 0.14, segLen(secondFace.seg));
+          if (secondWin) openings.push({ id: id(), kind: "window", name: `Window ${name(i)} 2`.slice(0, 60), host: shell, face: secondFace.face, off: along(secondFace.face, secondFace.seg), sill: secondWin.sill, x: 0, y: 0, z: 0, w: secondWin.w, d: 0, h: secondWin.h });
+        }
+      }
     }
   });
   parts.push({ id: id(), kind: "roof", name: "Roof", x: 0, y: o.floors.length * H, z: 0, w: r2(w + 1), d: r2(d + 1), h: 2 });

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { centroid, isLearned, parseEmbedding, searchStars } from "../src/lib/memory-world-pure.ts";
+import { centroid, isLearned, parseEmbedding, searchStars, starProjects, subgraph } from "../src/lib/memory-world-pure.ts";
+import { readFileSync } from "node:fs";
 
 test("isLearned matches CORE-saved sources only", () => {
   assert.equal(isLearned("core-auto"), true);
@@ -56,4 +57,18 @@ test("MEM06: 1500 stars stay searchable", () => {
   const many = Array.from({ length: 1500 }, (_, i) => ({ id: String(i), title: `memory ${i}`, kind: "note", tags: i % 100 ? [] : ["rare"] }));
   assert.equal(searchStars(many, "rare").length, 15);
   assert.deepEqual(searchStars(many, "memory 1499"), [1499]);
+});
+
+test("MEMORY never crashes on a star without tags (the map route once lost tags to a mid-line comment)", () => {
+  const items = [{ id: "a", title: "A", kind: "note", tags: undefined as unknown as string[], folder: "pets" }, { id: "b", title: "B", kind: "note", tags: ["scope:pets"] }];
+  assert.deepEqual(starProjects(items), ["pets"]);
+  assert.equal(subgraph(items, [], "pets").items.length, 2);
+  assert.deepEqual(searchStars(items as never, "a"), [0]);
+});
+
+test("the memory map route returns tags, folder, date and source for every star", () => {
+  const src = readFileSync(new URL("../src/app/api/memories/map/route.ts", import.meta.url), "utf8");
+  const line = src.split("\n").find((l) => /tags: r\.tags \?\? \[\], folder: r\.folder, created_at: r\.created_at, source: r\.source/.test(l));
+  assert.ok(line, "the items line lists tags, folder, created_at and source");
+  assert.ok(!/\/\/.*tags: r\.tags/.test(line!), "not hidden inside a // comment");
 });
