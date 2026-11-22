@@ -43,8 +43,12 @@ html[data-motion="on"] .cmdbar[data-home] { box-shadow: 0 18px 60px -24px rgba(3
 html[data-motion="on"] .core-presence { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
 .core-presence[data-size="lg"] { flex-direction: column; gap: var(--space-2); }
 .core-orb { --orb: 40px; --spin: 9s; --breathe: 4.2s; --tint: 186 230 255; position: relative; flex: none; width: var(--orb); height: var(--orb); isolation: isolate; }
-.core-presence[data-size="lg"] .core-orb { --orb: 72px; }
+.core-presence[data-size="lg"] .core-orb { --orb: 96px; }
 .core-orb > * { position: absolute; inset: 0; border-radius: 50%; }
+/* Shader orb (orb-shader.ts): the canvas is 1/0.6 of the orb so the ring and bloom fit; the CSS layers hide once it runs. */
+.core-orb > canvas.orb-gl { inset: calc(var(--orb) * -0.3333); width: calc(var(--orb) / 0.6); height: calc(var(--orb) / 0.6); border-radius: 0; pointer-events: none; opacity: 0; transition: opacity var(--dur-base) var(--ease-out); }
+.core-orb[data-gl="on"] > canvas.orb-gl { opacity: 1; }
+.core-orb[data-gl="on"] > :not(canvas) { display: none; }
 .orb-halo { inset: -40%; background: radial-gradient(closest-side, rgb(var(--tint) / 0.28), transparent); animation: orb-breathe var(--breathe) ease-in-out infinite; }
 .orb-aurora { inset: -6%; background: conic-gradient(from 0deg, #22d3ee, #8b5cf6, #f472b6, #22d3ee 55%, #34d399, #22d3ee); filter: blur(calc(var(--orb) * 0.12)); opacity: 0.75;
   -webkit-mask: radial-gradient(closest-side, transparent 58%, #000 62%, #000 86%, transparent 100%); mask: radial-gradient(closest-side, transparent 58%, #000 62%, #000 86%, transparent 100%);

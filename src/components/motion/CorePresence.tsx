@@ -2,8 +2,11 @@
 // CORE's presence (feat/ui-motion): an orb with an aurora ring. Its pose follows what CORE is doing: listening (ripples),
 // thinking (a breath in, then out; faster aurora), using a tool (a light circles it; the label names the tool in plain words),
 // writing (bright and quick), done (one soft settle, then idle). Poses are held long enough to read (core-phase-pure HOLD).
-// CSS only (motion.css): transform/opacity, no canvas. Hidden when ORBIT_UI_MOTION=0.
-import { useEffect, useState } from "react";
+// The orb itself is a small WebGL2 shader (orb-shader.ts, motion curves in orb-motion-pure.ts); without WebGL2, or if the GPU
+// drops the context, the CSS orb (motion.css) shows instead. Hidden when ORBIT_UI_MOTION=0.
+import { useEffect, useRef, useState } from "react";
+import { orbBeat, orbClock0, orbDetail, orbDpr, orbFrame, orbMotionInit, orbRetarget, orbSettled, orbStill, type OrbMotion } from "@/lib/orb-motion-pure";
+import { createOrbRenderer, type OrbRenderer } from "./orb-gl";
 import { CORE_PHASE_EVENT, idlePhase, nextTickIn, phaseLabel, phaseReduce, phaseTick, type CorePhase, type PhaseEvent, type PhaseState } from "@/lib/core-phase-pure";
 import { useT } from "../i18n";
 
@@ -26,12 +29,91 @@ export function useCorePhase(): PhaseState {
   return s;
 }
 
-/** The orb alone (decorative; the label carries the meaning for screen readers). */
+const reducedMq = () => (typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null);
+
+/** Drive the shader orb on `canvas`: eased pose changes, a beat per text chunk, paused when the tab is hidden or the orb is
+ *  off screen, one still frame per pose under reduced motion. Returns false (→ CSS orb) when WebGL2 is missing or lost. */
+function useShaderOrb(canvas: React.RefObject<HTMLCanvasElement | null>, phase: CorePhase): boolean {
+  const [ok, setOk] = useState(false);
+  const phaseRef = useRef(phase);
+  const api = useRef<{ setPhase(p: CorePhase): void } | null>(null);
+  useEffect(() => {
+    const c = canvas.current;
+    if (!c) return;
+    const r: OrbRenderer | null = createOrbRenderer(c);
+    if (!r) return;
+    setOk(true);
+    let m: OrbMotion = orbMotionInit(phaseRef.current, performance.now());
+    let clock = orbClock0();
+    let raf = 0, last = 0, visible = true, onScreen = true, detail = 1, skip = false;
+    const mq = reducedMq();
+    let reduced = !!mq?.matches;
+    const size = () => {
+      const css = c.clientWidth || 1;
+      const dpr = orbDpr(devicePixelRatio);
+      r.resize(Math.round(css * dpr), Math.round(css * dpr));
+      detail = orbDetail(css * 0.6); // the sphere is 60% of the canvas
+    };
+    const still = () => { size(); r.draw(orbStill(m.phase), detail); };
+    const frame = (t: number) => {
+      raf = 0;
+      if (!visible || !onScreen || reduced) return;
+      // settled (no move, one-shot or beat in flight): draw every other refresh — the slow swirl looks the same at half rate
+      skip = !skip && orbSettled(m, t);
+      if (skip) { raf = requestAnimationFrame(frame); return; }
+      const dt = last ? Math.min(t - last, 50) / 1000 : 0; // a long gap (tab was away) never jumps the clocks
+      last = t;
+      const f = orbFrame(m, clock, t, dt);
+      clock = f.clock;
+      r.draw(f.u, detail);
+      raf = requestAnimationFrame(frame); // rAF = the display's own refresh, never faster
+    };
+    const kick = () => { if (reduced) { still(); return; } if (!raf && visible && onScreen) { last = 0; raf = requestAnimationFrame(frame); } };
+    const stop = () => { if (raf) cancelAnimationFrame(raf); raf = 0; };
+    api.current = {
+      setPhase(p) {
+        m = orbRetarget(m, p, performance.now());
+        if (reduced) { // still frames + a gentle fade between them
+          c.style.opacity = "0.55"; still();
+          requestAnimationFrame(() => { c.style.opacity = ""; });
+        }
+      },
+    };
+    const onBeat = (e: Event) => { if ((e as CustomEvent<PhaseEvent>).detail?.type === "delta") m = orbBeat(m, performance.now()); };
+    const onVis = () => { visible = !document.hidden; if (visible) kick(); else stop(); };
+    const onMq = () => { reduced = !!mq?.matches; stop(); kick(); };
+    const io = typeof IntersectionObserver === "function" ? new IntersectionObserver((es) => { onScreen = es.some((x) => x.isIntersecting); if (onScreen) kick(); else stop(); }) : null;
+    const ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => { size(); if (reduced) still(); }) : null;
+    const onLost = (e: Event) => { e.preventDefault(); stop(); setOk(false); };
+    io?.observe(c); ro?.observe(c);
+    addEventListener(CORE_PHASE_EVENT, onBeat);
+    document.addEventListener("visibilitychange", onVis);
+    mq?.addEventListener("change", onMq);
+    c.addEventListener("webglcontextlost", onLost);
+    size(); kick();
+    return () => {
+      stop(); io?.disconnect(); ro?.disconnect();
+      removeEventListener(CORE_PHASE_EVENT, onBeat);
+      document.removeEventListener("visibilitychange", onVis);
+      mq?.removeEventListener("change", onMq);
+      c.removeEventListener("webglcontextlost", onLost);
+      api.current = null; r.dispose();
+    };
+  }, [canvas]);
+  useEffect(() => { phaseRef.current = phase; api.current?.setPhase(phase); }, [phase]);
+  return ok;
+}
+
+/** The orb alone (decorative; the label carries the meaning for screen readers). The CSS layers render first (server markup
+ *  and the no-WebGL2 fallback); once the shader runs they are hidden. */
 export function CoreOrb({ phase }: { phase: CorePhase }) {
+  const canvas = useRef<HTMLCanvasElement | null>(null);
+  const gl = useShaderOrb(canvas, phase);
   return (
-    <span className="core-orb" data-phase={phase} aria-hidden="true">
+    <span className="core-orb" data-phase={phase} data-gl={gl ? "on" : undefined} aria-hidden="true">
       <span className="orb-halo" /><span className="orb-ripple" /><span className="orb-ripple" />
       <span className="orb-aurora" /><span className="orb-core" /><span className="orb-orbit" />
+      <canvas ref={canvas} className="orb-gl" />
     </span>
   );
 }
