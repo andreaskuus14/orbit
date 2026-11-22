@@ -3,6 +3,8 @@
 // and explicit Rule 6 owner-click approvals. Pure rules: src/lib/outcome-cockpit-pure.ts.
 import { useCallback, useEffect, useState } from "react";
 import {
+  distillOutcomeToSkill,
+  healableSteps,
   pickRunnerKind,
   readySteps,
   type OutcomeProject,
@@ -101,6 +103,30 @@ export function OutcomeCockpit() {
   const current = projects.find((p) => p.id === selectedId) ?? projects[0] ?? null;
   const readyIds = new Set(current ? readySteps(current).map((s) => s.id) : []);
   const linkedSteps = current ? current.steps.filter((s) => Boolean(s.runId)) : [];
+  const healableCount = current ? healableSteps(current).length : 0;
+  const canDistill = Boolean(current && !current.distilledSkillAt && distillOutcomeToSkill(current));
+
+  const advanceAll = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await fetch("/api/outcomes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "advance_background" }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        setErr(d.error || "Advance failed");
+      } else {
+        await load();
+      }
+    } catch {
+      setErr("Could not reach ORBIT");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <section className="glass rounded-2xl p-3.5 text-sm" aria-label={t("oe.title")}>
@@ -173,12 +199,44 @@ export function OutcomeCockpit() {
                   ))}
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-1.5">
+              <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                {healableCount > 0 && (
+                  <button
+                    type="button"
+                    className="chip text-xs"
+                    disabled={busy}
+                    onClick={() => void act({ action: "auto_heal", id: current.id })}
+                  >
+                    ⚡ {t("oe.autoHeal")} ({healableCount})
+                  </button>
+                )}
+                {current.distilledSkillName ? (
+                  <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] text-emerald-200">
+                    ★ {t("oe.distilled", { name: current.distilledSkillName })}
+                  </span>
+                ) : canDistill ? (
+                  <button
+                    type="button"
+                    className="chip text-xs"
+                    disabled={busy}
+                    onClick={() => void act({ action: "distill", id: current.id })}
+                  >
+                    ★ {t("oe.distill")}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="chip text-xs"
+                  disabled={busy}
+                  onClick={() => void advanceAll()}
+                >
+                  ▶ {t("oe.advanceBg")}
+                </button>
                 <button
                   type="button"
                   className="chip text-xs"
                   disabled={busy || linkedSteps.length === 0}
-                  onClick={() => void act({ action: "sync_runs", id: current.id })}
+                  onClick={() => void act({ action: "sync_runs", id: current.id, autoHeal: true })}
                 >
                   ↻ {t("oe.syncLive")}
                 </button>
