@@ -15,6 +15,7 @@ import { PersonaSection } from "./PersonaSection";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { KINDS, type Kind } from "@/lib/kinds";
 import { BeliefsPanel, takeBeliefsRequest } from "./BeliefsPanel";
+import { KnowsPanel } from "./KnowsPanel";
 import { EpisodesList } from "./EpisodesList";
 import { Rewind } from "./Rewind";
 import { LearnThis, StudyCards } from "./StudyCards";
@@ -68,11 +69,12 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   const [learnedOnly, setLearnedOnly] = useState(false);
   const [episodesOnly, setEpisodesOnly] = useState(false);
   const [beliefs, setBeliefs] = useState(false);
+  const [knows, setKnows] = useState(false); // "What ORBIT knows about you" (KnowsPanel.tsx)
   const views = (["search", "recent", "projects", "people", "review"] as const).map((id) => ({ id, label: tr(`memws.${id}`) }));
   const [view, setView] = useWorkspaceView("memory", views);
   useEffect(() => {
-    if (takeBeliefsRequest()) setBeliefs(true); // "what do you know about me" opened MEMORY
-    const h = (e: Event) => { if ((e as CustomEvent<NavTarget>).detail?.beliefs) { takeBeliefsRequest(); setBeliefs(true); } };
+    if (takeBeliefsRequest()) setKnows(true); // "what do you know about me" opened MEMORY: the full "what ORBIT knows" page
+    const h = (e: Event) => { if ((e as CustomEvent<NavTarget>).detail?.beliefs) { takeBeliefsRequest(); setKnows(true); } };
     addEventListener(NAV_EVENT, h);
     return () => removeEventListener(NAV_EVENT, h);
   }, []);
@@ -152,6 +154,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   const shown = learnedOnly ? items.filter((m) => isLearned(m.source)) : items;
 
   if (beliefs) return <BeliefsPanel onBack={() => setBeliefs(false)} />;
+  if (knows) return <KnowsPanel onBack={() => setKnows(false)} onBeliefs={() => { setKnows(false); setBeliefs(true); }} />;
   if (open) {
     return (
       <div className="space-y-3">
@@ -187,7 +190,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   return (
     <WorkspaceFrame planet="memory" title={tr("mem.title")} views={views} view={view} onView={setView}
       context={tr("memws.context", { n: items.length, r: suggested.length })}
-      action={<span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>{tr("mem.beliefs")}</button><a className="link text-xs" href="/api/export">{tr("mem.export")}</a><a className="link text-xs" href="/api/export/obsidian">{tr("mem.exportObsidian")}</a></span>}>
+      action={<span className="flex gap-3"><button type="button" className="link text-xs" onClick={() => setKnows(true)}>{tr("knows.open")}</button><button type="button" className="link text-xs" onClick={() => setBeliefs(true)}>{tr("mem.beliefs")}</button><a className="link text-xs" href="/api/export">{tr("mem.export")}</a><a className="link text-xs" href="/api/export/obsidian">{tr("mem.exportObsidian")}</a></span>}>
       {err && view !== "recent" && <p className="error" role="alert">{err}</p>}
       {view === "search" && (episodesOnly ? <><div className="flex gap-2">{chips}</div><EpisodesList onOpen={setFocus} /></>
         : <MemorySearch recent={learned(items)} hits={learned(hits)} searched={q} mode={mode} onSearch={(x) => (x ? void load(x) : setQ(""))} row={row}>{chips}</MemorySearch>)}

@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
-import { addMistake, deleteMistake, listMistakes, setMistakeStatus } from "@/lib/mistake-memory";
+import { addMistake, deleteMistake, listMistakes, setMistakeStatus, editMistakeFix } from "@/lib/mistake-memory";
 
 export const dynamic = "force-dynamic";
 
@@ -43,8 +43,12 @@ export async function PATCH(req: Request) {
   if (csrfBlock(req, "PATCH")) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { user, res } = await requireUser();
   if (res) return res;
-  const body = (await req.json().catch(() => null)) as { id?: unknown; status?: unknown } | null;
+  const body = (await req.json().catch(() => null)) as { id?: unknown; status?: unknown; fix?: unknown } | null;
   const id = typeof body?.id === "string" ? body.id : "";
+  if (id && typeof body?.fix === "string") { // edit the fix text ("What ORBIT knows about you")
+    const ok = await editMistakeFix(user.id, id, body.fix);
+    return ok ? Response.json({ ok: true }) : Response.json({ error: "Not found or empty" }, { status: 404 });
+  }
   const status = body?.status === "active" || body?.status === "archived" ? body.status : null;
   if (!id || !status) return Response.json({ error: "id and status (active|archived) required" }, { status: 400 });
   const ok = await setMistakeStatus(user.id, id, status);

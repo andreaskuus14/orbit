@@ -6,7 +6,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isSleepCommand } from "./voice/wake";
 import { goToSleep } from "./voice/sleep";
 import { numberCitations } from "@/lib/pure";
-import { OPEN_SOURCE_EVENT } from "@/lib/week-pure";
 import { takeLines } from "@/lib/streamjson";
 import { dropNote, handoffTask } from "@/lib/long-work-pure";
 import { applyLive, type LiveEvent, type LiveRow } from "@/lib/core-live-pure";
@@ -47,6 +46,9 @@ import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
 import { corePhase } from "./motion/motion";
 import { createPacer, useStreamFade } from "./motion/stream";
 import { CorePresence } from "./motion/CorePresence";
+import { CitedAnswer } from "./CitedAnswer";
+import { LevelPicker, LevelWord } from "./ThinkLevel";
+import type { LevelChoice } from "@/lib/think-level-pure";
 import { speakChunk, stop as stopSpeech, speechSettings, takeVoiceAsked, speechGen, onSpeakingChange } from "./voice/speak";
 
 
@@ -215,6 +217,10 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
     return () => { alive.current = false; setTimeout(() => { if (!alive.current && !flying.current) stopSpeech(); }, 0); };
   }, []);
 
+  // Thinking level for the next message (Auto by default; back to Auto after each send, so a choice is per request).
+  const [level, setLevel] = useState<LevelChoice>("auto");
+  const levelRef = useRef<LevelChoice>("auto");
+  levelRef.current = level;
   const send = useCallback(async (text: string, fromVoice?: boolean, look?: Preset, skill?: SkillLaunch, at?: DeepLink | null) => {
     const message = text.trim();
     const mine = view.current, here = () => mine === view.current;
@@ -265,9 +271,10 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
     const pacer = createPacer((t) => { if (here()) setLive(t); }); // ui-motion: bursts spread over a few frames (off: one render per frame, as before)
     const flush = () => pacer.stop();
     try {
+      if (levelRef.current !== "auto") setLevel("auto");
       const res = await fetch("/api/core?stream=1", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
-        body: JSON.stringify({ message, conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, lang: getLang(), here: at ?? hereLink(), screen: look ? true : undefined, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
+        body: JSON.stringify({ message, conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, lang: getLang(), level: levelRef.current === "auto" ? undefined : levelRef.current, here: at ?? hereLink(), screen: look ? true : undefined, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
       });
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}));
@@ -443,18 +450,13 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
       {/* Steps sit above the answer (as while it streams), so the answer never jumps when the turn ends. */}
       {m.live && <CoreActivity rows={m.live.rows} running={false} totalMs={m.live.ms} />}
       {m.role === "assistant" && !m.error
-        ? <ChatAnswer text={numberCitations(withoutCard(m.content), (m.citations ?? []).map((c) => c.id))} openMemory={onOpenMemory} />
+        ? <CitedAnswer content={withoutCard(m.content)} citations={m.citations} trace={m.trace} openMemory={onOpenMemory} />
         : <div className="whitespace-pre-wrap">{m.content}</div>}
       {m.role === "assistant" && m.trace?.some((x) => x.step === "local") && <p className="muted mt-1 text-xs" role="note">{tr("core.offlineNote")}</p>}
       {m.role === "user" && i === lastUser && !busy && chatId && (
         <div className="mt-1.5 flex justify-end text-xs"><button type="button" className="chat-mini" title={tr("chat.editTitle")} onClick={() => void edit(m.content)}>✎ {tr("chat.edit")}</button></div>
       )}
       {m.role === "assistant" && !m.error && (() => { const g = parseGoalCard(m.content); return g && <GoalCardView card={g} onChange={() => { setInput(""); inputRef.current?.focus(); }} />; })()}
-      {!!m.citations?.length && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {m.citations.map((c, n) => <button key={c.id} className="chip" onClick={() => (c.kind.startsWith("week:") ? dispatchEvent(new CustomEvent(OPEN_SOURCE_EVENT, { detail: c })) : onOpenMemory(c.id))}>[{n + 1}] {c.title}</button>)}
-        </div>
-      )}
       {m.role === "assistant" && !m.error && m.used && <UsedLine used={m.used} />}
       {m.role === "assistant" && (
         <div className="mt-2 flex flex-wrap items-center gap-1 text-xs">
@@ -478,7 +480,7 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
             <button type="button" className="chip" title={tr(chatId ? "chat.retryTitle" : "core.retryTitle")} onClick={() => void retry()}>↻ {tr("task.retry")}</button>
           )}
           {m.trace?.some((x) => x.step === "local") && <span className="chip !py-0 !text-[10px]" title={tr("core.localTitle")} role="status">{tr("core.local")}</span>}
-          {m.model && <span className="muted ml-auto opacity-60" title={m.model === "fast" ? "Quick reply from the fast model" : m.model === "deep" ? (m.trace?.some((x) => x.step === "review") ? "Deep answer: planned, then self-checked by the strongest model" : "Deep answer from the strongest model") : "Answered by the main model"}>{m.model}</span>}
+          {!m.error && <LevelWord trace={m.trace} model={m.model} reviewed={!!m.trace?.some((x) => x.step === "review")} />}
         </div>
       )}
       {!busy && i === msgs.length - 1 && !!m.chips?.length && (
@@ -568,6 +570,7 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
         <input ref={fileRef} type="file" multiple accept={ACCEPT} className="sr-only" tabIndex={-1} aria-hidden aria-label={tr("core.attach")} onChange={(e) => { if (e.target.files) void att.add(e.target.files); e.target.value = ""; }} />
         <button type="button" className="btn" title={tr("core.attachTitle")} aria-label={tr("core.attach")} disabled={busy} onClick={() => fileRef.current?.click()}>📎</button>
         {!tools && <button type="button" className="btn" aria-label={tr("chat.tools")} title={tr("chat.tools")} onClick={() => setTools(true)}>⋯</button>}
+        <LevelPicker value={level} onChange={setLevel} disabled={busy} />
         <textarea ref={inputRef} rows={1} className="field chat-input flex-1" value={input} onChange={(e) => setInput(e.target.value)} onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); void att.add(e.clipboardData.files); } }} placeholder={tr("core.ph")}
           onKeyDown={(e) => {
             if (e.key === "ArrowUp" && !input && lastQ.current) { e.preventDefault(); setInput(lastQ.current); return; }

@@ -4,7 +4,7 @@
 // Blocks come from core-chat-pure.ts (chatBlocks); prose goes through the shared Markdown renderer.
 import { memo, useState } from "react";
 import { CODE_FOLD, chatBlocks, isLong, type Block } from "@/lib/core-chat-pure";
-import { Markdown, inline } from "./Markdown";
+import { Markdown, inline, type CiteRender } from "./Markdown";
 import { useT } from "./i18n";
 
 const dl = (url: string) => (url.startsWith("/api/workspace") && !/[?&]download=1/.test(url) ? `${url}&download=1` : url);
@@ -31,15 +31,15 @@ const Code = memo(function Code({ b }: { b: Extract<Block, { kind: "code" }> }) 
   );
 }, same);
 
-const Table = memo(function Table({ b, openMemory }: { b: Extract<Block, { kind: "table" }>; openMemory?: (id: string) => void }) {
+const Table = memo(function Table({ b, openMemory, cite }: { b: Extract<Block, { kind: "table" }>; openMemory?: (id: string) => void; cite?: CiteRender }) {
   const { t } = useT();
   const copy = () => void navigator.clipboard?.writeText([b.head, ...b.rows].map((r) => r.join("\t")).join("\n"));
   return (
     <div className="chat-table">
       <div className="chat-table-scroll">
         <table>
-          <thead><tr>{b.head.map((h, i) => <th key={i} style={{ textAlign: b.align[i] }}>{inline(h, openMemory)}</th>)}</tr></thead>
-          <tbody>{b.rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j} style={{ textAlign: b.align[j] }}>{inline(c, openMemory)}</td>)}</tr>)}</tbody>
+          <thead><tr>{b.head.map((h, i) => <th key={i} style={{ textAlign: b.align[i] }}>{inline(h, openMemory, undefined, cite)}</th>)}</tr></thead>
+          <tbody>{b.rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j} style={{ textAlign: b.align[j] }}>{inline(c, openMemory, undefined, cite)}</td>)}</tr>)}</tbody>
         </table>
       </div>
       <button type="button" className="chat-mini" onClick={copy} title={t("chat.copyTableTitle")}>{t("chat.copyTable")}</button>
@@ -66,16 +66,16 @@ const Media = memo(function Media({ b }: { b: Extract<Block, { kind: "media" }> 
 }, same);
 
 /** The rich answer. streaming: still arriving (no fold, an unfinished code block shows as it grows). */
-export const ChatAnswer = memo(function ChatAnswer({ text, openMemory, streaming = false }: { text: string; openMemory?: (id: string) => void; streaming?: boolean }) {
+export const ChatAnswer = memo(function ChatAnswer({ text, openMemory, streaming = false, cite }: { text: string; openMemory?: (id: string) => void; streaming?: boolean; cite?: CiteRender }) {
   const { t } = useT();
   const long = !streaming && isLong(text);
   const [all, setAll] = useState(false);
   const blocks = chatBlocks(text);
   return (
     <div className={`chat-answer${long && !all ? " chat-folded-answer" : ""}`}>
-      {blocks.map((b, i) => b.kind === "text" ? <Prose key={i} text={b.text} openMemory={openMemory} />
+      {blocks.map((b, i) => b.kind === "text" ? <Prose key={i} text={b.text} openMemory={openMemory} cite={cite} />
         : b.kind === "code" ? <Code key={i} b={b} />
-        : b.kind === "table" ? <Table key={i} b={b} openMemory={openMemory} />
+        : b.kind === "table" ? <Table key={i} b={b} openMemory={openMemory} cite={cite} />
         : <Media key={i} b={b} />)}
       {long && <button type="button" className="chat-mini chat-more" aria-expanded={all} onClick={() => setAll((a) => !a)}>{all ? t("chat.less") : t("chat.showAll")}</button>}
     </div>

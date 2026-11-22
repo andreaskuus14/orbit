@@ -129,6 +129,18 @@ export async function lessonsView(userId: string) {
     rejected: u.lessons.filter((l) => l.status === "rejected").length, minedAt: u.minedAt ?? null };
 }
 
+/** His own wording for a kept lesson ("What ORBIT knows about you" → Edit). Text only: its evidence and area stay. */
+export async function editLesson(userId: string, id: string, raw: unknown): Promise<string | null> {
+  const text = typeof raw === "string" ? raw.replace(/[\x00-\x1f\x7f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 300) : "";
+  if (text.length < 3) return "Lesson text must be 3-300 characters";
+  return update((s) => {
+    const l = mineOf(s, userId).lessons.find((x) => x.id === id);
+    if (!l) return "Lesson not found";
+    l.text = text;
+    return null;
+  });
+}
+
 export async function decideLesson(userId: string, id: string, decision: "keep" | "reject", sb?: SupabaseClient): Promise<string | null> {
   let keptNow: Stored | undefined;
   const err = await update((s) => {

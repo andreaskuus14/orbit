@@ -59,6 +59,19 @@ export async function setMistakeStatus(userId: string, id: string, status: "acti
   });
 }
 
+/** His own wording for the fix ("What ORBIT knows about you" → Edit). */
+export async function editMistakeFix(userId: string, id: string, fix: string): Promise<boolean> {
+  const text = fix.replace(/[\x00-\x1f\x7f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 500);
+  if (!text) return false;
+  return update((s) => {
+    const hit = s.users[userId]?.items?.find((m) => m.id === id);
+    if (!hit) return false;
+    hit.fix = text;
+    hit.updatedAt = new Date().toISOString();
+    return true;
+  });
+}
+
 export async function deleteMistake(userId: string, id: string): Promise<boolean> {
   return update((s) => {
     const u = s.users[userId];
