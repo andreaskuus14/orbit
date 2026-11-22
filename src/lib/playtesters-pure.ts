@@ -117,7 +117,7 @@ export function currencyFlow(runs: Run[]): Flow[] {
       const prev = s[i - 1].stats[k];
       if (prev === undefined) continue;
       const f = m.get(k) ?? { currency: k, earned: 0, spent: 0, perStep: 0, verifiedSamples: 0, steps: 0 };
-      if (v > prev) f.earned += v - prev; else f.spent += prev - v;
+      if (v > prev) f.earned += v - prev; else if (v >= 0) f.spent += prev - v;
       f.steps += s[i].step - s[i - 1].step || 1;
       m.set(k, f);
     }
@@ -141,18 +141,22 @@ export function curves(runs: Run[]): Curve[] {
 export type Spot = { file: string; line: number; text: string };
 export type EconomyMap = { currency: string; earn: Spot[]; spend: Spot[] }[];
 const LEADERSTAT = /\.Name\s*=\s*"([A-Za-z][\w ]{0,23})"/;
+const CLIENT_SCRIPT = /(?:^|[\\/])(?:StarterPlayerScripts|StarterCharacterScripts|StarterGui|ReplicatedFirst)(?:[\\/]|$)|\.client\.luau?$|LocalScript/i;
+const isClientScript = (file: string) => CLIENT_SCRIPT.test(file);
+
 /** Where the code earns (+) and spends (-) each leaderstats currency: a faucet/sink map from his Rojo source. */
 export function economyMap(files: { file: string; text: string }[]): EconomyMap {
+  const serverFiles = files.filter((f) => !isClientScript(f.file));
   const names = new Set<string>();
-  for (const f of files) {
+  for (const f of serverFiles) {
     if (!/leaderstats/.test(f.text)) continue;
     for (const l of f.text.split("\n")) { const m = LEADERSTAT.exec(l); if (m && /Value|Name/.test(l)) names.add(m[1]); }
   }
-  const all = files.map((f) => f.text).join("\n");
+  const all = serverFiles.map((f) => f.text).join("\n");
   return [...names].filter((c) => new RegExp(`\\b${esc(c)}\\.Value\\b`).test(all)).slice(0, 6).map((c) => {
     const earn: Spot[] = [], spend: Spot[] = [], e = esc(c);
     const plus = new RegExp(`\\b${e}\\.Value\\s*(\\+=|=\\s*[^\\n]*\\b${e}\\.Value\\s*\\+)`), minus = new RegExp(`\\b${e}\\.Value\\s*(-=|=\\s*[^\\n]*\\b${e}\\.Value\\s*-)`);
-    for (const f of files) f.text.split("\n").forEach((l, i) => {
+    for (const f of serverFiles) f.text.split("\n").forEach((l, i) => {
       const spot = { file: f.file, line: i + 1, text: l.trim().slice(0, 160) };
       if (plus.test(l)) earn.push(spot); else if (minus.test(l)) spend.push(spot);
     });
@@ -195,11 +199,23 @@ export function exploitSigns(runs: Run[], place: string): Bug[] {
 
 // ---- RemoteEvents that accept bad input (static, his own Rojo source) ------------------
 
-export type Remote = { file: string; line: number; remote: string; param: string; why: string; severity: Sev; handlerIndent: string; bodyIndent: string };
+export type RemoteKind = "unchecked" | "partial-check" | "table-mutation" | "payload-field" | "async-race" | "no-ratelimit";
+export type Remote = { file: string; line: number; remote: string; param: string; why: string; severity: Sev; handlerIndent: string; bodyIndent: string; kind?: RemoteKind; playerParam?: string };
 const HANDLER = /([\w.:()"'[\]]+?)\s*(?:\.OnServerEvent\s*:\s*Connect\s*\(\s*(?:function\s*\(([^)]*)\)|([A-Za-z_]\w*)\s*\))|\.OnServerInvoke\s*=\s*(?:function\s*\(([^)]*)\)|([A-Za-z_]\w*)))/;
-const NUMERIC_USE = (p: string) => new RegExp(`\\.Value\\s*(?:[-+*/]=|=)[^\\n]*\\b${esc(p)}\\b|\\b${esc(p)}\\b[^\\n]*(?:[-+*/])[^\\n]*\\.Value|\\.Value\\s*[-+*/]\\s*${esc(p)}\\b`);
-const CHECKED = (p: string) => new RegExp(`typeof\\s*\\(\\s*${esc(p)}\\s*\\)|\\btype\\s*\\(\\s*${esc(p)}\\s*\\)|tonumber\\s*\\(\\s*${esc(p)}\\s*\\)|math\\.clamp\\s*\\(\\s*${esc(p)}\\b|\\b${esc(p)}\\s*(?:<|<=|>|>=)\\s*-?\\d|-?\\d\\s*(?:<|<=|>|>=)\\s*${esc(p)}\\b`);
+const ECON_FIELD = "(?:Coins?|Cash|Money|Gems?|Gold|Tokens?|Credits?|Currency|Balance|Points?|XP|Exp|Diamonds?|Crystals?|Bucks|Stars|Tickets|Shards|Souls|Wins|Rebirths?|Inventory|Items|Pets|Stock)";
+const VALUE_MUTATION = /\.Value\s*(?:[-+*/]=|=[^\n]*[-+*/])/;
+const TABLE_MUTATION = new RegExp(`\\b[A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*\\.${ECON_FIELD}\\b(?:\\s*\\[[^\\]]+\\])?\\s*(?:[-+*/]=|=)`);
+const INVENTORY_MUTATION = /\btable\.(?:insert|remove)\s*\(/;
+const REWARD_ACTION = /\b(?:Grant|Give|Award|AddCoins|AddCash|AddGems|AddGold|AddMoney|Purchase|BuyItem|Craft|Forge|Hatch|Claim|Collect|Trade)\s*\(/i;
+const REWARD_REMOTE = /(?:Click|Tap|Forge|Craft|Buy|Purchase|Sell|Claim|Collect|Reward|Gift|Spin|Hatch|Roll|Open|Drop|Mine|Swing|Farm|Harvest|AddCoins|GiveCoins|Earn|Trade)/i;
+const NUMERIC_USE = (p: string) => new RegExp(`\\.Value\\s*(?:[-+*/]=|=)[^\\n]*\\b${esc(p)}(?![\\w.])|\\b${esc(p)}(?![\\w.])[^\\n]*(?:[-+*/])[^\\n]*\\.Value|\\.Value\\s*[-+*/]\\s*${esc(p)}(?![\\w.])`);
+const TABLE_NUMERIC_USE = (p: string) => new RegExp(`\\b[A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*\\.${ECON_FIELD}\\b(?:\\s*\\[[^\\]]+\\])?\\s*(?:[-+*/]=|=)[^\\n]*\\b${esc(p)}(?![\\w.])|\\b${esc(p)}(?![\\w.])[^\\n]*[-+*/][^\\n]*\\.${ECON_FIELD}\\b`);
+const ASYNC_YIELD = /\b(?:task\.wait|wait)\s*\(|:(?:UpdateAsync|SetAsync)\s*\(/;
+const HAS_RATELIMIT = /\bos\.clock\s*\(|\btick\s*\(|\btime\s*\(|\bos\.time\s*\(|\b(?:cooldown|cooldowns|debounce|debounces|lastClick|lastAction|lastFire|lastCall|lastUse|lastTime|rateLimit|rateLimiter|throttle|busy|inFlight|in_flight|locks?)\b/i;
+const SKIP_PROP = /^(?:Name|Parent|UserId|ClassName|Character|Team|DisplayName)$/;
+const PAYLOAD_NUM_FIELD = /^(?:qty|quantity|amount|count|price|cost|coins?|cash|gems?|gold|value|num|number|bet|wager|bid|total|mult|multiplier|level|tier|slots?)$/i;
 const indentOf = (l: string) => /^\s*/.exec(l)![0];
+const stripComments = (s: string) => s.replace(/--\[\[[\s\S]*?\]\]/g, "").replace(/--[^\n]*/g, "");
 
 /** Body lines of a handler: until the `end` (or `end)`) at the handler's own indent (StyLua-formatted code). */
 function bodyOf(lines: string[], start: number): { body: string[]; indent: string } {
@@ -212,11 +228,42 @@ function bodyOf(lines: string[], start: number): { body: string[]; indent: strin
   return { body, indent: body.find((l) => l.trim()) ? indentOf(body.find((l) => l.trim())!) : `${ind}\t` };
 }
 
-/** Server handlers whose client-sent values reach a .Value write without a type/range check. Suspicion from the code, not a run. */
+function aliasesOf(expr: string, code: string): string[] {
+  const names = [expr];
+  const re = new RegExp(`\\blocal\\s+([A-Za-z_]\\w*)\\s*=\\s*${esc(expr)}(?:\\s|$|[^\\w.])`, "g");
+  for (const m of code.matchAll(re)) if (!names.includes(m[1])) names.push(m[1]);
+  return names;
+}
+
+function numericUse(expr: string, code: string, mutatesEcon: boolean): { used: boolean; viaTable: boolean } {
+  const vars = aliasesOf(expr, code);
+  if (vars.some((v) => TABLE_NUMERIC_USE(v).test(code))) return { used: true, viaTable: true };
+  if (vars.some((v) => NUMERIC_USE(v).test(code))) return { used: true, viaTable: false };
+  if (mutatesEcon) {
+    const inMath = vars.some((v) => new RegExp(`(?:[-+*/]\\s*${esc(v)}(?![\\w.])|\\b${esc(v)}(?![\\w.])\\s*[-+*/]|for\\s+[A-Za-z_]\\w*\\s*=\\s*[^,\\n]+,\\s*${esc(v)}(?![\\w.]))`).test(code));
+    if (inMath) return { used: true, viaTable: TABLE_MUTATION.test(code) };
+  }
+  return { used: false, viaTable: false };
+}
+
+function checkNumericValidation(expr: string, code: string): { hasType: boolean; missing: string[] } {
+  const vars = aliasesOf(expr, code);
+  const hasType = vars.some((v) => new RegExp(`(?:typeof|type)\\s*\\(\\s*${esc(v)}\\s*\\)|\\btonumber\\s*\\(\\s*${esc(v)}\\s*\\)`).test(code));
+  const hasNaN = vars.some((v) => new RegExp(`\\b${esc(v)}\\s*(?:~=|==)\\s*${esc(v)}\\b|math\\.isnan\\s*\\(\\s*${esc(v)}\\s*\\)|math\\.floor\\s*\\(\\s*${esc(v)}\\s*\\)\\s*(?:~=|==)\\s*${esc(v)}\\b|\\b${esc(v)}\\s*%\\s*1\\s*(?:==|~=)\\s*0\\b`).test(code));
+  const hasInf = vars.some((v) => new RegExp(`(?:math\\.abs\\s*\\(\\s*${esc(v)}\\s*\\)|\\b${esc(v)})\\s*(?:==|~=|>=|>|<|<=)\\s*math\\.huge|math\\.huge\\s*(?:==|~=|>=|>|<|<=)\\s*(?:math\\.abs\\s*\\(\\s*${esc(v)}\\s*\\)|${esc(v)}\\b)|math\\.clamp\\s*\\(\\s*${esc(v)}\\b|\\b${esc(v)}\\s*(?:>|>=|<|<=)\\s*(?:[1-9]\\d+(?:_\\d+)*(?:e\\d+)?|1e\\d+|[A-Z_]*MAX[A-Z0-9_]*|[A-Z_]*LIMIT[A-Z0-9_]*)\\b`).test(code));
+  const hasRange = vars.some((v) => new RegExp(`\\b${esc(v)}\\s*(?:<|<=|>|>=)\\s*(?:0|1)\\b|\\b(?:0|1)\\s*(?:<|<=|>|>=)\\s*${esc(v)}\\b|math\\.clamp\\s*\\(\\s*${esc(v)}\\b`).test(code));
+  const missing: string[] = [];
+  if (!hasNaN) missing.push("NaN");
+  if (!hasInf) missing.push("infinity");
+  if (!hasRange) missing.push("range");
+  return { hasType, missing };
+}
+
+/** Server handlers whose client-sent values, table mutations, async yields, or unthrottled actions expose exploits. */
 export function auditRemotes(files: { file: string; text: string }[]): Remote[] {
   const out: Remote[] = [];
   for (const f of files) {
-    if (!/OnServer(Event|Invoke)/.test(f.text)) continue;
+    if (isClientScript(f.file) || !/OnServer(Event|Invoke)/.test(f.text)) continue;
     const lines = f.text.split("\n");
     lines.forEach((l, i) => {
       const m = HANDLER.exec(l);
@@ -229,23 +276,77 @@ export function auditRemotes(files: { file: string; text: string }[]): Remote[] 
         if (at < 0) return;
         params = /\(([^)]*)\)/.exec(lines[at])![1];
       }
-      const ps = (params ?? "").split(",").map((p) => p.replace(/:.*$/, "").trim()).filter((p) => /^[A-Za-z_]\w*$/.test(p)).slice(m[4] !== undefined || m[2] !== undefined || named ? 1 : 0);
-      const { body, indent } = bodyOf(lines, at), text = body.join("\n");
+      const rawPs = (params ?? "").replace(/\{[^}]*\}/g, "").split(",").map((p) => p.replace(/:.*$/, "").trim()).filter((p) => /^[A-Za-z_]\w*$/.test(p));
+      const playerParam = rawPs[0] ?? "player";
+      const ps = rawPs.slice(m[4] !== undefined || m[2] !== undefined || named ? 1 : 0);
+      const { body, indent } = bodyOf(lines, at), text = body.join("\n"), code = stripComments(text);
+      const handlerIndent = indentOf(lines[at]);
+      const mutatesEcon = VALUE_MUTATION.test(code) || TABLE_MUTATION.test(code) || INVENTORY_MUTATION.test(code) || REWARD_ACTION.test(code);
+
+      // Classes A, B, C, D1: direct client params & table payload fields (e.g. payload.qty)
+      const candidates: { expr: string; isField: boolean }[] = [];
       for (const p of ps) {
-        if (CHECKED(p).test(text)) continue;
-        if (NUMERIC_USE(p).test(text)) out.push({ file: f.file, line: at + 1, remote, param: p, severity: "high", handlerIndent: indentOf(lines[at]), bodyIndent: indent,
-          why: `${remote} puts "${p}" from the client into a value without checking it is a sane number. A cheater could send -1e9, a huge number or NaN.` });
+        candidates.push({ expr: p, isField: false });
+        const fieldRe = new RegExp(`\\b${esc(p)}\\.([A-Za-z_]\\w*)`, "g");
+        const seenFields = new Set<string>();
+        for (const fm of code.matchAll(fieldRe)) {
+          const fld = fm[1];
+          if (SKIP_PROP.test(fld) || seenFields.has(fld)) continue;
+          seenFields.add(fld);
+          candidates.push({ expr: `${p}.${fld}`, isField: true });
+        }
+      }
+
+      for (const { expr, isField } of candidates) {
+        const use = numericUse(expr, code, mutatesEcon);
+        const fieldName = isField ? expr.split(".")[1] : "";
+        const payloadNumeric = isField && PAYLOAD_NUM_FIELD.test(fieldName) && (mutatesEcon || /[-+*/<>=]/.test(code));
+        if (!use.used && !payloadNumeric) continue;
+
+        const { hasType, missing } = checkNumericValidation(expr, code);
+        if (!hasType) {
+          const kind: RemoteKind = isField ? "payload-field" : use.viaTable ? "table-mutation" : "unchecked";
+          const target = isField ? `table payload field "${expr}"` : use.viaTable ? `"${expr}" into player data/currency table` : `"${expr}" from the client into a value`;
+          out.push({ file: f.file, line: at + 1, remote, param: expr, severity: "high", handlerIndent, bodyIndent: indent, kind, playerParam,
+            why: `${remote} uses ${target} without checking it is a finite positive number. A cheater could send -1e9, math.huge or NaN.` });
+        } else if (missing.length > 0) {
+          out.push({ file: f.file, line: at + 1, remote, param: expr, severity: "high", handlerIndent, bodyIndent: indent, kind: "partial-check", playerParam,
+            why: `${remote} checks typeof(${expr}) == "number" but is missing ${missing.join("/")} validation (NaN, math.huge, or negative/zero bypass).` });
+        }
+      }
+
+      // Class D2: async duplication race (yield before deduction or without per-player lock)
+      if (mutatesEcon && ASYNC_YIELD.test(code)) {
+        const lockRe = new RegExp(`\\b(?:busy|inFlight|in_flight|debounce|debounces|lock|locks|locked|processing|pending|active|inProgress|mutex)\\s*\\[\\s*(?:${esc(playerParam)}(?:\\.UserId)?|userId|uid)\\s*\\]`, "i");
+        if (!lockRe.test(code)) {
+          out.push({ file: f.file, line: at + 1, remote, param: "async-race", severity: "high", handlerIndent, bodyIndent: indent, kind: "async-race", playerParam,
+            why: `${remote} yields (task.wait/wait/UpdateAsync/SetAsync) while mutating currency/inventory without a per-player lock (e.g. busy[player]), allowing async duplication.` });
+        }
+      }
+
+      // Class E: missing rate-limit / throttle on economy/reward/click/purchase handlers
+      if ((mutatesEcon || REWARD_REMOTE.test(remote)) && !HAS_RATELIMIT.test(code)) {
+        out.push({ file: f.file, line: at + 1, remote, param: "rate-limit", severity: "med", handlerIndent, bodyIndent: indent, kind: "no-ratelimit", playerParam,
+          why: `${remote} mutates currency or grants rewards without a per-player cooldown/rate-limit (os.clock/tick/debounce), allowing rapid-fire spam.` });
       }
     });
   }
-  return out.slice(0, 20);
+  return out.slice(0, 30);
 }
 
-export const remoteBugs = (rs: Remote[]): Bug[] => rs.map((r) => ({
-  id: `remote:${r.file}:${r.line}:${r.param}`, title: `${r.remote} trusts "${r.param}" from the client`, severity: r.severity, kind: "code", source: "code", who: [],
-  repro: ["In Studio: Test → Clients and Servers (1 player), then Start.", `In the client window's command bar, find the RemoteEvent named "${r.remote}" and fire it with ${r.param} = -1e9, e.g. game:GetService("ReplicatedStorage"):FindFirstChild("${r.remote}", true):FireServer(-1e9) (put -1e9 in ${r.param}'s place if it isn't the first value).`,
-    "In the server window, look at the player's leaderstats.", "Expected: nothing changes. If the number moved, a cheater can do the same."],
-  evidence: `${r.file} line ${r.line}: ${r.why}` }));
+export const remoteBugs = (rs: Remote[]): Bug[] => rs.map((r) => {
+  const title = r.kind === "async-race" ? `${r.remote} has an async duplication race`
+    : r.kind === "no-ratelimit" ? `${r.remote} has no rate limit`
+    : r.kind === "partial-check" ? `${r.remote} has incomplete number check on "${r.param}"`
+    : `${r.remote} trusts "${r.param}" from the client`;
+  const repro = r.kind === "async-race"
+    ? ["In Studio: Test → Clients and Servers (1 player), then Start.", `Fire "${r.remote}" twice in rapid succession from the client command bar before the yield finishes.`, "In the server window, check whether currency/items duplicated."]
+    : r.kind === "no-ratelimit"
+    ? ["In Studio: Test → Clients and Servers (1 player), then Start.", `In a tight loop in the client command bar, fire "${r.remote}" 50 times in one frame.`, "In the server window, check whether currency/rewards grew every call."]
+    : ["In Studio: Test → Clients and Servers (1 player), then Start.", `In the client window's command bar, find the RemoteEvent named "${r.remote}" and fire it with ${r.param} = -1e9, e.g. game:GetService("ReplicatedStorage"):FindFirstChild("${r.remote}", true):FireServer(-1e9) (put -1e9 in ${r.param}'s place if it isn't the first value).`,
+      "In the server window, look at the player's leaderstats.", "Expected: nothing changes. If the number moved, a cheater can do the same."];
+  return { id: `remote:${r.file}:${r.line}:${r.param}`, title, severity: r.severity, kind: "code", source: "code", who: [], repro, evidence: `${r.file} line ${r.line}: ${r.why}` };
+});
 
 // ---- Proposals (Rojo file edits he approves) ---------------------------------------------
 
@@ -260,7 +361,7 @@ export function hashText(s: string): string {
   return h.toString(16).padStart(8, "0");
 }
 
-/** One guard line right after the handler's first line, per flagged param: reject non-numbers, NaN, negatives and huge values. */
+/** One guard line right after the handler's first line, per flagged param: reject non-numbers, NaN, infinity, non-positive and huge values; plus cooldown when unthrottled. */
 export function guardProposals(files: { file: string; text: string }[], rs: Remote[]): Proposal[] {
   const byFile = new Map<string, Remote[]>();
   for (const r of rs) byFile.set(r.file, [...(byFile.get(r.file) ?? []), r]);
@@ -269,15 +370,35 @@ export function guardProposals(files: { file: string; text: string }[], rs: Remo
     const f = files.find((x) => x.file === file);
     if (!f) continue;
     const lines = f.text.split("\n"), handlers = [...new Set(list.map((r) => r.line))].sort((a, b) => b - a); // bottom-up keeps line numbers valid
+    let needsCooldownTable = false;
     for (const at of handlers) {
       const group = list.filter((r) => r.line === at), ind = group[0].bodyIndent;
       if (lines[at]?.includes(GUARD_TAG)) continue;
-      const cond = group.map((r) => `typeof(${r.param}) ~= "number" or ${r.param} ~= ${r.param} or ${r.param} < 0 or ${r.param} > ${GUARD_MAX}`).join(" or ");
-      lines.splice(at, 0, `${ind}if ${cond} then`, `${ind}\treturn ${GUARD_TAG}`, `${ind}end`);
+      const insert: string[] = [];
+      const paramFindings = group.filter((r) => r.kind !== "async-race" && r.kind !== "no-ratelimit" && /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$/.test(r.param));
+      if (paramFindings.length) {
+        const roots = [...new Set(paramFindings.filter((r) => r.param.includes(".")).map((r) => r.param.split(".")[0]))];
+        const parts = [
+          ...roots.map((rt) => `typeof(${rt}) ~= "table"`),
+          ...paramFindings.map((r) => `typeof(${r.param}) ~= "number" or ${r.param} ~= ${r.param} or math.abs(${r.param}) == math.huge or ${r.param} <= 0 or ${r.param} > ${GUARD_MAX}`),
+        ];
+        insert.push(`${ind}if ${parts.join(" or ")} then`, `${ind}\treturn ${GUARD_TAG}`, `${ind}end`);
+      }
+      const rl = group.find((r) => r.kind === "no-ratelimit");
+      const pl = rl?.playerParam && rl.playerParam !== "_" ? rl.playerParam : "";
+      if (rl && pl) {
+        needsCooldownTable = true;
+        insert.push(`${ind}local _now = os.clock()`, `${ind}if _now - (_orbitCooldown[${pl}] or 0) < 0.25 then`, `${ind}\treturn ${GUARD_TAG}`, `${ind}end`, `${ind}_orbitCooldown[${pl}] = _now`);
+      }
+      if (insert.length) lines.splice(at, 0, ...insert);
+    }
+    if (needsCooldownTable && !lines.some((l) => l.includes("local _orbitCooldown"))) {
+      lines.unshift(`local _orbitCooldown = {} ${GUARD_TAG}`);
     }
     const after = lines.join("\n");
+    if (after === f.text) continue;
     out.push({ id: `fix:${hashText(file + after)}`, file, line: Math.min(...list.map((r) => r.line)), title: `Check client input in ${[...new Set(list.map((r) => r.remote))].join(", ")}`,
-      why: `${list.length} value(s) from the client reach coins/stats unchecked. The fix ignores anything that isn't a number from 0 to ${GUARD_MAX.toLocaleString("en-US")} (change the limit to fit your game).`,
+      why: `${list.length} finding(s) in client-callable handlers. The fix rejects non-numbers, NaN, math.huge, values <= 0 or > ${GUARD_MAX.toLocaleString("en-US")}, and adds a per-player cooldown where missing.`,
       before: f.text, after, hash: hashText(f.text), status: "pending" });
   }
   return out;
