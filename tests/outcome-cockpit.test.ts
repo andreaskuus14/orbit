@@ -5,23 +5,33 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import {
+  MAX_AUTO_HEAL_RETRIES,
   OUTCOME_TEMPLATES,
   applyRunnerSync,
   attachStepRun,
+  buildAutoHealPrompt,
   canDispatchStep,
   createOutcomeFromTemplate,
   decideApproval,
   deriveOutcomeStatus,
+  distillOutcomeToSkill,
+  extractOutcomeMistake,
+  healableSteps,
   isSafeOutcomeText,
+  markOutcomeDistilled,
+  pickBackgroundActions,
   pickRunnerKind,
   readySteps,
   recordCheckResult,
   retryFixStep,
   reviewDeskSummary,
+  routeModelForStep,
+  selectVerifierForCheck,
   startReadySteps,
   updateStepStatus,
   type OutcomeProject,
 } from "../src/lib/outcome-cockpit-pure.ts";
+import { validateDraft } from "../src/lib/skills-pure.ts";
 
 const T0 = "2026-11-22T10:00:00.000Z";
 const T1 = "2026-11-22T10:05:00.000Z";
@@ -187,4 +197,119 @@ test("applyRunnerSync reconciles running, done, failed, and blocked honestly", (
   // Refuses syncing approval-gated step or private text
   assert.match(applyRunnerSync(p, "s4", { state: "done", verified: true, now: T1 }) as string, /Rule 6/);
   assert.match(applyRunnerSync(p, "s2", { state: "done", proof: "My private diary entry", now: T1 }) as string, /Rule 6/);
+});
+
+test("healableSteps + buildAutoHealPrompt target failed steps, reuse verified work, and enforce retry cap", () => {
+  let p = createOutcomeFromTemplate("roblox-update", { id: "p-heal", now: T0 }) as OutcomeProject;
+  p = updateStepStatus(p, "s2", "verified", { note: "Playtest clean", now: T1 }) as OutcomeProject;
+  p = recordCheckResult(p, "c1", false, "selene found unused variable in ShopServer.luau", T1) as OutcomeProject;
+
+  const list = healableSteps(p);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].step.id, "s1");
+  assert.match(list[0].reason, /selene found unused variable/i);
+
+  const prompt = buildAutoHealPrompt(p, list[0]);
+  assert.match(prompt, /SELF-HEAL FIX/);
+  assert.match(prompt, /Reuse these already-verified steps/);
+  assert.match(prompt, /Rule 6/);
+
+  // Exceeding MAX_AUTO_HEAL_RETRIES stops auto-heal loops cleanly
+  const exhausted: OutcomeProject = {
+    ...p,
+    steps: p.steps.map((s) => (s.id === "s1" ? { ...s, retries: MAX_AUTO_HEAL_RETRIES + 1 } : s)),
+  };
+  assert.equal(healableSteps(exhausted).length, 0);
+});
+
+test("distillOutcomeToSkill compiles verified outcomes into valid Skill Forge drafts and enforces Rule 6", () => {
+  let p = createOutcomeFromTemplate("client-shop", { id: "p-distill", now: T0 }) as OutcomeProject;
+  // Unverified outcome must NEVER distill
+  assert.equal(distillOutcomeToSkill(p), null);
+
+  for (const s of p.steps) {
+    if (!s.requiresApproval) p = updateStepStatus(p, s.id, "verified", { now: T1 }) as OutcomeProject;
+  }
+  for (const c of p.checks) {
+    p = recordCheckResult(p, c.id, true, "All checks passed", T1) as OutcomeProject;
+  }
+
+  const draft = distillOutcomeToSkill(p);
+  assert.ok(draft);
+  const validated = validateDraft(draft);
+  assert.equal(typeof validated, "object", `Expected valid Skill Forge draft, got: ${String(validated)}`);
+  assert.match(draft.name, /^outcome-/);
+  assert.ok(draft.tools.length >= 1);
+
+  const marked = markOutcomeDistilled(p, draft.name, T1);
+  assert.equal(marked.distilledSkillName, draft.name);
+  assert.equal(marked.distilledSkillAt, T1);
+
+  // Rule 6 privacy wall: private/journal text never distills
+  const priv: OutcomeProject = { ...p, title: "Personal diary workflow" };
+  assert.equal(distillOutcomeToSkill(priv), null);
+});
+
+test("extractOutcomeMistake captures concrete failures and blocks private text", () => {
+  let p = createOutcomeFromTemplate("week-of-shorts", { id: "p-mis", now: T0 }) as OutcomeProject;
+  p = applyRunnerSync(p, "s2", { state: "failed", note: "FFmpeg exited 1: missing libx264", now: T1 }) as OutcomeProject;
+  const s2 = p.steps.find((s) => s.id === "s2")!;
+  const cand = extractOutcomeMistake(p, s2);
+  assert.ok(cand);
+  assert.match(cand.mistake, /FFmpeg exited 1/);
+  assert.match(cand.fix, /FFmpeg exited 1/);
+
+  const privStep = { ...s2, note: "My secret password leak" };
+  assert.equal(extractOutcomeMistake({ ...p, blockers: [] }, privStep), null);
+});
+
+test("selectVerifierForCheck maps Roblox, ARCH, web, and generic checks accurately", () => {
+  const rbx = createOutcomeFromTemplate("roblox-update", { id: "v-rbx", now: T0 }) as OutcomeProject;
+  assert.equal(selectVerifierForCheck(rbx, rbx.checks[0]), "roblox-audit");
+
+  const shop = createOutcomeFromTemplate("client-shop", { id: "v-shop", now: T0 }) as OutcomeProject;
+  assert.equal(selectVerifierForCheck(shop, shop.checks[0]), "web-smoke");
+
+  const arch = createOutcomeFromTemplate("custom", { id: "v-arch", title: "Tallinn ARCH house", now: T0 }) as OutcomeProject;
+  assert.equal(selectVerifierForCheck(arch, { id: "ca", label: "Check floor plan & BOQ", scope: "qa", status: "pending" }), "arch-plan");
+});
+
+test("routeModelForStep picks fast/balanced/deep tiers and falls back past rate-limited providers", () => {
+  const p = createOutcomeFromTemplate("roblox-update", { id: "r-mod", now: T0 }) as OutcomeProject;
+  const verifyStep = p.steps.find((s) => s.kind === "verify")!;
+  const buildStep = p.steps.find((s) => s.kind === "build")!;
+
+  assert.equal(routeModelForStep(verifyStep).tier, "fast");
+  assert.equal(routeModelForStep(buildStep).tier, "balanced");
+
+  // Failed/retry step escalates to deep tier and skips exhausted primary provider
+  const retrying = { ...buildStep, status: "needs_fix" as const, retries: 1 };
+  const route = routeModelForStep(retrying, { exhausted: ["claude-opus"] });
+  assert.equal(route.tier, "deep");
+  assert.notEqual(route.primary, "claude-opus");
+  assert.equal(route.primary, "claude-sonnet");
+});
+
+test("pickBackgroundActions prioritizes sync -> auto_heal -> run_ready -> distill and never dispatches approval steps", () => {
+  const pReady = createOutcomeFromTemplate("week-of-shorts", { id: "bg-ready", now: T0 }) as OutcomeProject;
+  let pHeal = createOutcomeFromTemplate("roblox-update", { id: "bg-heal", now: T0 }) as OutcomeProject;
+  pHeal = recordCheckResult(pHeal, "c1", false, "Audit failed", T1) as OutcomeProject;
+
+  let pWaitingApproval = createOutcomeFromTemplate("client-shop", { id: "bg-wait", now: T0 }) as OutcomeProject;
+  for (const s of pWaitingApproval.steps) {
+    if (!s.requiresApproval) pWaitingApproval = updateStepStatus(pWaitingApproval, s.id, "verified", { now: T1 }) as OutcomeProject;
+  }
+  for (const c of pWaitingApproval.checks) {
+    pWaitingApproval = recordCheckResult(pWaitingApproval, c.id, true, "Verified", T1) as OutcomeProject;
+  }
+
+  const actions = pickBackgroundActions([pHeal, pReady, pWaitingApproval]);
+  assert.deepEqual(
+    actions.map((a) => [a.projectId, a.action]),
+    [
+      ["bg-heal", "auto_heal"],
+      ["bg-ready", "run_ready"],
+      ["bg-wait", "distill"],
+    ],
+  );
 });

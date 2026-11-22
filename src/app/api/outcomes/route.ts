@@ -11,7 +11,15 @@ import {
   setOutcomeCheck,
   setOutcomeStep,
 } from "@/lib/outcome-cockpit";
-import { dispatchReadyRuns, dispatchStepRun, syncProjectRuns } from "@/lib/outcome-runner";
+import {
+  advanceOutcomesBackground,
+  dispatchAutoHeal,
+  dispatchReadyRuns,
+  dispatchStepRun,
+  distillProjectLearnings,
+  runLocalCheckVerifier,
+  syncProjectRuns,
+} from "@/lib/outcome-runner";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +66,13 @@ export async function POST(req: Request) {
     return Response.json({ project: { ...out.project, summary: reviewDeskSummary(out.project) } }, { status: 201 });
   }
 
+  if (action === "advance_background") {
+    const summary = await advanceOutcomesBackground(sb, user.id, {
+      maxActions: typeof b.maxActions === "number" ? b.maxActions : undefined,
+    });
+    return Response.json({ ok: true, ...summary });
+  }
+
   const id = typeof b.id === "string" ? b.id : "";
   if (!id) return Response.json({ error: "id required" }, { status: 400 });
 
@@ -76,9 +91,29 @@ export async function POST(req: Request) {
     out = { project: resReady.project, error: resReady.error };
     meta = { dispatched: resReady.dispatched, errors: resReady.errors };
   } else if (action === "sync_runs") {
-    const resSync = await syncProjectRuns(sb, user.id, id);
+    const resSync = await syncProjectRuns(sb, user.id, id, { autoHeal: b.autoHeal === true });
     out = { project: resSync.project, error: resSync.error };
-    meta = { synced: resSync.synced };
+    meta = {
+      synced: resSync.synced,
+      ...(resSync.healed ? { healed: resSync.healed } : {}),
+      ...(resSync.distilled ? { distilled: resSync.distilled } : {}),
+    };
+  } else if (action === "auto_heal") {
+    const stepId = typeof b.stepId === "string" ? b.stepId : undefined;
+    const resHeal = await dispatchAutoHeal(sb, user.id, id, stepId);
+    out = { project: resHeal.project, error: resHeal.error };
+    meta = { healed: resHeal.healed, errors: resHeal.errors };
+  } else if (action === "distill") {
+    const resDistill = await distillProjectLearnings(user.id, id);
+    out = { project: resDistill.project, error: resDistill.error };
+    meta = { skillName: resDistill.skillName, mistakesSaved: resDistill.mistakesSaved };
+  } else if (action === "verify_check") {
+    const checkId = typeof b.checkId === "string" ? b.checkId : "";
+    if (!checkId) return Response.json({ error: "checkId required" }, { status: 400 });
+    const luauFiles = Array.isArray(b.luauFiles) ? (b.luauFiles as { path: string; code: string }[]) : undefined;
+    const resVerify = await runLocalCheckVerifier(user.id, id, checkId, { luauFiles });
+    out = { project: resVerify.project, error: resVerify.error };
+    meta = { verifier: resVerify.verifier, pass: resVerify.pass, proof: resVerify.proof };
   } else if (action === "step") {
     const stepId = typeof b.stepId === "string" ? b.stepId : "";
     const status = typeof b.status === "string" && VALID_STEP_STATUS.has(b.status as Exclude<StepStatus, "waiting_approval">)
