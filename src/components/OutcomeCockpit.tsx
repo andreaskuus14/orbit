@@ -12,6 +12,7 @@ import {
   type OutcomeTemplateId,
   type ReviewDeskSummary,
 } from "@/lib/outcome-cockpit-pure";
+import type { ObjectionVerdict, PlanDebate } from "@/lib/outcome-debate-pure";
 import type { Key } from "@/lib/i18n-pure";
 import { useT } from "./i18n";
 
@@ -57,6 +58,14 @@ export function OutcomeCockpit() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // while a plan review runs in the background, refresh until it lands
+  const reviewing = projects.some((p) => p.debate?.status === "pending");
+  useEffect(() => {
+    if (!reviewing) return;
+    const timer = setInterval(() => void load(), 5000);
+    return () => clearInterval(timer);
+  }, [reviewing, load]);
 
   const act = async (body: Record<string, unknown>) => {
     setBusy(true);
@@ -267,6 +276,15 @@ export function OutcomeCockpit() {
               </div>
             )}
 
+            {current.debate && (
+              <PlanReview
+                debate={current.debate}
+                busy={busy}
+                onSkip={() => void act({ action: "skip_review", id: current.id })}
+                t={t}
+              />
+            )}
+
             {view === "plan" ? (
               <div className="mt-3 space-y-3">
                 {current.summary.parallelReady > 0 && (
@@ -437,5 +455,45 @@ export function OutcomeCockpit() {
         </div>
       )}
     </section>
+  );
+}
+
+const VERDICT_MARK: Record<ObjectionVerdict, string> = { survived: "✓", dropped: "–", refused: "⛔" };
+
+/** The critic-vs-planner result: what changed the plan, and what was argued away (with the planner's reason). */
+function PlanReview({ debate, busy, onSkip, t }: { debate: PlanDebate; busy: boolean; onSkip: () => void; t: ReturnType<typeof useT>["t"] }) {
+  if (debate.status === "pending") {
+    return (
+      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-400/30 bg-violet-950/20 px-2.5 py-1.5 text-xs" role="status">
+        <span>⚔ {t("oe.reviewPending")}</span>
+        <button type="button" className="chip text-[11px]" disabled={busy} onClick={onSkip}>{t("oe.reviewSkip")}</button>
+      </div>
+    );
+  }
+  if (debate.status !== "done" || !debate.objections.length) {
+    return <p className="muted mt-2.5 text-xs">⚔ {t("oe.reviewTitle")}: {debate.note}</p>;
+  }
+  const groups: [ObjectionVerdict, string][] = [["survived", t("oe.reviewSurvived")], ["dropped", t("oe.reviewDropped")], ["refused", t("oe.reviewRefused")]];
+  return (
+    <details className="mt-2.5 rounded-lg border border-violet-400/25 bg-violet-950/15 px-2.5 py-1.5 text-xs">
+      <summary className="cursor-pointer">⚔ {t("oe.reviewTitle")}: {debate.note}</summary>
+      {groups.map(([verdict, label]) => {
+        const items = debate.objections.filter((o) => o.verdict === verdict);
+        if (!items.length) return null;
+        return (
+          <div key={verdict} className="mt-2">
+            <h4 className="muted text-[11px] uppercase tracking-wider">{label}</h4>
+            <ul className="mt-1 space-y-1">
+              {items.map((o) => (
+                <li key={o.id}>
+                  <span>{VERDICT_MARK[verdict]} <strong className="font-mono text-[10px] uppercase">{o.severity}</strong> {o.claim}</span>
+                  <span className="muted block text-[11px]">{o.checkId ? `${t("oe.reviewAdded")}: ${o.fix}` : o.fix}{o.reply ? ` · ${o.reply}` : ""}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+    </details>
   );
 }

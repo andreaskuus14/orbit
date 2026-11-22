@@ -105,17 +105,21 @@ test("disk store round-trip persists and updates outcomes cleanly", async () => 
       "--import",
       "./tests/fixtures/ts-resolve.mjs",
       "-e",
-      `import { createOutcome, listOutcomes, runParallelOutcomeSteps, deleteOutcome } from "./src/lib/outcome-cockpit.ts";
+      `import { createOutcome, listOutcomes, runParallelOutcomeSteps, skipPlanReview, deleteOutcome } from "./src/lib/outcome-cockpit.ts";
        const c = await createOutcome("u1", { template: "week-of-shorts" });
        if (!c.project) throw new Error(c.error);
+       const held = await runParallelOutcomeSteps("u1", c.project.id);
+       await skipPlanReview("u1", c.project.id);
        const r = await runParallelOutcomeSteps("u1", c.project.id);
        const list = await listOutcomes("u1");
        const del = await deleteOutcome("u1", c.project.id);
-       console.log(JSON.stringify({ running: r.project.steps.filter(s => s.status === "running").length, count: list.length, del }));`,
+       const running = (p) => p.steps.filter(s => s.status === "running").length;
+       console.log(JSON.stringify({ review: c.project.debate.status, held: running(held.project), after: list[0].debate.status, running: running(r.project), count: list.length, del }));`,
     ],
     { env: { ...process.env, ORBIT_DATA_DIR: dir }, encoding: "utf8" },
   );
-  assert.deepEqual(JSON.parse(out.trim()), { running: 2, count: 1, del: true });
+  // a new outcome waits for its plan review; once that ends (here: skipped) the parallel steps start
+  assert.deepEqual(JSON.parse(out.trim()), { review: "pending", held: 0, after: "skipped", running: 2, count: 1, del: true });
 });
 
 test("pickRunnerKind maps planets/lanes and refuses auto-runner for requiresApproval steps", () => {

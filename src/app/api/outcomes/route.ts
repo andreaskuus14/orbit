@@ -10,6 +10,7 @@ import {
   runParallelOutcomeSteps,
   setOutcomeCheck,
   setOutcomeStep,
+  skipPlanReview,
 } from "@/lib/outcome-cockpit";
 import {
   advanceOutcomesBackground,
@@ -18,8 +19,10 @@ import {
   dispatchStepRun,
   distillProjectLearnings,
   runLocalCheckVerifier,
+  runPlanReview,
   syncProjectRuns,
 } from "@/lib/outcome-runner";
+import { planReviewPending } from "@/lib/outcome-debate-pure";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +66,8 @@ export async function POST(req: Request) {
       brief: typeof b.brief === "string" ? b.brief : undefined,
     });
     if (out.error || !out.project) return Response.json({ error: out.error ?? "Could not create outcome" }, { status: 400 });
+    // the critic review takes a minute: start it now and let the cockpit poll, rather than holding this request open
+    if (planReviewPending(out.project)) void runPlanReview(sb, user.id, out.project.id).catch((e) => console.error("[orbit] plan review", e));
     return Response.json({ project: { ...out.project, summary: reviewDeskSummary(out.project) } }, { status: 201 });
   }
 
@@ -78,7 +83,11 @@ export async function POST(req: Request) {
 
   let out: { project?: Awaited<ReturnType<typeof listOutcomes>>[number]; error?: string };
   let meta: Record<string, unknown> = {};
-  if (action === "run_parallel") {
+  if (action === "plan_review") {
+    out = await runPlanReview(sb, user.id, id);
+  } else if (action === "skip_review") {
+    out = await skipPlanReview(user.id, id);
+  } else if (action === "run_parallel") {
     out = await runParallelOutcomeSteps(user.id, id);
   } else if (action === "run_step") {
     const stepId = typeof b.stepId === "string" ? b.stepId : "";
