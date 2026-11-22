@@ -77,17 +77,24 @@ test("exploit signs: negative balance, impossible jump, duplicate pet ids, with 
 const SERVER = [
   'local RS = game:GetService("ReplicatedStorage")',
   'local Remotes = RS:WaitForChild("Remotes")',
+  'local lastUse = {}',
   'Remotes:WaitForChild("AddCoins").OnServerEvent:Connect(function(player, amount)',
+  '\tif os.clock() - (lastUse[player] or 0) < 0.2 then return end',
+  '\tlastUse[player] = os.clock()',
   '\tlocal ls = player:FindFirstChild("leaderstats")',
   '\tls.Coins.Value += amount',
   'end)',
   'Remotes.BuyEgg.OnServerEvent:Connect(function(player, cost)',
-  '\tif typeof(cost) ~= "number" or cost < 0 then',
+  '\tif os.clock() - (lastUse[player] or 0) < 0.2 then return end',
+  '\tlastUse[player] = os.clock()',
+  '\tif typeof(cost) ~= "number" or cost ~= cost or math.abs(cost) == math.huge or cost <= 0 then',
   '\t\treturn',
   '\tend',
   '\tplayer.leaderstats.Coins.Value -= cost',
   'end)',
   'local function onSell(player, price)',
+  '\tif os.clock() - (lastUse[player] or 0) < 0.2 then return end',
+  '\tlastUse[player] = os.clock()',
   '\tplayer.leaderstats.Coins.Value = player.leaderstats.Coins.Value + price',
   'end',
   'Remotes.Sell.OnServerEvent:Connect(onSell)',
@@ -98,15 +105,15 @@ const FILES = [{ file: "src/ServerScriptService/Shop.server.luau", text: SERVER 
 test("remotes: unchecked client values reaching .Value are flagged; checked ones are not", () => {
   const rs = auditRemotes(FILES);
   assert.deepEqual(rs.map((r) => `${r.remote}:${r.param}`), ["AddCoins:amount", "Sell:price"]);
-  assert.equal(rs[0].line, 3);
-  assert.equal(rs[1].line, 13); // the named handler's own line
+  assert.equal(rs[0].line, 4);
+  assert.equal(rs[1].line, 18); // the named handler's own line
 });
 
 test("economy map: where Coins are earned and spent in the code", () => {
   const [m] = economyMap(FILES);
   assert.equal(m.currency, "Coins");
-  assert.deepEqual(m.earn.map((s) => s.line), [5, 14]);
-  assert.deepEqual(m.spend.map((s) => s.line), [11]);
+  assert.deepEqual(m.earn.map((s) => s.line), [8, 21]);
+  assert.deepEqual(m.spend.map((s) => s.line), [16]);
 });
 
 test("proposals: a guard line per flagged handler, made against the exact file text", () => {
@@ -114,8 +121,8 @@ test("proposals: a guard line per flagged handler, made against the exact file t
   assert.equal(p.status, "pending");
   assert.equal(p.hash, hashText(SERVER));
   const lines = p.after.split("\n");
-  assert.equal(lines[3], '\tif typeof(amount) ~= "number" or amount ~= amount or amount < 0 or amount > 1000000 then');
-  assert.ok(lines[4].includes(GUARD_TAG));
+  assert.equal(lines[4], '\tif typeof(amount) ~= "number" or amount ~= amount or math.abs(amount) == math.huge or amount <= 0 or amount > 1000000 then');
+  assert.ok(lines[5].includes(GUARD_TAG));
   assert.equal(proposalDiff(p).length, 6); // 3 lines × 2 handlers
   assert.equal(auditRemotes([{ file: FILES[0].file, text: p.after }]).length, 0); // the fix silences the finding
 });
@@ -202,4 +209,163 @@ test("night: playtesters only planned when due (owner switched them on)", () => 
   assert.ok(!has(planNight(base, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue));
   assert.ok(has(planNight({ ...base, playtesters: true }, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue));
   assert.ok(!has(planNight({ ...base, playtesters: true, off: ["playtesters"] }, NIGHT_DEFAULTS, { calls: 0, ms: 0 }).queue));
+});
+
+// ---- Exploit Auditor v2: all 5 exploit classes + zero false positives + economyMap + currencyFlow ----
+
+test("auditRemotes v2: catches all 5 planted exploit classes (A, B, C, D, E)", () => {
+  const file = "src/ServerScriptService/Exploits.server.luau";
+  const src = [
+    'local Remotes = game:GetService("ReplicatedStorage").Remotes',
+    'local cooldown = {}',
+    // Class A: unchecked .Value -=
+    'Remotes.SpendLegacy.OnServerEvent:Connect(function(player, cost)',
+    '\tif os.clock() - (cooldown[player] or 0) < 0.2 then return end',
+    '\tcooldown[player] = os.clock()',
+    '\tplayer.leaderstats.Coins.Value -= cost',
+    'end)',
+    // Class B: partial typeof() missing NaN / infinity / range
+    'Remotes.PartialCheck.OnServerEvent:Connect(function(player, amount)',
+    '\tif os.clock() - (cooldown[player] or 0) < 0.2 then return end',
+    '\tcooldown[player] = os.clock()',
+    '\tif typeof(amount) ~= "number" or amount < 0 then return end',
+    '\tplayer.leaderstats.Coins.Value -= amount',
+    'end)',
+    // Class C: ProfileStore / DataStore table mutation (prof.Coins +=)
+    'Remotes.ProfileReward.OnServerEvent:Connect(function(player, bonus)',
+    '\tif os.clock() - (cooldown[player] or 0) < 0.2 then return end',
+    '\tcooldown[player] = os.clock()',
+    '\tlocal prof = Profiles[player]',
+    '\tprof.Coins += bonus',
+    'end)',
+    // Class D1 + D2: table payload field (payload.qty) + async duplication race (task.wait before deduct, no lock)
+    'Remotes.TradeBundle.OnServerEvent:Connect(function(player, payload)',
+    '\tif os.clock() - (cooldown[player] or 0) < 0.2 then return end',
+    '\tcooldown[player] = os.clock()',
+    '\tlocal prof = Profiles[player]',
+    '\tlocal total = 100 * payload.qty',
+    '\tif prof.Coins >= total then',
+    '\t\ttask.wait(0.2)',
+    '\t\tprof.Coins -= total',
+    '\tend',
+    'end)',
+    // Class E: unthrottled click/reward RemoteEvent (no cooldown/debounce)
+    'Remotes.ClickCoin.OnServerEvent:Connect(function(player)',
+    '\tlocal prof = Profiles[player]',
+    '\tprof.Coins += 1',
+    'end)',
+  ].join("\n");
+
+  const rs = auditRemotes([{ file, text: src }]);
+  const byKey = new Map(rs.map((r) => [`${r.remote}:${r.param}`, r]));
+
+  // Class A
+  assert.equal(byKey.get("SpendLegacy:cost")?.severity, "high");
+  assert.equal(byKey.get("SpendLegacy:cost")?.kind, "unchecked");
+
+  // Class B
+  const b = byKey.get("PartialCheck:amount");
+  assert.equal(b?.severity, "high");
+  assert.equal(b?.kind, "partial-check");
+  assert.match(b?.why ?? "", /NaN/);
+  assert.match(b?.why ?? "", /infinity/);
+
+  // Class C
+  assert.equal(byKey.get("ProfileReward:bonus")?.severity, "high");
+  assert.equal(byKey.get("ProfileReward:bonus")?.kind, "table-mutation");
+
+  // Class D1 (payload.qty) + Class D2 (async-race)
+  assert.equal(byKey.get("TradeBundle:payload.qty")?.severity, "high");
+  assert.equal(byKey.get("TradeBundle:payload.qty")?.kind, "payload-field");
+  assert.equal(byKey.get("TradeBundle:async-race")?.severity, "high");
+  assert.equal(byKey.get("TradeBundle:async-race")?.kind, "async-race");
+
+  // Class E (missing rate-limit)
+  assert.equal(byKey.get("ClickCoin:rate-limit")?.kind, "no-ratelimit");
+});
+
+test("auditRemotes v2: zero false positives on a properly hardened handler", () => {
+  const file = "src/ServerScriptService/Hardened.server.luau";
+  const hardened = [
+    'local Remotes = game:GetService("ReplicatedStorage").Remotes',
+    'local cooldown = {}',
+    'local busy = {}',
+    'Remotes.BuySafe.OnServerEvent:Connect(function(player, payload)',
+    '\tif busy[player] then return end',
+    '\tlocal now = os.clock()',
+    '\tif now - (cooldown[player] or 0) < 0.5 then return end',
+    '\tcooldown[player] = now',
+    '\tif typeof(payload) ~= "table" then return end',
+    '\tlocal qty = payload.qty',
+    '\tif typeof(qty) ~= "number" or qty ~= qty or math.abs(qty) == math.huge or qty <= 0 or qty > 100 then',
+    '\t\treturn',
+    '\tend',
+    '\tbusy[player] = true',
+    '\tlocal prof = Profiles[player]',
+    '\tlocal total = 50 * qty',
+    '\tif prof.Coins >= total then',
+    '\t\tprof.Coins -= total',
+    '\t\tDataStore:SetAsync(player.UserId, prof)',
+    '\tend',
+    '\tbusy[player] = nil',
+    'end)',
+  ].join("\n");
+
+  const rs = auditRemotes([{ file, text: hardened }]);
+  assert.deepEqual(rs, []);
+});
+
+test("guardProposals v2: generates valid Luau guards for table payload fields and unthrottled remotes", () => {
+  const file = "src/ServerScriptService/Trade.server.luau";
+  const src = [
+    'local Remotes = game:GetService("ReplicatedStorage").Remotes',
+    'Remotes.BuyPack.OnServerEvent:Connect(function(player, payload)',
+    '\tlocal prof = Profiles[player]',
+    '\tprof.Coins -= 50 * payload.qty',
+    'end)',
+  ].join("\n");
+
+  const rs = auditRemotes([{ file, text: src }]);
+  assert.ok(rs.some((r) => r.param === "payload.qty"));
+  assert.ok(rs.some((r) => r.kind === "no-ratelimit"));
+
+  const [p] = guardProposals([{ file, text: src }], rs);
+  assert.ok(p);
+  assert.match(p.after, /typeof\(payload\) ~= "table" or typeof\(payload\.qty\) ~= "number" or payload\.qty ~= payload\.qty or math\.abs\(payload\.qty\) == math\.huge or payload\.qty <= 0/);
+  assert.match(p.after, /local _orbitCooldown = \{\}/);
+  assert.match(p.after, /os\.clock\(\)/);
+  assert.equal(auditRemotes([{ file, text: p.after }]).length, 0);
+});
+
+test("economyMap: excludes client scripts (.client.luau, StarterPlayerScripts, LocalScript)", () => {
+  const cheatClient = 'local ls = game.Players.LocalPlayer.leaderstats\nls.Coins.Value += 999999\nls.Coins.Value -= 500';
+  const map = economyMap([
+    ...FILES,
+    { file: "src/StarterPlayer/StarterPlayerScripts/Cheat.client.luau", text: cheatClient },
+    { file: "src/StarterGui/ShopUI/FakeCheat.client.lua", text: cheatClient },
+    { file: "src/ReplicatedFirst/Init.luau", text: cheatClient },
+    { file: "src/StarterCharacterScripts/Walk.luau", text: cheatClient },
+    { file: "src/Client/LocalScript.luau", text: cheatClient },
+  ]);
+  assert.equal(map.length, 1);
+  assert.equal(map[0].currency, "Coins");
+  for (const spot of [...map[0].earn, ...map[0].spend]) {
+    assert.equal(spot.file, "src/ServerScriptService/Shop.server.luau");
+  }
+});
+
+test("currencyFlow: ignores negative-balance exploit jumps in spent while exploitSigns still flags them", () => {
+  const r = run("bughunter", [
+    sample(0, 0, 0, 0),
+    sample(1, 5, 0, 200),
+    sample(2, 10, 0, 150),       // legitimate spend of 50
+    sample(3, 15, 0, -999_999),  // negative-balance exploit jump!
+  ]);
+  const [flow] = currencyFlow([r]);
+  assert.equal(flow.currency, "Coins");
+  assert.equal(flow.earned, 200);
+  assert.equal(flow.spent, 50);
+
+  const bugs = exploitSigns([r], "PetSim.rbxl");
+  assert.ok(bugs.some((b) => b.id === "neg:Coins" && b.severity === "high"));
 });
