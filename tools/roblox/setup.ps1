@@ -40,9 +40,12 @@ try {
   Run selene @("--version")
   Run stylua @("--version")
   # Also as global tools, so they run in a connected folder that pins other tools (its own aftman.toml/rokit.toml). Not fatal.
-  foreach ($t in @("rojo-rbx/rojo@7.7.1", "Kampfkarren/selene@0.31.0", "JohnnyMorganz/StyLua@2.6.0")) {
+  foreach ($t in @("rojo-rbx/rojo@7.7.1", "Kampfkarren/selene@0.31.0", "JohnnyMorganz/StyLua@2.6.0", "UpliftGames/wally@0.3.2", "JohnnyMorganz/luau-lsp@1.39.0")) {
     & rokit add --global $t 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Host "  ($t is already a global tool, or Rokit said no: fine)" }
+  }
+  foreach ($opt in @("wally", "luau-lsp")) {
+    if (Get-Command $opt -ErrorAction SilentlyContinue) { & $opt --version }
   }
   Step "Rojo's Studio plugin"
   Run rojo @("plugin", "install")

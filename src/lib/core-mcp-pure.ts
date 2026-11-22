@@ -33,6 +33,46 @@ export function exposedTools(names: readonly string[], ctx: Pick<PolicyCtx, "sto
   });
 }
 
+const CORE_ESSENTIAL_TOOLS = new Set([
+  "search_memory", "save_memory", "web_search", "fetch_url", "read_more", "navigate", "plan_task",
+]);
+
+const INTENT_TOOL_GROUPS: { re: RegExp; match: RegExp }[] = [
+  { re: /\b(site|website|shop|html|css|code|build|workspace|redesign|file|patch|fix|script)\b/i, match: /^(ws_|run_code|code_sandbox|git_)/ },
+  { re: /\b(roblox|luau|rojo|selene|playtest|economy|game|tycoon|obfusc|remote)\b/i, match: /^(ws_|roblox|gamedev|playtest|start_mission)/ },
+  { re: /\b(short|shorts|clip|youtube|video|thumbnail|studio|dub|story)\b/i, match: /^(studio_|clips_|yt_|start_mission)/ },
+  { re: /\b(lead|client|outreach|business|invoice|deal|sales|crm|email)\b/i, match: /^(business_|find_lead|outreach|draft_)/ },
+  { re: /\b(terminal|shell|command|install|pc|app|chrome|browser|screen|window)\b/i, match: /^(terminal|shell|pc_|browser|browse|screen)/ },
+  { re: /\b(habit|remind|calendar|schedule|day|week|wish|goal|mission|outcome)\b/i, match: /^(life_|calendar|plan_day|week_|add_wish|create_goal|goal_|start_mission|queue_tonight)/ },
+  { re: /\b(vault|doc|pdf|note|memory|research|news|scout|niche|watch)\b/i, match: /^(vault_|read_news|run_scout|run_niche|watch_|browse)/ },
+];
+
+/**
+ * Dynamic MCP/SDK tool pruning: keeps core essentials + highest-relevance intent-matched tools (capped at `max`, default 14)
+ * so native-tool turns don't flood the model with 50+ irrelevant schemas.
+ */
+export function pruneToolsForIntent(
+  exposed: readonly string[],
+  query: string,
+  opts?: { max?: number },
+): { tools: string[]; prunedCount: number } {
+  const cap = Math.max(4, Math.min(opts?.max ?? 14, 40));
+  if (exposed.length <= cap) return { tools: [...exposed], prunedCount: 0 };
+
+  const activeMatchers = INTENT_TOOL_GROUPS.filter((g) => g.re.test(query)).map((g) => g.match);
+  const scored = exposed.map((name, idx) => {
+    let score = 0;
+    if (CORE_ESSENTIAL_TOOLS.has(name)) score += 100;
+    if (activeMatchers.some((m) => m.test(name))) score += 50;
+    if (isPluginTool(name) && /\b(plugin|mcp|integration|notion|slack|github|linear|jira|figma|canva)\b/i.test(query)) score += 40;
+    return { name, score, idx };
+  });
+
+  scored.sort((a, b) => b.score - a.score || a.idx - b.idx);
+  const selected = scored.slice(0, cap).map((s) => s.name);
+  return { tools: selected, prunedCount: Math.max(0, exposed.length - selected.length) };
+}
+
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** Each tool's own instructions, cut from CORE's prompt text (TOOLS lines and module lines): from its name to the next tool's name,
  *  with the module's header after it. The most-used tools also get a real schema (mcp-schemas-pure.ts). */

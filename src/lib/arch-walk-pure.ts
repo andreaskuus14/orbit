@@ -14,12 +14,13 @@ const cut = (a0: number, a1: number, gaps: [number, number][]) => {
   return out.filter(([a, b]) => b - a > 1e-6);
 };
 
-/** Footprints that block a walker on the ground: walls spanning knee to eye height. A shell wall is four strips (wallThick),
+/** Footprints that block a walker on floor height `floorY`: walls spanning knee to eye height. A shell wall is four strips (wallThick),
  *  a thin wall is its own block; doors on a face cut a gap in that strip. */
-export function wallRects(parts: Part[]): Rect[] {
+export function wallRects(parts: Part[], floorY = 0): Rect[] {
   const T = RULES.wallThick, out: Rect[] = [];
+  const knee = floorY + WALK.knee, eye = floorY + WALK.eye;
   for (const p of parts) {
-    if (p.kind !== "wall" || p.y >= WALK.eye || p.y + p.h <= WALK.knee) continue;
+    if (p.kind !== "wall" || p.y >= eye || p.y + p.h <= knee) continue;
     const x0 = p.x - p.w / 2, x1 = p.x + p.w / 2, z0 = p.z - p.d / 2, z1 = p.z + p.d / 2;
     const gaps = (faces: string[]) => parts.filter((o) => o.kind === "door" && o.host === p.id && faces.includes(o.face ?? ""))
       .map((o): [number, number] => { const c = o.face === "n" || o.face === "s" ? o.x : o.z; return [c - o.w / 2, c + o.w / 2]; });
@@ -53,6 +54,31 @@ export function walkStart(plot: { w: number; d: number }, rects: Rect[]): { x: n
   const e = 1.5, spots: [number, number][] = [[0, plot.d / 2 - e], [0, -plot.d / 2 + e], [plot.w / 2 - e, 0], [-plot.w / 2 + e, 0], [0, 0]];
   const [x, z] = spots.find(([a, b]) => !collides(a, b, rects)) ?? spots[0];
   return { x, z, yaw: Math.atan2(x, z) };
+}
+
+/**
+ * Multi-storey 3D walk elevation solver: computes the walker's floor height `y` at (x, z) across slabs and stair flights,
+ * allowing smooth ascent/descent between floors (step-up cap 0.65 m per move).
+ */
+export function walkElevation(x: number, z: number, curY: number, parts: readonly Part[], maxStepUp = 0.65): number {
+  let bestY = 0;
+  for (const p of parts) {
+    const x0 = p.x - p.w / 2, x1 = p.x + p.w / 2, z0 = p.z - p.d / 2, z1 = p.z + p.d / 2;
+    if (x < x0 || x > x1 || z < z0 || z > z1) continue;
+    const isStair = p.kind === "stair" || /stair|trepp/i.test(p.name);
+    if (isStair && p.h > 0.3) {
+      // Linear ramp along the stair's longer horizontal axis
+      const frac = p.w >= p.d
+        ? Math.max(0, Math.min(1, (x - x0) / Math.max(1e-3, p.w)))
+        : Math.max(0, Math.min(1, (z - z0) / Math.max(1e-3, p.d)));
+      const stairY = p.y + frac * p.h;
+      if (stairY <= curY + maxStepUp && stairY >= bestY) bestY = stairY;
+    } else if (p.kind === "slab" || p.kind === "foundation") {
+      const top = p.y + p.h;
+      if (top <= curY + maxStepUp && top >= bestY) bestY = top;
+    }
+  }
+  return Math.round(bestY * 1000) / 1000;
 }
 
 export const HOLO_START = 0.6, HOLO_STEP = 0.45; // same timing as the ▶ Build animation in ArchWorld
