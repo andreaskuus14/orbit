@@ -14,7 +14,14 @@ const nextConfig: NextConfig = {
   // Document parsers, ffmpeg binary and Whisper (native onnxruntime) run server-side only; keep them out of the bundler.
   serverExternalPackages: ["unpdf", "mammoth", "playwright-core", "ffmpeg-static", "@huggingface/transformers", "sherpa-onnx-node", "kokoro-js", "@anthropic-ai/claude-agent-sdk"], // kokoro-js: AI Story narration on the server; the SDK spawns its bundled native CLI
   // The middleware buffers request bodies (10 MB by default); CORE attachments are up to 3 files as base64 JSON (~40 MB).
-  experimental: { middlewareClientMaxBodySize: "45mb" },
+  experimental: {
+    middlewareClientMaxBodySize: "45mb",
+    optimizePackageImports: ["lucide-react"],
+  },
+  // scripts/launch.ps1 sets ORBIT_FAST_PROD_BUILD=1 when pulling CI-verified main commits (skips duplicate tsc/eslint during swap).
+  ...(process.env.ORBIT_FAST_PROD_BUILD === "1"
+    ? { typescript: { ignoreBuildErrors: true }, eslint: { ignoreDuringBuilds: true } }
+    : {}),
   async headers() {
     return [
       {
