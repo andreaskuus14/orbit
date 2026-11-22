@@ -10,8 +10,9 @@ if (-not (Test-Path .venv)) { & $mk }
 $py = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 function Test-Py([string]$code) { cmd /c "`"$py`" -c `"$code`" >nul 2>nul"; return ($LASTEXITCODE -eq 0) }
 if (-not (Test-Py "import numpy, pandas, matplotlib, openpyxl")) {
-  & $py -m pip install --quiet --upgrade pip
-  & $py -m pip install --quiet -r requirements.txt
+  # no pip self-upgrade: on Windows it often hits "file in use" (WinError 32)
+  cmd /c "`"$py`" -m pip install --quiet --disable-pip-version-check -r requirements.txt"
+  if ($LASTEXITCODE -ne 0) { Write-Host "Installing the packages failed. Close ORBIT (and any Python window), then run this again." -ForegroundColor Yellow; exit 1 }
 }
 # A short self-test inside the sandbox harness: a chart is made and the network is refused.
 $tmp = Join-Path $env:TEMP ("orbit-sandbox-setup-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
@@ -26,7 +27,8 @@ except PermissionError:
 "@
 Set-Content -Path (Join-Path $tmp "limits.json") -Value '{"memoryMb":1024,"cpuSec":60,"wallSec":60}'
 Push-Location $tmp
-$out = & $py -I (Join-Path $PSScriptRoot "run.py") (Join-Path $tmp "limits.json") 2>&1
+# through cmd: PowerShell 5.1 turns any stderr line into a fatal error under "Stop"
+$out = cmd /c "`"$py`" -I `"$(Join-Path $PSScriptRoot 'run.py')`" `"$(Join-Path $tmp 'limits.json')`" 2>&1"
 Pop-Location
 $ok = (Test-Path (Join-Path $tmp "check.png")) -and ("$out" -match "network blocked")
 Remove-Item -Recurse -Force $tmp
