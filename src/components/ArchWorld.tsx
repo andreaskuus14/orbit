@@ -51,6 +51,7 @@ import { MeasureLayer, MeasurePanel, measureFrom, type MeasureState } from "./Sc
 import { SiteLayer, SitePanel } from "./ArchSite";
 import { IfcOpen } from "./LocalAi";
 import { OpenInBlender } from "./BlenderEntry";
+import { ArchRender } from "./ArchRender";
 import { defaultSite, readSite, toModel, type Site } from "@/lib/arch-site-pure";
 import { canRetry, pickNewer, saveStep, staleCheck, type Saved } from "@/lib/arch-save-pure";
 
@@ -698,6 +699,8 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
           </details>
         </div>
 
+        {/* Owner 22 Nov: "always use Blender, it's free" — the realistic picture of the saved house, rendered on this PC. */}
+        <ArchRender project={project} lat={sun.lat} lon={sun.lon} at={renderAt(sun.date, sun.hour)} />
         <details className="card arch-exports space-y-1.5" aria-label={tr("arch.exports")}>
           <summary className="cursor-pointer select-none text-xs font-semibold">⬇ {tr("arch.exports")} <span className="muted font-normal">· {tr("arch.exportsReady", { n: exportsList.filter((x) => x.ok).length, m: exportsList.length })}</span></summary>
           {exportsList.map((x) => {
@@ -880,3 +883,6 @@ function ArchVariants({ variants, setVariants, scene, rev, prices, site, north, 
     </div>
   );
 }
+
+/** The sun panel's local date + hour → an ISO time for the Blender sun (undefined when it doesn't parse). */
+const renderAt = (date: string, hour: number) => { const d = new Date(`${date}T${String(Math.floor(hour)).padStart(2, "0")}:${String(Math.round((hour % 1) * 60)).padStart(2, "0")}:00`); return Number.isFinite(d.getTime()) ? d.toISOString() : undefined; };
