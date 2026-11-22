@@ -34,6 +34,7 @@ export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask, onNeeds,
   const [failed, setFailed] = useState(false);
   const [needs, setNeeds] = useState<number | null>(null);
   const [pilots, setPilots] = useState<Progress[]>([]); // autopilot projects: one card each (api/goals?cards=1, pilot-pure fromPilot)
+  const [research, setResearch] = useState<Progress[]>([]); // deep research runs (api/research, research-pure researchCard)
   const [stopAll, setStopAll] = useState(false);
   const [fold, setFold] = useState(true);
   const [closed, setClosed] = useState(false);
@@ -54,6 +55,7 @@ export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask, onNeeds,
       .order("created_at", { ascending: false }).limit(12)
       .then(({ data, error }) => { if (error || !data) { setFailed(true); return; } setFailed(false); setRows(data as Parameters<typeof fromTask>[0][]); }, () => setFailed(true));
     void sharedJson<{ cards?: Progress[] }>(`/api/goals?cards=1&lang=${lang}`).then((j) => setPilots(Array.isArray(j?.cards) ? j.cards : []));
+    void sharedJson<{ cards?: Progress[] }>("/api/research").then((j) => setResearch(Array.isArray(j?.cards) ? j.cards : []));
     void sharedJson<{ items?: unknown[] }>(`/api/needs-you?lang=${lang}`).then((j) => setNeeds(j?.items ? j.items.length : null));
   }, [sb, lang]);
   usePoll(load, 20_000);
@@ -61,7 +63,7 @@ export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask, onNeeds,
 
   const nowMs = Date.now();
   // A project's own step tasks are already on its card, so they don't get cards of their own.
-  const items: Progress[] | null = rows ? sortProgress([...pilots, ...rows.filter((r) => !(/^Goal step /.test(r.title) && pilots.some((p) => r.title.includes(` · ${p.title.replace(/^🧭 /, "")}:`)))).map((r) => fromTask(r, lang, { nowMs, typicalMs: typical(rows), stopAll }))]) : null;
+  const items: Progress[] | null = rows ? sortProgress([...pilots, ...research, ...rows.filter((r) => !(/^Goal step /.test(r.title) && pilots.some((p) => r.title.includes(` · ${p.title.replace(/^🧭 /, "")}:`)))).map((r) => fromTask(r, lang, { nowMs, typicalMs: typical(rows), stopAll }))]) : null;
   // Needs-you items that aren't tasks (approvals, blockers…) add to the count; tasks waiting for him are already in the list.
   const needN = Math.max(needs ?? 0, items?.filter((p) => p.phase === "needs").length ?? 0);
   const line = items ? statusLine(items, lang, nowMs, needN) : t("common.loading");

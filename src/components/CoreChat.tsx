@@ -27,6 +27,7 @@ import { NAV_EVENT, parseNavCommand, type NavTarget } from "@/lib/nav-pure";
 import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
 import { ChatAnswer } from "./ChatAnswer";
 import { ProgressCard } from "./ProgressCard";
+import { ResearchCards } from "./ResearchCards";
 import { LONG_TURN_MS, composerKey, nearBottom, turnProgress } from "@/lib/core-chat-pure";
 import { useAttachments, AttachChips, ACCEPT } from "./CoreAttach";
 import { VoiceMemo } from "./VoiceMemo";
@@ -560,6 +561,7 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
               {live && <><LiveAnswer text={numberCitations(live, [])} openMemory={onOpenMemory} />
               <span aria-hidden className="chat-caret" /></>}
             </div>}
+        <ResearchCards />
         {behind && <button type="button" className="chat-latest" onClick={toBottom}>↓ {tr("chat.latest")}</button>}
         <div ref={end} />
       </div>

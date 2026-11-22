@@ -51,6 +51,8 @@ orbit-launcher.log.1
 /tools/trials/.venv/
 # tools/scrapling: venv (setup.ps1)
 /tools/scrapling/.venv/
+# tools/sandbox: code sandbox venv (setup.ps1)
+/tools/sandbox/.venv/
 /tools/trials/clips/**
 !/tools/trials/clips/**/
 !/tools/trials/clips/**/.gitkeep

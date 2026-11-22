@@ -83,6 +83,8 @@ export const TIERS: Record<string, Tier> = {
   roblox_lint: "T0", // selene on his exported project, read-only
   terminal_run: "T2", // one shell command in his connected folders: command-policy-pure levels (1 now, 2 snapshot + Undo, 3 waits for his click in OPERATIONS → Terminal)
   terminal_status: "T0", terminal_stop: "T2",
+  sandbox_run: "T2", sandbox_save: "T2", // CODE SANDBOX: code in an isolated temp folder (no network, limits; always level 1); save = one new VAULT file (TIME MACHINE Undo)
+  deep_research: "T2", research_status: "T0", research_stop: "T2", // DEEP RESEARCH: read-only web research in the background → one VAULT report
   roblox_files: "T0", roblox_read: "T0", // his Rojo project's script list / one file, read-only
   roblox_write: "T2", roblox_undo: "T2", // one Luau file in his own project (checked by StyLua + Selene first), each a git commit; Rojo pushes it to Studio only while live sync is on. Never publishes
   local_video: "T2", // Wan 2.2 in ComfyUI on his PC: a new VAULT .mp4 (optionally from a VAULT picture), nothing leaves the PC
@@ -120,15 +122,17 @@ export const TOOL_AREA: Record<string, Area> = {
   ws_run: "operator-build", // a local demo server of his own workspace (AGENTS.md rule 6 category A); never public
   local_3d: "operator-build", local_tts: "operator-build", local_transcribe: "operator-build", local_image: "operator-build", local_image_edit: "operator-build", local_music: "operator-build", local_video: "operator-build", // local models writing new VAULT files (category A)
   roblox_export: "operator-build", // local project files + git commit (category A)
+  sandbox_run: "operator-build", sandbox_save: "operator-build", // local computation in a temp folder, a new VAULT file (category A)
+  deep_research: "research", // public web reading + one VAULT report (category A)
   terminal_run: "operator-build", // builds/tests/scripts in his project folders (category A); installs, deletes, uploads wait for his click
   pc_act: "operator-organize", // his own PC: apps, files in connected folders (Undo), level 3 after his OK
   roblox_write: "operator-build", roblox_undo: "operator-build", // his script files + git commit (category A)
   watch_add: "research", // later reads of a public page (category A)
 };
 
-// Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), WORKSPACE ws_read, BUSINESS business_status (find_lead_candidates is public OSM data), WEEK (private: true), ORGANIZE lead_update + life_plan.
+// Mirror of core-modules.ts privateTools(MODULES): LIFE (private: true), SANDBOX sandbox_run (attached/VAULT file contents), WORKSPACE ws_read, BUSINESS business_status (find_lead_candidates is public OSM data), WEEK (private: true), ORGANIZE lead_update + life_plan.
 // shortcut: hand-copied because core-modules.ts can't load under node --test; update both when a module's private flag changes.
-export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "business_status", "week_review", "lead_update", "life_plan"];
+export const PRIVATE_TOOLS = [...LIFE_TOOLS, "ws_read", "business_status", "week_review", "lead_update", "life_plan", "sandbox_run"];
 // Where each tool's model-chosen text goes, now or later from a stored record: "model" = any model (agents, search/news/outlier
 // pipelines, local TTS/image models, image prompts to ComfyUI/Pollinations/Higgsfield, and records that background agents run on:
 // missions, night queue, automations, goals, rules, memories agents read, lead notes in outreach prompts). Private text in a
@@ -158,6 +162,9 @@ export const EGRESS_CLASS: Record<string, "model" | "web" | "none"> = {
   ws_stop: "none", vault_move: "none", vault_rename: "none", life_plan: "none", automation_pause: "none", studio_drafts: "none", roblox_export: "none",
   roblox_lint: "none", roblox_files: "none", roblox_read: "none", roblox_write: "none", roblox_undo: "none", save_decision: "none", watch_list: "none", watch_changes: "none", daily_runs: "none",
   terminal_status: "none", terminal_stop: "none",
+  sandbox_run: "none", sandbox_save: "none", // the code runs on his PC with no network: nothing leaves ORBIT
+  deep_research: "model", // the question → the planner and Claude's web search (never private text)
+  research_status: "none", research_stop: "none",
   pc_window: "none", pc_act: "none", // stays on the PC (loopback helper)
 };
 // lead_update: the lead selector is BUSINESS's own record key (business_status shows it), so only its free-text fields are scanned;
@@ -167,14 +174,14 @@ const isLead = (t: string) => t === "lead_create" || t === "lead_update";
 const leadText = (input: Record<string, unknown>) => (Array.isArray(input.leads) ? input.leads : [input]).map((l) => Object.fromEntries(Object.entries((l ?? {}) as Record<string, unknown>).filter(([k]) => LEAD_TEXT.includes(k))));
 export const MODEL_TOOLS = Object.keys(EGRESS_CLASS).filter((t) => EGRESS_CLASS[t] === "model");
 export const LINK_TOOLS = ["browse", "watch_add", "fetch_url", "scrape_page", "read_news", "ask_agent", "reach_read", "ws_fetch_image", "ws_inspire_image", "ws_picture_draft"];
-export const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "find_outliers", "local_tts", "local_image", "local_image_edit", "local_music", "local_video"]; // local_tts/local_image: journal/LIFE text never goes to a model, local ones included
+export const LEAK_TOOLS = ["ask_agent", "read_news", "web_search", "deep_research", "find_outliers", "local_tts", "local_image", "local_image_edit", "local_music", "local_video"]; // local_tts/local_image: journal/LIFE text never goes to a model, local ones included
 
 // Text from outside ORBIT (pages, news, search hits, agent results, prospect mail, attached files) can't start an agent task by itself.
 // Includes every read tool whose own description calls its output third-party data: calendar invites, Idea Radar's video text,
 // shop offer titles, vault/workspace file text, git commit subjects.
 /** His own stores that hold other people's text (invites, video text, offer titles, files, commits, analysed code). */
 // plan_day carries calendar invites; local_transcribe the words in any audio/video file he points it at.
-const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "vault_skill", "ws_read", "plan_day", "local_transcribe", "roblox_read", "pc_window", "pc_act", "terminal_run", "terminal_status"]; // roblox_read: free-model / copied code
+const STORED_OUTSIDE = ["calendar_events", "ideas_list", "wishlist", "git_summary", "vault_read", "vault_search", "vault_skill", "ws_read", "plan_day", "local_transcribe", "roblox_read", "pc_window", "pc_act", "terminal_run", "terminal_status", "sandbox_run", "research_status"]; // roblox_read: free-model / copied code
 // mission_status: agents' results; run_niche: its web research.
 export const UNTRUSTED = ["browse", "fetch_url", "scrape_page", "read_news", "web_search", "ws_fetch_image", "ws_inspire_image", "reach_read", "reach_trending", "find_outliers", "find_lead_candidates", "ask_agent", "business_status", "watch_changes", "mission_status", "run_niche", ...STORED_OUTSIDE];
 const AGENT_ASK = /\b(ask|have|get|let|tell|send|delegate|hand|use|put)\b[^.?!\n]{0,40}\b(agents?|nova|atlas|pulse|echo|forge|vector|sentinel|flow|qa)\b|\bdelegat/i;

@@ -28,6 +28,9 @@ export const SCHEMAS: Record<string, Schema> = {
   ws_edit: S(["workspace", "path", "edits"], { workspace: str, path: str, edits: { type: "array", items: obj({ old: str, new: str }, ["old", "new"]) } }),
   ws_write: S(["workspace", "files"], { workspace: str, files: { type: "array", items: obj({ path: str, content: str }, ["path", "content"]) } }),
   ws_run: S(["workspace"], { workspace: str }),
+  sandbox_run: S(["code"], { code: str, language: en("python", "js"), files: { type: "array", items: str }, timeout_sec: num, memory_mb: num }),
+  sandbox_save: S(["run", "name"], { run: str, name: str, as: str }),
+  deep_research: S(["question"], { question: str, pages: num, minutes: num }),
   terminal_run: S(["command"], { command: str, session: str, shell: en("powershell", "cmd", "bash"), cwd: str, wait_sec: num, timeout_sec: num }),
   // one lead, or {"leads": [up to 10]}: neither shape is required on its own
   lead_create: S([], { ...lead, leads: { type: "array", items: obj(lead, ["name", "source_url"]) } }),

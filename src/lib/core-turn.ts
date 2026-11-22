@@ -78,6 +78,8 @@ export async function coreTurn(req: Request, sb: SupabaseClient, userId: string,
       // The client learns the chat id right away; files are read inside the turn (each one a live step), so a scanned PDF's OCR
       // shows as "Reading scan.pdf" instead of a silent wait before the first byte. Ids below zero never meet liveTracker's.
       send({ type: "start", conversationId: cid });
+      // CODE SANDBOX: this chat's attached files (raw bytes) stay copyable into a sandbox run by name for 3 hours (sandbox.ts).
+      if (files.files.length) await import("@/lib/sandbox").then((m) => m.stashAttachments(cid, files.files)).catch(() => {});
       const began = new Map<number, number>();
       const attach = await prepareAttachments(files.files, { signal, message, onFile: (i, name, phase, ok, note) => {
         if (phase === "start") began.set(i, Date.now());
