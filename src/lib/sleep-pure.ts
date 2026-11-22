@@ -4,7 +4,7 @@ import { normalizeRule, type RuleCounters } from "./playbook-pure.ts";
 import { localDay } from "./morning-pure.ts";
 
 export const SLEEP_FROM_HOUR = 3, SLEEP_UNTIL_HOUR = 7; // a PC woken by the night run (04:30) still lands in the window
-export const MAX_CALLS = 3; // hard cap of model calls per night
+export const MAX_CALLS = 4; // hard cap of model calls per night (consolidate, curate, dream)
 export const DUP_SIMILARITY = 0.9;
 export const MAX_GROUPS = 3, GROUP_MAX = 4;
 

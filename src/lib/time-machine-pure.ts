@@ -19,10 +19,13 @@ export const TM_TZ = "Europe/Tallinn";
 export type MemState = { kind: string; title: string; content: string | null; tags: string[]; source: string | null };
 /** VAULT file: by its current name, or sitting in VAULT's trash (restorable). null = not there. */
 export type VaultState = { name: string } | { trash: string; name: string } | null;
+/** A MEMORY link (memory_links row) between two memories: dream mode's "these belong together". null = no such row. */
+export type LinkState = { from: string; to: string; status: "suggested" | "confirmed"; reason: string } | null;
 export type TmChange =
   | { t: "file"; ws: string; path: string; before: string | null; after: string | null }           // workspace file: content sha256 (blob) or absent
   | { t: "vault"; before: VaultState; after: VaultState }
   | { t: "memory"; id: string; before: MemState | null; after: MemState | null }                     // null = row absent
+  | { t: "link"; id: string; before: LinkState; after: LinkState }                                   // memory_links row by id
   | { t: "setting"; key: string; before: string; after: string }                                     // "autonomy:<area>" → level
   | { t: "branch"; name: string; before: string | null; after: string | null };                      // git branch → commit sha, or absent
 export type TmKind = TmChange["t"];
@@ -47,6 +50,15 @@ function cleanVault(v: unknown): VaultState | undefined {
   if (o.trash !== undefined) return typeof o.trash === "string" && /^[\w-]{1,64}$/.test(o.trash) ? { trash: o.trash, name: o.name } : undefined;
   return { name: o.name };
 }
+const UUIDISH = /^[\w-]{1,64}$/;
+function cleanLink(v: unknown): LinkState | undefined {
+  if (v === null) return null;
+  if (!v || typeof v !== "object") return undefined;
+  const o = v as Record<string, unknown>;
+  if (typeof o.from !== "string" || typeof o.to !== "string" || !UUIDISH.test(o.from) || !UUIDISH.test(o.to) || o.from === o.to) return undefined;
+  if (o.status !== "suggested" && o.status !== "confirmed") return undefined;
+  return { from: o.from, to: o.to, status: o.status, reason: s(o.reason, 300) };
+}
 const shaOrNull = (v: unknown, re: RegExp) => (v === null ? null : typeof v === "string" && re.test(v) ? v : undefined);
 
 /** Untrusted stored change → a valid one, or undefined. */
@@ -66,6 +78,11 @@ export function cleanChange(c: unknown): TmChange | undefined {
     const before = cleanMem(o.before), after = cleanMem(o.after);
     if (before === undefined || after === undefined || typeof o.id !== "string" || !/^[\w-]{1,64}$/.test(o.id)) return undefined;
     return { t: "memory", id: o.id, before, after };
+  }
+  if (o.t === "link") {
+    const before = cleanLink(o.before), after = cleanLink(o.after);
+    if (before === undefined || after === undefined || typeof o.id !== "string" || !UUIDISH.test(o.id)) return undefined;
+    return { t: "link", id: o.id, before, after };
   }
   if (o.t === "setting") {
     if (typeof o.key !== "string" || !/^autonomy:[\w-]{1,40}$/.test(o.key) || typeof o.before !== "string" || typeof o.after !== "string") return undefined;
@@ -129,10 +146,12 @@ export type Current =
   | { t: "file"; sha: string | null }
   | { t: "vault"; state: VaultState }            // the file by the expected name (or its trash item), null when gone
   | { t: "memory"; state: MemState | null }
+  | { t: "link"; state: LinkState }
   | { t: "setting"; value: string | null }
   | { t: "branch"; sha: string | null };
 
 export const memHash = (m: MemState | null) => (m ? JSON.stringify([m.kind, m.title, m.content ?? "", [...m.tags].sort()]) : "");
+const linkHash = (l: LinkState) => (l ? `${l.from}|${l.to}|${l.status}` : "");
 const sameVault = (a: VaultState, b: VaultState) => (a === null || b === null ? a === b : a.name === b.name && ("trash" in a ? a.trash : "") === ("trash" in b ? b.trash : ""));
 
 /** "" = the change can be reversed now, else a plain reason. Settings only go back when that makes ORBIT ask more, never less. */
@@ -142,6 +161,7 @@ export function blockReason(c: TmChange, cur: Current): string {
     case "file": return (cur as { sha: string | null }).sha === c.after ? "" : `${c.path} changed since: open it to see`;
     case "vault": return sameVault((cur as { state: VaultState }).state, c.after) ? "" : "That VAULT file changed since";
     case "memory": return memHash((cur as { state: MemState | null }).state) === memHash(c.after) ? "" : "That memory changed since";
+    case "link": return linkHash((cur as { state: LinkState }).state) === linkHash(c.after) ? "" : "That link changed since";
     case "branch": return (cur as { sha: string | null }).sha === c.after ? "" : `Branch ${c.name} moved since`;
     case "setting": {
       const v = (cur as { value: string | null }).value;
@@ -240,7 +260,7 @@ export function activityEntries(items: ActItem[], recs: TmRecord[], tz = TM_TZ):
   });
 }
 
-const RECORD_KIND: Record<TmKind, EntryKind> = { file: "file", vault: "file", memory: "memory", setting: "setting", branch: "code" };
+const RECORD_KIND: Record<TmKind, EntryKind> = { file: "file", vault: "file", memory: "memory", link: "memory", setting: "setting", branch: "code" };
 /** Time-machine records an Activity line doesn't already show (records made outside CORE, and every undo/redo). */
 export function recordEntries(recs: TmRecord[], items: ActItem[], tz = TM_TZ): Entry[] {
   const shown = new Set(items.flatMap((x) => (x.undo?.kind === "tm" && !x.undid ? [x.undo.id] : [])));

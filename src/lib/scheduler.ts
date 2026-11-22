@@ -137,6 +137,8 @@ async function tick(sb: SupabaseClient) {
     if (users?.[0]) { const uid = users[0].id; void import("./registry").then((m) => m.maybeWeeklyRegistry(async () => ((await sb.from("prospects").select("id,name,notes").eq("user_id", uid).limit(1000)).data ?? []))); }
     // Weekly YouTube outlier finder → IDEA RADAR (outliers.ts): read-only, scout quota share; quietly nothing without YOUTUBE_API_KEY. Not awaited; never throws.
     if (!limited && allows("research", "background").ok) void import("./outliers").then((m) => m.maybeWeeklyOutliers()).catch((e) => console.error("[orbit] weekly outliers failed:", e instanceof Error ? e.message : e));
+    // Opportunity radar (radar.ts): every 30 min, stored signals only (no web, no model); capped phone pings, quiet hours wait. Not awaited; never throws.
+    if (users?.[0] && allows("research", "background").ok) void import("./radar").then((m) => m.maybeRadar(sb, users[0].id)).catch(() => {});
     // Feature scout (feature-scout.ts): every 6 h, free public sources → OPERATIONS → Scout; lists only. ORBIT_SCOUT=0 off; pacer/Stop-all wait. Not awaited.
     if (!limited) void import("./feature-scout").then((m) => m.maybeFeatureScout(sb, users?.[0]?.id, allows("research", "background").ok)).catch((e) => console.error("[orbit] feature scout check failed:", e instanceof Error ? e.message : e));
     // Deal hunter (MARKETS → Deals): daytime, a wish at most every 6 h, daily call cap; not awaited. Re-checks Stop-all/usageHold itself.

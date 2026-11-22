@@ -9,6 +9,7 @@ import { STOP_ALL_EVENT, STOP_ALL_REQUEST_EVENT, type StopAllDetail } from "@/li
 import { runSeconds } from "@/lib/task-line-pure";
 import { usePoll, sharedJson } from "./use-poll";
 import { ProgressList, openProgress } from "./ProgressCard";
+import { RadarCards } from "./DreamRadar";
 import { useT } from "./i18n";
 
 const COLS = "id,title,status,result,error,created_at,started_at,finished_at,trace,pending";
@@ -86,6 +87,7 @@ export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask, onNeeds,
       {!fold && <div id="home-desk-list" className="mt-2">
         {failed && <p className="error text-sm" role="alert">{t("home.loadFailed")}</p>}
         {!failed && <ProgressList items={items} max={SHOWN} empty={t("home.empty")} onOpen={(p) => (p.id.startsWith("pilot:") ? openProgress(p.result?.open || p.action?.open || `#o=agents&k=goal&id=${encodeURIComponent(p.id.slice(6))}`) : onOpenTask(p.id))} />}
+        <div className="mt-2"><RadarCards max={1} /></div>
         {items && items.length > SHOWN && <button type="button" className="link mt-1 text-xs" onClick={onOpenAll}>{t("home.all", { n: items.length })}</button>}
       </div>}
     </section>

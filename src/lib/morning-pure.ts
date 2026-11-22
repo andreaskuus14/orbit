@@ -6,6 +6,7 @@ import type { WorkItem, WorkSummary } from "./work-continuation-pure";
 import { missionLine, type Mission } from "./daily-mission-pure.ts";
 import type { Card, Deadline, Hero } from "./morning-rank-pure";
 import type { NightReport } from "./night-pure";
+import type { DreamReport } from "./dream-pure";
 
 export type MorningNav = "review" | "news" | "tasks" | "agents" | "life" | "goals";
 export type StudioIn = {
@@ -25,6 +26,7 @@ export type Morning = {
   hero?: Hero; // "Do this first": the single best action, kept out of cards
   overnight?: string; // the sleep loop's report for today (sleep.ts), shown as one line
   night?: NightReport; // "While you slept": last night's night shift (night.ts)
+  dream?: DreamReport; // dream mode's "Connections I found" for today (dream.ts), shown as one card
   suggestion: { text: string; nav: MorningNav | null; item?: WorkItem }; spoken: string;
 };
 
