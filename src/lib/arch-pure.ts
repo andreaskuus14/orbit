@@ -18,8 +18,32 @@ export type Ground = (typeof GROUNDS)[number];
 /** x, z = centre of the footprint on the plot; y = bottom. w (x) × d (z) × h (y), metres.
  *  Window/door: host wall id + face; off = offset of its centre from the face centre (+X on n/s, +Z on e/w); sill = height above
  *  the wall's base; w = width along the face, h = height. x, y, z are derived (centre of the opening on the face, y = its bottom). */
-export type Part = { id: string; kind: Kind; name: string; x: number; y: number; z: number; w: number; d: number; h: number; host?: string; face?: Face; off?: number; sill?: number; group?: Group };
-export type Scene = { plot: { w: number; d: number; ground: Ground; trees: number }; parts: Part[] };
+export type Part = { id: string; kind: Kind; name: string; x: number; y: number; z: number; w: number; d: number; h: number; host?: string; face?: Face; off?: number; sill?: number; group?: Group;
+  /** roof parts only: the roof form, its pitch in degrees and the ridge direction. Unset = the old rule (h ≥ 0.5 → gable, else flat; ridge along the longer side). */
+  roof?: RoofForm; pitch?: number; ridge?: "x" | "z" };
+/** style: what the outside is made of. Optional: scenes saved before it read as plaster walls under a steel roof (STYLE_DEFAULT). */
+export type Scene = { plot: { w: number; d: number; ground: Ground; trees: number }; parts: Part[]; style?: Style };
+export const ROOF_FORMS = ["gable", "hip", "shed", "flat"] as const;
+export type RoofForm = (typeof ROOF_FORMS)[number];
+export const FACADES = ["plaster", "timber", "brick", "concrete"] as const;
+export type Facade = (typeof FACADES)[number];
+export const ROOF_MATS = ["metal", "tile", "membrane"] as const;
+export type RoofMat = (typeof ROOF_MATS)[number];
+/** gable: what the gable triangles are clad in (Nordic houses often put timber boards there over a plastered storey). */
+export type Style = { facade: Facade; roofMat: RoofMat; gable?: Facade };
+export const STYLE_DEFAULT: Style = { facade: "plaster", roofMat: "metal" };
+/** A scene's style with unknown values replaced by the defaults (stored scenes are data, not trusted). */
+export function styleOf(scene: Pick<Scene, "style">): Style {
+  const s = scene.style as Partial<Style> | undefined;
+  const facade = FACADES.includes(s?.facade as Facade) ? s!.facade! : STYLE_DEFAULT.facade;
+  const roofMat = ROOF_MATS.includes(s?.roofMat as RoofMat) ? s!.roofMat! : STYLE_DEFAULT.roofMat;
+  const gable = FACADES.includes(s?.gable as Facade) ? s!.gable : undefined;
+  return gable ? { facade, roofMat, gable } : { facade, roofMat };
+}
+/** The form a roof part is drawn with: its own when set, else the old rule (a roof under 0.5 m is flat). */
+export const roofForm = (p: Part): RoofForm => (p.roof && ROOF_FORMS.includes(p.roof) ? p.roof : p.h >= 0.5 ? "gable" : "flat");
+/** Ridge direction: its own when set, else along the longer side (a ridge across the short span keeps the roof low). */
+export const ridgeOf = (p: Part): "x" | "z" => (p.ridge === "x" || p.ridge === "z" ? p.ridge : p.w >= p.d ? "x" : "z");
 
 export type Op =
   | { op: "add"; kind: Exclude<Kind, OpeningKind>; name?: string; x?: number; z?: number; y?: number; w: number; d: number; h: number }
@@ -27,7 +51,9 @@ export type Op =
   | { op: "set"; id: string; x?: number; y?: number; z?: number; w?: number; d?: number; h?: number; name?: string; face?: Face; off?: number; sill?: number }
   | { op: "scale"; id: string; w?: number; d?: number; h?: number }
   | { op: "remove"; id: string }
-  | { op: "plot"; w?: number; d?: number; ground?: Ground; trees?: number };
+  | { op: "plot"; w?: number; d?: number; ground?: Ground; trees?: number }
+  | { op: "roof"; id: string; form?: RoofForm; pitch?: number; ridge?: "x" | "z" }
+  | { op: "style"; facade?: Facade; roofMat?: RoofMat; gable?: Facade };
 
 export const MAX = { plot: 200, size: 100, parts: 80, trees: 200 };
 
@@ -64,7 +90,11 @@ export function parseOps(text: string): Op[] {
       if (o.op === "remove") out.push({ op: "remove", id: o.id });
       else if (o.op === "scale") out.push({ op: "scale", id: o.id, w: num(o.w, 0.1, 10), d: num(o.d, 0.1, 10), h: num(o.h, 0.1, 10) });
       else out.push({ op: "set", id: o.id, x: p("x"), y: p("y"), z: p("z"), w: s("w"), d: s("d"), h: s("h"), name, face, off, sill });
-    } else if (o.op === "plot")
+    } else if (o.op === "roof" && typeof o.id === "string")
+      out.push({ op: "roof", id: o.id, form: ROOF_FORMS.includes(o.form as RoofForm) ? o.form as RoofForm : undefined, pitch: num(o.pitch, 0, 60), ridge: o.ridge === "x" || o.ridge === "z" ? o.ridge : undefined });
+    else if (o.op === "style")
+      out.push({ op: "style", facade: FACADES.includes(o.facade as Facade) ? o.facade as Facade : undefined, roofMat: ROOF_MATS.includes(o.roofMat as RoofMat) ? o.roofMat as RoofMat : undefined, gable: FACADES.includes(o.gable as Facade) ? o.gable as Facade : undefined });
+    else if (o.op === "plot")
       out.push({ op: "plot", w: num(o.w, 5, MAX.plot), d: num(o.d, 5, MAX.plot), ground: GROUNDS.includes(o.ground as Ground) ? o.ground as Ground : undefined, trees: num(o.trees, 0, MAX.trees) });
   }
   return out;
@@ -107,6 +137,7 @@ export function fitOpening(o: Part, wall: Part | undefined): Part | null {
 export function applyOps(scene: Scene, ops: Op[], newId: () => string): { scene: Scene; moved: string[] } {
   let parts = scene.parts.map((p) => ({ ...p }));
   const plot = { ...scene.plot }, moved: string[] = [];
+  let style = scene.style;
   const clampSize = (v: number | undefined) => (v === undefined ? undefined : Math.min(MAX.size, Math.max(0.05, v)));
   // Move everything stacked on `base` (at or above `fromY`, footprint overlapping base or anything already moved) by dy.
   const shiftAbove = (base: Part, fromY: number, dy: number, skip: string) => {
@@ -123,6 +154,19 @@ export function applyOps(scene: Scene, ops: Op[], newId: () => string): { scene:
   };
   for (const o of ops) {
     if (o.op === "plot") Object.assign(plot, Object.fromEntries(Object.entries(o).filter(([k, v]) => k !== "op" && v !== undefined)));
+    else if (o.op === "style") style = { ...styleOf({ style }), ...Object.fromEntries(Object.entries(o).filter(([k, v]) => k !== "op" && v !== undefined)) };
+    else if (o.op === "roof") {
+      const p = parts.find((q) => q.id === o.id && q.kind === "roof");
+      if (!p) continue;
+      if (o.form) p.roof = o.form;
+      if (o.ridge) p.ridge = o.ridge;
+      if (o.pitch !== undefined || o.form) { // the rise follows the pitch over half the span across the ridge (a flat roof is a 0.3 m deck)
+        const form = roofForm(p), pitch = o.pitch ?? p.pitch ?? (form === "shed" ? 12 : form === "flat" ? 0 : 35);
+        p.pitch = pitch;
+        const span = ridgeOf(p) === "x" ? p.d : p.w;
+        p.h = form === "flat" ? 0.3 : mm(Math.max(0.5, Math.tan((pitch * Math.PI) / 180) * (form === "shed" ? span : span / 2)));
+      }
+    }
     else if (o.op === "add" && "host" in o) {
       if (parts.length >= MAX.parts) continue;
       const h = o.h ?? (o.kind === "door" ? OPENING.doorH : OPENING.windowH);
@@ -147,7 +191,7 @@ export function applyOps(scene: Scene, ops: Op[], newId: () => string): { scene:
       else resize(p, isOpening(p.kind) ? { w: o.w, h: o.h, name: o.name, face: o.face, off: o.off, sill: o.sill } : { x: o.x, y: o.y, z: o.z, w: o.w, d: o.d, h: o.h, name: o.name });
     }
   }
-  return { scene: { plot, parts: fitOpenings(parts) }, moved: [...new Set(moved)] };
+  return { scene: { ...scene, plot, parts: fitOpenings(parts), ...(style ? { style } : {}) }, moved: [...new Set(moved)] };
 }
 
 /** Openings follow their wall (moved, resized, removed) and stay inside its face. */
@@ -277,6 +321,8 @@ export const ARCH_SYSTEM =
   "Ops: {op:\"add\",kind:\"foundation\"|\"slab\"|\"wall\"|\"roof\",name,x,z,w,d,h} (y optional: it stacks on what is below), " +
   "{op:\"set\",id,x?,y?,z?,w?,d?,h?,name?} absolute values, {op:\"scale\",id,w?,d?,h?} factors, {op:\"remove\",id}, " +
   "{op:\"plot\",w?,d?,ground?:\"grass\"|\"gravel\"|\"forest\"|\"sand\",trees?}. " +
+  "Roof form: {op:\"roof\",id:roofId,form?:\"gable\"|\"hip\"|\"shed\"|\"flat\",pitch?:degrees,ridge?:\"x\"|\"z\"} (its height follows the pitch). " +
+  "Materials: {op:\"style\",facade?:\"plaster\"|\"timber\"|\"brick\"|\"concrete\",roofMat?:\"metal\"|\"tile\"|\"membrane\",gable?:facade}. " +
   "Windows and doors sit in a wall: {op:\"add\",kind:\"window\"|\"door\",host:wallId,face:\"n\"|\"e\"|\"s\"|\"w\",w,h?,off?,sill?} " +
   "(face n = -Z/north side, s = +Z/south, e = +X, w = -X; off = metres from the face centre; sill = window bottom above the wall base, default 0.9; " +
   "defaults h 1.2 window, 2.1 door). \"Add a 1.2 m window on the south wall\" = {op:\"add\",kind:\"window\",host:<wall id>,face:\"s\",w:1.2}. " +

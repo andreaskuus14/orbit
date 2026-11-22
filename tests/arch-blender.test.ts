@@ -116,3 +116,20 @@ test("polish: dressed renders get a visible pendant per room light, sofa textile
   assert.ok(!/NaN|undefined/.test(py));
   assert.ok(py.trimEnd().endsWith("bpy.ops.render.render(write_still=True)"));
 });
+
+test("the Blender scene is the preview's geometry: meshes per part with UVs, glass with transmission, roofs liftable", async () => {
+  const { blenderScript, houseLines } = await import("../src/lib/arch-blender-pure.ts");
+  const { designHouse } = await import("../src/lib/arch-design-pure.ts");
+  const { applyOps } = await import("../src/lib/arch-pure.ts");
+  const sc = designHouse(applyOps(starterScene(), [{ op: "add", kind: "window", host: "p3", face: "s", w: 1.5 }, { op: "add", kind: "door", host: "p3", face: "n", w: 1 }], () => `n${Math.random().toString(36).slice(2, 6)}`).scene).scene;
+  const L = houseLines(sc).join("\n");
+  assert.match(L, /from_pydata/); assert.match(L, /uv_layers\.new/);
+  assert.match(L, /'Transmission Weight'\]\.default_value = 1\.0/); // Blender 4.x/5.x Principled BSDF names
+  assert.match(L, /pmat\('glass'/); assert.match(L, /pmat\('roofMetal'.*'?\(0\.5, 60/s, "standing seams");
+  assert.match(L, /ShaderNodeTexBrick/);
+  assert.match(L, /obj\["p4"\] = o/, "the roof is an object a fly-through can lift");
+  const py = blenderScript(sc, { site, date: new Date("2026-06-21T12:00:00Z"), quality: "preview" });
+  assert.doesNotMatch(py, /'BOOLEAN'/, "no boolean cutters: openings are real holes in the mesh");
+  assert.ok(!/NaN|undefined|Infinity/.test(py));
+  assert.ok(py.trimEnd().endsWith("bpy.ops.render.render(write_still=True)"));
+});

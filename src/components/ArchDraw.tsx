@@ -30,7 +30,7 @@ async function shrink(f: File): Promise<File> {
   return new File([await c.convertToBlob({ type: "image/jpeg", quality: 0.85 })], "picture.jpg", { type: "image/jpeg" });
 }
 
-export function ArchDraw({ storeKey, onBuild, onWalk }: { storeKey: string; onBuild: (s: Scene) => void; onWalk: () => void }) {
+export function ArchDraw({ storeKey, onBuild, onWalk }: { storeKey: string; onBuild: (s: Scene, words: string) => void; onWalk: () => void }) {
   const { t, lang } = useT();
   const [kind, setKind] = useState<StudioInput>("sketch");
   const [file, setFile] = useState<File | null>(null), [note, setNote] = useState("");
@@ -45,7 +45,7 @@ export function ArchDraw({ storeKey, onBuild, onWalk }: { storeKey: string; onBu
   useEffect(() => () => abort.current?.abort(), []);
 
   const edit = (next: FloorPlan, prev: FloorPlan | null = plan) => { if (prev) setPast((p) => [...p.slice(-40), prev]); setPlan(next); };
-  const build = (p: FloorPlan) => { const b = planToScene(p); onBuild(b.scene); setMsg([t("as.built"), ...b.notes].join(" ")); };
+  const build = (p: FloorPlan) => { const b = planToScene(p); onBuild(b.scene, `${p.name} ${note}`); setMsg([t("as.built"), ...b.notes].join(" ")); };
 
   /** The local steps after the plan exists: each one is quick, but the card shows them so he sees what was done. */
   async function finish(r: StudioRun, p: FloorPlan) {

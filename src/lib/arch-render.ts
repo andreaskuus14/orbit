@@ -6,7 +6,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { blenderScript, type Quality } from "./arch-blender-pure.ts";
-import { blenderArgs, blenderError, cleanScene, pickBlender, pruneJobs, renderFileName, renderSite, TIMEOUT_MS, type RenderJob, type RenderStage } from "./arch-render-pure.ts";
+import { blenderArgs, blenderError, cleanScene, findBlender, pruneJobs, renderFileName, renderSite, TIMEOUT_MS, WINGET_BLENDER, type BlenderInfo, type RenderJob, type RenderStage } from "./arch-render-pure.ts";
 import { archScopeKey } from "./project-desk-pure.ts";
 import { acquireGpu, type GpuLease } from "./gpu-lock";
 import { orbitDataDir } from "./data-dir";
@@ -26,6 +26,15 @@ function installed(): string[] {
   return roots.flatMap((r) => { try { return readdirSync(r).map((d) => path.join(r, d, "blender.exe")).filter((f) => existsSync(f)); } catch { return []; } });
 }
 
+/** blender(.exe) on PATH, or null. */
+function onPath(): string | null {
+  const names = process.platform === "win32" ? ["blender.exe"] : ["blender"];
+  for (const dir of (process.env.PATH ?? "").split(path.delimiter).filter(Boolean)) for (const n of names) { const f = path.join(dir, n); if (existsSync(f)) return f; }
+  return null;
+}
+/** Is Blender on this PC, and where (checked on each call: he may have just installed it). */
+export const blenderInfo = (): BlenderInfo => findBlender(process.env.BLENDER_PATH, installed(), onPath(), existsSync);
+
 async function savedScene(userId: string, project: string | null): Promise<unknown> {
   try { return JSON.parse(await readFile(path.join(orbitDataDir(), "arch-scene.json"), "utf8"))?.users?.[archScopeKey(userId, project)]?.scene ?? null; }
   catch { return null; }
@@ -36,6 +45,7 @@ export async function startRender(o: { userId: string; project: string | null; q
   if (stopAllOn()) throw new Error("Not right now: Stop-all is on.");
   const s = G();
   if (s.running) throw new Error("A render is already running. Wait for it to finish.");
+  if (!blenderInfo().found) throw new Error(`Blender isn't installed. Install it free (one command in a terminal): ${WINGET_BLENDER}`);
   const scene = cleanScene(await savedScene(o.userId, o.project));
   if (!scene) throw new Error("Nothing to render yet: build or save a house in ARCH first.");
   const now = new Date(), iso = now.toISOString();
@@ -57,7 +67,7 @@ async function run(job: RenderJob, scene: NonNullable<ReturnType<typeof cleanSce
     stage("gpu");
     lease = await acquireGpu("render", { maxWaitMs: 30 * 60_000, ttlMs: TIMEOUT_MS[job.quality] + 60_000, onWait: (text) => set(job.id, { wait: text }) });
     stage("render", { wait: undefined });
-    const t0 = Date.now(), bin = pickBlender(process.env.BLENDER_PATH, installed());
+    const t0 = Date.now(), bin = blenderInfo().bin;
     await new Promise<void>((resolve, reject) => {
       execFile(bin, blenderArgs(py, out), { timeout: TIMEOUT_MS[job.quality], windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (e, stdout, stderr) => {
         if (!e) return resolve();

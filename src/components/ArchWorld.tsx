@@ -52,6 +52,9 @@ import { SiteLayer, SitePanel } from "./ArchSite";
 import { IfcOpen } from "./LocalAi";
 import { OpenInBlender } from "./BlenderEntry";
 import { ArchRender } from "./ArchRender";
+import { ArchHouse, ArchLook, ArchSiteLook } from "./ArchHouse";
+import { designHouse } from "@/lib/arch-design-pure";
+import { roofTop } from "@/lib/arch-mesh-pure";
 import { defaultSite, readSite, toModel, type Site } from "@/lib/arch-site-pure";
 import { canRetry, pickNewer, saveStep, staleCheck, type Saved } from "@/lib/arch-save-pure";
 
@@ -326,7 +329,9 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const [meas, setMeas] = useState<MeasureState | null>(null); // 5.5 measure, loaded from the scan's note
   useEffect(() => () => worker.stop(), [worker]);
   const budget = splatBudget(qualityPreset.dpr);
-  const bg = scan ? SCAN_BG : holo ? HOLO_C.bg : bp ? BP.bg : night ? "#1c2230" : BG;
+  // the realistic look (ArchHouse): the plain model view of his own house; blueprint, hologram, scans and opened IFC keep their look
+  const real = !scan && !holo && !bp && !ifc;
+  const bg = scan ? SCAN_BG : holo ? HOLO_C.bg : bp ? BP.bg : night ? "#1c2230" : real ? "#cfdbe6" : BG;
   const grab = useRef<(() => HTMLCanvasElement) | null>(null);
   const [cmd, setCmd] = useState("");
   const [busy, setBusy] = useState(false);
@@ -397,6 +402,10 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const sceneRef = useRef(scene);
   sceneRef.current = scene; // an AI reply applies to the scene as it is when it lands, not when it was asked
   const [conflict, setConflict] = useState<{ ops: Op[]; say: string } | null>(null); // ARC02: stale AI reply, he decides
+  const [notes, setNotes] = useState<string[] | null>(null); // design notes: what the rules layer changed and why
+  /** A generated house goes through the design rules (arch-design-pure) before it lands; one undo step; the notes say what changed. */
+  const designed = (s: Scene, words = "") => { const d = designHouse(s, { north: site.north, words }); setNotes(d.notes); return d.scene; };
+  const checkDesign = () => { const cur = sceneRef.current, s = designed(cur); if (JSON.stringify(s) === JSON.stringify(cur)) { setNotes([]); return; } setPast((p) => [...p.slice(-30), cur]); sceneRef.current = s; setScene(s); setSel(null); };
   const apply = (ops: Op[]) => { const cur = sceneRef.current, r = applyOps(cur, ops, newId); sceneRef.current = r.scene; setPast((p) => [...p.slice(-30), cur]); setScene(r.scene); return r.moved; };
   const undo = () => setPast((p) => { if (p.length) setScene(p[p.length - 1]); return p.slice(0, -1); });
   const q = boq(scene.parts), cost = costLines(q, prices, scene.parts), tips = bulkTips(q);
@@ -406,6 +415,9 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const addInterior = () => { if (shell) { apply([{ op: "add", kind: "wall", name: "Interior wall", x: shell.x, z: shell.z, w: Math.max(0.5, shell.w - 2 * RULES.wallThick), d: 0.2, h: shell.h, y: shell.y }]); } };
   const host = part?.kind === "wall" ? part : undefined;
   const solid = useMemo(() => [...view.parts].filter((p) => !isOpening(p.kind) && !hideGroups.has(groupOf(p))).sort((a, b) => a.y - b.y), [view.parts, hideGroups]);
+  const realScene = useMemo(() => ({ ...view, parts: view.parts.filter((p) => !hideGroups.has(groupOf(p))) }), [view, hideGroups]);
+  // the sun's shadow box: the whole plot (trees cast too), but not wider than 45 m so the shadow map keeps its detail
+  const lookReach = useMemo(() => Math.min(45, Math.max(14, Math.hypot(view.plot.w, view.plot.d) / 2, ...view.parts.filter((p) => p.kind === "roof").map((p) => roofTop(p, view.parts) * 2))), [view]);
   const rects = useMemo(() => wallRects(scene.parts), [scene.parts]);
   const coachRows = useMemo(() => (sc.on ? coach(scene.parts, sc.type, sc.s) : []), [scene.parts, sc]);
   const failing = useMemo(() => new Set(coachRows.filter((r) => !r.now.ok).map((r) => r.part.id)), [coachRows]);
@@ -498,7 +510,12 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         )}
         {/* ARCH studio: sketch / picture / words → editable plan → 3D, walk with the sun, files (the planet's main action) */}
         {!lesson && !scan && !ifc && <ArchDraw storeKey={project || "unassigned"} onWalk={() => { setSun((v) => ({ ...v, on: true })); if (!flat) setWalk(true); }}
-          onBuild={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setPreview(null); setRun((n) => n + 1); }} />}
+          onBuild={(raw, words) => { const s = designed(raw, words); setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setPreview(null); setRun((n) => n + 1); }} />}
+        {notes && <details className="card arch-notes text-xs" open aria-label={tr("arch.designNotes")}>
+          <summary className="cursor-pointer select-none font-semibold">📐 {tr("arch.designNotes")}</summary>
+          {notes.length ? <ul className="mt-1 list-disc space-y-0.5 pl-4">{notes.map((n) => <li key={n}>{n}</li>)}</ul> : <p className="mt-1">{tr("arch.designOk")}</p>}
+          <p className="muted mt-1 text-[11px]">{tr("arch.designWhy")}</p>
+        </details>}
   </div>);
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label={tr("arch.region")} style={{ background: bg }}>
@@ -508,13 +525,15 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         <Grab to={grab} />
         {quality === "auto" && <PerformanceMonitor onDecline={qualityPreset.onDecline} />}
           <color attach="background" args={[bg]} />
-          <fog attach="fog" args={[bg, 60, 140]} />
+          <fog attach="fog" args={[bg, real ? 90 : 60, real ? 260 : 140]} />
+          {real ? <ArchLook sun={lightPos} night={night} reach={lookReach} effects={{ ao: qualityPreset.bloomScale > 0, bloom: qualityPreset.bloomScale, msaa: qualityPreset.msaa }} /> : <>
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />
-          <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-SR} shadow-camera-right={SR} shadow-camera-top={SR} shadow-camera-bottom={-SR} shadow-camera-far={SR * 3} />
+          <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-SR} shadow-camera-right={SR} shadow-camera-top={SR} shadow-camera-bottom={-SR} shadow-camera-far={SR * 3} /></>}
           {scan ? <SplatCloud scan={scan} worker={worker} cap={budget.cap} maxPx={budget.maxPx} flip={flip}>
             {meas && <MeasureLayer m={meas} set={setMeas} worker={worker} ext={Math.max(...scan.bounds.hi.map((h, i) => h - scan.bounds.lo[i]))} />}
           </SplatCloud> : <>
-          {holo ? <><HoloTable w={view.plot.w} d={view.plot.d} /><HoloClock solid={solid} t0={t0} reduced={reduced} /></> : <>
+          {real ? <><ArchSiteLook scene={realScene} />{site.on && !lesson && <SiteLayer site={site} set={setSite} parts={scene.parts} />}</>
+          : holo ? <><HoloTable w={view.plot.w} d={view.plot.d} /><HoloClock solid={solid} t0={t0} reduced={reduced} /></> : <>
             <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[view.plot.w, view.plot.d]} /><meshStandardMaterial color={bp ? BP.ground : GROUND[view.plot.ground]} roughness={1} /></mesh>
             <gridHelper args={[Math.max(view.plot.w, view.plot.d), Math.max(view.plot.w, view.plot.d), bp ? BP.grid[0] : "#cbbf9f", bp ? BP.grid[1] : "#ddd6c6"]} position={[0, 0.005, 0]} />
             <ContactShadows position={[0, 0.01, 0]} scale={Math.max(view.plot.w, view.plot.d)} opacity={0.35} blur={2.5} far={12} />
@@ -524,6 +543,10 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
           </>}
           <BuildClock run={run} onStart={setT0} />
           {ifc ? <IfcModelView model={ifc.model} /> : (() => { const at = (i: number) => t0 + 0.6 + i * STEP_S;
+            if (real) return <>
+              <ArchHouse scene={realScene} hideRoof={noRoof || !!daylight} fail={failing} selected={sel} onPick={setSel} front={reduced ? undefined : (t) => buildFront(solid, t, t0)} />
+              {daylight && <DaylightRooms d={daylight} />}
+            </>;
             return <>
               {solid.map((p, i) => <Block key={p.id} p={p} selected={p.id === sel || focus.has(p.id)} reduced={reduced} onPick={() => setSel(p.id)} appearAt={at(i)} hidden={(noRoof || !!daylight) && p.kind === "roof"} bp={bp} holo={holo} inside={walk} fail={failing.has(p.id)} />)}
               {view.parts.filter((p) => isOpening(p.kind) && !hideGroups.has(groupOf(p))).map((p) => <Opening key={p.id} p={p} selected={p.id === sel} reduced={reduced} onPick={() => setSel(p.id)}
@@ -646,6 +669,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
           {/* Main row (tools pass, 21 Nov): what he uses while shaping the house. Everything else folds under More tools. */}
           <button className="chip" disabled={!past.length} onClick={undo}>↶ {tr("arch.undo")}</button>
           <button className="chip" aria-pressed={walk} disabled={flat} onClick={() => setWalk((v) => !v)} title={tr("arch.walkTitle")}>🚶 {tr("arch.walk")}</button>
+          <button className="chip" disabled={!!lesson || !!ifc} onClick={checkDesign} title={tr("arch.designTitle")}>📐 {tr("arch.design")}</button>
           {/* "show me X" toggles, folded (UI audit PR 3); a count shows how many are on. The "Do it" box can ask for these too. */}
           <details className="arch-view" open={viewOpen} onToggle={(e) => setViewOpen((e.currentTarget as HTMLDetailsElement).open)}>
             <summary className="chip inline-flex cursor-pointer select-none list-none">👁 {tr("arch.viewMenu")} {viewOpen ? "▴" : "▾"}{viewsOn ? <span className="num ml-1">· {viewsOn}</span> : null}</summary>
@@ -690,7 +714,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
                 <div key={c.name} className="border-t border-white/10 pt-1">
                   <p><b>{c.name}</b> · {c.area} m² · {c.rooms.join(", ")}</p>
                   <p className="muted">{c.idea} {c.tradeoff}</p>
-                  <button className="chip" onClick={() => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = c.scene; setScene(c.scene); setSel(null); setBrief(null); }}>{tr("arch.conceptsUse")}</button>
+                  <button className="chip" onClick={() => { const s = designed(c.scene); setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setBrief(null); }}>{tr("arch.conceptsUse")}</button>
                 </div>
               ))}
             </div>
@@ -728,7 +752,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
 
         <ArchKit scene={scene} sel={sel} onSelect={setSel} hidden={hideGroups} onHidden={setHideGroups} newId={newId}
           onScene={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); }} />
-        <ArchPlans plot={scene.plot} onPick={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setRun((n) => n + 1); }} />
+        <ArchPlans plot={scene.plot} onPick={(raw) => { const s = designed(raw); setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setRun((n) => n + 1); }} />
         {ready && <ArchTimeMachine project={project || null} scene={scene} save={!lesson} onPreview={setPreview} onRestore={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); setScene(s); setSel(null); }} />}
 
         <ArchStudio worker={worker} bump={bump} onScan={(s) => { setScan(s); setIfc(null); setMeas(measureFrom(s)); setWalk(false); }}

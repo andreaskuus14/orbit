@@ -5,6 +5,7 @@
 // Run: blender -b -P scene.py -- out.png  (the script reads its output path after "--").
 import type { Part, Scene } from "./arch-pure.ts";
 import { sunPosition } from "./sun-pure.ts";
+import { houseMesh, type MatKey } from "./arch-mesh-pure.ts";
 
 export type Quality = "preview" | "detail";
 export type Opts = { site: { lat: number; lon: number }; date: Date; quality: Quality; size?: [number, number]; assets?: string }; // assets: folder from scripts/arch-assets.mjs
@@ -23,6 +24,8 @@ const PROP_FINISH: { re: RegExp; rgb: V3; rough: number }[] = [
   { re: /table|desk|shelf|bench/i, rgb: [0.3, 0.19, 0.12], rough: 0.5 },    // walnut
   { re: /kitchen|counter|island/i, rgb: [0.9, 0.89, 0.86], rough: 0.25 },   // matte lacquer
   { re: /rug|carpet/i, rgb: [0.72, 0.66, 0.56], rough: 1 },                 // wool
+  { re: /canopy/i, rgb: [0.05, 0.055, 0.06], rough: 0.4 },                   // folded steel, roof colour
+  { re: /step|landing|paving/i, rgb: [0.42, 0.41, 0.39], rough: 0.85 },     // cast concrete
 ];
 export const propFinish = (name: string) => PROP_FINISH.find((f) => f.re.test(name)) ?? { rgb: MAT.prop.rgb, rough: MAT.prop.rough };
 
@@ -69,9 +72,8 @@ const v = (a: readonly number[]) => `(${a.map(f).join(", ")})`;
 export function blenderScript(scene: Scene, o: Opts): string {
   const q = QUALITY[o.quality], [W, H] = o.size ?? (o.quality === "detail" ? [2400, 1600] : [960, 640]);
   const sun = sunPosition(o.site.lat, o.site.lon, o.date), up = sun.elevationDeg > 0;
-  const byId = new Map(scene.parts.map((p) => [p.id, p])), cam = camera(scene);
+  const cam = camera(scene);
   const solids = scene.parts.filter((p) => p.kind !== "window" && p.kind !== "door");
-  const openings = scene.parts.filter((p) => (p.kind === "window" || p.kind === "door") && p.host && byId.get(p.host));
   const L: string[] = [
     "import bpy, sys, math",
     "from mathutils import Vector",
@@ -91,10 +93,14 @@ export function blenderScript(scene: Scene, o: Opts): string {
     `g = box('ground', (0, 0, -0.05), ${v([scene.plot.w * 3, scene.plot.d * 3, 0.1])}, mat('${scene.plot.ground}', ${v(MAT[scene.plot.ground].rgb)}, ${MAT[scene.plot.ground].rough}), 0)`,
     "obj = {}",
   ];
-  for (const p of solids) {
-    const b = partBox(p), m = p.kind === "prop" ? propFinish(p.name) : MAT[p.kind], key = p.kind === "prop" ? `prop-${m.rgb.join("-")}` : p.kind;
+  // the building itself: the same geometry as the browser preview (walls with thickness and real openings, framed windows with
+  // glass, doors, roofs with eaves and gutters), one mesh per material; roof meshes are parented to obj[roofId] so a fly-through
+  // can lift the roof away. Props and stairs stay single boxes (the asset library swaps props by name).
+  L.push(...houseLines({ ...scene, parts: scene.parts.filter((p) => p.kind !== "prop") }, q.bevel));
+  for (const p of solids.filter((x) => x.kind === "prop")) {
+    const b = partBox(p), m = propFinish(p.name), key = `prop-${m.rgb.join("-")}`;
     // props get a soft 2 cm round-over even in previews (furniture reads as boxes otherwise)
-    L.push(`obj[${JSON.stringify(p.id)}] = box(${JSON.stringify(p.name)}, ${v(b.c)}, ${v(b.s)}, mat('${key}', ${v(m.rgb)}, ${m.rough}), ${f(p.kind === "prop" ? Math.max(q.bevel, 0.02) : q.bevel)})`);
+    L.push(`obj[${JSON.stringify(p.id)}] = box(${JSON.stringify(p.name)}, ${v(b.c)}, ${v(b.s)}, mat('${key}', ${v(m.rgb)}, ${m.rough}), ${f(Math.max(q.bevel, 0.02))})`);
   }
   // trees: the plot's count, placed on a deterministic ring outside the building (cone crown on a trunk)
   for (let i = 0, k = 0; !o.assets && k < Math.min(scene.plot.trees, 40) && i < 200; i++) { // with the library, real firs replace these cones
@@ -104,15 +110,6 @@ export function blenderScript(scene: Scene, o: Opts): string {
     const [tx, ty] = toBlender(Math.cos(a) * rr, 0, Math.sin(a) * rr);
     L.push(`box('trunk-${i}', ${v([tx, ty, 0.9])}, (0.25, 0.25, 1.8), mat('trunk', ${v(MAT.trunk.rgb)}, ${MAT.trunk.rough}), 0)`,
       `bpy.ops.mesh.primitive_cone_add(vertices=10, radius1=${f(h * 0.22)}, depth=${f(h)}, location=${v([tx, ty, 1.2 + h / 2])}); bpy.context.object.data.materials.append(mat('tree', ${v(MAT.tree.rgb)}, ${MAT.tree.rough}))`);
-  }
-  for (const p of openings) {
-    const host = byId.get(p.host!)!, b = partBox(p, host), m = MAT[p.kind];
-    // cut the opening out of its wall, then fill it: a thin glass pane for windows, a door leaf for doors (centred in the wall)
-    L.push(`cut = box('cut-${p.id}', ${v(b.c)}, ${v(b.s)}, mat('cut', (0,0,0), 1), 0); cut.display_type = 'WIRE'; cut.hide_render = True`);
-    L.push(`bo = obj[${JSON.stringify(host.id)}].modifiers.new('cut-${p.id}', 'BOOLEAN'); bo.operation = 'DIFFERENCE'; bo.object = cut`);
-    const pane: V3 = [b.s[0], b.s[1], b.s[2]], thin = p.kind === "window" ? 0.02 : 0.05;
-    if (p.face === "n" || p.face === "s") pane[1] = thin; else pane[0] = thin;
-    L.push(`obj[${JSON.stringify(p.id)}] = box(${JSON.stringify(p.name)}, ${v(b.c)}, ${v(pane)}, mat('${p.kind}', ${v(m.rgb)}, ${m.rough}, ${m.glass ? "True" : "False"}), 0)`);
   }
   const d = sunVector(sun.azimuthDeg, Math.max(sun.elevationDeg, 2));
   L.push(
@@ -238,9 +235,8 @@ export function dressLines(scene: Scene, dir: string): string[] {
     "    n = nt.nodes.new('ShaderNodeNormalMap'); n.inputs['Strength'].default_value = 0.35 if stem.startswith('plaster') else 1.0; nt.links.new(mp.outputs['Vector'], t.inputs['Vector']); nt.links.new(t.outputs['Color'], n.inputs['Color']); nt.links.new(n.outputs['Normal'], b.inputs['Normal'])",
     "    return m",
     "TEX = {'slab': tex('oak', 'wood_floor', 0.45), 'wall': tex('plaster', 'plastered_wall_02', 0.35), 'ground': tex('grass', 'aerial_grass_rock', 0.12)}",
-    `KIND = ${JSON.stringify(Object.fromEntries(scene.parts.filter((p) => p.kind === "slab" || p.kind === "wall").map((p) => [p.id, p.kind])))}`,
-    "for k, kind in KIND.items():",
-    "    if k in obj: obj[k].data.materials.clear(); obj[k].data.materials.append(TEX[kind])",
+    "for k, t in (('floor', 'slab'), ('plaster', 'wall'), ('inner', 'wall')):",
+    "    for o in BYMAT.get(k, []): o.data.materials.clear(); o.data.materials.append(TEX[t])",
     "g.data.materials.clear(); g.data.materials.append(TEX['ground'])",
     "SRC = {}",
     "def lib(asset):",
@@ -263,7 +259,6 @@ export function dressLines(scene: Scene, dir: string): string[] {
       if (id.startsWith("proc:")) return hide + `modern(${JSON.stringify(id.slice(5))}, ${at}, ${rot}, ${f(Math.max(p.w, p.d))}, ${f(Math.min(p.w, p.d))}, ${f(p.h)}, ${/dining/i.test(p.name) ? "True" : "False"})`;
       return hide + `place(${JSON.stringify(id)}, ${at}, ${rot})`;
     }),
-    ...facadeLines(scene),
     // trees: the plot's count on a ring, kept off the south-east (the camera side); shrubs along the south side
     ...Array.from({ length: Math.min(scene.plot.trees, 24) }, (_, i) => i).flatMap((i) => {
       const a = Math.PI * (0.55 + (i / Math.max(1, Math.min(scene.plot.trees, 24))) * 1.3), r = Math.max(scene.plot.w, scene.plot.d) * (0.42 + ((i * 37) % 11) / 40);
@@ -375,4 +370,74 @@ export function facadeLines(scene: Scene): string[] {
     }
   }
   return out;
+}
+
+// ---- the building as meshes (same geometry as the preview, lib/arch-mesh-pure) ----
+/** Principled BSDF set-up per material: base colour, roughness, metallic, and a procedural pattern where the eye expects one
+ *  (UVs are in metres): board-on-board timber, running-bond brick, standing seams on the steel roof, rows of tiles, plaster grain. */
+export const BLENDER_MATS: Record<MatKey, { rgb: V3; rough: number; metal?: number; glass?: true; pattern?: "boards" | "brick" | "seams" | "tiles" | "grain" | "planks"; alt?: V3 }> = {
+  plaster: { rgb: [0.8, 0.77, 0.72], rough: 0.9, pattern: "grain" }, timber: { rgb: [0.24, 0.18, 0.12], rough: 0.75, pattern: "boards", alt: [0.3, 0.23, 0.16] },
+  brick: { rgb: [0.36, 0.12, 0.07], rough: 0.85, pattern: "brick", alt: [0.45, 0.17, 0.1] }, concrete: { rgb: [0.42, 0.41, 0.39], rough: 0.85, pattern: "grain" },
+  inner: { rgb: [0.88, 0.86, 0.83], rough: 0.9 }, plinth: { rgb: [0.3, 0.29, 0.28], rough: 0.9, pattern: "grain" }, floor: { rgb: [0.62, 0.46, 0.3], rough: 0.42, pattern: "planks", alt: [0.55, 0.4, 0.26] },
+  deck: { rgb: [0.3, 0.23, 0.17], rough: 0.8, pattern: "planks", alt: [0.26, 0.2, 0.15] },
+  roofMetal: { rgb: [0.045, 0.048, 0.052], rough: 0.38, metal: 0.7, pattern: "seams" }, roofTile: { rgb: [0.22, 0.07, 0.04], rough: 0.7, pattern: "tiles" }, roofMembrane: { rgb: [0.07, 0.07, 0.075], rough: 0.85 },
+  fascia: { rgb: [0.03, 0.033, 0.036], rough: 0.5 }, gutter: { rgb: [0.08, 0.085, 0.09], rough: 0.35, metal: 0.8 }, frame: { rgb: [0.035, 0.038, 0.042], rough: 0.4, metal: 0.3 },
+  glass: { rgb: [0.85, 0.9, 0.92], rough: 0.02, glass: true }, sill: { rgb: [0.1, 0.105, 0.11], rough: 0.35, metal: 0.7 }, doorExt: { rgb: [0.12, 0.075, 0.045], rough: 0.5 },
+  doorInt: { rgb: [0.85, 0.84, 0.81], rough: 0.55 }, metal: { rgb: [0.02, 0.02, 0.02], rough: 0.3, metal: 0.9 }, stair: { rgb: [0.5, 0.36, 0.22], rough: 0.55 },
+  prop: { rgb: [0.45, 0.32, 0.2], rough: 0.6 }, trim: { rgb: [0.82, 0.8, 0.76], rough: 0.7 }, coping: { rgb: [0.12, 0.125, 0.13], rough: 0.35, metal: 0.7 }, fail: { rgb: [0.8, 0.05, 0.05], rough: 0.7 },
+};
+const PATTERN: Record<NonNullable<(typeof BLENDER_MATS)[MatKey]["pattern"]>, [width: number, row: number, mortar: number, offset: number, bump: number]> = {
+  boards: [0.12, 6, 0.008, 0, 0.4], brick: [0.26, 0.075, 0.01, 0.5, 0.3], seams: [0.5, 60, 0.012, 0, 0.6], tiles: [0.3, 0.35, 0.02, 0.5, 0.5], grain: [0, 0, 0, 0, 0.08], planks: [1.8, 0.14, 0.004, 0.37, 0.15],
+};
+
+/** Python lines that build the house meshes (needs mat()/obj from blenderScript's preamble). bevel > 0: soft edges on detail renders. */
+export function houseLines(scene: Scene, bevel = 0): string[] {
+  const m = houseMesh(scene), r = (n: number) => Math.round(n * 1e4) / 1e4;
+  const L = [
+    "def pmat(name, rgb, rough, metal, glass, pat, alt):",
+    "    m = bpy.data.materials.get('h-' + name)",
+    "    if m: return m",
+    "    m = bpy.data.materials.new('h-' + name); m.use_nodes = True; nt = m.node_tree; b = nt.nodes['Principled BSDF']",
+    "    b.inputs['Base Color'].default_value = (*rgb, 1); b.inputs['Roughness'].default_value = rough; b.inputs['Metallic'].default_value = metal",
+    "    if glass: b.inputs['Transmission Weight'].default_value = 1.0; b.inputs['IOR'].default_value = 1.5",
+    "    if pat:",
+    "        uv = nt.nodes.new('ShaderNodeTexCoord'); bm = nt.nodes.new('ShaderNodeBump'); bm.inputs['Strength'].default_value = pat[4]",
+    "        if pat[0] > 0:",
+    "            t = nt.nodes.new('ShaderNodeTexBrick'); nt.links.new(uv.outputs['UV'], t.inputs['Vector']); t.offset = pat[3]; t.offset_frequency = 2",
+    "            t.inputs['Scale'].default_value = 1; t.inputs['Brick Width'].default_value = pat[0]; t.inputs['Row Height'].default_value = pat[1]; t.inputs['Mortar Size'].default_value = pat[2]",
+    "            t.inputs['Color1'].default_value = (*rgb, 1); t.inputs['Color2'].default_value = (*alt, 1); t.inputs['Mortar'].default_value = (rgb[0] * 0.35, rgb[1] * 0.35, rgb[2] * 0.35, 1)",
+    "            nt.links.new(t.outputs['Color'], b.inputs['Base Color']); nt.links.new(t.outputs['Fac'], bm.inputs['Height'])",
+    "        else:",
+    "            t = nt.nodes.new('ShaderNodeTexNoise'); t.inputs['Scale'].default_value = 40; nt.links.new(uv.outputs['UV'], t.inputs['Vector']); nt.links.new(t.outputs['Fac'], bm.inputs['Height'])",
+    "        nt.links.new(bm.outputs['Normal'], b.inputs['Normal'])",
+    "    return m",
+    "BYMAT = {}",
+    "def hmesh(name, key, mt, V, UV):",
+    "    me = bpy.data.meshes.new(name); n = len(V) // 3",
+    "    me.from_pydata([V[i:i + 3] for i in range(0, len(V), 3)], [], [(i, i + 1, i + 2) for i in range(0, n, 3)]); me.update()",
+    "    me.uv_layers.new(name='UVMap').data.foreach_set('uv', UV)",
+    "    me.materials.append(mt); o = bpy.data.objects.new(name, me); S.collection.objects.link(o); BYMAT.setdefault(key, []).append(o)",
+    "    return o",
+  ];
+  // one object per part (and per material inside it, parented to the part's first one), so obj[id] works as before for the
+  // fly-through (roof lift), the exploded and wireframe presentations, and the asset dressing
+  const names = new Map(scene.parts.map((p) => [p.id, p.name]));
+  const pieces = new Map<string, { part: string; lift: string | null; mat: MatKey; V: number[]; UV: number[] }>();
+  for (const g of m.groups) for (let t = 0; t < g.tri.length; t++) {
+    const part = g.tri[t], key = `${part}|${g.lift ?? ""}|${g.mat}`;
+    const pc = pieces.get(key) ?? pieces.set(key, { part, lift: g.lift, mat: g.mat, V: [], UV: [] }).get(key)!;
+    for (let k = t * 9; k < t * 9 + 9; k += 3) { const [x, y, z] = toBlender(g.pos[k], g.pos[k + 1], g.pos[k + 2]); pc.V.push(r(x), r(y), r(z)); }
+    for (let k = t * 6; k < t * 6 + 6; k++) pc.UV.push(r(g.uv[k]));
+  }
+  const roots = new Set<string>();
+  // a part's own (lifted, for a roof) mesh is its root; static pieces of a roof (gable walls, downpipes) stand on their own
+  for (const pc of [...pieces.values()].sort((a, b) => Number(!!b.lift) - Number(!!a.lift))) {
+    const M = BLENDER_MATS[pc.mat], pat = M.pattern ? PATTERN[M.pattern] : null, id = JSON.stringify(pc.part);
+    L.push(`o = hmesh(${JSON.stringify(names.get(pc.part) ?? pc.part)}, '${pc.mat}', pmat('${pc.mat}', ${v(M.rgb)}, ${M.rough}, ${M.metal ?? 0}, ${M.glass ? "True" : "False"}, ${pat ? v(pat) : "None"}, ${v(M.alt ?? M.rgb)}), ${JSON.stringify(pc.V)}, ${JSON.stringify(pc.UV)})`);
+    if (bevel > 0 && !M.glass) L.push(`b = o.modifiers.new('bevel', 'BEVEL'); b.width = ${f(bevel)}; b.segments = 2; b.limit_method = 'ANGLE'`);
+    const roofStatic = !pc.lift && scene.parts.find((p) => p.id === pc.part)?.kind === "roof";
+    if (roofStatic) continue;
+    if (!roots.has(pc.part)) { roots.add(pc.part); L.push(`obj[${id}] = o`); } else L.push(`o.parent = obj[${id}]`);
+  }
+  return L;
 }
