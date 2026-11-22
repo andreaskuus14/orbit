@@ -156,8 +156,9 @@ const CORE_RING = 3.7 * 0.62; // the CORE's outer ring at the overview (coreScal
 function OrbitPath({ r, warn = false }: { r: number; warn?: boolean }) {
   return (
     <mesh rotation-x={Math.PI / 2}>
-      <ringGeometry args={[r - (warn ? 0.03 : 0.007), r + (warn ? 0.03 : 0.007), 256]} />
-      <meshBasicMaterial color={warn ? "#f43f5e" : "#cfe0ff"} transparent opacity={warn ? 0.6 : 0.05} side={THREE.DoubleSide} depthWrite={false} />
+      {/* a problem: a faint rose orbit, not a thick red ring around the whole system (owner, 22 Nov) */}
+      <ringGeometry args={[r - (warn ? 0.01 : 0.007), r + (warn ? 0.01 : 0.007), 256]} />
+      <meshBasicMaterial color={warn ? "#f9a8b8" : "#cfe0ff"} transparent opacity={warn ? 0.16 : 0.05} side={THREE.DoubleSide} depthWrite={false} />
     </mesh>
   );
 }

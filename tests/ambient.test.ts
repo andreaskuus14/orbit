@@ -14,7 +14,8 @@ test("normal is neutral, focus requests non-LIFE dimming, night is warm, and ale
   const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
   const [nr, ng, nb] = rgb(night.tint);
   assert.ok(nr > ng && ng > nb, "night tint is warm");
-  const alert = ambient({ ...day, pulseFailed: true }, NOW);
+  assert.equal(ambient({ ...day, pulseFailed: true, automationFailing: true }, NOW).mode, "normal", "a failure is shown on its planet, not as a red screen");
+  const alert = ambient({ ...day, stopAll: true }, NOW);
   assert.equal(alert.vignette, 0.35);
   const [r, g, b] = rgb(alert.tint);
   assert.ok(r > g && r > b, "alert tint is red");
@@ -26,10 +27,10 @@ test("night starts at 23:00 and ends at 06:00, including the midnight boundary",
   }
 });
 
-test("all flag combinations at every hour obey alert > focus > night > normal", () => {
+test("all flag combinations at every hour obey alert (Stop all) > focus > night > normal", () => {
   for (let bits = 0; bits < 16; bits++) for (let hour = 0; hour < 24; hour++) {
     const state = { focusRunning: !!(bits & 1), automationFailing: !!(bits & 2), pulseFailed: !!(bits & 4), stopAll: !!(bits & 8), hour };
-    const expected = bits & 14 ? "alert" : bits & 1 ? "focus" : hour < 6 || hour === 23 ? "night" : "normal";
+    const expected = bits & 8 ? "alert" : bits & 1 ? "focus" : hour < 6 || hour === 23 ? "night" : "normal";
     const result = ambient(state, NOW);
     assert.equal(result.mode, expected, JSON.stringify(state));
     assert.ok(result.dim >= 0 && result.dim <= 1);
@@ -40,9 +41,9 @@ test("all flag combinations at every hour obey alert > focus > night > normal", 
 });
 
 test("state changes immediately choose the new target, including clearing an alert", () => {
-  const state = { ...day, focusRunning: true, pulseFailed: true, hour: 23 };
+  const state = { ...day, focusRunning: true, stopAll: true, hour: 23 };
   assert.equal(ambient(state, NOW).mode, "alert");
-  state.pulseFailed = false;
+  state.stopAll = false;
   assert.equal(ambient(state, NOW).mode, "focus");
   state.focusRunning = false;
   assert.equal(ambient(state, NOW).mode, "night");
