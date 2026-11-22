@@ -34,7 +34,7 @@ export const OWN_MARK = "written by CORE in an earlier build, unchanged";
  *  (ws_write never runs tainted), so it doesn't block the writes. Only in his explicit build turn; the header comes from ORBIT, before the file text. */
 const readsOwnEarlier = (step: string) => new RegExp(`^You called ws_read [^\\n]*\\nRESULT:\\nFile [a-z0-9-]+/[^\\s()]+ \\(${OWN_MARK};`).test(step);
 // Every tool in policy-pure UNTRUSTED belongs here too (tests/outside-text-taint.test.ts checks it). plugin__<server>__<tool>: a plugin's result is outside text.
-const OUTSIDE = "terminal_run|terminal_status|reach_trending|reach_read|find_outliers|vault_search|vault_read|vault_skill|ws_read|life_journal|ask_agent|calendar_events|git_summary|watch_changes|ideas_list|wishlist|plan_day|mission_status|run_niche|local_transcribe|roblox_read|pc_window|pc_act|read_news|mcp_.*|plugin__.*";
+const OUTSIDE = "terminal_run|terminal_status|sandbox_run|research_status|reach_trending|reach_read|find_outliers|vault_search|vault_read|vault_skill|ws_read|life_journal|ask_agent|calendar_events|git_summary|watch_changes|ideas_list|wishlist|plan_day|mission_status|run_niche|local_transcribe|roblox_read|pc_window|pc_act|read_news|mcp_.*|plugin__.*";
 const INBOUND = new RegExp(`^(?:web_search|fetch_url|scrape_page|browse|read_more|find_lead_candidates|business_status|ws_fetch_image|ws_inspire_image|${OUTSIDE})$`);
 const INBOUND_BUILD = new RegExp(`^(?:${OUTSIDE})$`); // his explicit build: public research (search, fetch, browse, read_more, images) & his pipeline status don't taint
 /** Workspaces this task's own ws_create made (empty or ORBIT's template; a taken name becomes a new version), so reading them adds no outside text. */

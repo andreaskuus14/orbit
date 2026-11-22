@@ -32,6 +32,8 @@ export async function switchStopAll(sb: SupabaseClient, userId: string, on: bool
     await import("@/lib/rojo").then((m) => m.stopServe()).catch(() => false); // rojo serve started from GAME DEV → Files
     await import("@/lib/plugins").then((m) => m.closeAllPlugins()).catch(() => 0); // MCP plugin calls in flight (Blender etc.)
     await import("@/lib/shell-session").then((m) => m.stopAllSessions()).catch(() => 0); // terminal commands (killed) and ones waiting for his OK (dropped)
+    await import("@/lib/sandbox").then((m) => m.stopAllSandboxes()).catch(() => 0); // CORE code sandbox runs (killed)
+    await import("@/lib/research").then((m) => m.abortResearch()).catch(() => false); // a deep research run
     await import("@/lib/kaggle").then((m) => m.cancelKaggle("Stopped: Stop-all is on")).catch(() => false); // a running KAGGLE BURST job
     pushNotify("stop");
   }

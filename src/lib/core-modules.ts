@@ -9,6 +9,8 @@ import { checkpointBasis } from "./checkpoint-pure";
 import { WS_PROMPT, WS_TOOLS, loadWsGate, runWsTool, wsTainted, type WsTool } from "./core-workspace";
 import { OPS_PROMPT, OPS_TOOLS, type OpsTool } from "./core-operator-pure";
 import { TERM_PROMPT, type TermTool } from "./core-terminal";
+import { SANDBOX_PROMPT } from "./sandbox-pure";
+import { RESEARCH_PROMPT_TEXT } from "./research-pure";
 import { decisionMemory, decisionPreview, parseDecision, rememberPreview, takePreview } from "./decisions-pure";
 import { validateMemory } from "./reflect-pure";
 import { saveCoreMemory } from "./reflect";
@@ -154,6 +156,17 @@ const MODULES: CoreModule[] = [
     // a shell in his connected project folders (shell-session.ts); every command gets a command-policy-pure level
     name: "TERMINAL", tools: ["terminal_run", "terminal_status", "terminal_stop"], writes: ["terminal_run", "terminal_stop"], prompt: TERM_PROMPT,
     run: async (t, i, c) => (await import("./core-terminal")).runTermTool(t as TermTool, i, { userId: c.userId, steps: c.steps, pinned: c.pinned, earlier: !!c.earlier }),
+  },
+  {
+    // CODE SANDBOX (sandbox.ts): Python/JS in an isolated child process, only his attached / named VAULT files copied in; private:
+    // its output holds those files' contents. Always level 1 (its own temp folder); sandbox_save adds one VAULT file (Undo).
+    name: "SANDBOX", tools: ["sandbox_run", "sandbox_save"], writes: ["sandbox_run", "sandbox_save"], private: ["sandbox_run"], prompt: SANDBOX_PROMPT,
+    run: async (t, i, c) => (await import("./sandbox")).runSandboxTool(t, i, { chat: c.chat, question: c.question }),
+  },
+  {
+    // DEEP RESEARCH (research.ts): a background multi-step web research → cited report in VAULT, on the shared progress card
+    name: "RESEARCH", tools: ["deep_research", "research_status", "research_stop"], writes: ["deep_research", "research_stop"], prompt: RESEARCH_PROMPT_TEXT,
+    run: async (t, i, c) => (await import("./research")).runResearchTool(t, i, { sb: c.sb, userId: c.userId, lang: /[õäöü]|\b(?:uuri|võrdle|mis|kuidas)\b/i.test(c.question) ? "et" : "en" }),
   },
   {
     // read-only; private: habit streaks and LIFE counts are in it (journal text never is: only a count of entries)
