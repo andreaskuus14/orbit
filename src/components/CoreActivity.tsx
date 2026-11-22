@@ -22,6 +22,9 @@ export function CoreActivity({ rows, running, streaming = false, since = 0, tota
       <span className="core-step-label">{label(r)}{r.detail && <span className="muted"> · {r.detail}</span>}{r.ok === false && <span className="muted"> · {t("live.failed")}</span>}</span>
       {ms !== undefined && <span className="core-step-ms muted">{fmtMs(ms)}</span>}
     </>;
+    if (r.blocked && r.result) {
+      return <li key={r.id}><div className="core-step">{head}</div><p className="core-step-more error" role="alert">⚠ {r.result}</p></li>;
+    }
     return <li key={r.id}>{r.result || (r.detail && r.detail.length > 40)
       ? <details><summary className="core-step">{head}</summary><p className="core-step-more muted">{[r.detail, r.result].filter(Boolean).join(" → ")}</p></details>
       : <div className="core-step">{head}</div>}</li>;

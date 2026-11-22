@@ -33,6 +33,9 @@ test("results show only titles, domains, counts or ORBIT's own check line", () =
   assert.equal(liveResult("ws_write", "Wrote 2 files.\nCheck: checked, no problems. Give the user the preview link with this check line.", false), "checked, no problems");
   assert.equal(liveResult("ask_agent", "the agent's long answer", false), "");
   assert.equal(liveResult("web_search", "Error: offline", false), "");
+  assert.equal(liveResult("ws_write", "Error: workspace files change only for the user's own request", false, true), "workspace files change only for the user's own request");
+  assert.equal(liveResult("web_search", 'Error: this web_search call would send private text out: "Mari Tamm"', false, true), "Blocked: would carry private text out of ORBIT");
+  assert.equal(liveResult("life_journal", "Error: blocked", true, true), "");
 });
 
 test("tracker numbers and times steps, closes thinking at the next step, and closes the rest at the end", () => {
