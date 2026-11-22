@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   BEAT_DECAY_MS, BEAT_MIN_MS, DESAT_MS, EXHALE_MS, ORB_CHANNELS, ORB_DELAY, ORB_TARGETS, RING_BOOST_MS, SHAKE_MS, TOOL_PULSE_MS,
-  beatLevel, channelProgress, easeAnticipate, easeInOutCubic, envelope, orbBeat, orbClock0, orbDetail, orbDpr, orbDuration, orbFrame,
+  beatLevel, channelProgress, easeAnticipate, easeInOutCubic, envelope, orbBeat, orbClock0, orbDpr, orbDuration, orbFrame,
   orbMotionInit, orbRetarget, orbSettled, orbShots, orbStill, orbValues,
+  ORB_GPU_BUDGET_MS, ORB_MAX_STEPS, ORB_PERF_COOLDOWN_MS, ORB_PERF_OVER, ORB_PERF_WINDOW, orbPerfInit, orbPerfSample, orbQuality, orbTier, type OrbPerf,
 } from "../src/lib/orb-motion-pure.ts";
 import type { CorePhase } from "../src/lib/core-phase-pure.ts";
 import { ORB_FRAG, ORB_R } from "../src/components/motion/orb-shader.ts";
@@ -158,9 +159,58 @@ test("reduced motion: a still per pose (no pulse, no shake, no breathing); settl
   assert.equal(orbSettled(orbBeat(m, 5000), 5010), false, "a beat is motion");
 });
 
-test("cost guards: canvas dpr never above 2; small orbs get less fine detail", () => {
+test("cost guards: canvas dpr never above 2; the 40 px chat orb is tier 0, the 96 px home orb gets full detail", () => {
   assert.equal(orbDpr(3), 2); assert.equal(orbDpr(1.25), 1.25); assert.equal(orbDpr(undefined), 1); assert.equal(orbDpr(0.5), 1);
-  assert.equal(orbDetail(40), 0.35); assert.equal(orbDetail(240), 1); assert.ok(orbDetail(72) > 0.35 && orbDetail(72) < 1);
+  assert.equal(orbTier(40), 0); assert.equal(orbTier(63), 0); assert.equal(orbTier(64), 1); assert.equal(orbTier(95), 1);
+  assert.equal(orbTier(96), 2); assert.equal(orbTier(648), 2);
+});
+
+test("adaptive quality: step-downs drop tiers first, then pixels; never below half resolution", () => {
+  assert.deepEqual(orbQuality(2, 0), { tier: 2, dprScale: 1 });
+  assert.deepEqual(orbQuality(2, 2), { tier: 0, dprScale: 1 });
+  assert.deepEqual(orbQuality(2, 3), { tier: 0, dprScale: 0.75 });
+  assert.deepEqual(orbQuality(0, 1), { tier: 0, dprScale: 0.75 }, "chat orb goes straight to fewer pixels");
+  assert.deepEqual(orbQuality(0, ORB_MAX_STEPS), { tier: 0, dprScale: 0.5 });
+  assert.deepEqual(orbQuality(1, -3), { tier: 1, dprScale: 1 });
+});
+
+const feed = (p: OrbPerf, n: number, s: { gpuMs?: number; frameMs?: number }, t0: number, step = 16) => {
+  for (let i = 0; i < n; i++) p = orbPerfSample(p, s, t0 + i * step);
+  return p;
+};
+
+test("adaptive quality: GPU time over budget for most of a window steps down once, then waits a cooldown", () => {
+  let p = feed(orbPerfInit(), ORB_PERF_WINDOW * 3, { gpuMs: ORB_GPU_BUDGET_MS * 0.6 }, 0);
+  assert.equal(p.down, 0, "cheap frames never step down");
+  p = feed(p, ORB_PERF_OVER - 1, { gpuMs: ORB_GPU_BUDGET_MS * 2 }, 10_000);
+  assert.equal(p.down, 0);
+  p = orbPerfSample(p, { gpuMs: ORB_GPU_BUDGET_MS * 2 }, 11_000);
+  assert.equal(p.down, 1);
+  const cooling = feed(p, ORB_PERF_WINDOW, { gpuMs: 99 }, 11_016, 1);
+  assert.equal(cooling.down, 1, "no second step during the cooldown");
+  const later = feed(p, ORB_PERF_OVER, { gpuMs: 99 }, 11_000 + ORB_PERF_COOLDOWN_MS);
+  assert.equal(later.down, 2);
+  assert.equal(feed(orbPerfInit(), 500, { gpuMs: 99 }, 0, 3000).down, ORB_MAX_STEPS, "stops at the floor");
+});
+
+test("adaptive quality: a few slow frames in a window are tolerated (no flicker)", () => {
+  let p = orbPerfInit();
+  for (let i = 0; i < ORB_PERF_WINDOW * 6; i++) p = orbPerfSample(p, { gpuMs: i % 3 === 0 ? 9 : 1 }, i * 16);
+  assert.equal(p.down, 0);
+});
+
+test("adaptive quality: without a GPU timer, frame gaps are judged against the display's own refresh", () => {
+  // 120 Hz display running smoothly, then dropping to ~40 fps
+  let p = feed(orbPerfInit(), 60, { frameMs: 8.3 }, 0, 8.3);
+  assert.equal(p.down, 0); assert.ok(Math.abs(p.refreshMs - 8.3) < 1e-9);
+  p = feed(p, ORB_PERF_OVER, { frameMs: 25 }, 1000, 25);
+  assert.equal(p.down, 1);
+  // a 60 Hz display at a steady 16.7 ms is fine
+  assert.equal(feed(orbPerfInit(), 200, { frameMs: 16.7 }, 0, 16.7).down, 0);
+  // long gaps (tab away, debugger) and missing samples are ignored
+  const q = orbPerfSample(orbPerfInit(), { frameMs: 2000 }, 0);
+  assert.deepEqual(q, orbPerfInit());
+  assert.deepEqual(orbPerfSample(orbPerfInit(), {}, 0), orbPerfInit());
 });
 
 test("shader + renderer agree on uniforms; CSS keeps the old orb as the fallback", () => {
@@ -169,6 +219,11 @@ test("shader + renderer agree on uniforms; CSS keeps the old orb as the fallback
   assert.ok(names.length >= 15);
   for (const n of names) assert.match(ORB_FRAG, new RegExp(`\\b${n}\\b`), n);
   assert.match(ORB_FRAG, /^#version 300 es/);
+  assert.match(gl, /EXT_disjoint_timer_query_webgl2/, "GPU timer for the automatic step-down");
+  assert.match(ORB_FRAG, /uniform float[^;]*\buTier\b/);
+  // tier gates: fine web layer only at full detail; noise octaves follow the tier
+  assert.match(ORB_FRAG, /if \(tier == 2 && ppc2 > 5\.0\)/);
+  assert.match(ORB_FRAG, /int oct = 2 \+ tier;/);
   assert.ok(ORB_R > 0.5 && ORB_R < 0.75, "room for ring + bloom");
   const css = readFileSync(new URL("../src/app/motion.css", import.meta.url), "utf8");
   assert.match(css, /\.core-orb\[data-gl="on"\] > :not\(canvas\) \{ display: none; \}/);

@@ -178,7 +178,41 @@ export function orbSettled(m: OrbMotion, now: number): boolean {
   return now - m.start >= orbDuration(m.phase) + maxDelay && now - m.since >= shotEnd && beatLevel(m, now) < 0.01;
 }
 
-/** Shader detail for an orb drawn `px` CSS pixels wide: fewer fine threads on the small chat orb so it doesn't turn to noise. */
-export const orbDetail = (px: number) => Math.max(0.35, Math.min(1, px / 120));
+/** Quality tier for an orb drawn `px` CSS pixels wide (the sphere itself): 0 = small chat orb (2 noise octaves, one coarse web
+ *  layer, no fibres or sheen), 1 = mid (3 octaves, fibres + sheen), 2 = 96 px and up (4 octaves, fine web layer too). */
+export const ORB_TIER_MID_PX = 64;
+export const ORB_TIER_FULL_PX = 96;
+export const orbTier = (px: number): 0 | 1 | 2 => (px >= ORB_TIER_FULL_PX ? 2 : px >= ORB_TIER_MID_PX ? 1 : 0);
+
+/** What to draw after `down` automatic step-downs: first drop tiers, then render fewer pixels (the canvas is upscaled). */
+export const ORB_MAX_STEPS = 4;
+export function orbQuality(sizeTier: number, down: number): { tier: number; dprScale: number } {
+  const t = sizeTier - Math.max(0, down);
+  return t >= 0 ? { tier: t, dprScale: 1 } : { tier: 0, dprScale: t === -1 ? 0.75 : 0.5 };
+}
+
+/** Automatic step-down when the orb costs too much. Samples are GPU time per frame (EXT_disjoint_timer_query) when the
+ *  browser has it, otherwise the gap between animation frames compared with the fastest gap seen (the display's refresh).
+ *  If most of the last window is over budget, step down once, then wait a cooldown before judging again. Never steps up by
+ *  itself (a remount starts fresh), so the orb can't flicker between tiers. */
+export const ORB_GPU_BUDGET_MS = 2.5; // a decoration: a small slice of a 16.7 ms frame
+export const ORB_PERF_WINDOW = 30;
+export const ORB_PERF_OVER = 20; // of the window
+export const ORB_PERF_COOLDOWN_MS = 2500;
+export type OrbPerf = { down: number; over: number; n: number; refreshMs: number; coolUntil: number };
+export const orbPerfInit = (): OrbPerf => ({ down: 0, over: 0, n: 0, refreshMs: Infinity, coolUntil: 0 });
+export function orbPerfSample(p: OrbPerf, s: { gpuMs?: number; frameMs?: number }, now: number): OrbPerf {
+  if (now < p.coolUntil || p.down >= ORB_MAX_STEPS) return p;
+  let over: boolean, refreshMs = p.refreshMs;
+  if (s.gpuMs !== undefined && Number.isFinite(s.gpuMs)) over = s.gpuMs > ORB_GPU_BUDGET_MS;
+  else if (s.frameMs !== undefined && s.frameMs > 0 && s.frameMs < 250) { // longer gaps: tab switch / debugger, not cost
+    refreshMs = Math.min(refreshMs, Math.max(s.frameMs, 4));
+    over = s.frameMs > refreshMs * 1.5 + 2;
+  } else return p;
+  const n = p.n + 1, o = p.over + (over ? 1 : 0);
+  if (o >= ORB_PERF_OVER) return { down: p.down + 1, over: 0, n: 0, refreshMs, coolUntil: now + ORB_PERF_COOLDOWN_MS };
+  if (n >= ORB_PERF_WINDOW) return { ...p, over: 0, n: 0, refreshMs };
+  return { ...p, over: o, n, refreshMs };
+}
 /** Device pixel ratio used for the canvas (never above 2: cost grows with the square). */
 export const orbDpr = (dpr: number | undefined) => Math.max(1, Math.min(2, dpr || 1));

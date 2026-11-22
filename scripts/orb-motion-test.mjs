@@ -5,6 +5,7 @@
 //   node scripts/orb-motion-test.mjs square <out.mp4>              1080×1080, orb alone on ORBIT's space background
 //   node scripts/orb-motion-test.mjs home <out.mp4> <home.png>     1280×720, orb above the home input over the galaxy
 //   node scripts/orb-motion-test.mjs stills <outDir>               one 1080 still per phase (idle … done)
+//   node scripts/orb-motion-test.mjs sizes <out.png>               idle + thinking stills at the real 40 px / 96 px sizes, DPR 2
 // Needs: playwright-core + a Chrome (CHROME=/path, default /usr/bin/google-chrome), ffmpeg on PATH.
 import { build } from "esbuild";
 import { chromium } from "playwright-core";
@@ -21,7 +22,7 @@ const TOTAL_MS = 7600;
 // The script the page runs: same modules ORBIT ships.
 const entry = `
 import { createOrbRenderer } from "@/components/motion/orb-gl";
-import { orbMotionInit, orbRetarget, orbBeat, orbFrame, orbClock0, orbDetail } from "@/lib/orb-motion-pure";
+import { orbMotionInit, orbRetarget, orbBeat, orbFrame, orbClock0, orbTier, orbStill } from "@/lib/orb-motion-pure";
 import { idlePhase, phaseReduce, phaseTick, phaseLabel } from "@/lib/core-phase-pure";
 // The scene: idle → listening → thinking → tool → writing (text chunks at uneven gaps) → done (settles to idle at the end).
 const EVENTS = [
@@ -38,9 +39,16 @@ window.orbSetup = (cssPx) => {
   r = createOrbRenderer(c, { preserveDrawingBuffer: true });
   if (!r) return false;
   r.resize(c.width, c.height);
-  detail = orbDetail(cssPx);
+  detail = orbTier(cssPx);
   ps = idlePhase(0); m = orbMotionInit("idle", 0); clock = orbClock0(); ei = 0; last = 0;
   return true;
+};
+window.orbStillAt = (id, cssPx, phase) => { // one reduced-motion still on its own canvas, at the tier for that size
+  const c = document.getElementById(id);
+  const rr = createOrbRenderer(c, { preserveDrawingBuffer: true });
+  if (!rr) return false;
+  rr.resize(c.width, c.height); rr.draw(orbStill(phase), orbTier(cssPx)); rr.gl.finish();
+  return orbTier(cssPx);
 };
 window.orbAt = (now, draw = true) => { // frames must be asked for in order (fixed steps)
   while (ei < EVENTS.length && EVENTS[ei][0] <= now) {
@@ -78,6 +86,19 @@ function stars(w, h, n, seed) { // deterministic faint star field (ORBIT's near-
   return o;
 }
 
+if (mode === "sizes") { // chat orb 40 px and home orb 96 px, idle + thinking, DPR 2, shown 4× with no smoothing
+  const sz = [40, 96], ph = ["idle", "thinking"];
+  const cells = sz.flatMap((o) => ph.map((p) => ({ o, p, c: Math.round(o / 0.6) })));
+  const W2 = cells.reduce((a, x) => a + x.c * 2 + 24, 24), H2 = Math.max(...cells.map((x) => x.c * 2)) + 48;
+  const html2 = `<!doctype html><html><body style="margin:0;background:#03040b;width:${W2}px;height:${H2}px;display:flex;gap:24px;padding:24px;box-sizing:border-box;align-items:flex-start">${cells.map((x, i) => `<canvas id="c${i}" width="${x.c * 2}" height="${x.c * 2}" style="width:${x.c * 2}px;height:${x.c * 2}px"></canvas>`).join("")}<script>${js}</script></body></html>`;
+  const b2 = await chromium.launch({ executablePath: process.env.CHROME || "/usr/bin/google-chrome", args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--enable-webgl"] });
+  const pg = await b2.newPage({ viewport: { width: W2, height: H2 }, deviceScaleFactor: 1 });
+  await pg.setContent(html2);
+  for (let i = 0; i < cells.length; i++) console.log(cells[i].o, "px", cells[i].p, "tier", await pg.evaluate(([id, o, p]) => window.orbStillAt(id, o, p), [`c${i}`, cells[i].o, cells[i].p]));
+  await pg.screenshot({ path: out });
+  await b2.close();
+  process.exit(0);
+}
 const home = mode === "home";
 const W = home ? 1280 : 1080, H = home ? 720 : 1080;
 // home: 96 px orb (lg) → 160 px canvas, centred above the input like .home-presence; square: 648 px orb.

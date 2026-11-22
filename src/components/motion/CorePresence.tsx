@@ -5,7 +5,7 @@
 // The orb itself is a small WebGL2 shader (orb-shader.ts, motion curves in orb-motion-pure.ts); without WebGL2, or if the GPU
 // drops the context, the CSS orb (motion.css) shows instead. Hidden when ORBIT_UI_MOTION=0.
 import { useEffect, useRef, useState } from "react";
-import { orbBeat, orbClock0, orbDetail, orbDpr, orbFrame, orbMotionInit, orbRetarget, orbSettled, orbStill, type OrbMotion } from "@/lib/orb-motion-pure";
+import { orbBeat, orbClock0, orbDpr, orbFrame, orbMotionInit, orbPerfInit, orbPerfSample, orbQuality, orbRetarget, orbSettled, orbStill, orbTier, type OrbMotion, type OrbPerf } from "@/lib/orb-motion-pure";
 import { createOrbRenderer, type OrbRenderer } from "./orb-gl";
 import { CORE_PHASE_EVENT, idlePhase, nextTickIn, phaseLabel, phaseReduce, phaseTick, type CorePhase, type PhaseEvent, type PhaseState } from "@/lib/core-phase-pure";
 import { useT } from "../i18n";
@@ -32,7 +32,8 @@ export function useCorePhase(): PhaseState {
 const reducedMq = () => (typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null);
 
 /** Drive the shader orb on `canvas`: eased pose changes, a beat per text chunk, paused when the tab is hidden or the orb is
- *  off screen, one still frame per pose under reduced motion. Returns false (→ CSS orb) when WebGL2 is missing or lost. */
+ *  off screen, one still frame per pose under reduced motion. Quality follows the orb's size (orbTier) and steps down by
+ *  itself if frames cost too much (GPU timer, else animation-frame gaps; orbPerfSample). Returns false (→ CSS orb) when WebGL2 is missing or lost. */
 function useShaderOrb(canvas: React.RefObject<HTMLCanvasElement | null>, phase: CorePhase): boolean {
   const [ok, setOk] = useState(false);
   const phaseRef = useRef(phase);
@@ -45,19 +46,28 @@ function useShaderOrb(canvas: React.RefObject<HTMLCanvasElement | null>, phase: 
     setOk(true);
     let m: OrbMotion = orbMotionInit(phaseRef.current, performance.now());
     let clock = orbClock0();
-    let raf = 0, last = 0, visible = true, onScreen = true, detail = 1, skip = false;
+    let raf = 0, last = 0, lastCb = 0, visible = true, onScreen = true, sizeTier = 2, tier = 2, skip = false;
+    let perf: OrbPerf = orbPerfInit();
     const mq = reducedMq();
     let reduced = !!mq?.matches;
     const size = () => {
       const css = c.clientWidth || 1;
-      const dpr = orbDpr(devicePixelRatio);
-      r.resize(Math.round(css * dpr), Math.round(css * dpr));
-      detail = orbDetail(css * 0.6); // the sphere is 60% of the canvas
+      sizeTier = orbTier(css * 0.6); // the sphere is 60% of the canvas
+      const q = orbQuality(sizeTier, perf.down);
+      tier = q.tier;
+      const px = Math.max(1, Math.round(css * orbDpr(devicePixelRatio) * q.dprScale));
+      r.resize(px, px);
     };
-    const still = () => { size(); r.draw(orbStill(m.phase), detail); };
+    const still = () => { size(); r.draw(orbStill(m.phase), tier); };
     const frame = (t: number) => {
       raf = 0;
       if (!visible || !onScreen || reduced) return;
+      // cost check: GPU time when the browser can measure it, else the gap between animation frames
+      const gpu = r.gpuMs();
+      const before = perf.down;
+      perf = orbPerfSample(perf, gpu !== undefined ? { gpuMs: gpu } : { frameMs: lastCb ? t - lastCb : undefined }, t);
+      lastCb = t;
+      if (perf.down !== before) size();
       // settled (no move, one-shot or beat in flight): draw every other refresh — the slow swirl looks the same at half rate
       skip = !skip && orbSettled(m, t);
       if (skip) { raf = requestAnimationFrame(frame); return; }
@@ -65,10 +75,10 @@ function useShaderOrb(canvas: React.RefObject<HTMLCanvasElement | null>, phase: 
       last = t;
       const f = orbFrame(m, clock, t, dt);
       clock = f.clock;
-      r.draw(f.u, detail);
+      r.draw(f.u, tier);
       raf = requestAnimationFrame(frame); // rAF = the display's own refresh, never faster
     };
-    const kick = () => { if (reduced) { still(); return; } if (!raf && visible && onScreen) { last = 0; raf = requestAnimationFrame(frame); } };
+    const kick = () => { if (reduced) { still(); return; } if (!raf && visible && onScreen) { last = 0; lastCb = 0; raf = requestAnimationFrame(frame); } };
     const stop = () => { if (raf) cancelAnimationFrame(raf); raf = 0; };
     api.current = {
       setPhase(p) {
