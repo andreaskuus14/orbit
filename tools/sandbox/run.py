@@ -39,6 +39,11 @@ def _limit_windows():
 
     k32.CreateJobObjectW.restype = wintypes.HANDLE
     k32.GetCurrentProcess.restype = wintypes.HANDLE
+    # without argtypes ctypes passes handles as 32-bit ints; the pseudo-handle from GetCurrentProcess (-1) then overflows
+    k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    k32.SetInformationJobObject.restype = wintypes.BOOL
+    k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    k32.AssignProcessToJobObject.restype = wintypes.BOOL
     job = k32.CreateJobObjectW(None, None)
     if not job:
         raise OSError("CreateJobObject failed")
