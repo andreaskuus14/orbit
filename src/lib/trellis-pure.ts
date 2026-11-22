@@ -6,7 +6,7 @@ import { serviceUrl } from "./local-ai-pure.ts";
 export const TRELLIS_URL = "http://127.0.0.1:8189";
 export const TRELLIS_SETUP = "powershell -ExecutionPolicy Bypass -File tools\\trellis\\setup.ps1";
 export const DRAFT_SETUP = `${TRELLIS_SETUP} -Draft`;
-export const trellisNotRunning = (q: Quality = "best") => `${q === "draft" ? "The draft 3D model (Pixal3D)" : "TRELLIS.2"} isn't installed or couldn't start: run ${q === "draft" ? DRAFT_SETUP : TRELLIS_SETUP} once (ORBIT then starts it by itself; log: tools/trellis/service.log). Until then use quality "fast" (TripoSR).`;
+export const trellisNotRunning = (q: Quality = "best") => `${q === "draft" ? "The draft 3D model (Pixal3D)" : q === "match" ? "Textured Pixal3D" : "TRELLIS.2"} isn't installed or couldn't start: run ${q === "draft" ? DRAFT_SETUP : q === "match" ? `${TRELLIS_SETUP} and ${DRAFT_SETUP}` : TRELLIS_SETUP} once (ORBIT then starts it by itself; log: tools/trellis/service.log). Until then use quality "fast" (TripoSR).`;
 /** ORBIT_TRELLIS_URL → origin, or null unless it is plain http on this PC (pictures never leave the PC). */
 export const trellisUrl = (raw: string | undefined) => serviceUrl(raw, TRELLIS_URL);
 
@@ -36,13 +36,21 @@ export const DRAFT_FILES = {
 /** Draft knobs: fewer sampler steps than the template (structure 12, shape 20), a coarser remesh and a lighter mesh than best. */
 export const DRAFT = { structureSteps: 8, shapeSteps: 12, remesh: 256, faces: 10_000 } as const;
 
-export type Quality = "fast" | "draft" | "best";
-/** local_3d's quality: "best" = TRELLIS.2 (textured, minutes); "draft" (also "quick", "blocking") = Pixal3D grey blocking mesh
- * (well under a minute is the aim); anything else = TripoSR (seconds, rough, not capped for Roblox). */
+export type Quality = "fast" | "draft" | "match" | "best";
+/** local_3d's quality: "best" = TRELLIS.2 (textured, minutes); "match" (also "exact", "faithful", "pixal3d") = Pixal3D textured,
+ * the closest match to the picture (minutes); "draft" (also "quick", "blocking") = Pixal3D grey blocking mesh (well under a
+ * minute is the aim); anything else = TripoSR (seconds, rough, not capped for Roblox). */
 export function qualityOf(raw: unknown): Quality {
   const q = String(raw ?? "").trim().toLowerCase();
-  return q === "best" ? "best" : /^(draft|quick|blocking|block|blockout)$/.test(q) ? "draft" : "fast";
+  return q === "best" ? "best" : /^(match|exact|faithful|pixal3?d?|closest)$/.test(q) ? "match" : /^(draft|quick|blocking|block|blockout)$/.test(q) ? "draft" : "fast";
 }
+
+/** TripoSR ("fast") needs a compiled package that doesn't always build on Windows; when Local AI says it's off, a quick 3D request
+ * goes to the Pixal3D draft (also quick, capped for Roblox) instead of failing. Other qualities are what he asked for. */
+export const routeQuality = (q: Quality, fastInstalled: boolean): Quality => (q === "fast" && !fastInstalled ? "draft" : q);
+
+/** Textured Pixal3D: the files of both setups (draft's Pixal3D model + best's texture VAE). */
+export const MATCH_MODEL = { name: "Pixal3D (textured)", license: DRAFT_MODEL.license } as const;
 
 /** Output prefix ComfyUI saves under (output/orbit3d/<job>_00001_.glb). Job ids are ORBIT-made, so plain characters only. */
 export const jobPrefix = (job: string) => `orbit3d/${job.replace(/[^\w-]/g, "").slice(0, 40) || "job"}`;
@@ -141,9 +149,24 @@ export function draftWorkflow({ image, seed, job }: WorkflowIn): Graph {
   };
 }
 
+/** "match": ComfyUI's template 3d_pixal3d_trellis2_image_to_model with its switch on Pixal3D — the best graph with Pixal3D's model
+ * for every stage (texture too, as the template wires it), Pixal3D conditioning (DINOv3-NAF + the MoGe camera angle) instead of
+ * TRELLIS.2's, and the 1.1 crop pad Pixal3D wants. Texture, remesh, Roblox caps and export are the best graph's. */
+export function matchWorkflow(w: WorkflowIn): Graph {
+  const g = workflow(w);
+  g["4"] = { ...g["4"], inputs: { ...g["4"].inputs, pad_factor: 1.1 } };
+  g["5"] = { class_type: "CLIPVisionLoader", inputs: { clip_name: DRAFT_FILES.dino } };
+  g["7"] = { class_type: "LoadMoGeModel", inputs: { model_name: DRAFT_FILES.moge } };
+  g["8"] = { class_type: "MoGeInference", inputs: { moge_model: ["7", 0], image: ["4", 0], resolution_level: 9, fov_x_degrees: 0, batch_size: 1, force_projection: true, apply_mask: true, refine_steps: 3 } };
+  g["9"] = { class_type: "MoGeGeometryToFOV", inputs: { moge_geometry: ["8", 0], axis: "horizontal", unit: "degrees" } };
+  g["6"] = { class_type: "Pixal3DConditioning", inputs: { clip_vision_model: ["5", 0], image: ["4", 0], camera_angle_x: ["9", 0] } };
+  g["10"] = { class_type: "UNETLoader", inputs: { unet_name: DRAFT_FILES.unet, weight_dtype: "default" } };
+  return g;
+}
+
 /** The graph for a quality ("fast" isn't ComfyUI: TripoSR in tools/local-ai). */
-export const graphFor = (q: Quality, w: WorkflowIn) => (q === "draft" ? draftWorkflow(w) : workflow(w));
-const label = (q: Quality) => (q === "draft" ? "Pixal3D (draft)" : "TRELLIS.2");
+export const graphFor = (q: Quality, w: WorkflowIn) => (q === "draft" ? draftWorkflow(w) : q === "match" ? matchWorkflow(w) : workflow(w));
+const label = (q: Quality) => (q === "draft" ? "Pixal3D (draft)" : q === "match" ? MATCH_MODEL.name : "TRELLIS.2");
 
 /** POST /prompt reply → prompt id, or ComfyUI's error (missing node pack = setup not finished). */
 export function parseQueued(j: unknown, q: Quality = "best"): { id: string } | { error: string } {
@@ -152,7 +175,7 @@ export function parseQueued(j: unknown, q: Quality = "best"): { id: string } | {
   const node = Object.values(o.node_errors ?? {}).flatMap((n) => n.errors ?? []).map((e) => [e.message, e.details].filter(Boolean).join(": "))[0];
   const top = typeof o.error === "string" ? o.error : [o.error?.message, o.error?.details].filter((x) => typeof x === "string" && x).join(": ");
   const msg = (node || top || "ComfyUI refused the job").slice(0, 300);
-  return { error: /class_type|does not exist|not found|Trellis2|Pixal3D|MoGe|safetensors/i.test(msg) ? `${label(q)} isn't fully set up (${msg}). Run ${q === "draft" ? DRAFT_SETUP : TRELLIS_SETUP} again.` : msg };
+  return { error: /class_type|does not exist|not found|Trellis2|Pixal3D|MoGe|safetensors/i.test(msg) ? `${label(q)} isn't fully set up (${msg}). Run ${q === "draft" ? DRAFT_SETUP : q === "match" ? `${TRELLIS_SETUP} and ${DRAFT_SETUP}` : TRELLIS_SETUP} again.` : msg };
 }
 
 /** GET /history/<id> → still running, failed or finished (the export node writes the file; it has no image output). */

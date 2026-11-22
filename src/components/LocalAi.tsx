@@ -67,10 +67,12 @@ export function PictureTo3D() {
       <h3 className="brand text-sm" style={{ color: PINK }}>Picture to 3D (free, on your PC)</h3>
       <p className="muted text-xs">One clear picture of one object (a pet, a sword, a chest) on a plain background works best. Makes a .glb model in VAULT.</p>
       <State h={h} id="image3d" onCheck={check} />
+      {h?.running && !toolState(h, "image3d").ok && <p className="muted text-xs">Quick TripoSR isn't installed, so this makes a grey Pixal3D draft (shape only). Ask CORE for quality "best" or "match" for a textured model.</p>}
       <input type="file" accept="image/png,image/jpeg,image/webp" className="text-xs" aria-label="Picture" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
       <input className="field text-xs" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (e.g. golden-dragon-pet)" aria-label="Model name" />
       <div className="flex flex-wrap gap-2">
-        <button className="btn" disabled={!file || !!busy || !toolState(h, "image3d").ok} onClick={() => void run("image3d")}>{busy === "image3d" ? "Making the 3D model (1-3 min on GPU)…" : "🧊 Make 3D model"}</button>
+        {/* TripoSR off (its compiled package didn't build): the server uses the Pixal3D draft instead, so the button stays usable */}
+        <button className="btn" disabled={!file || !!busy || !h?.running} onClick={() => void run("image3d")}>{busy === "image3d" ? "Making the 3D model (1-3 min on GPU)…" : "🧊 Make 3D model"}</button>
         <button className="chip" disabled={!file || !!busy || !toolState(h, "removebg").ok} onClick={() => void run("removebg")}>{busy === "removebg" ? "Cutting out…" : "✂ Cut out background only"}</button>
       </div>
       {err && <p className="text-xs text-red-400" role="alert">{err}</p>}

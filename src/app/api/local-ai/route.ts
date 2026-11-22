@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/activity";
-import { cloneVoice, cutOut, ifcSummary, localHealth, makeCaptions, makeModel, makeVoice, readDocument } from "@/lib/local-ai";
+import { cloneVoice, cutOut, ifcSummary, localHealth, makeCaptions, makeModelAny, makeVoice, readDocument } from "@/lib/local-ai";
 
 // Local AI tools (tools/local-ai/server.py on this PC). Every action is the owner's own click; results are saved in VAULT only.
 //   GET                                            → Health (local-ai-pure parseHealth)
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
       if (action === "image3d" || action === "removebg") {
         const image = f.get("image");
         if (!(image instanceof Blob) || !image.size) return Response.json({ error: "Pick a picture first." }, { status: 400 });
-        saved = await (action === "image3d" ? makeModel : cutOut)(image, name);
+        saved = await (action === "image3d" ? makeModelAny : cutOut)(image, name); // 3D: TripoSR, or the Pixal3D draft when TripoSR is off
         what = action === "image3d" ? "3D model" : "cut-out";
       } else if (action === "clone") {
         const sample = f.get("sample");

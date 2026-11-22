@@ -5,7 +5,7 @@ import { assetName } from "./local-ai-pure";
 import { stopAllOn } from "./stop-all";
 import { abortError, acquireGpu, freeComfyVram, pause } from "./gpu-lock";
 import { comfyUrl } from "./comfy-pure";
-import { DRAFT, DRAFT_MODEL, MODEL, graphFor, isGlb, outputRef, robloxMaterials, parseQueued, parseRun, trellisNotRunning, trellisUrl, type Quality } from "./trellis-pure";
+import { DRAFT, DRAFT_MODEL, MATCH_MODEL, MODEL, graphFor, isGlb, outputRef, robloxMaterials, parseQueued, parseRun, trellisNotRunning, trellisUrl, type Quality } from "./trellis-pure";
 
 const base = () => trellisUrl(process.env.ORBIT_TRELLIS_URL);
 const G = globalThis as unknown as { __orbitTrellis?: Promise<boolean> | null; __orbitTrellisFree?: NodeJS.Timeout };
@@ -44,8 +44,8 @@ const post = (u: string, path: string, body: unknown) => fetch(`${u}${path}`, { 
 
 /** One picture → .glb bytes, capped for Roblox (20k triangles, 1024 px texture). quality "draft" = Pixal3D grey blocking mesh, else TRELLIS.2. */
 export async function trellisModel(picture: Blob, job: string, timeoutMs = 25 * 60_000, o: { onWait?: (text: string) => void; signal?: AbortSignal; quality?: Quality } = {}): Promise<Uint8Array> {
-  const qual: Quality = o.quality === "draft" ? "draft" : "best";
-  const name = qual === "draft" ? "Pixal3D" : "TRELLIS.2";
+  const qual: Quality = o.quality === "draft" || o.quality === "match" ? o.quality : "best";
+  const name = qual === "draft" ? "Pixal3D" : qual === "match" ? MATCH_MODEL.name : "TRELLIS.2";
   const u = base();
   if (!u) throw new Error("ORBIT_TRELLIS_URL must point at this PC (http://127.0.0.1:<port>).");
   if (stopAllOn()) throw new Error("ORBIT is paused (Stop-all is on)");
@@ -95,9 +95,10 @@ export async function runTrellisTool(i: Record<string, unknown>, quality: Qualit
     const { stream } = await readStream(i.image, null); // a VAULT file; traversal/missing names are refused there
     const picture = await new Response(stream).blob();
     const job = `j${Date.now().toString(36)}`;
-    const draft = quality === "draft";
-    const bytes = await trellisModel(picture, job, (draft ? 10 : 25) * 60_000, { quality: draft ? "draft" : "best" });
+    const draft = quality === "draft", match = quality === "match";
+    const bytes = await trellisModel(picture, job, (draft ? 10 : 25) * 60_000, { quality: draft ? "draft" : match ? "match" : "best" });
     const saved = await saveUpload(new File([bytes as BlobPart], assetName(i.name ?? i.image, "glb", draft ? "draft-3d" : "model-3d"), { type: "model/gltf-binary" }), { made: draft ? "Draft 3D model from a picture" : "3D model from a picture" });
+    if (match) return `Saved the 3D model as "${saved}" in VAULT (${MATCH_MODEL.name} on his PC: shaped to follow the picture as closely as possible, textured, max 20,000 triangles and a 1024 px texture so Roblox accepts it; takes several minutes). In Roblox Studio use Import 3D and pick that file (ORBIT can't import into Studio by itself).`;
     if (draft) return `Saved the draft 3D model as "${saved}" in VAULT (${DRAFT_MODEL.name} on his PC: a grey blocking shape with no texture, max ${DRAFT.faces.toLocaleString("en-US")} triangles, for placing and sizing in Roblox; colour it in Studio, or ask for quality "best" for the textured final model). In Roblox Studio use Import 3D and pick that file (ORBIT can't import into Studio by itself).`;
     return `Saved the 3D model as "${saved}" in VAULT (${MODEL.name} on his PC, textured, max 20,000 triangles and a 1024 px texture so Roblox accepts it; takes several minutes). In Roblox Studio use Import 3D and pick that file (ORBIT can't import into Studio by itself).`;
   } catch (e) { return `Error: ${e instanceof Error ? e.message : String(e)}`; }
