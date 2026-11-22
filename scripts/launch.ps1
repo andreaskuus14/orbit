@@ -107,7 +107,8 @@ function Update-Release([bool]$force, [bool]$stopFirst, [scriptblock]$stopServer
     $env:ORBIT_DIST_DIR = ".next-build" # inherited by npm -> next build (read in next.config.ts)
     $env:ORBIT_FAST_PROD_BUILD = "1"    # main commits are already typechecked/linted in CI; cuts live swap build time
     try {
-      $b = Start-Process cmd.exe -ArgumentList "/c", "npm.cmd run build > `"$buildLog`" 2>&1" -WorkingDirectory $root -WindowStyle Hidden -PassThru
+      # Below-normal CPU priority (inherited by node/next build; "cmd /c" because start on a .cmd would open cmd /K and never exit): the running ORBIT stays responsive while it builds.
+      $b = Start-Process cmd.exe -ArgumentList "/c", "start `"`" /belownormal /b /wait cmd /c npm.cmd run build > `"$buildLog`" 2>&1" -WorkingDirectory $root -WindowStyle Hidden -PassThru
       $null = $b.Handle; $b.WaitForExit() # not -Wait: in PowerShell 5.1 that waits for every descendant process too
     } finally {
       Remove-Item Env:ORBIT_DIST_DIR -ErrorAction SilentlyContinue
@@ -336,6 +337,10 @@ if ($Supervise) {
     while (-not $p.WaitForExit(5000)) {
       if (-not (Test-Path $updateFlag)) { continue }
       $forced = "$(Get-Content -LiteralPath $updateFlag -Raw -ErrorAction SilentlyContinue)" -match 'rebuild'
+      # Merges can land every few minutes; a build each time keeps the laptop busy and restarts ORBIT constantly.
+      # So at most one update per 20 min: a request inside that window waits (the flag stays) and then pulls everything at once.
+      if (-not $forced -and $script:lastUpdateAt -and ((Get-Date) - $script:lastUpdateAt).TotalMinutes -lt 20) { continue }
+      $script:lastUpdateAt = Get-Date
       Remove-Item -LiteralPath $updateFlag -Force -ErrorAction SilentlyContinue
       $handled = Get-Date
       Write-Log ("Update requested from ORBIT{0}: pulling main." -f $(if ($forced) { " (forced rebuild)" } else { "" }))
