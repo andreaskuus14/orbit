@@ -15,6 +15,7 @@ import { learnProblem, results48, type LearnState } from "./clips/learn-pure";
 import { localDay } from "./morning-pure";
 import { MAX_CALLS, dupGroups, evidencePairs, parseConsolidation, parseEvidence, parseSleep, parseVec, reportLine, sleepDue, type Mem, type SleepState } from "./sleep-pure";
 import { dropPrivate } from "./private-pure";
+import { logActivity } from "./activity";
 
 // Sleep loop: once a night (03:00–07:00 local, scheduler tick) CORE consolidates near-duplicate memories, curates its
 // playbook from the day's corrections, and leaves a one-line report for the morning card. Background lane, FAST_MODEL,
@@ -56,7 +57,10 @@ export async function maybeSleep(sb: SupabaseClient, userIds: string[], now = ne
     };
     for (const id of userIds) {
       const u = (state.users[id] ??= { counters: {} });
-      const r = { consolidated: await consolidate(sb, id, ask).catch(log(0)), ...(await curate(sb, id, u, ask).catch(log({ retired: 0, merged: 0 }))), shorts: await shorts(now.getTime()).catch(log(undefined)) };
+      const merges = await consolidate(sb, id, ask).catch(log({ made: 0, tm: [] as string[] }));
+      const r = { consolidated: merges.made, ...(await curate(sb, id, u, ask).catch(log({ retired: 0, merged: 0 }))), shorts: await shorts(now.getTime()).catch(log(undefined)) };
+      // Dream mode (dream.ts): the day's connections for the morning card; one call at most, plain lines when the pacer holds it.
+      await import("./dream").then(async (d) => { await d.dream(sb, id, localDay(now), merges.made, (p, s) => ask(p, s, id, "core.sleep.dream"), now.getTime()); await d.addDreamRecords(id, merges.tm); }).catch(log(undefined));
       await import("./lessons").then((m) => m.mineLessons(sb, id, now.getTime())).catch(log(0)); // learning loop: his decisions → proposed lessons (no model call)
       u.report = { day: localDay(now), line: reportLine(r), at: now.toISOString() };
       if (u.report.line) await emit(sb, id, "core.slept", "core", { ...r }).catch(() => {});
@@ -67,8 +71,9 @@ export async function maybeSleep(sb: SupabaseClient, userIds: string[], now = ne
 const log = <T>(fallback: T) => (e: unknown) => { console.error("[orbit] sleep step failed:", e instanceof Error ? e.message : e); return fallback; };
 type Ask = (prompt: string, system: string, userId: string, purpose: string) => Promise<string | null>;
 
-/** (1) Near-duplicate memories → one new "consolidated" note linked to its members. Nothing is edited or deleted. */
-async function consolidate(sb: SupabaseClient, userId: string, ask: Ask): Promise<number> {
+/** (1) Near-duplicate memories → one new "consolidated" note linked to its members. Nothing is edited or deleted. Each new note
+ *  is a time-machine record (Undo removes it and, by cascade, its links) and an Activity line. */
+async function consolidate(sb: SupabaseClient, userId: string, ask: Ask): Promise<{ made: number; tm: string[] }> {
   const [{ data, error }, prev] = await Promise.all([
     sb.from("memories").select("id, kind, title, content, tags, created_at, embedding").eq("user_id", userId).not("kind", "in", "(conversation,journal,episode)").neq("source", "core-sleep") // journals never go to a model
       .order("created_at", { ascending: false }).limit(300), // shortcut: only the newest 300 are compared; page through if older dupes matter
@@ -79,18 +84,23 @@ async function consolidate(sb: SupabaseClient, userId: string, ask: Ask): Promis
   const done = new Set((prev.data ?? []).flatMap((m) => m.tags as string[]));
   const mems: Mem[] = dropPrivate(data).filter((m) => isCurrent(m, { now: Date.now() })).map((m) => ({ id: m.id, title: m.title, content: String(m.content).slice(0, 600), embedding: parseVec(m.embedding) }));
   const groups = dupGroups(mems, done);
-  if (!groups.length) return 0;
+  if (!groups.length) return { made: 0, tm: [] };
   const text = await ask(groups.map((g, i) => `<group ${i}>\n${g.map((m) => `<note>\n${m.title}\n${m.content}\n</note>`).join("\n")}\n</group>`).join("\n") + "\nYour JSON reply:", CONSOLIDATE, userId, "core.sleep.consolidate");
-  if (!text) return 0;
+  if (!text) return { made: 0, tm: [] };
   let made = 0;
+  const tm: string[] = [];
+  const { recordTm } = await import("./time-machine");
   for (const { group, draft } of parseConsolidation(text, groups)) {
     const { memory } = await createMemory(sb, userId, { ...draft, source: "core-sleep" });
     const links = groups[group].map((m) => ({ user_id: userId, from_id: memory.id, to_id: m.id, status: "confirmed", score: 1, reason: "consolidated overnight" }));
     const { error: le } = await sb.from("memory_links").insert(links);
     if (le) console.error("[orbit] consolidation links failed", le);
+    const t = await recordTm({ title: `Sleep loop merged ${groups[group].length} similar memories`, why: "consolidated overnight", changes: [{ t: "memory", id: memory.id, before: null,
+      after: { kind: memory.kind, title: memory.title, content: memory.content ?? null, tags: memory.tags ?? [], source: memory.source ?? "core-sleep" } }] });
+    if (t) { tm.push(t); logActivity({ area: "core", title: `Merged ${groups[group].length} similar memories into "${String(memory.title).slice(0, 100)}"`, undo: { kind: "tm", id: t } }); }
     made++;
   }
-  return made;
+  return { made, tm };
 }
 
 /** (2) Tally the day's corrections/praise per rule, then retire harmful rules and drop near-identical ones. */

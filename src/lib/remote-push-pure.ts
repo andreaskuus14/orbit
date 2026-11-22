@@ -7,7 +7,7 @@ import { ET, type Key, type Lang } from "./i18n-pure.ts";
 
 // ---- What gets sent ---------------------------------------------------------
 
-export type PushKind = "clip" | "spend" | "send" | "scheduled" | "published" | "failed" | "stop" | "night" | "call" | "deal" | "auto" | "contract" | "invoice" | "habit" | "health" | "view" | "login";
+export type PushKind = "clip" | "spend" | "send" | "scheduled" | "published" | "failed" | "stop" | "night" | "call" | "deal" | "auto" | "contract" | "invoice" | "habit" | "health" | "view" | "login" | "radar";
 export type PushMessage = { title: string; body: string; url: string; tag: PushKind; habit?: string }; // habit: id for the SW's one-tap Done
 export const PUSH_GAP_MS = 2 * 60_000;
 
@@ -31,6 +31,7 @@ export function pushLabel(kind: PushKind, n = 1): PushMessage {
     view: ["Your link was opened", "Someone opened a shared BUSINESS link for the first time. See BUSINESS on the PC.", "r-queue"], // pitch-links.ts; never who or which
     habit: ["Habit time", "One of your habits is up. Tap Done when it's done.", "r-habit"], // habit-nudge.ts; never the habit's name
     auto: ["ORBIT acted on its own", "Auto with limits. See Profile → Autonomy.", "r-queue"], // autonomy.ts sends its own label (autoPush)
+    radar: [many ? `${n} windows are open` : "A window is open", "Something fits your projects right now. See it in ORBIT.", "r-queue"], // radar.ts: capped per day, never the topic
     call: ["ORBIT wants to talk", n === 0 ? "Got a minute?" : many ? `${n} things need you.` : "One thing needs you.", "r-call"], // rung by call.ts, its own limits
   };
   const [title, body, anchor] = m[kind];

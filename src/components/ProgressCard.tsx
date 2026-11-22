@@ -2,7 +2,7 @@
 // "Working on it" card: the one way ORBIT shows progress, everywhere (home, Needs you, phone, every planet). Model and builders:
 // lib/progress-pure.ts. One request = one card: plain steps (✓ ● ○), "about X min left", one live line, the result, and at most one
 // button. The button only opens where the exact item and its own Approve live; it never approves by itself (AGENTS.md rule 6).
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { doneShare, leftText, type Progress, type ProgressAction } from "@/lib/progress-pure";
 import { useT } from "./i18n";
 
@@ -16,8 +16,9 @@ export function openProgress(open: string) {
   else window.open(open, "_blank", "noopener");
 }
 
-export function ProgressCard({ p, onAction, onOpen, compact = false }: {
+export function ProgressCard({ p, onAction, onOpen, compact = false, children }: {
   p: Progress;
+  children?: ReactNode;                               // extra lines under the result (e.g. dream mode's connections), plain text and links only
   onAction?: (a: ProgressAction, p: Progress) => void; // default: openProgress(a.open)
   onOpen?: (p: Progress) => void;                     // title click; default: the result's / action's link, if any
   compact?: boolean;                                  // compact: only the step before, the current step and the next one
@@ -50,6 +51,7 @@ export function ProgressCard({ p, onAction, onOpen, compact = false }: {
         </ol>
       )}
       {p.result && <p className={`text-sm${p.phase === "failed" ? " error" : ""}`}>{p.phase === "done" ? "→ " : ""}{p.result.text}</p>}
+      {children}
     </article>
   );
 }

@@ -182,6 +182,7 @@ async function gather(sb: SupabaseClient, userId: string, now: number): Promise<
     }))]);
   const invP = within(import("./money").then((x) => x.digestMoney(sb, now))).catch(() => ""); // money-pure moneyLine: same split as BUSINESS → Money
   const ovP = within(Promise.all([import("./business-overview"), import("./business-overview-pure")]).then(async ([x, p]) => p.overviewLine(await x.getOverview(sb, userId, now)))).catch(() => ""); // the BUSINESS overview strip in one line
+  const dreamP = within(import("./dream").then((x) => x.readDreamReport(userId))).catch(() => undefined); // today's only: the card checks the day
   const nightP = within(import("./night").then((x) => x.getNightReport(sb, userId, now))).catch(() => null); // a failure just drops the section
   const [th, ids, cl, dw, dl, ar] = await cardSources;
   const life = ok(l), rec = ok(r), since = ok(sn) as MorningSince | undefined, work = ok(w), st = ok(s), due = ok(bf);
@@ -200,5 +201,5 @@ async function gather(sb: SupabaseClient, userId: string, now: number): Promise<
   return { ...buildMorning({ studio: ok(s), intel: ok(i), agents: ok(a), life: life && (life.habits || life.next) ? life : undefined, calendar: ok(c), recall: rec?.length ? rec : undefined,
     business: (await ovP) || [due && businessFollowupLine(due.length), await invP].filter(Boolean).join(". ") || undefined, overnight: overnightLine(await readSleepReport(userId).catch(() => undefined), localDay(new Date(now))), work: work ?? { items: [], more: 0, problems: ["Unfinished work could not be loaded."] }, mission }, now, tz), cards,
     deadlines: ok(dl) ?? null, followups: due ? due.map((p) => ({ id: p.id, name: p.name })) : null, // the brief's Today section; null = the source failed, never "nothing due"
-    ...(hero && { hero }), ...(since && { since }), ...((await nightP) && { night: (await nightP)! }) };
+    ...(hero && { hero }), ...(since && { since }), ...((await nightP) && { night: (await nightP)! }), ...((await dreamP)?.day === localDay(new Date(now)) && { dream: (await dreamP)! }) };
 }

@@ -7,6 +7,8 @@ import { MorningCards, MorningHero, trackCard } from "./MorningCards";
 import type { WorkItem } from "@/lib/work-continuation-pure";
 import type { Card } from "@/lib/morning-rank-pure";
 import { WhileYouSlept } from "./NightShift";
+import { DreamCard, RadarCards } from "./DreamRadar";
+import { openProgress } from "./ProgressCard";
 import MissionTargets from "./MissionTargets";
 import { useT } from "./i18n";
 import { greetKey } from "@/lib/i18n-pure";
@@ -59,6 +61,8 @@ export default function MorningCardBody({ data, err, recap, notes, speakMorning,
       {data && (
         <div className="grid gap-3">
           {data.night && <WhileYouSlept report={data.night} onOpenTask={(id) => { close(); onOpenTask(id); }} onOpenGoal={(id) => { close(); onOpenGoal(id); }} nav={nav} />}
+          {data.dream && <DreamCard report={data.dream} onNav={(o) => { close(); openProgress(o); }} />}
+          <RadarCards max={2} onNav={(o) => { close(); openProgress(o); }} />
           {s?.pausedUntil && <p className="warn">{t("morning.ytPaused", { t: s.pausedUntil })}</p>}
           {data.hero && <MorningHero hero={data.hero} onOpen={openCard} />}
           <MorningCards cards={data.cards ?? []} problems={data.work?.problems} onOpen={openCard} />

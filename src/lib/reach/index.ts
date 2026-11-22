@@ -78,6 +78,9 @@ export function reachScan(now = Date.now()): ReachScan {
   return st.scan;
 }
 
+/** The last scan as it is, never starting one (Opportunity radar only reads what REACH already fetched). */
+export const reachCached = (): ReachScan => st.scan;
+
 /** For the Herald watch: the scan after starting one if stale (respects the 3 h limit and single-flight). */
 export async function reachFresh(now = Date.now()): Promise<ReachScan> {
   const s = reachScan(now);

@@ -95,6 +95,11 @@ async function current(c: TmChange, x: Ctx): Promise<Current> {
       if (error) throw new Error(error.message);
       return { t: "memory", state: toMem(data) };
     }
+    case "link": {
+      const { data, error } = await x.sb.from("memory_links").select("from_id, to_id, status, reason").eq("id", c.id).eq("user_id", x.userId).maybeSingle();
+      if (error) throw new Error(error.message);
+      return { t: "link", state: data && (data.status === "suggested" || data.status === "confirmed") ? { from: data.from_id, to: data.to_id, status: data.status, reason: String(data.reason ?? "") } : null };
+    }
     case "setting": return { t: "setting", value: (await import("./autonomy.ts")).autonomyLevels()[c.key.slice("autonomy:".length) as never] ?? null };
     case "branch": {
       const G = await import("./night-repair-git.ts");
@@ -155,6 +160,14 @@ async function putBack(c: TmChange, x: Ctx): Promise<TmChange> {
           : await x.sb.from("memories").insert({ ...row, id: c.id, user_id: x.userId, kind: want.kind, source: want.source });
         if (error) throw new Error(error.message);
       }
+      return { ...c, before: c.after, after: c.before };
+    }
+    case "link": {
+      const want = c.before;
+      const { error } = !want ? await x.sb.from("memory_links").delete().eq("id", c.id).eq("user_id", x.userId)
+        : c.after ? await x.sb.from("memory_links").update({ status: want.status, reason: want.reason }).eq("id", c.id).eq("user_id", x.userId)
+        : await x.sb.from("memory_links").insert({ id: c.id, user_id: x.userId, from_id: want.from, to_id: want.to, status: want.status, reason: want.reason });
+      if (error) throw new Error(error.message);
       return { ...c, before: c.after, after: c.before };
     }
     case "setting": {
