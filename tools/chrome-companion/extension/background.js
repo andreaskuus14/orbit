@@ -3,17 +3,23 @@ chrome.windows.onRemoved.addListener(async (id) => {
   if (id === chatWindowId) await chrome.storage.session.remove("chatWindowId");
 });
 
+let opening = null; // two quick clicks share one open instead of making two popups
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "open-orbit-chat") return;
+  if (opening) { opening.then(() => sendResponse({ ok: true })); return true; }
+  let done;
+  opening = new Promise((r) => { done = r; });
+  const reply = (v) => { sendResponse(v); done(); opening = null; };
   chrome.storage.session.get("chatWindowId", ({ chatWindowId }) => {
     if (chatWindowId !== undefined) {
       chrome.windows.update(chatWindowId, { focused: true }, () => {
-        if (!chrome.runtime.lastError) return sendResponse({ ok: true });
-        void chrome.storage.session.remove("chatWindowId").then(() => openChat(message.screen)).then(() => sendResponse({ ok: true }));
+        if (!chrome.runtime.lastError) return reply({ ok: true });
+        void chrome.storage.session.remove("chatWindowId").then(() => openChat(message.screen)).then(() => reply({ ok: true }));
       });
       return;
     }
-    openChat(message.screen).then(() => sendResponse({ ok: true }));
+    openChat(message.screen).then(() => reply({ ok: true }));
   });
   return true;
 });
@@ -25,8 +31,9 @@ function openChat(screenSize = {}) {
     chrome.windows.create({
       url: "http://localhost:3000/chat",
       type: "popup",
-      left: Math.max(0, Number(screenSize.width) - width - 24 || 0),
-      top: 24,
+      // availLeft/availTop: the screen YouTube is on, also a second monitor
+      left: Math.round((Number(screenSize.left) || 0) + Math.max(0, Number(screenSize.width) - width - 24 || 0)),
+      top: Math.round((Number(screenSize.top) || 0) + 24),
       width,
       height,
       focused: true

@@ -5,7 +5,7 @@ The optional Chrome extension adds a small ORBIT button on YouTube. It reads no 
 ## Install for local development
 
 1. Open `chrome://extensions` in Chrome and turn on **Developer mode**.
-2. Choose **Load unpacked** and select this `extension` folder.
-3. Open YouTube. The ORBIT button appears in the lower right. Click it to open CORE chat.
+2. Choose **Load unpacked** and select the `tools/chrome-companion/extension` folder.
+3. Open YouTube. The ORBIT button appears in the lower left (the lower right is YouTube's miniplayer). Click it to open CORE chat.
 
 This folder is an unpacked, local extension; Chrome's developer-mode warning is expected. To remove it, use **Remove** on the extension card in `chrome://extensions`.
