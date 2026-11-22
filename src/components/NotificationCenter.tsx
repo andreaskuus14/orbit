@@ -17,6 +17,9 @@ let memory: NotifyItem[] = [], storageFailed = false;
 const load = () => { try { if (!storageFailed) memory = parseItems(localStorage.getItem(NOTIFY_KEY)); } catch { storageFailed = true; } return memory; };
 const save = (l: NotifyItem[]) => { memory = l; try { localStorage.setItem(NOTIFY_KEY, JSON.stringify(l)); storageFailed = false; } catch { storageFailed = true; } };
 
+/** The top-bar problem chip names the problem itself (≤ 32 characters, "STUDIO: " prefixes dropped). */
+const shortTitle = (t: string) => { const x = t.replace(/^[A-Z]{3,}:\s*/, ""); return x.length > 32 ? `${x.slice(0, 31).trimEnd()}…` : x; };
+
 export function NotificationCenter({ home = false }: { home?: boolean }) {
   const [items, setItems] = useState<NotifyItem[]>([]);
   const [now, setNow] = useState(0);
@@ -74,7 +77,8 @@ export function NotificationCenter({ home = false }: { home?: boolean }) {
       <AlertWatch />
       {home && problems.length > 0 && !toastUp && <button type="button" className="chip hud-alert !border-red-500 !text-red-300" title={reasonLine(problems[0])}
         onClick={() => fix(problems[0])} aria-label={`Problem: ${problems[0].title}. ${problems[0].fixLabel ?? "Open fix"}`}>
-        🔴<span className="alert-label"> Problem{kinds > 1 ? ` (${kinds})` : ""} · {problems[0].fixLabel ?? "Open fix"}</span>{kinds > 1 && <span className="alert-count">{kinds}</span>}
+        🔴<span className="alert-label"> {/* what broke, not the button's verb ("Problem · Review failure" said nothing, 22 Nov) */}
+          {shortTitle(problems[0].title)}</span>{kinds > 1 && <span className="alert-count">{kinds}</span>}
       </button>}
       {home && pill && <>
         <button type="button" className="chip quiet-pill relative" popoverTarget="quiet-menu" aria-label={t("quiet.aria", { s: label ?? "" })}>
