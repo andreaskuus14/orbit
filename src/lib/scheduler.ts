@@ -20,6 +20,7 @@ import { beat } from "./host-heartbeat";
 import { briefingsSkip, resumeSkip, sweepDue, type IdleMark, type Remembered } from "./scheduler-gate-pure";
 import { resumeDirtyAt } from "./dirty-marks";
 import { endEventsTick, eventsTick } from "./durable";
+import { countedBriefFailures } from "./net-wait-pure";
 
 // Server-side scheduler (briefings + automations): runs inside the ORBIT server process (npm run dev / npm start), so briefings
 // happen without a browser open. It needs SUPABASE_SECRET_KEY to act for the user with no session.
@@ -47,6 +48,12 @@ async function tick(sb: SupabaseClient) {
   if (g.__orbitBusy) return;
   g.__orbitBusy = true;
   try {
+    // No internet (the laptop just woke or rebooted): start nothing that needs it. Due jobs stay due and run on the first tick
+    // with a network, so a wake-up never leaves "fetch failed" runs behind. Local LIFE nudges still run. ORBIT_NET_WAIT=0 = off.
+    if (!(await import("./net-wait").then((m) => m.online(), () => true))) {
+      void import("./habit-nudge").then((m) => m.tickHabits()).catch(() => {});
+      return;
+    }
     let users = gates() && !sweepDue(g.__orbitUsers?.at, Date.now(), USERS_MS) ? g.__orbitUsers!.ids : null;
     if (!users) {
       const { data, error } = await sb.from("profiles").select("id");
@@ -68,6 +75,7 @@ async function tick(sb: SupabaseClient) {
       if (limited) continue;
       await runDueAutomations(sb, id).catch((e) => console.error("[orbit] scheduled automations failed:", e?.message ?? e));
       if (id === users?.[0]?.id) await import("./rules").then((r) => r.tickRules(sb, [id])); // standing rules (Agents → Rules); never throws
+      await import("./net-retry").then((m) => m.retryNetworkFailures(sb, id)).catch((e) => console.error("[orbit] network retry failed:", e instanceof Error ? e.message : e)); // automation runs that failed on "no internet" go back in the queue
       void kickQueue(sb, id); // tasks still queued after a restart (the in-process queue is gone) start again
       void import("./bg-resume").then((m) => m.resumeBackgroundTurns(sb, id)); // background CORE turns a restart cut off (bg-resume-pure.ts)
       if (!gates() || sweepDue(expiryAt.get(id), Date.now(), EXPIRY_MS)) { expiryAt.set(id, Date.now()); void import("./approval-expiry").then((m) => m.expireApprovals(sb, id)); } // agent approvals unanswered for 48 h → rejected, never approved
@@ -86,7 +94,7 @@ async function tick(sb: SupabaseClient) {
         const { data: failed } = await sb.from("job_runs").select("detail, started_at").eq("user_id", id).eq("job", "pulse").eq("status", "failed").gte("started_at", since);
         const last: Partial<Record<BriefingKind, string>> = {};
         for (const b of recent ?? []) last[b.kind as BriefingKind] ??= b.created_at;
-        for (const f of failed ?? []) {
+        for (const f of countedBriefFailures(failed ?? [], Date.now())) { // a "no internet" failure doesn't count while it may retry (net-wait-pure)
           const k = (f.detail ?? "").split(":")[0] as BriefingKind;
           if (!last[k] || last[k]! < f.started_at) last[k] = f.started_at;
         }

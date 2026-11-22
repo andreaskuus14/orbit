@@ -64,6 +64,7 @@ export type ToolsStatus = { ffmpeg: boolean; transcriber: boolean; ytdlp: boolea
 export type DownloadStatus = "queued" | "downloading" | "done" | "failed";
 export type Download = { v?: number; id: string; url: string; status: DownloadStatus; progress: number; step: string; file?: string; error?: string; createdAt: string;
   permission: string; autoClip?: ClipJob["options"]; parts?: string[]; // parts: inbox files yt-dlp is still writing (deleted if it fails)
-  warning?: string }; // e.g. low disk space before the download started (never fails it)
+  warning?: string; // e.g. low disk space before the download started (never fails it)
+  netTries?: number; retryAt?: string }; // failed on "no internet": tried again by itself at retryAt (net-wait-pure backoff)
 /** A job/download state file that couldn't be read, moved aside (never deleted). file: studio-root relative, "/" separators. */
 export type Quarantined = { file: string; reason: string; at: string };

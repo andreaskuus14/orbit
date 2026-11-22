@@ -3,11 +3,15 @@
 // - voyage: the hosted API, kept for existing installs so stored vectors stay comparable until re-embedded (POST /api/memories/reembed).
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { rm, stat } from "node:fs/promises";
+import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   checkModelFiles,
   chunkText,
+  makeStamp,
+  stampCovers,
+  VERIFIED_STAMP,
+  type FileTimes,
   gemmaInput,
   isCorruptModelError,
   journalsComparable,
@@ -40,11 +44,26 @@ async function sha256File(filePath: string): Promise<string> {
   });
 }
 
-/** Inspect cached ONNX files by size first, then streaming SHA-256 when size matches. */
+/** Inspect cached ONNX files by size first, then streaming SHA-256 when size matches. Files already hashed OK and unchanged since
+ *  (VERIFIED_STAMP in the model folder) are not hashed again. */
 export async function inspectModelCache(
   modelDir: string,
   specs: readonly { relPath: string; size: number; sha256: string }[] = LOCAL_EMBED_FILES,
 ): Promise<ModelCheckResult> {
+  const times: Record<string, FileTimes> = {};
+  for (const spec of specs) {
+    const st = await stat(path.join(modelDir, ...spec.relPath.split("/"))).catch(() => null);
+    times[spec.relPath] = st ? { size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs } : null;
+  }
+  const stampFile = path.join(modelDir, VERIFIED_STAMP);
+  if (stampCovers(await readFile(stampFile, "utf8").then(JSON.parse, () => null), times, specs)) return { status: "ok" };
+  const r = await hashModelCache(modelDir, specs);
+  if (r.status === "ok") await writeFile(stampFile, JSON.stringify(makeStamp(times, specs))).catch(() => {}); // best effort: no stamp = hash next time
+  else await rm(stampFile, { force: true }).catch(() => {});
+  return r;
+}
+
+async function hashModelCache(modelDir: string, specs: readonly { relPath: string; size: number; sha256: string }[]): Promise<ModelCheckResult> {
   const actual: Record<string, ModelFileStat> = {};
   for (const spec of specs) {
     const full = path.join(modelDir, ...spec.relPath.split("/"));
@@ -102,12 +121,22 @@ async function loadLocalPipeline(): Promise<FE | null> {
   return null;
 }
 
+const W = globalThis as unknown as { __orbitEmbedReady?: boolean };
 const local = () =>
-  (G.__orbitEmbed ??= loadLocalPipeline().catch((e) => {
+  (G.__orbitEmbed ??= loadLocalPipeline().then((fe) => { W.__orbitEmbedReady = !!fe; return fe; }, (e) => {
     console.error("[orbit] local embedding model failed to load", e);
     G.__orbitEmbed = undefined;
     return null;
   }));
+
+/** True when a query vector can come back in ~200 ms: Voyage, or the local model already loaded. */
+export const embedWarm = () => embeddingProvider() === "voyage" || !!W.__orbitEmbedReady;
+/** Load the local model in the background (server start), so the first CORE search doesn't wait for it. Never throws. */
+export function warmEmbeddings(): void {
+  if (embeddingProvider() !== "local" || process.env.ORBIT_EMBED_WARM === "0") return;
+  const t0 = Date.now();
+  void local().then((fe) => { if (fe) console.log(`[orbit] local embedding model ready (${Date.now() - t0} ms)`); });
+}
 
 async function voyage(text: string, inputType: "document" | "query"): Promise<number[] | null> {
   const res = await fetch(process.env.VOYAGE_API_URL || "https://ai.mongodb.com/v1/embeddings", {

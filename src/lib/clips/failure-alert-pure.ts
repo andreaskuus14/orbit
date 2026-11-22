@@ -1,6 +1,7 @@
 // Which STUDIO failures still deserve an alert, grouped per source. Pure; used by StudioNotifier (alerts) and ClipFactory (Failed view).
 // Dismissals live server-side (studio-fail-ack.json via /api/studio/clips), so every browser and the phone agree.
 import { videoIdFrom } from "../ideas-pure.ts";
+import { isNetworkError } from "../net-wait-pure.ts";
 type Job = { id: string; status: string; source?: string; error?: string; createdAt?: string; updatedAt?: string };
 type Dl = { id: string; status: string; url?: string; file?: string; error?: string; createdAt?: string };
 export type Snapshot = { jobs?: Job[]; downloads?: Dl[] };
@@ -38,8 +39,10 @@ export function failureGroups(data: Snapshot, acked: string[] = [], since = ""):
   return [...groups.values()].sort((a, b) => (a.at < b.at ? 1 : -1));
 }
 
-/** Groups that still alert: open failures from the last 72 h. Older ones stay in STUDIO's Failed list but never alert, in any browser. */
-export const alertingGroups = (data: Snapshot, acked: string[], now: number) => failureGroups(data, acked, new Date(now - OLD_MS).toISOString());
+/** Groups that still alert: open failures from the last 72 h. Older ones stay in STUDIO's Failed list but never alert, in any browser.
+ *  A failure caused by no internet (laptop just woke up) is not a real problem: it stays in the Failed list but never turns the alert red. */
+export const alertingGroups = (data: Snapshot, acked: string[], now: number) =>
+  failureGroups(data, acked, new Date(now - OLD_MS).toISOString()).filter((g) => !isNetworkError(g.error));
 
 /** The snapshot clipProblemNotices should see: one failed record per alerting group (its count is the group count). */
 export const alertSnapshot = <T extends Snapshot>(data: T, groups: FailGroup[]): T => ({ ...data,

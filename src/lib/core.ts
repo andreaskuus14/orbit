@@ -25,6 +25,7 @@ import { TOOLS, getAgent, runTask, BUILTIN_AGENTS } from "./agents";
 import { getPlaybook, playbookPrompt } from "./playbook";
 import { saveCoreMemory, coreSavesToday } from "./reflect";
 import { factsContext } from "./facts";
+import { lateLine, prepBudget, withBudget } from "./prep-budget-pure";
 import { validateMemory, PER_DAY } from "./reflect-pure";
 import { validateNav, navReply, type NavTarget } from "./nav-pure";
 import { asksWhatToDo } from "./insights-pure";
@@ -252,21 +253,25 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   const worldPrivate: string[] = []; // world-model commitment texts: in context from the start, so outbound calls are checked against them
   const evalTools: CoreEvalTool[] = (budget.tools ??= []); // carried across a handoff, so the receipt counts the finished steps too
   // Every lookup runs in parallel while step 0's CLI is already booting: the finished prompt becomes its stdin.
+  // Each lookup has a time budget (prep-budget-pure.ts): a slow one is left out of this turn instead of holding the first words.
+  const budgetMs = prepBudget(process.env.ORBIT_PREP_BUDGET_MS), late: string[] = [];
+  const cap = <T>(k: string, p: PromiseLike<T>, fallback: T) => at(k, withBudget(p, budgetMs, fallback, () => late.push(k)));
   const prep = (async () => {
     const [found, playbook, { data: summaries }, relevantChats, known, live, world, people] = await Promise.all([
-      at("memory", searchMemories(sb, question, 8, userId, { projectName: memoryProject?.name, projectScope: memoryProject?.scope, projectLegacy: memoryProject?.legacy, chatId: sessionKey, exact: true })),
-      at("playbook", getPlaybook(sb, userId)), // cached; null without the table
-      at("summaries", sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).eq("kind", "conversation").eq("source", "core-summary").order("updated_at", { ascending: false }).limit(3)),
-      at("chats", searchMemories(sb, question, 3, userId, { coreSummariesOnly: true }).catch(() => ({ results: [] }))),
-      at("facts", Promise.all([factsContext(sb, userId, question), import("./lessons").then((m) => m.lessonsContext(userId, question), () => ""), import("./mistake-memory").then((m) => m.mistakesContext(userId, question), () => ""), import("./skills").then((m) => m.skillsContext(userId, question), () => ""), import("./episodes").then((m) => m.episodesContext(sb, userId, question), () => ""), import("./memory-graph").then((m) => m.graphContext(), () => ""), import("./when").then((m) => m.rangeContext(sb, userId, question), () => ""), import("./diary").then((m) => m.diaryContext(userId, question), () => "")]).then((xs) => xs.filter(Boolean).join("\n\n"))), // beliefs ("" until migration 0008) + kept lessons (lessons.ts) + matched mistakes (mistake-memory.ts) + two recalled episodes (episodes.ts); never throws
-      at("modules", moduleStatus(sb, userId)), // one live line per module (core-modules.ts); never throws
-      at("world", import("./world").then((m) => m.worldWithPrivate(sb, userId)).then((w) => (worldPrivate.push(...w.private), w.text))), // goals, this week, commitments; "" on failure
-      at("people", import("./people").then((m) => m.peopleContext(sb, userId, question), () => "")), // names + relation + last contact of people he mentions; "" otherwise
+      cap("memory", searchMemories(sb, question, 8, userId, { projectName: memoryProject?.name, projectScope: memoryProject?.scope, projectLegacy: memoryProject?.legacy, chatId: sessionKey, exact: true }), { results: [] as Awaited<ReturnType<typeof searchMemories>>["results"], mode: "slow" }),
+      cap("playbook", getPlaybook(sb, userId), null), // cached; null without the table
+      cap("summaries", Promise.resolve(sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).eq("kind", "conversation").eq("source", "core-summary").order("updated_at", { ascending: false }).limit(3)).then((r) => ({ data: r.data })), { data: null }),
+      cap("chats", searchMemories(sb, question, 3, userId, { coreSummariesOnly: true }).catch(() => ({ results: [] })), { results: [] }),
+      cap("facts", Promise.all([factsContext(sb, userId, question), import("./lessons").then((m) => m.lessonsContext(userId, question), () => ""), import("./mistake-memory").then((m) => m.mistakesContext(userId, question), () => ""), import("./skills").then((m) => m.skillsContext(userId, question), () => ""), import("./episodes").then((m) => m.episodesContext(sb, userId, question), () => ""), import("./memory-graph").then((m) => m.graphContext(), () => ""), import("./when").then((m) => m.rangeContext(sb, userId, question), () => ""), import("./diary").then((m) => m.diaryContext(userId, question), () => "")]).then((xs) => xs.filter(Boolean).join("\n\n")), ""), // beliefs ("" until migration 0008) + kept lessons (lessons.ts) + matched mistakes (mistake-memory.ts) + two recalled episodes (episodes.ts); never throws
+      cap("modules", moduleStatus(sb, userId), ""), // one live line per module (core-modules.ts); never throws
+      cap("world", import("./world").then((m) => m.worldWithPrivate(sb, userId)).then((w) => (worldPrivate.push(...w.private), w.text)), ""), // late: its text is left out; its private lines still join the outbound check when they land // goals, this week, commitments; "" on failure
+      cap("people", import("./people").then((m) => m.peopleContext(sb, userId, question), () => ""), ""), // names + relation + last contact of people he mentions; "" otherwise
     ]);
     playbookRules = playbook?.rules ?? [];
     if (known) ctxIn.push("facts"); if (world) ctxIn.push("world"); if (people) ctxIn.push("people");
+    if (late.length) trace.push({ step: "context", detail: lateLine(late, budgetMs), ms: budgetMs, ok: false });
     let { results, mode } = found;
-    if (!results.length) {
+    if (!results.length && mode !== "slow") { // slow: the database is the slow part, so the "latest memories" read would be too
       // Broad questions ("what did I save?") match nothing specific: show CORE the latest memories instead.
       const { data, error } = await sb.from("memories").select(MEMORY_COLUMNS).eq("user_id", userId).neq("kind", "journal").order("created_at", { ascending: false }).limit(8);
       if (error) throw error;

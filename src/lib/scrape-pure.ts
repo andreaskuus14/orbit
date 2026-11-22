@@ -40,3 +40,21 @@ export function robotsAllows(robots: string, path: string): boolean {
 }
 /** One audit line for a stealth fetch (activity log). */
 export const stealthLog = (url: URL, ok: boolean) => `scrape_page stealth ${ok ? "fetched" : "failed"}: ${url.hostname}${url.pathname.slice(0, 80)}`;
+
+/** Time limits for one helper run. Scrapling's fast fetcher retries 3× with a 20-30 s timeout each by default (60+ s), longer than
+ *  the web ladder's 15-30 s rung: the helper was killed mid-retry and its retry warning ("Proxy 'None' failed (attempt 1)": Scrapling
+ *  labels any connect/timeout error a proxy error, even with no proxy) became the error, which also switched the rung off for 10 min.
+ *  Now: one attempt, with a request timeout that ends ~4 s before the helper's own limit. */
+export function helperLimits(mode: Mode, timeoutMs?: number): { killMs: number; requestS: number; retries: number } {
+  const killMs = timeoutMs ?? (mode === "fast" ? 30_000 : 90_000);
+  return { killMs, requestS: Math.max(3, Math.min(mode === "fast" ? 20 : 60, Math.floor((killMs - 4_000) / 1000))), retries: 1 };
+}
+
+/** The helper ended without a JSON answer: a plain reason, and whether Scrapling itself is unusable (rung off) or it was just this page. */
+export function helperFailure(code: number | null, signal: string | null, stderr: string, killMs: number): { error: string; unavailable: boolean } {
+  const lines = stderr.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).filter((l) => !/^\[[\d\- :]+\]\s+(?:INFO|WARNING):/.test(l)); // Scrapling's own retry/info logs aren't the error
+  const tail = lines.slice(-3).join(" ").slice(-300);
+  if (signal || code === null) return { error: `the page took longer than ${Math.round(killMs / 1000)} s and was stopped`, unavailable: false };
+  if (/No module named|ModuleNotFoundError|ImportError|is not recognized/i.test(tail)) return { error: `Scrapling isn't installed (${tail || `exit ${code}`}). Run once: powershell -File tools\\scrapling\\setup.ps1`, unavailable: true };
+  return { error: `the scraper stopped (exit ${code})${tail ? `: ${tail}` : ""}`, unavailable: false };
+}
