@@ -55,6 +55,7 @@ import { hoverParts, planetLife, toolPlanet, QUIET, WARM, WORK } from "@/lib/liv
 import { AMBER, countBadge, RED, sentenceRest, statusLook, type GalaxyStatus, type WorldStatus } from "@/lib/galaxy-status-pure";
 import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
 import { arrivalSecs, arrivalSpread, easeInStop, offscreenEdge } from "@/lib/alien-behaviour-pure";
+import { DUR, flyEase } from "@/lib/ui-motion-pure";
 
 import type { DiveRequest } from "@/lib/window-pure";
 
@@ -85,6 +86,7 @@ export type GalaxyProps = {
   onIdle?: () => void;       // start-up and background shaders are compiled: a good moment for other idle work
   dilation?: { startAt: number; endAt: number } | null; // time dilation focus block: the galaxy's clock runs slow
   status?: GalaxyStatus;     // living galaxy one-glance status per world (idle / working / needs / broke)
+  followFly?: boolean;       // ui-motion: flying to the planet doing his job: anticipation, ease-in-out, hold (~800 ms, lib/motion-pure flyEase)
 };
 
 type Positions = Record<string, THREE.Vector3>;
@@ -847,7 +849,7 @@ function LabelProjector({ positions, scales, labels, leaders, hover, selected, h
 // Low, oblique view like the reference illustration.
 const HOME = new THREE.Vector3(...HOME_POS); // pulled back to fit the wider outer orbits
 
-function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive, diving }: { selected: PanelId | null; positions: Positions; reduced: boolean; panelOpen: boolean; fast?: boolean; story: RefObject<Story>; arrive: RefObject<Arrive>; diving: boolean }) {
+function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive, diving, followFly }: { selected: PanelId | null; positions: Positions; reduced: boolean; panelOpen: boolean; fast?: boolean; story: RefObject<Story>; arrive: RefObject<Arrive>; diving: boolean; followFly?: boolean }) {
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void; addEventListener: (t: string, f: () => void) => void; removeEventListener: (t: string, f: () => void) => void } | null;
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const size = useThree((s) => s.size);
@@ -856,12 +858,14 @@ function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive, div
   // Critically damped (smoothDamp) toward the goal, in the focused planet's moving frame so its orbit adds no lag.
   // A planet fly-to is instead an inertia-less arrival (`arr`): a fixed-length ease-in that ends in a dead stop.
   const flight = useRef<{ base: THREE.Vector3; prev: THREE.Vector3 | null; vel: THREE.Vector3; velT: THREE.Vector3; d0: number; time: number; arc: number;
-    arr?: { from: THREE.Vector3; fromT: THREE.Vector3; t: number; T: number } } | null>(null);
+    arr?: { from: THREE.Vector3; fromT: THREE.Vector3; t: number; T: number; fly?: boolean } } | null>(null);
   const goal = useMemo(() => new THREE.Vector3(), []);
   const tgt = useMemo(() => new THREE.Vector3(), []);
   const delta = useMemo(() => new THREE.Vector3(), []);
   const fastRef = useRef(fast); // read when a flight starts; flipping it must not restart the flight
   useEffect(() => { fastRef.current = fast; }, [fast]); // declared before the flight effect, so it runs first
+  const flyRef = useRef(followFly);
+  useEffect(() => { flyRef.current = followFly; }, [followFly]);
 
   const focusOf = useCallback(() => (selected && selected !== "profile" && selected !== "core" ? positions[selected] : null), [selected, positions]);
   const goals = useCallback(() => {
@@ -886,7 +890,8 @@ function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive, div
     // smoothTime: the glide visually lands in ~3x this (the old timed flight took <= 1.2 s fast, <= 2.4 s otherwise)
     flight.current = { base: camera.position.clone(), prev: focus ? focus.clone() : null, vel: new THREE.Vector3(), velT: new THREE.Vector3(), d0: Math.max(1e-3, dist),
       time: fastRef.current ? Math.min(0.36, 0.2 + dist / 130) : Math.min(0.75, 0.33 + dist / 66), arc: Math.min(6, dist * 0.22),
-      arr: focus ? { from: camera.position.clone(), fromT: controls.target.clone(), t: 0, T: arrivalSecs(dist, !!fastRef.current) } : undefined };
+      arr: focus ? flyRef.current ? { from: camera.position.clone(), fromT: controls.target.clone(), t: 0, T: DUR.fly / 1000, fly: true }
+        : { from: camera.position.clone(), fromT: controls.target.clone(), t: 0, T: arrivalSecs(dist, !!fastRef.current) } : undefined };
     if (focus) arrive.current.k = 0;
   }, [selected, controls, camera, reduced, goals, goal, tgt, focusOf, arrive]);
 
@@ -914,12 +919,12 @@ function Rig({ selected, positions, reduced, panelOpen, fast, story, arrive, div
       const focus = focusOf(), A = f.arr;
       if (focus && f.prev) { delta.copy(focus).sub(f.prev); A.from.add(delta); A.fromT.add(delta); f.prev.copy(focus); }
       A.t += Number.isFinite(dt) ? Math.max(0, dt) : 0;
-      const e = easeInStop(A.t / A.T, 0.25); // speed only grows; at e = 1 the camera is simply there
+      const e = A.fly ? flyEase(A.t / A.T) : easeInStop(A.t / A.T, 0.25); // speed only grows; at e = 1 the camera is simply there (fly: a small pull back first, then a hold)
       camera.position.lerpVectors(A.from, goal, e);
       camera.position.y += Math.sin(Math.PI * e) * f.arc;
-      controls.target.lerpVectors(A.fromT, tgt, e);
-      arrive.current.k = e;
-      if (e >= 1) flight.current = null;
+      controls.target.lerpVectors(A.fromT, tgt, Math.max(0, e));
+      arrive.current.k = Math.max(0, e);
+      if (A.t >= A.T) flight.current = null;
     } else if (f) {
       goals();
       const focus = focusOf();
@@ -1148,7 +1153,7 @@ export default function Galaxy(props: GalaxyProps) {
         {/* a focused world may be approached until it nearly fills the view: its surface keeps resolving finer detail */}
         <OrbitControls makeDefault enabled={!staged} enablePan={false} minDistance={props.selected && props.selected in sizes ? sizes[props.selected] * 1.35 : 4} maxDistance={80} enableDamping />
         {!props.reduced && <StoryRig story={story} positions={positions} sizes={sizes} selected={props.flight?.id ?? props.selected} intro={intro} onIntroEnd={onIntroEnd} onStop={setStop} />}
-        <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} arrive={arrive} diving={!!props.flight} />
+        <Rig selected={props.selected} positions={positions} reduced={props.reduced} panelOpen={props.panelOpen} fast={props.fast} story={story} arrive={arrive} diving={!!props.flight} followFly={props.followFly} />
         {windows && <WindowDive request={props.flight ?? null} positions={positions} sizes={sizes} scales={scales} onCross={props.onDiveCross} onCancel={props.onDiveCancel} />}
         {!props.paused && <ZoomRig home={HOME.length()} reduced={props.reduced} />} {/* zoom commands are for the world on screen */}
         <CameraFeel motion={motion} reduced={props.reduced} home={!props.flight && props.selected === null} story={story} />
