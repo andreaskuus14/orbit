@@ -6,6 +6,7 @@ import { selectCoreMemoryIds } from "../src/lib/memory-retrieval-pure.ts";
 import { rrfMerge } from "../src/lib/pure.ts";
 import { legacyMemoryIds } from "../evals/legacy-memory-pure.ts";
 import { scoreAgentRuns } from "../src/lib/agent-scorecard-pure.ts";
+import { runOrbitCapabilitySuite } from "../src/lib/eval-suite-pure.ts";
 
 const args = process.argv.slice(2);
 const json = args.includes("--json"), complete = args.includes("--require-complete");
@@ -31,6 +32,7 @@ try {
   const mean = (key: "baseline" | "upgraded", metric: "recallAt3" | "recallAt8" | "reciprocalRank") => retrieval.reduce((n, r) => n + r[key][metric], 0) / retrieval.length;
   const recorded = resultIndex >= 0 ? JSON.parse(readFileSync(args[resultIndex + 1], "utf8")) : [];
   const agent = scoreAgentRuns(AGENT_CASES, recorded);
+  const capability = runOrbitCapabilitySuite();
   const report = {
     retrieval: {
       kind: "synthetic candidate-ranking fixtures, not a live AI benchmark", total: retrieval.length,
@@ -40,18 +42,20 @@ try {
       baselineMRR: mean("baseline", "reciprocalRank"), upgradedMRR: mean("upgraded", "reciprocalRank"),
       fixtureRankingMs: performance.now() - start, cases: retrieval,
     },
+    capability,
     agent,
   };
   if (json) console.log(JSON.stringify(report, null, 2));
   else {
     console.log(`Retrieval fixtures: top-1 ${report.retrieval.baselineTop1}/${retrieval.length} baseline -> ${report.retrieval.upgradedTop1}/${retrieval.length} upgraded`);
     console.log(`Recall@3: ${report.retrieval.baselineRecallAt3.toFixed(3)} -> ${report.retrieval.upgradedRecallAt3.toFixed(3)}; MRR: ${report.retrieval.baselineMRR.toFixed(3)} -> ${report.retrieval.upgradedMRR.toFixed(3)}`);
+    console.log(`Capability suite: ${capability.passed}/${capability.total} passed (${capability.totalMs} ms).`);
     console.log(`Recorded agent runs: ${agent.recorded}/${agent.total}; passed ${agent.passed}; pending ${agent.pending.length}.`);
     console.log(`Recall@8: ${report.retrieval.baselineRecallAt8.toFixed(3)} -> ${report.retrieval.upgradedRecallAt8.toFixed(3)}. Baseline is frozen pre-PR fusion over identical raw channel lists.`);
     console.log("Synthetic ranking scores do not measure live answer quality or actual database/embedding retrieval. Unsolved cases remain in the report. See docs/AI-SCORECARD.md.");
   }
   const regression = retrieval.some((r) => r.upgraded.recallAt8 < r.baseline.recallAt8 || r.upgraded.reciprocalRank < r.baseline.reciprocalRank);
-  if (regression || agent.runs.some((r) => !r.passed) || (complete && agent.pending.length > 0)) process.exitCode = 1;
+  if (regression || capability.failed > 0 || agent.runs.some((r) => !r.passed) || (complete && agent.pending.length > 0)) process.exitCode = 1;
 } catch (e) {
   console.error(e instanceof Error ? e.message : String(e));
   process.exitCode = 1;
