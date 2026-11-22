@@ -510,7 +510,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
           </div>}
           {sel !== null && data?.items[sel] && <div className="card space-y-1">
             <div className="font-medium">{data.items[sel].title}</div>
-            <p className="muted text-xs">{data.items[sel].kind} · {new Date(data.items[sel].created_at).toLocaleDateString([], { dateStyle: "medium" })}{isLearned(data.items[sel].source) ? " · learned by CORE" : ""}{data.items[sel].tags.length ? ` · #${data.items[sel].tags.slice(0, 4).join(" #")}` : ""}</p>
+            <p className="muted text-xs">{data.items[sel].kind} · {new Date(data.items[sel].created_at).toLocaleDateString([], { dateStyle: "medium" })}{isLearned(data.items[sel].source) ? " · learned by CORE" : ""}{data.items[sel].tags?.length ? ` · #${data.items[sel].tags.slice(0, 4).join(" #")}` : ""}</p>
             <button className="btn" onClick={() => open(sel)}>Open memory</button>
             <div className="muted pt-1 text-[10px] uppercase tracking-widest">{t("mapx.links")}</div>
             {!conns.length ? <p className="muted text-xs">{t("mapx.none")}</p> : <ul className="space-y-0.5">{conns.slice(0, 12).map((c) => { const m = data.items[c.i]; return (
