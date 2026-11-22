@@ -3,7 +3,7 @@
   "name": "ORBIT Companion",
   "version": "1.0.0",
   "description": "Keep a one-click ORBIT chat button on YouTube.",
-  "permissions": ["windows", "storage"],
+  "permissions": ["storage"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [{
     "matches": ["https://www.youtube.com/*"],

@@ -3,7 +3,7 @@
 
   const host = document.createElement("div");
   host.id = "orbit-companion-host";
-  host.style.cssText = "all:initial;position:fixed;right:24px;bottom:24px;z-index:2147483647";
+  host.style.cssText = "all:initial;position:fixed;left:24px;bottom:24px;z-index:2147483647";
   const shadow = host.attachShadow({ mode: "closed" });
   const style = document.createElement("style");
   style.textContent = `
@@ -19,10 +19,14 @@
   button.title = "Open ORBIT chat";
   button.setAttribute("aria-label", "Open ORBIT chat");
   button.textContent = "O";
-  button.addEventListener("click", () => chrome.runtime.sendMessage({
-    type: "open-orbit-chat",
-    screen: { width: window.screen.availWidth, height: window.screen.availHeight }
-  }));
+  button.addEventListener("click", () => {
+    const screen = { width: window.screen.availWidth, height: window.screen.availHeight, left: window.screen.availLeft ?? 0, top: window.screen.availTop ?? 0 };
+    try {
+      chrome.runtime.sendMessage({ type: "open-orbit-chat", screen }).catch(() => {});
+    } catch { // the extension was reloaded: this old tab can't reach it any more
+      button.title = "ORBIT Companion was updated: reload this YouTube tab";
+    }
+  });
   shadow.append(style, button);
   document.documentElement.append(host);
 })();
