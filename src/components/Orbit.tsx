@@ -92,7 +92,7 @@ import { CorePresence } from "./motion/CorePresence";
 import { FocusWork, JumpPill, useFocusProgress } from "./motion/FocusWork";
 import { HomeDepth } from "./motion/HomeDepth";
 import { useFollowWork } from "./motion/useFollowWork";
-import { followPlanet } from "@/lib/follow-pure";
+import { followHome, followPlanet } from "@/lib/follow-pure";
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const PerfRun = dynamic(() => import("./PerfRun"), { ssr: false }); // only with ?perfrun=1
@@ -562,7 +562,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   // ui-motion (ORBIT_UI_MOTION, default on): follow the work. A job he asked for flies the camera to its planet and opens the
   // focused "Working on it" view; while he types/reads, or inside a world, only a "Jump to it" pill shows (follow-pure.ts).
   const motion = useUiMotion();
-  const fw = useFollowWork({ enabled: motion, onHome: !shown && !panel && !approach && !dive && !workOpen && !needsOpen,
+  const fw = useFollowWork({ enabled: motion, onHome: followHome({ shown, panel, behind, busy: !!approach || !!dive || !!workOpen || !!needsOpen }),
     canFly: view === "3d" && !reduced && quality !== "low", leave: () => { setWorkOpen(false); setNeedsOpen(false); closeWorld(); } });
   const focusLive = useFocusProgress(fw.job?.id ?? null);
   const offerTask = useCallback((t: { id: string; title?: string | null; agent?: string | null; request?: string | null }, mine: boolean) => {

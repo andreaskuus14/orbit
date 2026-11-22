@@ -31,6 +31,14 @@ export function followMove(c: FollowCtx): FollowMove {
   return c.canFly ? "fly" : "open";
 }
 
+/** "Home" for following: the galaxy is on screen, or only the CORE chat sits over it (no world behind it). A job CORE starts
+ *  from the chat flies there too; the chat closes as the camera leaves, like the demo. A world, another drawer or an open
+ *  focused view still only gets the pill. */
+export function followHome(s: { shown: string | null; panel: string | null; behind: string | null; busy: boolean }): boolean {
+  if (s.shown || s.busy) return false;
+  return !s.panel || (s.panel === "core" && !s.behind);
+}
+
 /** The planet a job belongs to (same rule as the agent ships: the planet its work concerns). */
 export const followPlanet = (t: Pick<ShipTask, "title" | "agent" | "request">): PlanetId => shipTarget(t);
 
