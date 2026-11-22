@@ -16,8 +16,8 @@ import { logActivity } from "./activity";
 
 const file = () => path.join(orbitDataDir(), "radar.json");
 const CHECK_MS = 30 * 60_000;
-const g = globalThis as unknown as { __orbitRadar?: { write: Promise<unknown>; busy?: boolean; last?: { at: number; windows: Window[] } } };
-const R = (g.__orbitRadar ??= { write: Promise.resolve() });
+const g = globalThis as unknown as { __orbitOppRadar?: { write: Promise<unknown>; busy?: boolean; last?: { at: number; windows: Window[] } } };
+const R = (g.__orbitOppRadar ??= { write: Promise.resolve() });
 const load = async (): Promise<RadarState> => parseRadar(await readStore(file()));
 function update<T>(fn: (s: RadarState) => T): Promise<T> {
   const p = R.write.catch(() => {}).then(async () => { const s = await load(), out = fn(s); await writeStore(file(), JSON.stringify(s)); return out; });

@@ -12,6 +12,7 @@ import { logActivity } from "./activity";
 import { candidates, chooseConnections, dreamItems, dreamPrompt, DREAM_CONTEXT_MS, DREAM_FRESH_MS, DREAM_SYSTEM, linkKey, linksToMake, parseDream, parseDreamState,
   type DreamItem, type DreamReport, type DreamSignal, type DreamState } from "./dream-pure";
 import { parseVec } from "./sleep-pure";
+import { isCurrent } from "./memory-types-pure";
 
 const file = () => path.join(orbitDataDir(), "dream.json");
 const load = async (): Promise<DreamState> => parseDreamState(await readStore(file()));
@@ -41,7 +42,7 @@ async function gather(sb: SupabaseClient, userId: string, now: number): Promise<
   ]);
   if (mem.error) throw mem.error;
   const items: Partial<DreamItem>[] = [];
-  for (const m of dropPrivate(mem.data)) items.push({ id: m.id, source: "memory", kind: m.kind, tags: m.tags ?? [], title: m.title, text: String(m.content ?? "").slice(0, 300),
+  for (const m of dropPrivate(mem.data).filter((r) => isCurrent(r, { now }))) items.push({ id: m.id, source: "memory", kind: m.kind, tags: m.tags ?? [], title: m.title, text: String(m.content ?? "").slice(0, 300),
     at: m.created_at, fresh: isFresh(m.created_at), embedding: parseVec(m.embedding), open: `#o=memory&k=memory&id=${enc(m.id)}` });
   for (const c of conv.data ?? []) if (c.title && c.title !== "New conversation") items.push({ id: `chat:${c.id}`, source: "chat", title: c.title, at: c.updated_at, fresh: true, open: "#o=core" });
   for (const p of proj.data ?? []) items.push({ id: `project:${p.id}`, source: "project", title: p.name, text: line(p.description), at: p.updated_at, fresh: isFresh(p.updated_at), open: "#o=operations" });
