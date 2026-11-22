@@ -48,5 +48,5 @@ test("switching brief mode on never cuts the owner's text: the stored limit leav
   assert.ok(on.length <= COMMUNICATION_STORED_MAX);
   assert.equal(communicationText(on), own);
   assert.equal(withBrief(on, false), own);
-  assert.match(readFileSync(new URL("../src/lib/core.ts", import.meta.url), "utf8").match(/async function briefTurn[\s\S]*?\n}\n/)![0], /withBrief\(String\(data\?\.communication \?\? ""\), on\) }\)/, "no slice after withBrief");
+  assert.match(readFileSync(new URL("../src/lib/core.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n").match(/async function briefTurn[\s\S]*?\n}\n/)![0], /withBrief\(String\(data\?\.communication \?\? ""\), on\) }\)/, "no slice after withBrief");
 });

@@ -24,7 +24,8 @@ const base: PolicyCtx = { stopAll: false, attach: false, pins: false, steps: [],
 
 test("HMAC phrase hashes: per-install key (0600), copied phrase found, his own words and other keys not", async () => {
   const st = await stat(path.join(process.env.ORBIT_DATA_DIR!, "taint-hash.key"));
-  assert.equal(st.mode & 0o777, 0o600); assert.equal(KEY.length, 32);
+  if (process.platform !== "win32") assert.equal(st.mode & 0o777, 0o600); // Windows has no POSIX modes
+  assert.equal(KEY.length, 32);
   const h = phraseHashes([JOURNAL], KEY);
   assert.ok(h.every((x) => /^[0-9a-f]{16}$/.test(x)));
   assert.equal(hashLeak("note: argued with my sister about the old flat", h, KEY), "argued with my sister");

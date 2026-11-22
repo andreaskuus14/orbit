@@ -108,7 +108,7 @@ test("outliers become IDEA RADAR ideas: only strong, confident ones; refreshed i
 
 test("the weekly run is registered in the scheduler and skips quietly without a key", () => {
   assert.match(readFileSync(new URL("../src/lib/scheduler.ts", import.meta.url), "utf8"), /maybeWeeklyOutliers/);
-  const src = readFileSync(new URL("../src/lib/outliers.ts", import.meta.url), "utf8");
+  const src = readFileSync(new URL("../src/lib/outliers.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.match(src, /if \(!key\) return;\n\s+const prev/, "key check comes before any state write or API call");
 });
 
