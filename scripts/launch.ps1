@@ -105,10 +105,14 @@ function Update-Release([bool]$force, [bool]$stopFirst, [scriptblock]$stopServer
       try { $null = New-Item -ItemType Directory -Force -Path (Join-Path $distNew "cache"); Move-Item -LiteralPath $cache -Destination (Join-Path $distNew "cache\webpack") } catch { }
     }
     $env:ORBIT_DIST_DIR = ".next-build" # inherited by npm -> next build (read in next.config.ts)
+    $env:ORBIT_FAST_PROD_BUILD = "1"    # main commits are already typechecked/linted in CI; cuts live swap build time
     try {
       $b = Start-Process cmd.exe -ArgumentList "/c", "npm.cmd run build > `"$buildLog`" 2>&1" -WorkingDirectory $root -WindowStyle Hidden -PassThru
       $null = $b.Handle; $b.WaitForExit() # not -Wait: in PowerShell 5.1 that waits for every descendant process too
-    } finally { Remove-Item Env:ORBIT_DIST_DIR -ErrorAction SilentlyContinue }
+    } finally {
+      Remove-Item Env:ORBIT_DIST_DIR -ErrorAction SilentlyContinue
+      Remove-Item Env:ORBIT_FAST_PROD_BUILD -ErrorAction SilentlyContinue
+    }
     if ($b.ExitCode -ne 0 -or -not (Test-Path (Join-Path $distNew "BUILD_ID"))) {
       $null = New-Item -ItemType Directory -Force -Path $distNew # next build may have failed before creating it
       Set-Content -LiteralPath $failMark -Value (Get-Date -Format o)

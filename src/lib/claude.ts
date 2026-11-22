@@ -167,19 +167,20 @@ const sg = globalThis as unknown as { __orbitSpares?: Map<string, Spare> };
 const spares = (sg.__orbitSpares ??= new Map());
 const SPARE_MS = 10 * 60_000;
 const SPARE_FORMAT = ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
-const spareKey = (system: string, model: string) => `${model}\0${system}`;
+const spareKey = (system: string, model: string, effort = "", thinking = 0) => `${model}\0${effort}\0${thinking}\0${system}`;
 function dropSpare(sp: Spare, kill: boolean) {
   if (spares.get(sp.key) === sp) spares.delete(sp.key);
   clearTimeout(sp.timer);
   if (kill && sp.child.exitCode === null) killTree(sp.child);
   if (kill) removeTempDir(sp.dir);
 }
-/** Boot a spare CLI for this system prompt and model unless one is waiting. Never throws. */
-export async function warmClaude(system: string, model = MODEL): Promise<void> {
-  const key = spareKey(system, model), have = spares.get(key);
+/** Boot a spare CLI for this system prompt, model, effort and thinking budget unless one is waiting. Never throws. */
+export async function warmClaude(system: string, model = MODEL, opts?: { effort?: string; thinking?: number }): Promise<void> {
+  const effort = opts?.effort ?? "", thinking = opts?.thinking ?? 0;
+  const key = spareKey(system, model, effort, thinking), have = spares.get(key);
   if (have && have.child.exitCode === null) return;
   try {
-    const { dir, start } = await prepare(system, SPARE_FORMAT, model);
+    const { dir, start } = await prepare(system, SPARE_FORMAT, model, effort, false, undefined, undefined, thinking || undefined);
     if (spares.get(key)?.child.exitCode === null) { removeTempDir(dir); return; } // a parallel warm won
     const child = start();
     const sp: Spare = { key, dir, child, timer: setTimeout(() => dropSpare(sp, true), SPARE_MS), gone: () => dropSpare(sp, true) };
@@ -191,8 +192,8 @@ export async function warmClaude(system: string, model = MODEL): Promise<void> {
 }
 /** Stop every spare (the call ended). */
 export const coolClaude = () => { for (const sp of [...spares.values()]) dropSpare(sp, true); };
-function takeSpare(system: string, model: string): Spare | null {
-  const sp = spares.get(spareKey(system, model));
+function takeSpare(system: string, model: string, opts?: { effort?: string; thinking?: number }): Spare | null {
+  const sp = spares.get(spareKey(system, model, opts?.effort ?? "", opts?.thinking ?? 0));
   if (!sp || sp.child.exitCode !== null) return null;
   sp.child.off("exit", sp.gone); sp.child.off("error", sp.gone);
   dropSpare(sp, false); // its dir now belongs to the call that took it
@@ -247,7 +248,7 @@ async function runClaudeStream(prompt: string | Promise<string>, system: string,
   signal?.throwIfAborted();
   const t0 = Date.now();
   // With images, stdin carries one stream-json user message (image blocks + text); tools stay disabled.
-  const spare = images.length || web || mcp || effort || session || thinking ? null : takeSpare(system, model ?? MODEL);
+  const spare = images.length || web || mcp || session ? null : takeSpare(system, model ?? MODEL, { effort, thinking });
   // Plain -p gives up on stdin after 3 s; a prompt still being built (CORE's prep) goes in as stream-json, which waits.
   const pending = typeof prompt !== "string";
   const json = images.length > 0 || !!spare || pending;
