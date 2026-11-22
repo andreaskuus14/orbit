@@ -1,0 +1,23 @@
+# Temporary: run npm test on real Windows for main vs the portability fix. Delete this branch after.
+name: windows-tests
+on:
+  push:
+    branches: [ci/windows-tests]
+permissions: { contents: read }
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: [a0d704a298ec701163d4f3c875d4dd276dd1e47e, 7f2b28d]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ matrix.ref }}", fetch-depth: 50 }
+      - run: git config --get core.autocrlf; git ls-files --eol src/lib/core.ts
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit -p .
+      - run: npm test 2>&1 | Tee-Object test.log; $fails = Select-String -Path test.log -Pattern '^not ok'; $fails; if ($LASTEXITCODE -ne 0 -or $fails) { exit 1 }
+        shell: pwsh
