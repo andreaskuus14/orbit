@@ -49,3 +49,38 @@ export function selectCoreMemoryIds(primaryIds: string[], projectRows: MemoryMet
   }
   return out;
 }
+
+/**
+ * Suppress near-duplicate memories (same normalized title or >= 0.82 Jaccard stem overlap on title + lead snippet)
+ * while strictly preserving ranking order so CORE gets distinct, high-signal context.
+ */
+export function dedupeMemories<T extends { id: string; title: string; content?: string | null }>(
+  rows: readonly T[],
+  max = 8,
+): T[] {
+  const cap = memoryLimit(max);
+  const kept: T[] = [];
+  const seenIds = new Set<string>();
+  const seenTitles = new Set<string>();
+  const seenSets: Set<string>[] = [];
+
+  for (const r of rows) {
+    if (kept.length >= cap) break;
+    if (seenIds.has(r.id)) continue;
+    const normTitle = r.title.toLowerCase().replace(/\s+/g, " ").trim();
+    if (normTitle.length >= 6 && seenTitles.has(normTitle)) continue;
+    const sig = new Set(stems(`${r.title} ${(r.content ?? "").slice(0, 240)}`).filter((w) => w.length > 2));
+    const isNearDup = sig.size >= 4 && seenSets.some((prev) => {
+      let inter = 0;
+      for (const w of sig) if (prev.has(w)) inter++;
+      const union = sig.size + prev.size - inter;
+      return union > 0 && inter / union >= 0.82;
+    });
+    if (isNearDup) continue;
+    seenIds.add(r.id);
+    if (normTitle.length >= 6) seenTitles.add(normTitle);
+    if (sig.size >= 4) seenSets.push(sig);
+    kept.push(r);
+  }
+  return kept;
+}

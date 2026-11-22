@@ -49,6 +49,8 @@ import { MODULE_PRIVATE, MODULE_NAMES, modulePromptFor, MODULE_WRITES, isModuleT
 import { classifyReflex, clockReply, smallTalkReply, type Reflex } from "./reflex-pure";
 import { citeWeek, knownCites, weekIntent } from "./week-pure";
 import { coreAnswerEval, type CoreEvalTool } from "./core-answer-eval-pure";
+import { verifyTurnOutputs } from "./core-verify-pure";
+import { dedupeMemories } from "./memory-retrieval-pure";
 import { coreReceipt, type Receipt } from "./receipt-pure";
 import type { AnswerEval } from "./answer-eval-pure";
 import { recordCoreTurn } from "./perf-log";
@@ -294,6 +296,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
       mode = "recent";
     }
     results = await import("./memory-types").then((m) => m.currentMemories(sb, userId, results, memoryProject?.scope ?? "", sessionKey, memoryProject?.legacy)).catch(() => results.filter((m) => isCurrent(m, { now: Date.now(), project: memoryProject?.scope, chat: sessionKey, legacy: memoryProject?.legacy }))); // 24–25: expired, out-of-scope (other chat/project) and corrected memories never reach CORE as current; fails closed
+    results = dedupeMemories(results, 8); // Phase 2 (#7): drop near-duplicate memories while preserving ranking order
     trace.push({ step: "search_memory", detail: `${results.length} found (${mode}${mode !== "recent" && memoryProject?.name ? ", project hints considered" : ""})`, ms: Date.now() - t, ok: true });
     onStep?.("search_memory", {}, { out: `${results.length} found`, ms: Date.now() - t, ok: true });
     evalTools.push({ tool: "search_memory", input: {}, output: "", evidence: [] });
@@ -357,7 +360,7 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
   // Deep: plan privately in "thought" (never shown), answer in the same call, then one tool-less self-check below.
   const turnStart = Date.now();
   const deepLeft = () => budget.ms - (TURN_MS - DEEP_TURN_MS) - (Date.now() - turnStart);
-  let splitRetried = false, garbledLeft = 2, formatNote = "";
+  let splitRetried = false, garbledLeft = 2, formatNote = "", silentFixUsed = false;
   const GARBLED_NOTE = "FORMAT FIX: your last reply used XML/<invoke> function-call markup, which ORBIT cannot run. Call a tool only as ONE JSON object: {\"thought\": \"…\", \"tool\": \"ws_write\", \"input\": {…}}, or answer with {\"final\": \"…\"}. For a big site, write it in 2-3 smaller ws_write calls (index.html last).\n\n";
   const deepNote = 'DEEP MODE (a hard request): write "thought" before "final" and in it privately plan first — the steps, the constraints, what could go wrong (it is never shown). Then give a complete, well-structured, correct "final".\n\n';
   const stopped: string[] = []; // reports of agent tasks this answer started that were cancelled by Stop
@@ -573,6 +576,17 @@ async function coreTurn(sb: SupabaseClient, userId: string, history: Turn[], onD
           continue;
         }
         answer = stripMore(answer);
+        // Phase 2 (#5): Silent deterministic verify-before-reply (1 fix pass max on real Luau/HTML/sandbox bugs).
+        if (!silentFixUsed && !last && !r.local && evalTools.length > 0) {
+          const dv = verifyTurnOutputs(evalTools, answer);
+          if (!dv.ok) {
+            silentFixUsed = true;
+            onReset?.();
+            trace.push({ step: "verify_outputs", detail: `${dv.issues.length} issue(s) caught before reply → running 1 silent fix pass`, ms: 0, ok: false });
+            steps.push(dv.fixPrompt);
+            continue;
+          }
+        }
         await review();
         break;
       }
