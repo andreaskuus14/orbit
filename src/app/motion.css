@@ -199,3 +199,15 @@ html[data-motion="on"] .orbit-shell .drawer.glass:not(.drawer-out) { animation-t
 /* Home: CORE's presence sits just above the one input while something happens */
 .home-presence { position: absolute; z-index: 31; left: 50%; bottom: calc(5.4rem + env(safe-area-inset-bottom, 0px)); translate: -50% 0; pointer-events: none; animation: pill-in var(--dur-base) var(--ease-out) both; }
 @media (prefers-reduced-motion: reduce) { .home-presence { animation-name: vt-in; } }
+
+/* Home answer: CORE's reply under the big orb, above the input (no chat drawer for a home Ask) */
+.home-answer { position: absolute; z-index: 32; left: 50%; translate: -50% 0; bottom: calc(5.4rem + 7.2rem + env(safe-area-inset-bottom, 0px));
+  width: min(38rem, calc(100vw - 2rem)); max-height: min(44dvh, 26rem); overflow-y: auto; padding: 0.9rem 1.1rem 0.8rem; border-radius: 18px;
+  animation: pill-in var(--dur-base) var(--ease-out) both; overscroll-behavior: contain; }
+.home-answer-q { font-size: var(--text-sm, 0.85rem); color: rgba(200, 225, 255, 0.6); margin: 0 0 0.45rem; overflow-wrap: anywhere; }
+.home-answer-a { font-size: 0.95rem; line-height: 1.55; }
+.home-answer-status { margin: 0.1rem 0 0.2rem; color: #7dd3fc; font-size: 0.9rem; }
+.home-answer-status[data-phase="error"] { color: #fca5a5; }
+.home-answer-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.6rem; }
+@media (max-width: 640px) { .home-answer { bottom: calc(5.2rem + 6.4rem + env(safe-area-inset-bottom, 0px)); max-height: 38dvh; } }
+@media (prefers-reduced-motion: reduce) { .home-answer { animation-name: vt-in; } }

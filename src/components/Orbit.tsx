@@ -89,6 +89,7 @@ import { sharedJson } from "./use-poll";
 import { Tour, TOUR_EVENT } from "./Tour";
 import { corePhase, useUiMotion } from "./motion/motion";
 import { CorePresence } from "./motion/CorePresence";
+import { HomeAnswer, type HomeAsk } from "./motion/HomeAnswer";
 import { FocusWork, JumpPill, useFocusProgress } from "./motion/FocusWork";
 import { HomeDepth } from "./motion/HomeDepth";
 import { useFollowWork } from "./motion/useFollowWork";
@@ -207,6 +208,10 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   }, []);
   const [focusMemory, setFocusMemory] = useState<string | null>(null);
   const [pending, setPending] = useState<{ text: string; skill?: SkillLaunch; here?: DeepLink | null } | null>(null); // here: the planet he asked from
+  // ui-motion: an Ask typed on the galaxy home is answered there, under the big orb (like the approved demo); follow-ups typed
+  // while the card is open continue the same conversation. "Continue in chat" opens it in CORE.
+  const [homeAsk, setHomeAsk] = useState<HomeAsk | null>(null);
+  const homeConvo = useRef<string | null>(null);
   const [cmd, setCmd] = useState("");
   const [live, setLive] = useState<"connecting" | "live" | "offline">("connecting");
   const pulses = useRef<Record<string, number>>({});
@@ -721,6 +726,12 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     }
     if (runRecipeCommand(text, (msg, ok) => { if (ok) setCmdReply(msg); else setCmdErr(msg); })) { setCmd(""); return; } // "run recipe daily ideas": no CORE call
     if (runFollowCommand(text, (msg, ok) => { if (!ok) setCmdErr(msg); })) { setCmd(""); return; } // "follow Estonia" / "unfollow AI"
+    if (cmdMode === "ask" && motion && activityHome && !fw.job) { // answered on home, under the orb
+      fw.markRequest(); setCmd("");
+      setHomeAsk((prev) => ({ id: Date.now(), text, here: askHere(hereLink(), shown), conversationId: prev ? homeConvo.current : null }));
+      if (!homeAsk) homeConvo.current = null;
+      return;
+    }
     if (cmdMode === "ask") { fw.markRequest(); setCmd(""); setPending({ text, here: askHere(hereLink(), shown) }); openCore(); return; } // CORE is told which planet he is on
     // Task mode: Nova interprets the request, delegates to the right agents and reports back.
     try {
@@ -879,7 +890,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <WhatsNew home={!shown && !approach} />
         <MorningBrief home={!shown && !approach} onOpenTask={openTask} onOpenGoal={openGoal} />
       </>}
-      {activityHome && !workOpen && <div style={{ display: fw.job ? "none" : "contents" }}><HomeDesk refresh={runningTasks.length + shipTasks.length} onOpenNeeds={() => setNeedsOpen(true)} onOpenAll={() => setWorkOpen("work")} onOpenTask={motion ? openFocus : openTask} onNeeds={setDeskNeeds} onProgress={setDeskProgress} /></div>}
+      {activityHome && !workOpen && <div style={{ display: fw.job || homeAsk ? "none" : "contents" /* the home answer takes the stage while it is open */ }}><HomeDesk refresh={runningTasks.length + shipTasks.length} onOpenNeeds={() => setNeedsOpen(true)} onOpenAll={() => setWorkOpen("work")} onOpenTask={motion ? openFocus : openTask} onNeeds={setDeskNeeds} onProgress={setDeskProgress} /></div>}
       {activityHome && needsOpen && <NeedsYou open onClose={() => setNeedsOpen(false)} extra={deskNeeds} onOpenTask={(id) => { setNeedsOpen(false); openTask(id); }} onOpenGoal={(id) => { setNeedsOpen(false); openGoal(id); }} />}
       {boot >= 3 && <Tour ready={activityHome} />}
       {details && boot >= 2 && !shown && !approach && <HalEye />}
@@ -912,7 +923,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </button>
       )}
 
-      {motion && activityHome && !fw.job && <CorePresence size="lg" hideIdle className="home-presence" />}
+      {motion && activityHome && !fw.job && <CorePresence size="lg" hideIdle={!homeAsk} className="home-presence" />}
+      {motion && activityHome && !fw.job && homeAsk && <HomeAnswer ask={homeAsk} onConversation={(id) => { homeConvo.current = id; }}
+        onClose={() => setHomeAsk(null)} onContinue={() => { setHomeAsk(null); openCore(); }} />}
       {motion && fw.job && fw.sheet && <FocusWork p={focusLive.p} planet={fw.job.planet} at={focusLive.at} onBack={fw.back} follow={fw.follow} onFollow={fw.setFollow} leaving={fw.leaving} />}
       {motion && fw.pill && !fw.job && <JumpPill title={fw.pill.title} planet={fw.pill.planet} onJump={fw.jump} onDismiss={fw.dismissPill} />}
       <form onSubmit={runCommand} className="glass cmdbar" data-tour="ask" data-home={activityHome || undefined} hidden={panel === "core" || undefined /* CORE has its own box: one place to type */}>
