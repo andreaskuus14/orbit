@@ -23,9 +23,11 @@ const PRESETS: Record<AmbientMode, Ambient> = {
 };
 
 /** now is caller-supplied epoch milliseconds; these steady presets need only the explicit local hour.
- * No clock/timezone reads here. Priority: alert > focus > night (23:00 inclusive to 06:00 exclusive) > normal. */
+ * No clock/timezone reads here. Priority: alert (Stop all) > focus > night (23:00 inclusive to 06:00 exclusive) > normal. */
 export function ambient(state: AmbientInput, _now: number): Ambient {
-  const mode = state.automationFailing || state.pulseFailed || state.stopAll ? "alert"
+  // Only Stop all paints the screen red. A failed automation or briefing used to, and stayed red for hours until the next
+  // good run (owner, 22 Nov: "I want that gone"); those are shown on their planet, in the System panel and in Needs you.
+  const mode = state.stopAll ? "alert"
     : state.focusRunning ? "focus"
     : state.hour >= 23 || state.hour < 6 ? "night" : "normal";
   return { ...PRESETS[mode] };
