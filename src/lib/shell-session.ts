@@ -70,7 +70,7 @@ async function branchOf(cwd: string): Promise<string> {
   return new Promise((res) => execFile("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd, timeout: 5000, windowsHide: true, env: cleanEnv(process.env) as unknown as NodeJS.ProcessEnv }, (e, out) => res(e ? "" : String(out).trim())));
 }
 
-export type Submit = { userId: string; session?: string; command: string; source: "core" | "owner"; shell?: Shell; cwd?: string; timeoutS: number; outside?: boolean };
+export type Submit = { userId: string; session?: string; command: string; source: "core" | "owner"; shell?: Shell; cwd?: string; timeoutS: number; outside?: boolean; autoLocal?: boolean };
 /** Classify and start (level 1/2) or queue for his click (level 3). Returns the run (still running, waiting or finished). */
 export async function submit(req: Submit): Promise<{ run: Run; session: SessionView } | { error: string }> {
   if (stopAllOn()) return { error: "ORBIT is paused (Stop-all is on): the terminal runs nothing until you resume" };
@@ -95,8 +95,13 @@ export async function submit(req: Submit): Promise<{ run: Run; session: SessionV
     startedAt: null, endedAt: null, createdAt: new Date().toISOString(), output: "", outLen: 0, timeoutS: req.timeoutS };
   s.runs = [...s.runs, run].slice(-MAX_RUNS);
   if (v.level === 3) {
-    logActivity({ area: "core", title: `Terminal: waiting for your OK: ${v.what}`, detail: v.reason });
-    return { run, session: view(s) };
+    const { canAutoApproveTerminal, DEFAULT_PC_PERMS } = await import("./pc-permissions-pure");
+    const autoOk = req.autoLocal && canAutoApproveTerminal(command, v, !!req.outside, { ...DEFAULT_PC_PERMS, terminal: true, terminalAuto: true }, stopAllOn());
+    if (!autoOk) {
+      logActivity({ area: "core", title: `Terminal: waiting for your OK: ${v.what}`, detail: v.reason });
+      return { run, session: view(s) };
+    }
+    logActivity({ area: "core", title: `Terminal (auto-permitted): ${v.what}`, detail: command.slice(0, 200) });
   }
   if (v.level === 2) {
     const snap = await takeSnapshot(v, s, cfg, command).then((id) => ({ id }), (e) => ({ error: e instanceof Error ? e.message : "snapshot failed" }));
