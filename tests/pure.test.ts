@@ -84,6 +84,9 @@ test("parseFeed reads Atom", () => {
 test("normalizeUrl strips tracking and www", () => {
   assert.equal(normalizeUrl("https://www.ex.com/a/?utm_source=x&id=2#top"), "https://ex.com/a/?id=2");
   assert.equal(normalizeUrl("https://ex.com/b/"), "https://ex.com/b");
+  // 22 Nov: the same article stored twice via the feed (RSS tags) and via search
+  assert.equal(normalizeUrl("https://www.bbc.co.uk/news/articles/cw3?at_medium=RSS&at_campaign=rss"), "https://bbc.co.uk/news/articles/cw3");
+  assert.equal(normalizeUrl("https://www.aljazeera.com/news/x?traffic_source=rss"), "https://aljazeera.com/news/x");
 });
 
 test("clusterArticles groups the same event", () => {

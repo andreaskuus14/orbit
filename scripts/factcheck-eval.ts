@@ -8,7 +8,7 @@ import { fork } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { extractArticle } from "../src/lib/pure.ts";
-import { BACKED_AT, pairsFor, verdicts, verdictOf, type Claim, type Nli, type Source, type Verdict } from "../src/lib/factcheck-pure.ts";
+import { BACKED_AT, checkPairs, pairsFor, verdicts, verdictOf, type Claim, type Nli, type Source, type Verdict } from "../src/lib/factcheck-pure.ts";
 
 type Label = Exclude<Verdict, "unchecked">;
 const ARTICLES: { id: string; url: string; anchor: string; claims: [Label, string][] }[] = [
@@ -95,7 +95,7 @@ const pairs = pairsFor(claims, sources, Number(process.env.FC_K) || undefined); 
 
 const w = fork(path.join(process.cwd(), "src/lib/factcheck-worker.mjs"), [], { execArgv: [] });
 const ask = (msg: Record<string, unknown>) => new Promise<(Nli | null)[]>((res, rej) => {
-  const on = (m: { id?: number; result?: (Nli | null)[]; error?: string }) => { if (m.id !== 1 && m.id !== 2) return; w.off("message", on); m.result ? res(m.result) : rej(new Error(m.error)); };
+  const on = (m: { id?: number; result?: (Nli | null)[]; error?: string }) => { if (m.id !== 1 && m.id !== 2 && m.id !== 3) return; w.off("message", on); m.result ? res(m.result) : rej(new Error(m.error)); };
   w.on("message", on); w.send(msg);
 });
 const base = { model: process.env.ORBIT_FACTCHECK_MODEL || "Xenova/DeBERTa-v3-base-mnli-fever-anli", cacheDir: path.join(process.cwd(), ".cache", "transformers") };
@@ -105,9 +105,11 @@ const loadMs = Date.now() - t;
 t = Date.now();
 const scores = await ask({ id: 2, ...base, pairs: pairs.map((p) => [p.premise, p.hypothesis]) });
 const runMs = Date.now() - t;
+const v2 = checkPairs(claims, sources); // the check Pulse uses: whole claim + its separate facts, across all cited sources
+const v2Scores = await ask({ id: 3, ...base, pairs: v2.pairs.map((p) => [p.premise, p.hypothesis]) });
 w.kill();
 
-const v = verdicts(claims, pairs, scores);
+const v = process.argv.includes("--v1") ? verdicts(claims, pairs, scores) : v2.decide(v2Scores);
 const pct = (a: number, b: number) => (b ? `${a}/${b} = ${Math.round((100 * a) / b)}%` : "n/a");
 function report(v: Map<number, Verdict>, print: boolean) {
   const got = claims.map((c) => ({ c, g: v.get(c.key)! }));

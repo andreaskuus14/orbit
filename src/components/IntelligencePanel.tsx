@@ -1,6 +1,8 @@
 "use client";
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import { highlight } from "./Highlight";
+import { dedupe } from "@/lib/dashboard";
+import { packOrder } from "@/lib/source-packs-pure";
 import { FollowingSection } from "./FollowingSection";
 import { WatchesSection } from "./WatchesSection";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
@@ -143,8 +145,8 @@ export function IntelligencePanel() {
       setAdd(""); void load();
     } catch (e2) { setErr(e2 instanceof Error ? e2.message : "Could not add"); }
   }
-  async function addWorldPack() {
-    try { const r = await api<{ added: number }>("/api/feeds", { method: "POST", body: JSON.stringify({ pack: "world" }) }); setErr(r.added ? "" : "World news pack is already added."); void load(); }
+  async function addPack(pack: string, label: string) {
+    try { const r = await api<{ added: number }>("/api/feeds", { method: "POST", body: JSON.stringify({ pack }) }); setErr(r.added ? "" : `${label} is already added.`); void load(); }
     catch (e) { setErr(e instanceof Error ? e.message : "Could not add"); }
   }
   async function toggle(f: Feed) {
@@ -225,7 +227,7 @@ export function IntelligencePanel() {
         </ul>
         <h3 className="h3">Latest articles</h3>
         <ul className="space-y-2 text-sm">
-          {articles.map((a) => (
+          {dedupe(articles).map((a) => ( // the same story via two feeds (22 Nov: four titles listed twice)
             <li key={a.id}>
               <a className="link" href={safeHref(a.url)} target="_blank" rel="noreferrer noopener">{a.title}</a>
               <div className="muted text-xs">{a.source ?? "unknown"} · {when(a.published_at)}{a.topic ? ` · ${a.topic}` : ""}</div>
@@ -241,8 +243,14 @@ export function IntelligencePanel() {
             <input className="field flex-1" value={add} onChange={(e) => setAdd(e.target.value)} placeholder="Topic (e.g. Roblox) or RSS feed URL" aria-label="Topic or feed URL" maxLength={2000} />
             <button className="btn">Follow</button>
           </form>
-          <button className="chip" onClick={addWorldPack}>+ Add World news pack (BBC, Guardian, Al Jazeera, NPR, DW + war, economy, politics)</button>
-          <p className="muted text-xs">Topics use Google News search feeds. Any RSS/Atom URL works too. Your first briefing starts with your profile’s news topics.</p>
+          <button className="chip" onClick={() => addPack("world", "World news pack")}>+ Add World news pack (BBC, Guardian, Al Jazeera, NPR, DW + war, economy, politics)</button>
+          <div className="flex flex-wrap gap-2" aria-label="Expert sources">
+            {packOrder(feeds.map((f) => f.topic ?? "").filter(Boolean)).map((p) => {
+              const has = p.feeds.every((x) => feeds.some((f) => f.url === x.url));
+              return <button key={p.id} className="chip" disabled={has} aria-pressed={has} onClick={() => addPack(p.id, p.label)}>{has ? "✓" : "+"} {p.label}</button>;
+            })}
+          </div>
+          <p className="muted text-xs">Topics use Bing News search (Google News as a fallback). Any RSS/Atom URL works too. Your first briefing starts with your profile’s news topics.</p>
           <a className="chip inline-block" href="/api/feeds?format=opml" download="orbit-subscriptions.opml">{t("intel.exportFeeds")}</a>
           <ul className="space-y-2">
             {feeds.map((f) => (
