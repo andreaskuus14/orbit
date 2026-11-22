@@ -13,6 +13,10 @@ export type OsmKey = (typeof KEYS)[number];
 /** Small businesses that usually need a site and are often without one. */
 export const DEFAULT_TYPES = ["shop=hairdresser", "shop=beauty", "shop=florist", "shop=bakery", "craft=carpenter", "craft=electrician", "craft=plumber", "amenity=cafe", "amenity=restaurant", "amenity=dentist"];
 export const LIMIT_DEFAULT = 10, FETCH_MAX = 150, TYPES_MAX = 12;
+/** Measured 22 Nov from the owner's PC: the Tallinn query took 37.7–46 s at overpass-api.de (queue + run), area or bbox alike,
+ *  while ORBIT gave up at 35 s, so the 22 Nov business loop got "The operation was aborted". The server may run 60 s; we wait
+ *  for that plus queueing. */
+export const QUERY_TIMEOUT_S = 60, FETCH_TIMEOUT_MS = 100_000;
 
 export type Area = { kind: "name"; name: string } | { kind: "bbox"; s: number; w: number; n: number; e: number };
 export type TypeSpec = { key: OsmKey | null; value: string };
@@ -57,7 +61,7 @@ export function buildQuery(area: Area, types: TypeSpec[], fetchMax = FETCH_MAX):
   const scope = area.kind === "name" ? "(area.a)" : `(${area.s},${area.w},${area.n},${area.e})`;
   const head = area.kind === "name" ? `area["name"="${area.name}"]["boundary"="administrative"]->.a;\n` : "";
   const lines = [...byKey].map(([k, vs]) => `  nwr${scope}["${k}"~"^(${[...new Set(vs)].join("|")})$"]["name"][!"website"][!"contact:website"][!"url"];`);
-  return `[out:json][timeout:25];\n${head}(\n${lines.join("\n")}\n);\nout center tags ${cap};`;
+  return `[out:json][timeout:${QUERY_TIMEOUT_S}];\n${head}(\n${lines.join("\n")}\n);\nout center tags ${cap};`;
 }
 
 const phoneOf = (t: Record<string, string>) => oneLine(t.phone ?? t["contact:phone"] ?? t.mobile ?? t["contact:mobile"], 40).split(";")[0].trim();

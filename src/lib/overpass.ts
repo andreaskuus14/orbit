@@ -4,7 +4,7 @@
 import { safeFetch } from "./memory";
 import { polite, Blocked, UA, hintFor } from "./reach/net";
 import { stopAllOn } from "./stop-all";
-import { ATTRIBUTION, OVERPASS_URL, FETCH_MAX, LIMIT_DEFAULT, backoffMs, buildQuery, candidatesText, dedupe, parseArea, parseOverpass, parseTypes, retryable, runBlocked, type RunState } from "./overpass-pure";
+import { ATTRIBUTION, OVERPASS_URL, FETCH_MAX, FETCH_TIMEOUT_MS, LIMIT_DEFAULT, backoffMs, buildQuery, candidatesText, dedupe, parseArea, parseOverpass, parseTypes, retryable, runBlocked, type RunState } from "./overpass-pure";
 
 // shortcut: the run counter lives in memory (a restart resets it), like reach/net.ts.
 const g = globalThis as unknown as { __orbitOverpass?: RunState };
@@ -16,7 +16,7 @@ async function queryOnce(q: string): Promise<unknown> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await polite(url, async () => {
-        const { res } = await safeFetch(url, "application/json", `${UA} overpass-lead-finder`, 3_000_000, 35_000);
+        const { res } = await safeFetch(url, "application/json", `${UA} overpass-lead-finder`, 3_000_000, FETCH_TIMEOUT_MS);
         try { return JSON.parse(await res.text()) as unknown; } catch { throw new Blocked("answered with something other than JSON", 502); }
       });
     } catch (e) {

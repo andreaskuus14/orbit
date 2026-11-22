@@ -24,7 +24,7 @@ test("parseTypes: bare values, key=value, junk dropped, defaults when empty", ()
 
 test("buildQuery: named area, website tags excluded, per-key regex, capped output", () => {
   const q = buildQuery(area, parseTypes(["hairdresser", "shop=florist", "craft=carpenter"]), 40);
-  assert.match(q, /^\[out:json\]\[timeout:25\];\narea\["name"="Tallinn"\]\["boundary"="administrative"\]->\.a;/);
+  assert.match(q, /^\[out:json\]\[timeout:60\];\narea\["name"="Tallinn"\]\["boundary"="administrative"\]->\.a;/);
   assert.match(q, /nwr\(area\.a\)\["shop"~"\^\(hairdresser\|florist\)\$"\]\["name"\]\[!"website"\]\[!"contact:website"\]\[!"url"\];/);
   assert.match(q, /\["craft"~"\^\(hairdresser\|carpenter\)\$"\]/);
   assert.match(q, /\["amenity"~"\^\(hairdresser\)\$"\]/); // a bare value is tried under every key
@@ -113,4 +113,10 @@ test("endpoint and the business loop use it", () => {
   assert.match(BUSINESS_LOOP.prompt, /find_lead_candidates/);
   assert.match(BUSINESS_LOOP.prompt, /not proof/);
   assert.match(BUSINESS_LOOP.prompt.split("\n").find((l) => l.startsWith("2."))!, /fetch_url/); // the proof step is still there, after the candidates
+});
+
+test("timeouts (22 Nov): ORBIT waits longer than the server may run, so a slow but good answer is not aborted", async () => {
+  const { QUERY_TIMEOUT_S, FETCH_TIMEOUT_MS } = await import("../src/lib/overpass-pure.ts");
+  assert.ok(FETCH_TIMEOUT_MS >= QUERY_TIMEOUT_S * 1000 + 30_000, "client timeout covers the server's run plus queueing");
+  assert.ok(FETCH_TIMEOUT_MS > 46_000, "the slowest measured answer (46 s) fits");
 });
