@@ -23,3 +23,31 @@ export function routeFast(purpose: string | undefined, enabled = true): boolean 
 export function routedModel(model: string | undefined, purpose: string | undefined, fast: string, enabled = true): string | undefined {
   return model ?? (routeFast(purpose, enabled) ? fast : undefined);
 }
+
+const RETRYABLE_MODEL_ERR_RE = /\b(429|529|overloaded|rate\s*limit|too\s+many\s+requests|capacity|temporarily\s+unavailable|service\s+unavailable|high\s+demand|try\s+again\s+shortly)\b/i;
+
+/** True when a model error is transient overload/rate-limit where trying a fallback model tier can recover mid-turn. */
+export function isRetryableModelError(message: string): boolean {
+  if (!message) return false;
+  return RETRYABLE_MODEL_ERR_RE.test(message);
+}
+
+/**
+ * Pick the next healthy fallback model tier when the primary model is overloaded or rate-limited.
+ * - smart (e.g. opus) -> default (e.g. sonnet)
+ * - default (e.g. sonnet) -> fast (e.g. haiku), ONLY when purpose is not PROTECTED
+ * Returns null if no safe fallback model exists.
+ */
+export function fallbackModelFor(
+  current: string | undefined,
+  opts: { defaultModel: string; smartModel: string; fastModel: string; purpose?: string },
+): string | null {
+  const cur = (current ?? opts.defaultModel).trim().toLowerCase();
+  const def = opts.defaultModel.trim().toLowerCase();
+  const smart = opts.smartModel.trim().toLowerCase();
+  const fast = opts.fastModel.trim().toLowerCase();
+  if (cur === smart && def && def !== cur) return opts.defaultModel;
+  const isProtected = !!opts.purpose && PROTECTED.test(opts.purpose);
+  if (cur === def && !isProtected && fast && fast !== cur) return opts.fastModel;
+  return null;
+}

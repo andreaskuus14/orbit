@@ -10,7 +10,7 @@ import { isLimitAnswer } from "./usage-meter-pure.ts";
 import { claudeDown, localAllowed } from "./local-model-pure.ts";
 import { LOCAL_MODEL, chatLocal } from "./local-llm.ts";
 import { ledgerIssue } from "./ledger-pure.ts";
-import { routedModel } from "./model-routing-pure.ts";
+import { fallbackModelFor, isRetryableModelError, routedModel } from "./model-routing-pure.ts";
 import { adminClient } from "./supabase/admin.ts";
 import { markEventsDirty } from "./dirty-marks.ts";
 
@@ -206,11 +206,32 @@ export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; image
   /** CORE's offline turn with tools (offline-tools.ts), used instead of the plain local answer when this call falls back locally */
   offline?: () => Promise<ClaudeResult> };
 
+/** Run a Claude CLI call with transparent mid-turn model failover on transient overload/rate-limit errors (before local fallback). */
+async function withModelFailover(
+  model: string | undefined,
+  purpose: string,
+  signal: AbortSignal | undefined,
+  run: (m: string | undefined) => Promise<ClaudeResult>,
+): Promise<ClaudeResult> {
+  try {
+    return await run(model);
+  } catch (e) {
+    if (signal?.aborted) throw e;
+    const msg = e instanceof Error ? e.message : String(e);
+    const next = isRetryableModelError(msg)
+      ? fallbackModelFor(model, { defaultModel: MODEL, smartModel: SMART_MODEL, fastModel: FAST_MODEL, purpose })
+      : null;
+    if (!next) throw e;
+    console.warn(`[orbit] model failover (${purpose}): ${model ?? MODEL} -> ${next} (${msg.slice(0, 120)})`);
+    return run(next);
+  }
+}
+
 /** One headless Claude Code call with all tools disabled (it can only read the prompt and answer), or only the web tools with `web`. Aborting `signal` kills the CLI. */
 export function askClaude(prompt: string | Promise<string>, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web, mcp, onLine, session, thinking, risky, offline }: AskOpts = {}): Promise<ClaudeResult> {
   const p = purpose ?? laneDefault(lane);
   model = routedModel(model, p, FAST_MODEL, ROUTING_ON);
-  return withLocal(lane, prompt, system, p, images.length, !!mcp, signal, timeoutMs, !!risky, () => cliSlot(lane, () => runClaudeStream(prompt, system, () => {}, signal, model, images, effort, timeoutMs, p, web, mcp, onLine, session, thinking), signal), offline);
+  return withLocal(lane, prompt, system, p, images.length, !!mcp, signal, timeoutMs, !!risky, () => cliSlot(lane, () => withModelFailover(model, p, signal, (m) => runClaudeStream(prompt, system, () => {}, signal, m, images, effort, timeoutMs, p, web, mcp, onLine, session, thinking)), signal), offline);
 }
 
 /** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI.
@@ -218,7 +239,7 @@ export function askClaude(prompt: string | Promise<string>, system: string, { la
 export function askClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose?: string, session?: CliSession, risky = false, offline?: () => Promise<ClaudeResult>): Promise<ClaudeResult> {
   const p = purpose ?? laneDefault(lane);
   model = routedModel(model, p, FAST_MODEL, ROUTING_ON);
-  return withLocal(lane, prompt, system, p, images.length, false, signal, timeoutMs, risky, () => cliSlot(lane, () => runClaudeStream(prompt, system, onDelta, signal, model, images, effort, timeoutMs, p, false, undefined, undefined, session), signal), offline);
+  return withLocal(lane, prompt, system, p, images.length, false, signal, timeoutMs, risky, () => cliSlot(lane, () => withModelFailover(model, p, signal, (m) => runClaudeStream(prompt, system, onDelta, signal, m, images, effort, timeoutMs, p, false, undefined, undefined, session)), signal), offline);
 }
 const laneDefault = (lane: Lane) => (lane === "foreground" ? "core" : "background");
 
