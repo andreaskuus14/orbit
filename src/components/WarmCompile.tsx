@@ -104,8 +104,36 @@ async function uploadTextures(gl: THREE.WebGLRenderer, scene: THREE.Object3D, al
   }
 }
 
-type Prog = { name: string; cacheKey: string; fragmentShader: WebGLShader; program?: WebGLProgram; isReady: () => boolean };
+type Prog = { name: string; cacheKey: string; fragmentShader: WebGLShader; program?: WebGLProgram; isReady: () => boolean; getUniforms?: () => unknown; getAttributes?: () => unknown };
 const programsOf = (gl: THREE.WebGLRenderer) => (gl.info.programs ?? []) as unknown as Prog[];
+/** A compiled program still reads its uniform and attribute locations (and its info logs) on first use, one synchronous
+ *  GL call each: 150+ ms in the globe's first frame for ~40 programs. Done here instead, a few ms per task, for every
+ *  program that is ready (one still compiling would block until it is). */
+async function readPrograms(gl: THREE.WebGLRenderer, alive: () => boolean) {
+  let t0 = performance.now();
+  for (const p of programsOf(gl)) {
+    if (!alive()) return;
+    let ready = false;
+    try { ready = !!p.program && p.isReady(); } catch { /* lost context */ }
+    if (!ready) continue;
+    if (performance.now() - t0 > 8) { await tick(); t0 = performance.now(); }
+    try { p.getUniforms?.(); p.getAttributes?.(); } catch { /* lost context: the first frame retries */ }
+  }
+}
+
+/** three measures each geometry's bounding sphere (for culling) the first time it draws: ~50 ms for the globe's spheres in
+ *  its first frame. Measured here, a few ms per task. */
+async function measureGeometry(scene: THREE.Object3D, alive: () => boolean) {
+  const geos = new Set<THREE.BufferGeometry>();
+  scene.traverse((o) => { const g = (o as THREE.Mesh).geometry; if (g?.isBufferGeometry && !g.boundingSphere && o.frustumCulled) geos.add(g); });
+  let t0 = performance.now();
+  for (const g of geos) {
+    if (!alive()) return;
+    if (performance.now() - t0 > 8) { await tick(); t0 = performance.now(); }
+    g.computeBoundingSphere();
+  }
+}
+
 /** How long each program `since` did not have took to compile (KHR_parallel_shader_compile completion), slowest first:
  *  the perf log then names what to cut. Polls without blocking; gives up after a minute. */
 function timePrograms(gl: THREE.WebGLRenderer, since: Set<Prog>, t0: number) {
@@ -238,7 +266,7 @@ export function WarmCompile({ cap = 20_000, defer = false, onDone, onLater, worl
       // synchronously).
       const timed = timePrograms(gl, had, t0);
       Promise.all([p, ...[...(composers.get(gl) ?? [])].map(warmNow)])
-        .then(() => uploadTextures(gl, scene, () => alive)).catch(() => {})
+        .then(() => uploadTextures(gl, scene, () => alive)).then(() => readPrograms(gl, () => alive)).then(() => measureGeometry(scene, () => alive)).catch(() => {})
         .finally(() => {
           if (!alive) return;
           const ms = Math.round(performance.now() - t0), programs = gl.info.programs?.length ?? -1;
