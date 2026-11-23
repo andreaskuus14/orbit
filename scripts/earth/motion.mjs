@@ -27,18 +27,27 @@ const srv = createServer(async (req, res) => {
   } catch { res.statusCode = 404; res.end(); }
 }).listen(0);
 const port = srv.address().port;
-const browser = await chromium.launch({ executablePath: "/usr/bin/google-chrome", args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
-const page = await browser.newPage({ viewport: { width: W, height: H } });
-page.on("console", (m) => { if (m.type() === "error") console.log("page:", m.text()); });
-await page.goto(`http://127.0.0.1:${port}/`);
-await page.evaluate(() => window.earthReady);
+let browser, page;
+// software WebGL leaks over a long run, so the page is reopened every 90 frames (and after a crash); frames on disk are kept
+async function open() {
+  try { await browser?.close(); } catch { /* gone */ }
+  browser = await chromium.launch({ executablePath: "/usr/bin/google-chrome", args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
+  page = await browser.newPage({ viewport: { width: W, height: H } });
+  await page.goto(`http://127.0.0.1:${port}/`);
+  await page.evaluate(() => window.earthReady);
+}
+await open();
 const len = await page.evaluate(() => window.pathLen), n = Math.round((len / 1000) * FPS);
-if (!process.env.STILLS) { rmSync(`${tmp}/frames`, { recursive: true, force: true }); mkdirSync(`${tmp}/frames`); }
+if (process.env.FRESH) { rmSync(`${tmp}/frames`, { recursive: true, force: true }); mkdirSync(`${tmp}/frames`); }
 const stills = { "still-orbit.jpg": 1200, "still-country.jpg": 5600, "still-region.jpg": 8400, "still-tallinn.jpg": len - 200 };
-for (let i = 0; i <= (process.env.STILLS ? -1 : n); i++) {
-  const ms = (i / FPS) * 1000;
-  await page.evaluate((t) => window.renderAt(t), ms);
-  await page.screenshot({ path: `${tmp}/frames/f${String(i).padStart(4, "0")}.jpg`, type: "jpeg", quality: 90 });
+for (let i = 0, since = 0; i <= (process.env.STILLS ? -1 : n); i++) {
+  const ms = (i / FPS) * 1000, file = `${tmp}/frames/f${String(i).padStart(4, "0")}.jpg`;
+  if (existsSync(file)) continue;
+  try {
+    if (since++ >= 90) { await open(); since = 0; }
+    await page.evaluate((t) => { window.renderAt(t - 34); window.renderAt(t); }, ms); // the frame before primes label placement
+    await page.screenshot({ path: file, type: "jpeg", quality: 90 });
+  } catch (e) { console.log("reopening after", String(e).slice(0, 80)); await open(); since = 0; i--; continue; }
   if (i % 60 === 0) console.log(`frame ${i}/${n}`);
 }
 for (const [name, ms] of Object.entries(stills)) { await page.evaluate((t) => { window.renderAt(t); window.renderAt(t); }, ms); await page.screenshot({ path: `${out}/${name}`, type: "jpeg", quality: 92 }); }

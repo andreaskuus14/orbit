@@ -264,7 +264,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: ringFS, uniforms: { uColor: { value: col(ACCENT) }, uT: { value: Math.random() * 3 }, uOp: { value: 1 }, uK: { value: Math.min(1, r.outlets / 8) }, uN: { value: Math.min(24, r.outlets) } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(s, s), m);
       mesh.applyMatrix4(tangentAt(r.lon, r.lat, 0.004));
-      layer.add(mesh); glow.push({ m, lo: 700, hi: 1e9, base: 1 });
+      layer.add(mesh); glow.push({ m, lo: 2500, hi: 1e9, base: 1 }); // country rings give way to the town layer
       if (ri < 5) label(`<b>${esc(r.label)}</b><span>${esc(cut(r.title, 52))}</span><i>${r.outlets} ${r.outlets === 1 ? "outlet" : "outlets"}</i>`, r.lon, r.lat, 0.01, 5000, 1e9, "ring");
     }
     for (const a of d.arcs.slice(0, 8)) {
