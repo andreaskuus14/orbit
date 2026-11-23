@@ -23,6 +23,7 @@ import { FOLLOWS_EVENT } from "./follow-command";
 import { REFRESH_MS } from "@/lib/follows-pure";
 import { useAlienEnv } from "./alien/env";
 import { useManual } from "./planet-manual";
+import NewsWeatherLayer from "./news-weather/NewsWeatherLayer";
 
 // INTELLIGENCE → World Pulse: a holographic Earth where the news happens.
 // Country shapes come from world-atlas; each country in the news gets a cluster of twinkling city-light dots
@@ -896,6 +897,7 @@ function MapLegend({ d }: { d: Data }) {
 
 export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string; search?: string } | null; quality?: QualityMode; paused?: boolean }) {
   const q = worldQuality(quality);
+  const [weatherOn, setWeatherOn] = useState(false); // news weather showing: the 3D globe underneath stops drawing
   const glr = useGlRecovery();
   const later = useMountLater();
   // Simple page: the globe's own search, country list and regions are tools (behind More in the INTELLIGENCE panel); the public demo has no panel, so it keeps them.
@@ -1065,7 +1067,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
 
   return (
     <div className="absolute inset-0 globe-in" aria-label="World news globe">
-      {ready && later && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
+      {ready && later && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused || weatherOn ? "never" : "always"} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         {quality === "auto" && <PerformanceMonitor onDecline={() => setLean(true)} />}
         <WarmCompile world="intelligence" />
         <color attach="background" args={["#01040b"]} />
@@ -1203,6 +1205,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
         </nav>
       )}
 
+      <NewsWeatherLayer reduced={reduced} paused={paused} onActive={setWeatherOn} />{/* ORBIT_UI_MOTION: news weather over the paused globe */}
       <button className="chip world-back absolute bottom-24 right-3 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
     </div>
   );
