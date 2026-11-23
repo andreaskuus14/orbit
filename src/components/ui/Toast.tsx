@@ -19,7 +19,13 @@ export function toast(t: ToastInput) {
   dispatchEvent(new CustomEvent<ToastInput>(TOAST_EVENT, { detail: { ...t, id: t.id ?? `t${++seq}` } }));
 }
 
+// One Toaster shows them all: a planet may mount its own for when the page has none; a second one stays silent.
+let owner: symbol | null = null;
+
 export function Toaster({ dismissLabel }: { dismissLabel: string }) {
+  const [me] = useState(() => Symbol("toaster"));
+  const [active, setActive] = useState(false);
+  useEffect(() => { if (owner) return; owner = me; setActive(true); return () => { if (owner === me) owner = null; }; }, [me]);
   const [list, setList] = useState<T[]>([]);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const close = useCallback((id: string) => {
@@ -31,6 +37,7 @@ export function Toaster({ dismissLabel }: { dismissLabel: string }) {
     timers.current.set(t.id, setTimeout(() => close(t.id), toastMs({ tone: t.tone, action: !!t.action, text: t.text })));
   }, [close]);
   useEffect(() => {
+    if (!active) return;
     const on = (e: Event) => {
       const t = (e as CustomEvent<T>).detail;
       setList((l) => pushToast(l, t)); arm(t);
@@ -39,8 +46,9 @@ export function Toaster({ dismissLabel }: { dismissLabel: string }) {
     addEventListener(TOAST_EVENT, on);
     const ts = timers.current;
     return () => { removeEventListener(TOAST_EVENT, on); ts.forEach(clearTimeout); };
-  }, [arm]);
+  }, [arm, active]);
   const pause = (id: string) => clearTimeout(timers.current.get(id));
+  if (!active) return null;
   return (
     <div className="pu pu-toasts" aria-live="polite">
       {list.map((t) => (

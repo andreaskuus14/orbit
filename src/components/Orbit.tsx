@@ -106,7 +106,7 @@ const ArchWorld = dynamic(() => import("./ArchWorld"), { ssr: false, loading: Wo
 const PlanetWorld = dynamic(() => import("./PlanetWorld"), { ssr: false, loading: WorldLoading });
 const MemoryWorld = dynamic(() => import("./MemoryWorld"), { ssr: false, loading: WorldLoading });
 const LifePanel = dynamic(() => import("./LifePanel"), { ssr: false });
-const VaultPanel = dynamic(() => import("./VaultPanel").then((m) => m.VaultPanel), { ssr: false });
+const VaultPlanet = dynamic(() => import("./VaultPlanet").then((m) => m.VaultPlanet), { ssr: false });
 const LifeReminders = dynamic(() => import("./LifeReminders"), { ssr: false });
 const BusinessPanel = dynamic(() => import("./BusinessPanel"), { ssr: false });
 const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
@@ -759,7 +759,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       : id === "operations" ? <OperationsPanel focusTask={focusTask} onOpen={setFocusTask} openMemory={openMemory} />
       : id === "agents" ? <AgentsPanel onOpenTask={openTask} />
       : id === "life" ? (lifeOpen ? <LifePanel open={lifeOpen} /> : <SimpleOr planet="life" onOpenTask={openTask} onOpenGoal={openGoal}><LifePanel open={lifeOpen} /></SimpleOr>) // a CORE/voice jump to a LIFE tab opens the tools
-      : id === "vault" ? <SimpleOr planet="vault" onOpenTask={openTask} onOpenGoal={openGoal}><VaultPanel /></SimpleOr>
+      : id === "vault" ? <VaultPlanet onClose={closeWorld} />
       : id === "business" ? (focusClient ? <BusinessPanel focusId={focusClient} onFocus={setFocusClient} /> : <SimpleOr planet="business" onOpenTask={openTask} onOpenGoal={openGoal}><BusinessPanel focusId={focusClient} onFocus={setFocusClient} /></SimpleOr>)
               : null);
   const title = drawer === "core" ? "CORE" : drawer === "profile" ? t("hud.profile") : drawer && planetById(drawer) ? t(`planet.${planetById(drawer)!.id}`) : "";
@@ -793,7 +793,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {has("arch") && <Kept on={at("arch")} name="arch" onBack={closeWorld}><ArchWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} paused={!at("arch")} /></Kept>}
       {has("memory") && <Kept on={at("memory")} name="memory" onBack={closeWorld}><MemoryWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} focusId={focusMemory} onChanged={refreshCount} paused={!at("memory")} List={MemoryPanel} /></Kept>}
       {shown && KEEP.includes(shown) && at(shown) ? null : isPlanetWorld(shown) ? (
-        <PlanetWorld key={shown} id={shown} flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld}><PlanetBoundary key={shown} name={shown} onBack={closeWorld}>{panelBody(shown)}</PlanetBoundary></PlanetWorld>
+        <PlanetWorld key={shown} id={shown} bare={shown === "vault"} flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld}><PlanetBoundary key={shown} name={shown} onBack={closeWorld}>{panelBody(shown)}</PlanetBoundary></PlanetWorld>
       ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
         <nav aria-label={t("overview.aria")} inert={covered || undefined} className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <AmbientLoop />

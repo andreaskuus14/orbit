@@ -26,7 +26,7 @@ export function WorkspacePanel() {
   const current = useRef<string | null>(null); // the open workspace: late responses for another one are dropped
 
   const load = useCallback(async () => {
-    try { setList((await call<{ workspaces: Ws[] }>("/api/workspace")).workspaces); setErr(""); } catch (e) { setErr((e as Error).message); }
+    try { setList((await call<{ workspaces?: Ws[] }>("/api/workspace")).workspaces ?? []); setErr(""); } catch (e) { setErr((e as Error).message); }
   }, []);
   useEffect(() => { void load(); }, [load]);
 

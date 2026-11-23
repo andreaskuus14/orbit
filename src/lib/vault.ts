@@ -346,6 +346,35 @@ export async function searchVaultInfo(q: string, limit = 10): Promise<{ results:
   return { results: out, notIndexed };
 }
 
+/** First words of a PDF / Word / text file from the content index, for the file preview (never runs OCR: that stays an explicit read). */
+export async function docText(name: unknown, maxChars = 3000): Promise<{ text: string; cov: Coverage | null }> {
+  const p = await filePath(name);
+  const n = path.basename(p);
+  if (!extractType(n, DOCX)) return { text: "", cov: "unsupported" };
+  const e = (await freshIndex())[n];
+  return { text: (e?.text ?? "").slice(0, maxChars), cov: e ? e.cov ?? "indexed" : null };
+}
+
+/** Warm the content index in the background (the panel's first "search inside" then answers at once). */
+export const warmIndex = () => { void freshIndex().catch(() => {}); };
+
+/** A small WebP of a picture for the file list and the preview, cached in <vault>/.thumbs by name + size + mtime. */
+export async function thumbnail(name: unknown, width: number): Promise<Buffer> {
+  const p = await filePath(name);
+  if (kindOf(path.basename(p)) !== "image") throw new VaultError("No thumbnail for this type", 415);
+  const st = await stat(p);
+  const w = width <= 96 ? 96 : 640;
+  const dir = path.join(vaultDir(), ".thumbs");
+  const key = createHash("sha1").update(`${path.basename(p)}|${st.size}|${st.mtimeMs}|${w}`).digest("hex").slice(0, 24);
+  const file = path.join(dir, `${key}.webp`);
+  const hit = await readFile(file).catch(() => null);
+  if (hit) return hit;
+  const sharp = (await import("sharp")).default;
+  const out = await sharp(p, { limitInputPixels: 80_000_000, failOn: "none" }).rotate().resize({ width: w, height: w, fit: "inside", withoutEnlargement: true }).webp({ quality: 78 }).toBuffer();
+  await mkdir(dir, { recursive: true }).then(() => writeFile(file, out)).catch(() => {}); // a read-only disk still gets the picture
+  return out;
+}
+
 /** Readable text of a vault file for CORE; null when missing or not a text/document type. */
 export async function readVaultText(name: string, maxChars = 8000): Promise<string | null> {
   try {
@@ -433,7 +462,7 @@ export async function cloudMove(sb: SupabaseClient, uid: string, from: string, t
 /** Upload local files missing from the cloud, one at a time; stops after 200 files or before passing ~45 s. */
 export async function syncToCloud(sb: SupabaseClient, uid: string) {
   const started = Date.now();
-  const cloud = await cloudList(sb, uid, true);
+  const cloud = await cloudList(sb, uid, true).catch((e: unknown) => { throw new VaultError(`Cloud unavailable: ${e instanceof Error ? e.message : "no answer"}`, 502); });
   const files = await listVault();
   // Already in the cloud (e.g. an upload that timed out after it landed): mark it, never upload it again.
   await updateMeta((m) => { const rec = nameIndex(m); for (const f of files) { const r = rec.get(f.name); if (r && cloud.has(f.name) && r.sync !== "cloud" && r.sync !== "restored") { r.sync = "cloud"; r.syncError = null; } } }).catch(() => {});

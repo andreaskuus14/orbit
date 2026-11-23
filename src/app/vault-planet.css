@@ -1,0 +1,108 @@
+/* VAULT planet (components/VaultPlanet.tsx, VaultFileSheet.tsx) on top of the planet kit (planet-ui.css). Scoped under .vlt / .vlt-wrap.
+   Only transform and opacity animate; reduced motion and ORBIT_UI_MOTION=0 are handled at the bottom and by the kit. */
+
+.vlt-wrap { position: relative; display: flex; min-height: 0; max-height: 100%; width: 100%; }
+.vlt-wrap > .vlt { flex: 1; }
+.vlt .pu-body { gap: 20px; }
+
+/* Find box: a search field with the ask button */
+.vlt .vlt-find { align-items: center; padding-left: 12px; }
+.vlt .vlt-find-icon { width: 16px; height: 16px; flex: none; color: var(--pu-ink-3); margin-right: 2px; }
+.vlt .vlt-find input[type="search"]::-webkit-search-cancel-button { filter: grayscale(1) brightness(1.6); cursor: pointer; }
+.vlt .vlt-hint { margin: -2px 2px 0; font: var(--pu-meta); color: var(--pu-ink-3); min-height: 18px; }
+
+/* Section header actions: sort + add */
+.vlt .vlt-head-actions { display: inline-flex; align-items: center; gap: 2px; }
+.vlt .vlt-sort { position: relative; display: inline-flex; }
+.vlt .vlt-sort select { appearance: none; -webkit-appearance: none; height: var(--pu-h-sm); padding: 0 24px 0 10px; border: 0; border-radius: var(--pu-r-sm);
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%238590a3' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 9px center;
+  color: var(--pu-ink-2); font: var(--pu-meta); font-weight: 550; cursor: pointer; transition: background-color var(--dur-instant) var(--ease-out); }
+.vlt .vlt-sort select:hover { background-color: var(--pu-hover); color: var(--pu-ink); }
+.vlt .vlt-sort select:focus-visible { box-shadow: var(--pu-focus); outline: none; }
+.vlt .vlt-sort option { background: var(--pu-overlay); color: var(--pu-ink); }
+
+/* Storage map: one hairline-thin bar by type + the same groups as chips */
+.vlt .vlt-map { display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; }
+.vlt .vlt-bar { display: flex; gap: 2px; height: 6px; border-radius: 3px; overflow: hidden; background: var(--pu-line); transform-origin: left; animation: vlt-grow var(--dur-slow, 480ms) var(--ease-out); }
+.vlt .vlt-bar > i { display: block; min-width: 3px; flex-basis: 0; height: 100%; transition: opacity var(--dur-quick) var(--ease-out); }
+.vlt .vlt-bar > i[data-dim] { opacity: 0.25; }
+.vlt [data-g="docs"] { background: #d9b26a; } .vlt [data-g="images"] { background: #8fa3d6; } .vlt [data-g="media"] { background: #6fc0a0; } .vlt [data-g="other"] { background: #6b7489; }
+.vlt .vlt-swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.vlt .vlt-chip-n { color: var(--pu-ink-3); font-variant-numeric: tabular-nums; }
+.vlt .pu-chip[aria-pressed="true"] .vlt-chip-n { color: inherit; opacity: 0.8; }
+@keyframes vlt-grow { from { transform: scaleX(0.6); opacity: 0; } }
+
+/* File rows */
+.vlt .vlt-list .pu-row { min-height: 52px; }
+.vlt .vlt-kind { font: 600 9.5px/1 var(--pu-font); letter-spacing: 0.02em; color: var(--pu-ink-2); }
+.vlt .vlt-kind[data-kind="pdf"] { color: #e7a39a; } .vlt .vlt-kind[data-kind="text"], .vlt .vlt-kind[data-kind="doc"] { color: #d9b26a; }
+.vlt .vlt-kind[data-kind="video"], .vlt .vlt-kind[data-kind="audio"] { color: #6fc0a0; } .vlt .vlt-kind[data-kind="image"] { color: #8fa3d6; }
+.vlt .vlt-thumb { width: 28px; height: 28px; border-radius: var(--pu-r-sm); object-fit: cover; display: block; background: var(--pu-raised); }
+.vlt .vlt-snip { color: var(--pu-ink-2); }
+.vlt mark { background: color-mix(in srgb, var(--pu-accent) 26%, transparent); color: var(--pu-ink); border-radius: 3px; padding: 0 2px; }
+.vlt .vlt-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: var(--pu-r-xs); font: var(--pu-caption); color: var(--pu-ink-3); box-shadow: inset 0 0 0 1px var(--pu-line); white-space: nowrap; }
+.vlt .vlt-tag[data-tone="warn"] { color: var(--pu-warn); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pu-warn) 34%, transparent); }
+.vlt .vlt-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pu-ink-3); }
+.vlt .vlt-dot[data-open] { background: var(--pu-accent); }
+.vlt .vlt-cards { gap: 8px; }
+
+/* Drop overlay */
+.vlt-drop { position: absolute; inset: 0; z-index: 50; display: grid; place-items: center; border-radius: var(--pu-r-xl, 20px); pointer-events: none;
+  background: color-mix(in srgb, #05070c 70%, transparent); box-shadow: inset 0 0 0 2px color-mix(in srgb, #fbbf24 60%, transparent); animation: vlt-fade var(--dur-quick) var(--ease-out); }
+.vlt-drop span { font: 600 16px/24px var(--font-inter), Inter, sans-serif; color: #ecf0f7; }
+@keyframes vlt-fade { from { opacity: 0; } }
+
+/* Sheets */
+.vlt .vlt-note { margin: 0; font: var(--pu-meta); color: var(--pu-ink-2); }
+.vlt .vlt-note[data-tone="warn"] { color: var(--pu-warn); }
+.vlt .vlt-sheet-foot { position: sticky; bottom: -20px; display: flex; align-items: center; gap: 8px; margin: 4px -20px -20px; padding: 12px 20px 16px;
+  background: linear-gradient(to bottom, transparent, var(--pu-glass-float) 30%); }
+.vlt .vlt-grow { flex: 1; }
+.vlt .vlt-pick { cursor: pointer; }
+.vlt .vlt-pick input { width: 16px; height: 16px; accent-color: var(--pu-accent); flex: none; }
+.vlt .vlt-audio { width: 100%; height: 36px; }
+
+/* File sheet */
+.vlt .vlt-file { display: flex; flex-direction: column; gap: 16px; }
+.vlt .vlt-preview { border-radius: var(--pu-r-lg); overflow: hidden; }
+.vlt .vlt-preview[data-kind="image"], .vlt .vlt-preview[data-kind="video"] { background: #000; box-shadow: inset 0 0 0 1px var(--pu-line); }
+.vlt .vlt-preview img, .vlt .vlt-preview video { display: block; width: 100%; max-height: 46vh; object-fit: contain; }
+.vlt .vlt-preview audio { display: block; width: 100%; }
+.vlt .vlt-page { margin: 0; max-height: 40vh; overflow: auto; padding: 16px 18px; border-radius: var(--pu-r-lg); background: #f4f1ea; color: #1d1d1f;
+  font: 12.5px/19px var(--pu-font); white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 2px rgba(0, 0, 0, .4); }
+.vlt .vlt-page:focus-visible { box-shadow: var(--pu-focus); }
+.vlt .vlt-facts { margin: -4px 0 0; font: var(--pu-meta); color: var(--pu-ink-2); }
+.vlt .vlt-link { padding: 0; border: 0; background: none; font: var(--pu-meta); color: var(--pu-accent-ink); text-decoration: none; cursor: pointer; }
+.vlt .vlt-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+.vlt a.vlt-link { align-self: flex-start; margin-top: -8px; }
+.vlt .vlt-block { display: flex; flex-direction: column; gap: 8px; padding-top: 14px; border-top: 1px solid var(--pu-line); }
+.vlt .vlt-block-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.vlt .vlt-h { margin: 0; font: var(--pu-caption); color: var(--pu-ink-2); }
+.vlt .vlt-rename { display: flex; align-items: center; gap: 6px; }
+.vlt .vlt-input { flex: 1; min-width: 0; height: var(--pu-h-md); padding: 0 12px; border: 0; border-radius: var(--pu-r-md); background: var(--pu-raised); color: var(--pu-ink);
+  font: var(--pu-body); box-shadow: inset 0 0 0 1px var(--pu-accent-line); }
+.vlt .vlt-input:focus-visible { box-shadow: inset 0 0 0 1px var(--pu-accent-line), 0 0 0 4px var(--pu-accent-soft); }
+.vlt .vlt-fields { margin: 0; display: flex; flex-direction: column; }
+.vlt .vlt-field { display: grid; grid-template-columns: 96px 1fr auto; gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--pu-line); }
+.vlt .vlt-field:last-child { border-bottom: 0; }
+.vlt .vlt-field dt { font: var(--pu-meta); color: var(--pu-ink-3); }
+.vlt .vlt-field dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; font: var(--pu-body); }
+.vlt .vlt-field-v { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.vlt .vlt-quote { flex-basis: 100%; font: var(--pu-meta); color: var(--pu-ink-3); }
+.vlt .vlt-field-act { display: flex; gap: 10px; white-space: nowrap; font: var(--pu-meta); color: var(--pu-ink-3); }
+
+/* Older panels shown inside a sheet (sites ORBIT built, text compare): their buttons and fields in the kit's look */
+.vlt .vlt-legacy { font: var(--pu-body); color: var(--pu-ink); }
+.vlt .vlt-legacy .h3 { font: var(--pu-caption); color: var(--pu-ink-2); letter-spacing: 0; text-transform: none; }
+.vlt .vlt-legacy .btn, .vlt .vlt-legacy .chip { height: var(--pu-h-sm); padding: 0 10px; border: 0; border-radius: var(--pu-r-sm); background: var(--pu-raised); color: var(--pu-ink);
+  box-shadow: inset 0 0 0 1px var(--pu-line-strong); font: var(--pu-meta); font-weight: 550; letter-spacing: 0; text-transform: none; }
+.vlt .vlt-legacy .card { background: var(--pu-raised); border: 0; border-radius: var(--pu-r-md); box-shadow: inset 0 0 0 1px var(--pu-line); }
+.vlt .vlt-legacy .muted { color: var(--pu-ink-3); }
+
+/* Reduced motion: the bar fades instead of growing; ORBIT_UI_MOTION=0: nothing moves */
+@media (prefers-reduced-motion: reduce) { .vlt .vlt-bar { animation-name: vlt-fade; } }
+html[data-motion="off"] .vlt-drop, html[data-motion="off"] .vlt .vlt-bar { animation: none !important; }
+.vlt .pu-menu { min-width: 232px; }
+.vlt .pu-menu-item { white-space: nowrap; }
+/* Phone (the shell is 45 % of the screen): the box and the files first; hints and suggestions stay out */
+@media (max-width: 640px) { .vlt .vlt-hint:not([data-q]), .vlt .pu-ask > .pu-chips { display: none; } }
