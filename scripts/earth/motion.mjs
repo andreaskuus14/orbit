@@ -33,13 +33,14 @@ async function open() {
   try { await browser?.close(); } catch { /* gone */ }
   browser = await chromium.launch({ executablePath: "/usr/bin/google-chrome", args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
   page = await browser.newPage({ viewport: { width: W, height: H } });
+  page.on("console", (m) => { if (m.type() === "error" && !/404/.test(m.text())) console.log("page:", m.text().slice(0, 400)); });
   await page.goto(`http://127.0.0.1:${port}/`);
   await page.evaluate(() => window.earthReady);
 }
 await open();
 const len = await page.evaluate(() => window.pathLen), n = Math.round((len / 1000) * FPS);
 if (process.env.FRESH) { rmSync(`${tmp}/frames`, { recursive: true, force: true }); mkdirSync(`${tmp}/frames`); }
-const stills = { "still-orbit.jpg": 1200, "still-country.jpg": 5600, "still-region.jpg": 8400, "still-tallinn.jpg": len - 200 };
+const stills = { "still-orbit.jpg": 1200, "still-country.jpg": 4300, "still-dive.jpg": 5600, "still-region.jpg": 8400, "still-tallinn.jpg": len - 200 };
 for (let i = 0, since = 0; i <= (process.env.STILLS ? -1 : n); i++) {
   const ms = (i / FPS) * 1000, file = `${tmp}/frames/f${String(i).padStart(4, "0")}.jpg`;
   if (existsSync(file)) continue;

@@ -59,10 +59,12 @@ float cloudAt(vec3 n, float t){ vec3 p = n*3.0 + vec3(t*.006, 0., t*.004); float
 const globeVS = `${LOG} varying vec3 vN; varying vec3 vW; void main(){ vN = normalize(position); vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz;
   gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
 const globeFS = `${LOGF} uniform sampler2D uDay; uniform sampler2D uNight; uniform sampler2D uElev; uniform float uT; uniform vec3 uSun; uniform vec3 uCam; varying vec3 vN; varying vec3 vW; ${GEO} ${NOISE} ${CLOUD}
+float elevRaw(vec2 uv){ vec3 e = texture2D(uElev, uv).rgb * 255.; return e.r*256. + e.g + e.b/256. - 32768.; }
 float elev(vec2 uv){ vec3 e = texture2D(uElev, uv).rgb * 255.; return max(0., e.r*256. + e.g + e.b/256. - 32768.); }
 void main(){ \n#include <logdepthbuf_fragment>\n
   vec2 ll = lonlat(vN); vec2 uv = vec2(ll.x/6.2831853 + .5, 1. - mercV(ll.y));
   vec3 day = texture2D(uDay, uv).rgb; vec3 night = texture2D(uNight, uv).rgb;
+  float sea = 1. - smoothstep(-40., 0., elevRaw(uv)); day = mix(day, vec3(.012,.035,.075), sea * .85);
   float polar = smoothstep(1.45, 1.52, abs(ll.y)); day = mix(day, vec3(.86,.9,.95), polar);
   vec2 px = vec2(1./2048., 1./2048.);
   float hx = elev(uv + vec2(px.x,0.)) - elev(uv - vec2(px.x,0.)), hy = elev(uv + vec2(0.,px.y)) - elev(uv - vec2(0.,px.y));
@@ -94,19 +96,23 @@ void main(){ \n#include <logdepthbuf_fragment>\n vec3 V = normalize(uCam - vW); 
   vec3 sky = mix(vec3(1.,.55,.3), vec3(.35,.62,1.), smoothstep(-.05,.3,sd));
   gl_FragColor = vec4(sky * i * (.05 + 1.2*lit) * k, i * (.05 + lit)); }`;
 
-const terrVS = `${LOG} attribute vec2 uvM; attribute vec2 uvN; varying vec2 vUv; varying vec2 vUvN; varying vec3 vN; varying vec3 vW; varying float vEdge; attribute float edge;
-void main(){ vUv = uvM; vUvN = uvN; vN = normalize(normal); vEdge = edge; vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz;
+const terrVS = `${LOG} attribute vec2 uvM; attribute vec2 uvN; varying vec2 vUv; varying vec2 vUvN; varying vec3 vN; varying vec3 vW; varying float vEdge; attribute float edge; attribute float hm; attribute vec2 uvE; varying float vH; varying vec2 vUvE;
+void main(){ vH = hm; vUvE = uvE; vUv = uvM; vUvN = uvN; vN = normalize(normal); vEdge = edge; vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz;
   gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
 const terrFS = `${LOGF} uniform sampler2D uDay; uniform sampler2D uNight; uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; uniform float uHaze; uniform float uNightK;
-varying vec2 vUv; varying vec2 vUvN; varying vec3 vN; varying vec3 vW; varying float vEdge;
+varying vec2 vUv; varying vec2 vUvN; varying vec3 vN; varying vec3 vW; varying float vEdge; varying float vH; varying vec2 vUvE; uniform sampler2D uLand;
 void main(){ \n#include <logdepthbuf_fragment>\n
-  vec3 day = texture2D(uDay, vUv).rgb; vec3 night = texture2D(uNight, vUvN).rgb;
+  vec4 dayA = texture2D(uDay, vUv); if (dayA.a < .5) discard; // tile not loaded yet: the globe underneath shows instead of black
+  vec3 day = dayA.rgb; vec3 night = texture2D(uNight, vUvN).rgb;
   vec3 up = normalize(vW); float sun = dot(up, uSun), lit = smoothstep(-.1, .2, sun);
+  float water = 1. - smoothstep(.35, .65, texture2D(uLand, vUvE).r); // elevation <= 0: clean dark sea instead of the grey, blotchy tile
+  vec3 V0 = normalize(uCam - vW); float glint = pow(max(dot(reflect(-uSun, up), V0), 0.), 40.) * .35 * lit;
+  day = mix(day, vec3(.004,.012,.03) + glint, water * .95);
   float relief = clamp(1. + 4.*dot(normalize(vN) - up, uSun), .55, 1.5);
   vec3 c = day * (0.32 + 1.1*sqrt(max(sun, 0.))) * mix(.55, 1., lit) * relief * 1.35 * vec3(1.06,1.,.9) + night * vec3(1.,.8,.5) * 0.9 * uNightK * (1. - lit);
   float dist = length(uCam - vW) * 6371.; float haze = 1. - exp(-dist * uHaze);
   float low = 1. - smoothstep(0., .000012, length(vW) - 1.); // fog lies in the low ground
-  c = mix(c, vec3(.78,.76,.72) * mix(.4, 1., lit), haze*.35 + low*.12);
+  c = mix(c, vec3(.78,.76,.72) * mix(.4, 1., lit), (haze*.35 + low*.12) * (1. - water*.85));
   gl_FragColor = vec4(c, uOp * smoothstep(0., .22, vEdge)); }`;
 
 const glowFS = `${LOGF} uniform vec3 uColor; uniform float uT; uniform float uOp; varying vec2 vUv;
@@ -197,21 +203,27 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       const x = Math.max(0, Math.min(ew - 1, Math.round(px))), y = Math.max(0, Math.min(eh - 1, Math.round(py))), i = (y * ew + x) * 4;
       return Math.max(0, terrarium(ed[i], ed[i + 1], ed[i + 2]));
     };
+    const land = document.createElement("canvas"); land.width = ew; land.height = eh;
+    { const lg = land.getContext("2d")!, img = lg.createImageData(ew, eh);
+      for (let i = 0; i < ew * eh; i++) { const v = terrarium(ed[i * 4], ed[i * 4 + 1], ed[i * 4 + 2]) > 0.5 ? 255 : 0; img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255; }
+      lg.putImageData(img, 0, 0); }
+    const landT = new THREE.CanvasTexture(land); landT.colorSpace = THREE.NoColorSpace;
     const uvOf = (m: Mosaic, lon: number, lat: number): [number, number] => [(((lon + 180) / 360) * 2 ** m.z - m.x0) / m.nx, 1 - (lat2y(lat, m.z) - m.y0) / m.ny];
-    const n = seg + 1, pos = new Float32Array(n * n * 3), uvM = new Float32Array(n * n * 2), uv2 = new Float32Array(n * n * 2), edge = new Float32Array(n * n);
+    const n = seg + 1, pos = new Float32Array(n * n * 3), uvM = new Float32Array(n * n * 2), uv2 = new Float32Array(n * n * 2), edge = new Float32Array(n * n), hm = new Float32Array(n * n), uvE = new Float32Array(n * n * 2);
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
       const lon = box.w + (box.e - box.w) * (i / seg), lat = box.n - (box.n - box.s) * (j / seg), k = j * n + i;
-      pos.set(toXYZ(lon, lat, (hAt(lon, lat) * exag + lift) / (EARTH_KM * 1000)), k * 3);
-      uvM.set(uvOf(day, lon, lat), k * 2); uv2.set(uvOf(night, lon, lat), k * 2);
+      const hh = hAt(lon, lat); hm[k] = hh;
+      pos.set(toXYZ(lon, lat, (hh * exag + lift) / (EARTH_KM * 1000)), k * 3);
+      uvM.set(uvOf(day, lon, lat), k * 2); uv2.set(uvOf(night, lon, lat), k * 2); uvE.set(uvOf(elev, lon, lat), k * 2);
       edge[k] = Math.min(i, j, seg - i, seg - j) / seg;
     }
     const idx: number[] = [];
     for (let j = 0; j < seg; j++) for (let i = 0; i < seg; i++) { const a = j * n + i; idx.push(a, a + n, a + 1, a + 1, a + n, a + n + 1); }
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("uvM", new THREE.BufferAttribute(uvM, 2)); g.setAttribute("uvN", new THREE.BufferAttribute(uv2, 2));
-    g.setAttribute("edge", new THREE.BufferAttribute(edge, 1)); g.setIndex(idx); g.computeVertexNormals();
+    g.setAttribute("edge", new THREE.BufferAttribute(edge, 1)); g.setAttribute("hm", new THREE.BufferAttribute(hm, 1)); g.setAttribute("uvE", new THREE.BufferAttribute(uvE, 2)); g.setIndex(idx); g.computeVertexNormals();
     const nightT = tex(night.canvas); // same box, coarser zoom: its own uv would differ only slightly, so share uvM via a matched mosaic box
-    const u = { uDay: { value: tex(day.canvas) as THREE.Texture }, uNight: { value: nightT as THREE.Texture }, uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 }, uHaze: { value: haze }, uNightK: { value: 1 } };
+    const u = { uDay: { value: tex(day.canvas) as THREE.Texture }, uNight: { value: nightT as THREE.Texture }, uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 }, uHaze: { value: haze }, uNightK: { value: 1 }, uLand: { value: landT as THREE.Texture } };
     const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ vertexShader: terrVS, fragmentShader: terrFS, uniforms: u, transparent: true }));
     mesh.renderOrder = 2 + patches.length;
     scene.add(mesh);
@@ -219,7 +231,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   }
   // Estonia (z8 imagery ≈ 600 m/px, z8 elevation) and central Tallinn (z14 imagery ≈ 5 m/px drawn, z12 elevation)
   const terrainReady = ready.then(() => Promise.all([
-    patch({ w: 8, e: 38, s: 53, n: 66 }, 6, 5, 3, 0, 160, 30, 9000, 0.0001),
+    patch({ w: 8, e: 38, s: 53, n: 66 }, 6, 7, 3, 0, 200, 30, 3500, 0.0001),
     patch({ w: 21.6, e: 28.4, s: 57.4, n: 59.85 }, 10, 9, 6, 40, 360, 1, 2600, 0.00025),
     patch({ w: 24.45, e: 25.08, s: 59.32, n: 59.55 }, 14, 12, 6, 260, 256, 0.5, 90, 0.004),
   ]));
