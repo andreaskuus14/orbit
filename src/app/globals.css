@@ -1060,3 +1060,20 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .planet-boundary-mark { width: 10px; height: 10px; border-radius: 50%; background: #fb7185; box-shadow: 0 0 0 4px rgba(251, 113, 133, 0.18); }
 @media (prefers-reduced-motion: reduce) { .planet-boundary { animation: none; } }
 
+
+/* INTELLIGENCE one surface: a slimmer briefing panel, and the globe's search bar and region chips sit in the free space between
+   the world list (left) and the panel (right), so neither is ever under the panel. Phones: a shorter sheet keeps the globe,
+   the search bar and the region chips in view above it. */
+.drawer:has([data-intel-surface]) { width: min(26rem, calc(100vw - 1.5rem)); }
+@media (min-width: 721px) and (min-height: 521px) {
+  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) :is(.globe-search, .globe-regions) {
+    zoom: 1; transform: none; left: 0.75rem; right: calc(26rem + 2.25rem); max-width: 34rem; margin-inline: auto; }
+  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) .globe-search { width: auto; }
+  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) .globe-regions { width: fit-content; max-width: 46rem; }
+}
+@media (min-width: 1101px) and (min-height: 521px) {
+  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) :is(.globe-search, .globe-regions) { left: 18.5rem; }
+}
+@media (max-width: 640px) {
+  .drawer:has([data-intel-surface]) { height: 58dvh; }
+}

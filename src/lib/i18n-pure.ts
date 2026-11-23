@@ -992,6 +992,21 @@ const BASE = {
   "memo.note.no-game": "No game matched: saved as a memory to file later", "memo.note.duplicate": "Already in the backlog: nothing added", "memo.note.existing-lead": "Already in your pipeline: saved as a task",
   "memo.note.no-name": "No business name heard: saved as a task", "memo.note.no-time": "No time heard: saved as a task", "memo.note.failed": "Couldn't file this one: the words are kept here",
   "memo.note.capped": "Several short items merged here (at most 8 per memo)", "memo.note.full": "The backlog is full: saved as a memory",
+  // INTELLIGENCE one surface
+  "intel.new": "New briefing", "intel.focus": "Briefing about", "intel.more": "Sources & more", "intel.moreAria": "Following, watches, past briefings and sources", "intel.back": "Back to the briefing",
+  "intel.listen": "Listen", "intel.listenAria": "Listen to this briefing", "intel.empty": "No briefing yet. Press “New briefing”: it takes about a minute.", "intel.loading": "Loading the briefing…",
+  "intel.made": "Briefing from {at} · {n} sources", "intel.failed": "The last briefing failed: {e}", "intel.runningNote": "Reading the feeds, grouping stories and writing. Usually under a minute.",
+  "intel.tr.confirmed": "Confirmed · {n} outlets", "intel.tr.single": "One outlet", "intel.tr.check": "Check this story", "intel.tr.read": "ORBIT read {r} of {n} articles in full.",
+  "intel.tr.aria": "{level}. Show the evidence", "intel.tr.short.confirmed": "Confirmed", "intel.tr.short.single": "1 outlet", "intel.tr.short.check": "Check", "intel.tr.full": "read in full", "intel.tr.part": "headline and snippet only", "intel.tr.flagged": "Did not check out:",
+  "intel.fl.not_backed": "not found in the sources it cites", "intel.fl.one_source": "only one outlet reports this", "intel.fl.number": "the number {d} isn't in the cited text", "intel.fl.missing_source": "cites a source that isn't listed",
+  "intel.removed": "The fact check took out {n} sentence(s) that the source contradicts.", "intel.sourcesN": "Sources ({n})", "intel.storyMenu": "Actions for “{title}”", "intel.newSince": "New since you last looked",
+  "intel.showing": "Showing", "intel.read": "Read", "intel.articles": "Latest articles", "intel.noBriefings": "No briefings yet. Press “New briefing”.", "intel.noArticles": "No articles yet. They arrive with the first briefing.",
+  "intel.articlesN": "{a} articles · {c} cited", "intel.src.ph": "Topic (e.g. Roblox) or RSS feed address", "intel.src.follow": "Follow", "intel.src.pack": "+ World news pack (BBC, Guardian, Al Jazeera, NPR, DW: war, economy, politics)",
+  "intel.src.packs": "Expert sources", "intel.src.note": "Topics use Bing News (Google News if that fails). Any RSS or Atom address works too. Your first briefing starts with your profile's news topics.",
+  "intel.src.pause": "Pause", "intel.src.resume": "Resume", "intel.src.remove": "Remove", "intel.src.removeAria": "Remove {name}", "intel.src.has": "{label} is already added.", "intel.src.topic": "Topic: {t}", "intel.unknownSrc": "unknown source",
+  "fol.title": "Following", "fol.note": "topics, people and countries you watch (refreshed every 30 min)", "fol.ph": "Follow a topic (e.g. Estonia, AI, Jynxzi)", "fol.aria": "Topic to follow", "fol.btn": "Follow",
+  "fol.none": "Nothing followed yet. Type a topic above or say “follow YouTube”.", "fol.new": "{n} new", "fol.unfollow": "Unfollow", "fol.unfollowAria": "Unfollow {name}", "fol.noHeadlines": "No headlines in the last 2 days.", "fol.fetching": "Fetching…", "fol.ago": "{t} ago",
+  "pw.js": "JS page", "pw.jsTitle": "For pages that show their content only with JavaScript: ORBIT checks them in its hidden browser",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -2022,6 +2037,21 @@ export const ET: Partial<Record<Key, string>> = {
   "memo.note.no-game": "Ühtegi mängu ei leitud: salvestatud mälukirjena hilisemaks sorteerimiseks", "memo.note.duplicate": "On juba tööde nimekirjas: midagi ei lisatud", "memo.note.existing-lead": "On juba sinu kliendivoos: salvestatud ülesandena",
   "memo.note.no-name": "Ettevõtte nime ei kuulnud: salvestatud ülesandena", "memo.note.no-time": "Aega ei kuulnud: salvestatud ülesandena", "memo.note.failed": "Seda kirjet ei õnnestunud salvestada: sõnad jäid siia alles",
   "memo.note.capped": "Siia liideti mitu lühikest kirjet (kuni 8 märkuse kohta)", "memo.note.full": "Tööde nimekiri on täis: salvestatud mälukirjena",
+  // LUURE üks pind
+  "intel.new": "Uus ülevaade", "intel.focus": "Ülevaate teema", "intel.more": "Allikad ja muu", "intel.moreAria": "Jälgimine, lehtede jälgimine, varasemad ülevaated ja allikad", "intel.back": "Tagasi ülevaate juurde",
+  "intel.listen": "Kuula", "intel.listenAria": "Kuula seda ülevaadet", "intel.empty": "Ülevaadet veel pole. Vajuta „Uus ülevaade”: see võtab umbes minuti.", "intel.loading": "Laadin ülevaadet…",
+  "intel.made": "Ülevaade {at} · {n} allikat", "intel.failed": "Viimane ülevaade ebaõnnestus: {e}", "intel.runningNote": "Loen vooge, rühmitan lugusid ja kirjutan. Tavaliselt alla minuti.",
+  "intel.tr.confirmed": "Kinnitatud · {n} väljaannet", "intel.tr.single": "Üks väljaanne", "intel.tr.check": "Kontrolli seda lugu", "intel.tr.read": "ORBIT luges {n} artiklist {r} täielikult.",
+  "intel.tr.aria": "{level}. Näita tõendeid", "intel.tr.short.confirmed": "Kinnitatud", "intel.tr.short.single": "1 väljaanne", "intel.tr.short.check": "Kontrolli", "intel.tr.full": "loetud täielikult", "intel.tr.part": "ainult pealkiri ja katkend", "intel.tr.flagged": "Ei pidanud paika:",
+  "intel.fl.not_backed": "viidatud allikad seda ei kinnita", "intel.fl.one_source": "sellest teatab ainult üks väljaanne", "intel.fl.number": "arvu {d} pole viidatud tekstis", "intel.fl.missing_source": "viitab allikale, mida loendis pole",
+  "intel.removed": "Faktikontroll eemaldas {n} lauset, millele allikas vastu räägib.", "intel.sourcesN": "Allikad ({n})", "intel.storyMenu": "Tegevused: „{title}”", "intel.newSince": "Uus pärast viimast vaatamist",
+  "intel.showing": "Avatud", "intel.read": "Loe", "intel.articles": "Uusimad artiklid", "intel.noBriefings": "Ülevaateid veel pole. Vajuta „Uus ülevaade”.", "intel.noArticles": "Artikleid veel pole. Need tulevad esimese ülevaatega.",
+  "intel.articlesN": "{a} artiklit · {c} viidatud", "intel.src.ph": "Teema (nt Roblox) või RSS-voo aadress", "intel.src.follow": "Jälgi", "intel.src.pack": "+ Maailmauudiste pakett (BBC, Guardian, Al Jazeera, NPR, DW: sõda, majandus, poliitika)",
+  "intel.src.packs": "Eksperdiallikad", "intel.src.note": "Teemad kasutavad Bing Newsi (kui see ei tööta, siis Google Newsi). Sobib ka iga RSS- või Atom-aadress. Esimene ülevaade algab sinu profiili uudisteemadest.",
+  "intel.src.pause": "Peata", "intel.src.resume": "Jätka", "intel.src.remove": "Eemalda", "intel.src.removeAria": "Eemalda {name}", "intel.src.has": "{label} on juba lisatud.", "intel.src.topic": "Teema: {t}", "intel.unknownSrc": "tundmatu allikas",
+  "fol.title": "Jälgin", "fol.note": "teemad, inimesed ja riigid, mida jälgid (värskendatakse iga 30 min järel)", "fol.ph": "Jälgi teemat (nt Eesti, AI, Jynxzi)", "fol.aria": "Jälgitav teema", "fol.btn": "Jälgi",
+  "fol.none": "Veel ei jälgi midagi. Kirjuta teema üles või ütle „jälgi YouTube'i”.", "fol.new": "{n} uut", "fol.unfollow": "Lõpeta jälgimine", "fol.unfollowAria": "Lõpeta {name} jälgimine", "fol.noHeadlines": "Viimase 2 päeva jooksul pealkirju pole.", "fol.fetching": "Laadin…", "fol.ago": "{t} tagasi",
+  "pw.js": "JS-leht", "pw.jsTitle": "Lehtedele, mis näitavad sisu ainult JavaScriptiga: ORBIT kontrollib neid oma peidetud brauseris",
 };
 
 type Vars = Record<string, string | number>;

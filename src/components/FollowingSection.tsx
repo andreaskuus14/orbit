@@ -2,12 +2,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { age, REFRESH_MS, type Headline } from "@/lib/follows-pure";
 import { FOLLOWS_EVENT } from "./follow-command";
+import { useT } from "./i18n";
 
 type Topic = { name: string; at: number | null; items: (Headline & { new: boolean })[] };
 const safeHref = (u: string) => (/^https?:\/\//i.test(u) ? u : "#");
 
 /** INTELLIGENCE → Following: the latest 3 headlines per followed topic, "new" since the last visit. */
 export function FollowingSection() {
+  const { t: tr } = useT();
   const [topics, setTopics] = useState<Topic[] | null>(null);
   const [add, setAdd] = useState("");
   const [err, setErr] = useState("");
@@ -41,31 +43,31 @@ export function FollowingSection() {
 
   return (
     <div className="card space-y-2 text-sm">
-      <div><b>Following</b> <span className="muted">· topics, people and countries you watch (refreshed every 30 min)</span></div>
+      <div><b>{tr("fol.title")}</b> <span className="muted">· {tr("fol.note")}</span></div>
       <form onSubmit={(e) => { e.preventDefault(); if (add.trim()) void change("POST", add.trim()); }} className="flex gap-2">
-        <input className="field flex-1" value={add} onChange={(e) => setAdd(e.target.value)} placeholder="Follow a topic (e.g. Estonia, AI, Jynxzi)" aria-label="Topic to follow" maxLength={60} />
-        <button className="btn">Follow</button>
+        <input className="field min-w-0 flex-1" value={add} onChange={(e) => setAdd(e.target.value)} placeholder={tr("fol.ph")} aria-label={tr("fol.aria")} maxLength={60} />
+        <button className="btn">{tr("fol.btn")}</button>
       </form>
       {err && <p className="error">{err}</p>}
-      {topics?.length === 0 && <p className="muted text-xs">Nothing followed yet. Type a topic above or say “follow YouTube”.</p>}
+      {topics?.length === 0 && <p className="muted text-xs">{tr("fol.none")}</p>}
       <ul className="space-y-3">
         {topics?.map((t) => {
           const fresh = t.items.filter((h) => h.new).length;
           return (
             <li key={t.name}>
               <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">{t.name}{fresh > 0 && <span className="chip ml-2 text-xs" style={{ borderColor: "var(--cyan)" }}>{fresh} new</span>}</span>
-                <button className="chip" onClick={() => change("DELETE", t.name)} aria-label={`Unfollow ${t.name}`}>Unfollow</button>
+                <span className="font-medium">{t.name}{fresh > 0 && <span className="chip ml-2 text-xs" style={{ borderColor: "var(--cyan)" }}>{tr("fol.new", { n: fresh })}</span>}</span>
+                <button className="chip" onClick={() => change("DELETE", t.name)} aria-label={tr("fol.unfollowAria", { name: t.name })}>{tr("fol.unfollow")}</button>
               </div>
               <ul className="mt-1 space-y-1">
                 {t.items.map((h) => (
                   <li key={h.url}>
                     {h.new && <span className="text-xs" style={{ color: "var(--cyan)" }}>● </span>}
                     <a className="link" href={safeHref(h.url)} target="_blank" rel="noreferrer noopener">{h.title}</a>
-                    <span className="muted text-xs"> — {h.source ?? "unknown source"}{h.published_at ? ` · ${age(h.published_at)} ago` : ""}</span>
+                    <span className="muted text-xs"> — {h.source ?? tr("intel.unknownSrc")}{h.published_at ? ` · ${tr("fol.ago", { t: age(h.published_at) })}` : ""}</span>
                   </li>
                 ))}
-                {!t.items.length && <li className="muted text-xs">{t.at ? "No headlines in the last 2 days." : "Fetching…"}</li>}
+                {!t.items.length && <li className="muted text-xs">{t.at ? tr("fol.noHeadlines") : tr("fol.fetching")}</li>}
               </ul>
             </li>
           );
