@@ -149,6 +149,7 @@ const BASE = {
 
   "perf.renderChanged": "Render changed", "perf.noBaseline": "No comparable baseline. Match the visible window, GPU and pixel ratio.",
   "boundary.title": "This part hit a problem", "boundary.body": "The rest of ORBIT is fine. Try again, or go back to the galaxy.", "boundary.retry": "Try again",
+  "update.ready": "ORBIT was updated.", "update.reload": "Reload",
   "common.loading": "Loading…", "common.add": "Add", "common.remove": "Remove", "common.cancel": "Cancel", "common.copied": "Copied",
 
   "overview.aria": "Planets", "overview.kicker": "ORBIT", "overview.title1": "Ask for anything.", "overview.title2": "Watch ORBIT do it.",
@@ -1219,6 +1220,7 @@ export const ET: Partial<Record<Key, string>> = {
 
   "perf.renderChanged": "Renderdus muutus", "perf.noBaseline": "Võrreldav mõõtmine puudub. Kasuta sama nähtavat akent, graafikaprotsessorit ja pikslisuhet.",
   "boundary.title": "See osa jooksis kokku", "boundary.body": "Ülejäänud ORBIT töötab. Proovi uuesti või mine tagasi galaktikasse.", "boundary.retry": "Proovi uuesti",
+  "update.ready": "ORBIT uuendati.", "update.reload": "Laadi uuesti",
   "common.loading": "Laadin…", "common.add": "Lisa", "common.remove": "Eemalda", "common.cancel": "Tühista", "common.copied": "Kopeeritud",
 
   "overview.aria": "Planeedid", "overview.kicker": "ORBIT", "overview.title1": "Küsi mida tahes.", "overview.title2": "Vaata, kuidas ORBIT selle teeb.",

@@ -102,6 +102,17 @@ Check ((Test-Path $failMark) -and (Get-Content $failMark -Raw) -match "01234567 
 Check (LogHas "UPDATE ROLLED BACK") "rollback logged"
 Check (-not (Restore-PrevRelease "x" "y") -and (LogHas "no previous version")) "Restore-PrevRelease without .next-prev -> false, logged"
 
+# --- Copy-PrevStatic: the previous build's own chunks join the new build; inherited ones and existing files don't
+foreach ($d in $distLive, $distPrev) { if (Test-Path $d) { Remove-Item $d -Recurse -Force } }
+foreach ($d in "$distPrev/static/chunks", "$distLive/static/chunks") { $null = New-Item -ItemType Directory -Force $d }
+Set-Content "$distPrev/static/chunks/833.js" "old"; Set-Content "$distPrev/static/chunks/inherited.js" "older"
+Set-Content "$distPrev/static/chunks/same.js" "prev"; Set-Content "$distLive/static/chunks/same.js" "live"
+Set-Content "$distPrev/static-inherited.txt" (Join-Path "chunks" "inherited.js")
+Copy-PrevStatic
+Check ((Test-Path "$distLive/static/chunks/833.js") -and -not (Test-Path "$distLive/static/chunks/inherited.js")) "Copy-PrevStatic: own chunks kept, inherited ones not"
+Check ((Get-Content "$distLive/static/chunks/same.js").Trim() -eq "live") "Copy-PrevStatic: never overwrites the new build"
+Check ((Get-Content "$distLive/static-inherited.txt" -Raw).Trim() -eq (Join-Path "chunks" "833.js")) "Copy-PrevStatic: records what it copied"
+
 # --- the request-flag 'rebuild' marker (same test as the supervisor)
 Check (("2026-11-20T10:00:00.000Z rebuild" -match 'rebuild') -and -not ("2026-11-20T10:00:00.000Z" -match 'rebuild')) "flag: forced rebuild marker"
 

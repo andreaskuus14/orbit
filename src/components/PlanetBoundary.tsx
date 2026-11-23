@@ -4,6 +4,8 @@
 // so PerfBeacon/crash tooling still sees it) and a calm card offers Try again (remount) and, where given, Back to galaxy.
 import { Component, Fragment, type ErrorInfo, type ReactNode } from "react";
 import { useT } from "./i18n";
+import { isChunkError } from "@/lib/stale-build-pure";
+import { reloadOnce } from "./StaleBuildWatch";
 
 type Props = { name: string; onBack?: () => void; children: ReactNode };
 
@@ -27,6 +29,8 @@ export class PlanetBoundary extends Component<Props, { failed: boolean; n: numbe
   static getDerivedStateFromError() { return { failed: true }; }
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error(`[orbit] ${this.props.name} crashed:`, error, info.componentStack);
+    // A chunk from the build before a live update is gone (404): reload once instead of showing the card.
+    if (isChunkError(error)) reloadOnce();
   }
   render() {
     if (this.state.failed) return <Fallback name={this.props.name} onBack={this.props.onBack} onRetry={() => this.setState((s) => ({ failed: false, n: s.n + 1 }))} />;
