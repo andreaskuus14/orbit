@@ -241,3 +241,17 @@ test("safe frame on a phone: top bars and a bottom sheet leave the band between 
   assert.equal(f.x, 0); assert.equal(f.w, 390);
   assert.ok(f.y > 130 && f.y < 160 && f.y + f.h < 460 && f.h > 250, JSON.stringify(f));
 });
+
+test("free frame: a short side panel on the left (World Pulse) and the Back button come off too", () => {
+  const W = 1920, H = 1080, rows = 24, cols = 32, fb = { x: 0, y: 0, w: W, h: H };
+  const pulse = { x: 12, y: 66, w: 272, h: 452 }, backBtn = { x: 1344, y: 968, w: 116, h: 26 };
+  const rects = [pulse, { x: 636, y: 62, w: 490, h: 50 }, { x: 560, y: 965, w: 640, h: 40 }, { x: 680, y: 1020, w: 560, h: 50 }, backBtn];
+  const grid = Array.from({ length: rows }, (_, y) => Array.from({ length: cols }, (_, x) => {
+    const px = ((x + 0.5) / cols) * W, py = ((y + 0.5) / rows) * H;
+    return rects.some((o) => px >= o.x && px <= o.x + o.w && py >= o.y && py <= o.y + o.h);
+  }));
+  const f = safeFrame(grid, W, H, fb);
+  assert.ok(f.x >= pulse.x + pulse.w, `clear of World Pulse (x=${f.x})`);
+  assert.ok(f.y + f.h <= backBtn.y, "above the Back button");
+  assert.ok(f.w > W / 2, "most of the width stays free");
+});

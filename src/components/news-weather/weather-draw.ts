@@ -406,7 +406,7 @@ export function createWeatherDraw(canvas: HTMLCanvasElement, fonts: Fonts, opts:
     const { free, rest } = f, compact = free.w < 900 || free.h < 600, M = compact ? 20 : 40;
     const x0 = free.x + M, right = free.x + free.w - M, bottom = free.y + free.h - M * 0.6;
     const T = m.text, titlePx = compact ? 32 : 48;
-    const tw = Math.min(compact ? 420 : 520, free.w - 2 * M), TH = compact ? 84 : 116;
+    const tw = Math.min(compact ? 440 : 640, free.w - 2 * M), TH = compact ? 84 : 116;
     const rows = legendRows(m);
     const LW = compact ? 300 : 330, LH = compact ? 34 + Math.ceil(rows.length / 2) * 22 : 42 + rows.length * 25;
     const PW = compact ? 230 : 280, PH = 56;
@@ -503,10 +503,11 @@ export function createWeatherDraw(canvas: HTMLCanvasElement, fonts: Fonts, opts:
    *  progress across the whole tour (chapter ticks, knob, 0:12 / 1:10) and the chapters underneath, one per story. */
   function scrim(f: WxFrame, a: number) {
     if (a <= 0) return;
-    const { free } = f, H = free.y + free.h, top = free.y + free.h * 0.42;
+    // to the bottom of the canvas and across its whole width, so it never ends in a hard line through the globe
+    const { free } = f, H = f.H, top = free.y + free.h * 0.42;
     const gr = g.createLinearGradient(0, top, 0, H);
-    gr.addColorStop(0, "rgba(10,11,13,0)"); gr.addColorStop(0.42, `rgba(10,11,13,${(0.74 * a).toFixed(3)})`); gr.addColorStop(1, `rgba(10,11,13,${(0.95 * a).toFixed(3)})`);
-    g.fillStyle = gr; g.fillRect(free.x, top, free.w, H - top);
+    gr.addColorStop(0, "rgba(10,11,13,0)"); gr.addColorStop(0.45, `rgba(10,11,13,${(0.7 * a).toFixed(3)})`); gr.addColorStop(1, `rgba(10,11,13,${(0.92 * a).toFixed(3)})`);
+    g.fillStyle = gr; g.fillRect(0, top, f.W, H - top);
   }
   /** Progress + chapters: drawn once per frame (not per strap), so they stay put while one story's text hands over to the next. */
   function timeline(m: WxModel, f: WxFrame, t: TourFrame, a: number, paused: boolean) {
@@ -527,15 +528,15 @@ export function createWeatherDraw(canvas: HTMLCanvasElement, fonts: Fonts, opts:
     for (const c of t.chapters.slice(1)) { g.fillStyle = c.start <= clock ? P.red : "rgba(241,236,225,0.55)"; g.fillRect(at(c.start) - 1, py - 5, 2, 10); }
     g.fillStyle = "#ffffff"; g.beginPath(); g.arc(kx, py, 7, 0, 7); g.fill();
     // chapters: number, short title, time range; the current one bright with a red rule over it
-    const n = t.chapters.length, cw = w / n, titles = cw >= 120 && !compact;
+    // each chapter sits under its own stretch of the progress line, so the labels line up with the ticks above them
+    const times = !compact, ty = times ? by - 20 : by - 2;
     t.chapters.forEach((c, i) => {
-      const cx = x + i * cw, on = i === t.idx, ty = titles ? by - 20 : by - 2;
-      if (on) { g.fillStyle = P.red; g.fillRect(cx, ty - 24, cw - 16, 2); }
+      const cx = i ? at(c.start) + 8 : x, cx2 = i + 1 < t.chapters.length ? at(t.chapters[i + 1].start) - 8 : x + w, cw = cx2 - cx, on = i === t.idx;
+      if (cw < 24) return;
+      if (on) { g.fillStyle = P.red; g.fillRect(cx, ty - 24, cw, 2); }
       g.font = F(600, 13, "sans"); g.fillStyle = on ? P.ink : "rgba(241,236,225,0.5)"; g.fillText(String(i + 1), cx, ty);
-      if (titles) {
-        g.font = F(on ? 600 : 400, 13, "sans"); g.fillText(fitText(g, c.title, cw - 36), cx + 16, ty);
-        g.font = F(400, 11, "sans"); g.fillStyle = on ? P.inkMute : "rgba(241,236,225,0.38)"; g.fillText(`${mmss(c.start)}–${mmss(c.end)}`, cx + 16, by - 4);
-      } else if (on) { g.font = F(600, 13, "sans"); g.fillText(fitText(g, c.title, Math.max(0, w - (cx - x) - 24)), cx + 16, ty); }
+      g.font = F(on ? 600 : 400, 13, "sans"); g.fillText(fitText(g, c.title, cw - 20), cx + 16, ty);
+      if (times) { g.font = F(400, 11, "sans"); g.fillStyle = on ? P.inkMute : "rgba(241,236,225,0.38)"; g.fillText(fitText(g, `${mmss(c.start)}–${mmss(c.end)}`, cw - 20), cx + 16, by - 4); }
     });
     g.restore();
   }
@@ -568,7 +569,10 @@ export function createWeatherDraw(canvas: HTMLCanvasElement, fonts: Fonts, opts:
     const { free, view: v } = f, sc = t.scene, st = t.stop;
     const sp = project(v, st.system.lon, st.system.lat);
     g.textAlign = "left"; g.textBaseline = "alphabetic";
-    const telemetryRect: Rect | null = st.beams.length && free.w >= 980 ? { x: free.x + free.w - 44 - 230, y: free.y + 112, w: 230, h: 52 + st.beams.length * 34 } : null;
+    // Sources, top right: only as many rows as fit above the kicker / keys hint line (with a gap)
+    const cmp = free.w < 900 || free.h < 600, hintTop = free.y + free.h - (cmp ? 10 : 22) - (cmp ? 150 : 232) - 30;
+    const srcRows = Math.max(0, Math.min(st.beams.length, Math.floor((hintTop - (free.y + 112) - 52 + 24) / 34) + 0));
+    const telemetryRect: Rect | null = srcRows && free.w >= 980 ? { x: free.x + free.w - 44 - 230, y: free.y + 112, w: 230, h: 52 + srcRows * 34 } : null;
     // "Next: …" while flying, beside where the camera is going (only if it fits on the globe)
     const nextA = a * Math.min(clamp01((sc.flight - 0.2) / 0.2), 1 - sc.focus);
     if (nextA > 0 && sp.z > 0.2) {
@@ -638,7 +642,7 @@ export function createWeatherDraw(canvas: HTMLCanvasElement, fonts: Fonts, opts:
       g.font = F(400, 15, "serif"); g.fillStyle = P.ink; g.textAlign = "left";
       const cx = sp.x + R + 22, cy = sp.y + R + 22;
       const strapTop = free.y + free.h - (free.w < 900 || free.h < 600 ? 180 : 262); // the kicker line and above stay clear
-      if (cy + 22 < strapTop && inDisk({ x: cx, y: cy - 14, w: 170, h: 40 }, v.cx, v.cy, v.scale, 8) && inFree(free, { x: cx, y: cy - 14, w: 170, h: 40 })) {
+      if (cy + 22 < strapTop && inDisk({ x: cx, y: cy - 14, w: 170, h: 40 }, v.cx, v.cy, v.scale, 8) && inFree(free, { x: cx, y: cy - 14, w: 170, h: 40 }) && !(telemetryRect && overlaps({ x: cx, y: cy - 14, w: 170, h: 40 }, telemetryRect, 12))) {
         g.fillRect(cx, cy - 18, 1, 26); shadowText(g, coord, cx + 10, cy, 6);
         g.font = F(400, 12, "sans"); g.fillStyle = P.inkMute; shadowText(g, `${st.system.reports} ${m.text.reports}`, cx + 10, cy + 17, 4);
       }
@@ -650,7 +654,7 @@ export function createWeatherDraw(canvas: HTMLCanvasElement, fonts: Fonts, opts:
       const x1 = free.x + free.w - 44, tw = 230, x0 = x1 - tw, y0 = free.y + 112;
       g.save(); g.globalAlpha = tk; g.textAlign = "left";
       hair(g, x0, y0, tw); g.font = F(400, 17, "serif"); g.fillStyle = P.ink; shadowText(g, m.text.sources, x0, y0 + 24, 6);
-      st.beams.forEach((bm, i) => {
+      st.beams.slice(0, srcRows).forEach((bm, i) => {
         const y = y0 + 52 + i * 34, k = clamp01(sc.beams[i] ?? 0);
         g.font = F(400, 13, "sans"); g.fillStyle = P.ink; shadowText(g, fitText(g, bm.source, tw - 90), x0, y, 4);
         g.textAlign = "right"; g.fillStyle = P.inkMute; g.font = F(400, 11, "sans"); shadowText(g, bm.fetched ? m.text.readFull : m.text.headlineOnly, x1, y, 4); g.textAlign = "left";

@@ -13,7 +13,10 @@ import { tourLength, wxText } from "@/lib/news-weather-text-pure";
 import { createWeatherDraw, TEXTURES, type TextureKind, type WeatherDraw, type WxModel } from "./weather-draw";
 
 const VIEW_KEY = "orbit.newsWeather.view", SNAP_KEY = "orbit.newsWeather.snap.v1";
-const PANEL = 512; // the Intelligence panel's width on wide screens (32rem): the guess until the real free frame is measured
+const PANEL = 512;
+// The world's own controls over the map: measured as covered at rest, faded away for the tour and brought back after.
+const CHROME = ".globe-side, .globe-search, .globe-regions, .globe-country, .world-back, .cmdbar, nav[aria-label='Demo tour']";
+const chromeEls = (el: HTMLElement | null, sel = CHROME) => (el ? Array.from(document.querySelectorAll<HTMLElement>(sel)).filter((c) => !el.contains(c)) : []); // the Intelligence panel's width on wide screens (32rem): the guess until the real free frame is measured
 type Audio = { el: HTMLAudioElement; url: string; ms: number };
 
 export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduced: boolean; paused: boolean; onActive: (on: boolean) => void }) {
@@ -24,7 +27,9 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
   useEffect(() => { try { setClassic(localStorage.getItem(VIEW_KEY) === "classic"); } catch { /* no storage */ } }, []);
   const active = motion && !classic;
   useEffect(() => { onActive(active); }, [active, onActive]);
-  const pick = (c: boolean) => { setClassic(c); try { localStorage.setItem(VIEW_KEY, c ? "classic" : "weather"); } catch { /* this tab only */ } };
+  const [cover, setCover] = useState(false); // dark cover while the classic globe loads, so the galaxy's labels don't show through
+  useEffect(() => { if (!cover) return; const t = setTimeout(() => setCover(false), 1800); return () => clearTimeout(t); }, [cover]);
+  const pick = (c: boolean) => { if (c) setCover(true); setClassic(c); try { localStorage.setItem(VIEW_KEY, c ? "classic" : "weather"); } catch { /* this tab only */ } };
 
   // ---- data ----
   const [hs, setHs] = useState<Hotspot[] | null>(null);
@@ -105,8 +110,12 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
     const measure = () => {
       if (modeRef.current !== "rest") return;
       const r = el.getBoundingClientRect(), C = 32, Rw = 24;
+      // the panels by their boxes too: elementFromPoint misses anything with pointer-events: none or still fading in
+      const boxes = chromeEls(el).map((c) => c.getBoundingClientRect()).filter((b) => b.width > 0 && b.height > 0);
       const covered = Array.from({ length: Rw }, (_, y) => Array.from({ length: C }, (_, x) => {
-        const hit = document.elementFromPoint(r.left + ((x + 0.5) / C) * r.width, r.top + ((y + 0.5) / Rw) * r.height);
+        const px = r.left + ((x + 0.5) / C) * r.width, py = r.top + ((y + 0.5) / Rw) * r.height;
+        if (boxes.some((b) => px >= b.left && px <= b.right && py >= b.top && py <= b.bottom)) return true;
+        const hit = document.elementFromPoint(px, py);
         return !!hit && !el.contains(hit);
       }));
       const f = safeFrame(covered, r.width, r.height, guess);
@@ -156,6 +165,15 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
     if (clock.current.voiced && a) a.el.currentTime = t / 1000;
   }, []);
 
+  // the tour gets the whole screen: World Pulse, search, region chips, Back and the command bar fade out, and come back after
+  useEffect(() => {
+    if (mode === "rest") return;
+    const els = chromeEls(box.current, `${CHROME}, .galaxy-hud`);
+    const was = els.map((e) => [e.style.opacity, e.style.pointerEvents, e.style.transition] as const);
+    for (const e of els) { e.style.transition = "opacity 300ms ease"; e.style.opacity = "0"; e.style.pointerEvents = "none"; }
+    return () => els.forEach((e, i) => { e.style.opacity = was[i][0]; e.style.pointerEvents = was[i][1]; setTimeout(() => { e.style.transition = was[i][2]; }, 350); });
+  }, [mode === "rest"]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (mode !== "tour") return;
     const onKey = (e: KeyboardEvent) => {
@@ -164,10 +182,11 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
       const k = keyAction(e.key, ctl.current.mode);
       if (!k) return;
       e.preventDefault();
+      e.stopImmediatePropagation(); // Esc goes back to the weather; the planet's own Esc (close) must not see it
       if (k === "pause") togglePause(); else if (k === "next") next(); else if (k === "back") back();
     };
-    addEventListener("keydown", onKey);
-    return () => removeEventListener("keydown", onKey);
+    addEventListener("keydown", onKey, true); // capture: runs before ORBIT's window listener
+    return () => removeEventListener("keydown", onKey, true);
   }, [mode, togglePause, next, back]);
 
   // ---- the frame loop ----
@@ -214,10 +233,12 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
       if (f.done && c.mode === "tour") { lastView.current = f.view; back(); }
       lastView.current = f.view;
       const st = f.i >= 0 && c.mode === "tour" ? wx.stops[f.i] : null;
-      if (chFor !== plan.current) { chFor = plan.current; chapters = plan.current.map((q, i) => ({ title: shortTitle(wx.stops[i]?.headline ?? "", 30), start: q.start, end: q.end })); }
+      if (chFor !== plan.current) { chFor = plan.current; chapters = plan.current.map((q, i) => ({ title: shortTitle(wx.stops[i]?.headline || wx.stops[i]?.system.label || "", 30), start: q.start, end: q.end })); }
       if (f.i !== lastIdx) { lastIdx = f.i; setLive(st ? `${f.i + 1} / ${n}. ${st.headline}. ${st.lines.join(" ")}` : ""); }
       const p = st ? plan.current[f.i] : null;
-      d.draw(model, { W: size.w, H: size.h, dpr, free, view: f.view, now, reduced, rest: f.rest, hover: hoverRef.current, sun: subsolar(Date.now()),
+      // during the tour the bottom bars are gone: the strap and timeline sit at the bottom of the screen
+      const ff = c.mode === "tour" && st ? { ...free, h: size.h - free.y } : free;
+      d.draw(model, { W: size.w, H: size.h, dpr, free: ff, view: f.view, now, reduced, rest: f.rest, hover: hoverRef.current, sun: subsolar(Date.now()),
         tour: st && f.scene && p ? { stop: st, prev: f.i > 0 ? wx.stops[f.i - 1] : null, scene: f.scene, idx: f.i, n, from: f.from, paused: c.paused, voiced: k.voiced,
           dur: p.end - p.start, clock: k.t, chapters } : null });
     };
@@ -242,7 +263,14 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
   const onUp = () => { down.current = null; };
 
   if (!motion) return null;
-  if (!active) return <button className="chip absolute bottom-36 left-3" onClick={() => pick(false)}>{text.weatherMap}</button>;
+  if (!active) return (
+    <>
+      {cover && <div className="nw-cover absolute inset-0 z-[13]" style={{ background: "#18191b", animation: "nw-cover-out 1800ms ease-in forwards" }} aria-hidden>
+        <style>{"@keyframes nw-cover-out { 0%, 60% { opacity: 1 } 100% { opacity: 0 } }"}</style>
+      </div>}
+      <button className="chip absolute bottom-36 left-3" onClick={() => pick(false)}>{text.weatherMap}</button>
+    </>
+  );
   return (
     <div ref={box} data-news-weather="" className="absolute inset-0 select-none" style={{ background: "#18191b", touchAction: "none", cursor: hover ? "pointer" : down.current ? "grabbing" : "grab" }}
       onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} aria-label={text.title}>

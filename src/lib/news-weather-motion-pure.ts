@@ -210,6 +210,13 @@ export function safeFrame(covered: boolean[][], W: number, H: number, fallback: 
   let l = 0, r = cols;
   while (l < cols && colCov(l) >= 0.5) l++;
   while (r > l && colCov(r - 1) >= 0.5) r--;
+  // a side panel (World Pulse) hugging an edge: shorter than half the height but still a column of its own. Trim past it when
+  // it's in the outer 30% and covers a quarter of the height, so the title isn't drawn under its bottom edge.
+  const edge = Math.floor(cols * 0.3);
+  // (only when the edge is more covered than the middle: full-width bars and sheets cover every column alike)
+  const midCov = colCov(Math.floor(cols / 2)) + 0.2;
+  if (l === 0 && colCov(0) >= Math.max(0.25, midCov)) { while (l < edge && colCov(l) >= Math.max(0.25, midCov)) l++; }
+  if (r === cols && colCov(cols - 1) >= Math.max(0.25, midCov)) { while (r > cols - edge && colCov(r - 1) >= Math.max(0.25, midCov)) r--; }
   const rowHit = (y: number) => covered[y].slice(l, r).some(Boolean);
   // the top band ends under the lowest covered row in the top 45%, the bottom band starts at the highest covered row in the
   // bottom 45% (bars float with gaps around them: a clear row between the command bar and the chips doesn't end the band)
