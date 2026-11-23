@@ -1,0 +1,4 @@
+globe-4096.jpg  Baked by scripts/news-weather-bake-globe.py from Natural Earth NE1_50M_SR_W and OB_50M (public domain, naturalearthdata.com).
+night-2048.jpg  Solar System Scope "2k_earth_nightmap" (based on NASA data), CC BY 4.0, solarsystemscope.com/textures. Converted to grey.
+clouds-2048.jpg Solar System Scope "2k_earth_clouds" (based on NASA data), CC BY 4.0, solarsystemscope.com/textures. Converted to grey.
+The clouds are a fixed picture, not today's weather. The news weather view credits Solar System Scope on screen.

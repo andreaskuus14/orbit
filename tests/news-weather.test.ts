@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   contours, fieldAt, forecast, fronts, independentOutlets, isobarLevels, kindOf, parseSnapshot, pressureField, shortTitle, shouldReplace,
-  sinceLast, snapshotOf, stopAt, stops, storyCues, systems, tourPlan, weather, wrapLines, MAX_BEAMS, TOUR,
+  sinceLast, snapshotOf, stopAt, stops, storyCues, systems, tourPlan, weather, wrapLines, MAX_BEAMS, TOUR, frontType, highs, toHpa, fieldValue,
 } from "../src/lib/news-weather-pure.ts";
 import {
   arcFor, backView, chipRow, horizonFade, inDisk, overlaps, placeLabels, project, restScene, restView, slerp, stopScene, storyView, trail, STOP, PRESS,
+  daylight, safeFrame, subsolar,
 } from "../src/lib/news-weather-motion-pure.ts";
 import { CTL0, frameAt, keyAction, nextClock } from "../src/lib/news-weather-tour-pure.ts";
 import { WX_TEXT, tourLength } from "../src/lib/news-weather-text-pure.ts";
@@ -165,4 +166,70 @@ test("tour state machine and keys", () => {
   assert.equal(nextClock(x.plan, 10), x.plan[1].start);
   assert.equal(keyAction(" ", "tour"), "pause"); assert.equal(keyAction("ArrowRight", "tour"), "next"); assert.equal(keyAction("Escape", "tour"), "back");
   assert.equal(keyAction("Escape", "rest"), null);
+});
+
+test("fronts get chart symbols: occluded joins two storms, cold = confirmed, warm = still forming", () => {
+  const sys = systems(hs), fr = fronts(hs);
+  const by = Object.fromEntries(fr.map((f) => [f.key, frontType(f, sys)]));
+  assert.equal(by["Iran>United States of America"], "occluded");
+  assert.equal(by["Turkey>United Kingdom"], "warm");
+  const cell = sys.find((s) => s.kind === "cell")!, storm = sys.find((s) => s.kind === "storm")!;
+  assert.equal(frontType({ key: "x", title: "", from: storm.key, to: cell.key, outlets: 6, color: "" }, sys), "cold");
+  assert.equal(frontType({ key: "x", title: "", from: storm.key, to: cell.key, outlets: 3, color: "" }, sys), "warm");
+});
+
+test("highs sit over the calm regions the forecast names", () => {
+  const sys = systems(hs);
+  assert.deepEqual(highs(sys).map((h) => h.region).sort(), ["Africa", "Oceania"]);
+  assert.equal(highs([]).length, 6);
+});
+
+test("hPa numbers: quiet 1016, busiest 972, lower = busier; isobars and centres carry them", () => {
+  assert.equal(toHpa(0, 10), 1016); assert.equal(toHpa(10, 10), 972); assert.equal(toHpa(20, 10), 972); assert.equal(toHpa(5, 0), 1016);
+  const w = weather(hs, fx.briefing);
+  assert.ok(w.isobars.every((l, i) => i === 0 || l.hpa < w.isobars[i - 1].hpa), "inner rings lower");
+  for (const s of w.systems) assert.ok(w.hpa[s.key] >= 972 && w.hpa[s.key] <= 1016);
+  const us = w.hpa["United States of America"], indo = w.hpa.Indonesia;
+  assert.ok(us < indo, "the big storm is deeper than a small cell");
+  assert.equal(w.hpa["H:Africa"] >= 1008, true);
+  const pts = hs.map((h: { lon: number; lat: number; count: number }) => ({ lon: h.lon, lat: h.lat, reports: h.count }));
+  assert.ok(Math.abs(fieldValue(pts, hs[0].lon, hs[0].lat) - fieldValue(pts, hs[0].lon + 0.01, hs[0].lat)) < 0.1);
+});
+
+test("forecast never says 0 storms", () => {
+  const fr = fronts(hs), cells = systems(hs).filter((s) => s.kind === "cell");
+  assert.match(forecast(cells, fr), /^No storms, \d+ fronts?\./);
+  assert.match(forecast(cells, fr, "et"), /^Torme pole, \d+ fronti?\./);
+  const storms = systems(hs).filter((s) => s.kind === "storm");
+  assert.match(forecast(storms, []), /^\d+ storms?, no fronts\./);
+});
+
+test("sunlight: the subsolar point and a soft terminator", () => {
+  const noon = subsolar(Date.UTC(2026, 5, 21, 12, 0));
+  assert.ok(Math.abs(noon.lon) < 0.5 && noon.lat > 23 && noon.lat < 23.6, "June solstice noon: over Greenwich, near 23.4° N");
+  const dec = subsolar(Date.UTC(2026, 11, 21, 0, 0));
+  assert.ok(Math.abs(Math.abs(dec.lon) - 180) < 0.5 && dec.lat < -23, "December midnight UTC: over the dateline, south");
+  assert.ok(Math.abs(subsolar(Date.UTC(2026, 10, 22, 8, 30)).lon - 52.5) < 0.01);
+  assert.equal(daylight(noon, 0, 23.4), 1);
+  assert.equal(daylight(noon, 180, -23.4), 0);
+  const edge = daylight({ lon: 0, lat: 0 }, 90, 0);
+  assert.ok(edge > 0.4 && edge < 0.6, "on the terminator: half lit");
+});
+
+test("free frame: the panel, the top bands and the bottom bands come off; nonsense samples fall back", () => {
+  const W = 1280, H = 720, rows = 24, cols = 32, fb = { x: 0, y: 0, w: W, h: H };
+  const rects = [{ x: 0, y: 0, w: W, h: 56 }, { x: 368, y: 68, w: 544, h: 44 }, { x: 340, y: 598, w: 600, h: 36 }, { x: 304, y: 648, w: 672, h: 56 }, { x: 768, y: 56, w: 512, h: 664 }];
+  const grid = Array.from({ length: rows }, (_, y) => Array.from({ length: cols }, (_, x) => {
+    const px = ((x + 0.5) / cols) * W, py = ((y + 0.5) / rows) * H;
+    return rects.some((o) => px >= o.x && px <= o.x + o.w && py >= o.y && py <= o.y + o.h);
+  }));
+  const f = safeFrame(grid, W, H, fb);
+  assert.equal(f.x, 0);
+  assert.ok(f.x + f.w <= 768, "clear of the panel");
+  assert.ok(f.y >= 112, "below the search box");
+  assert.ok(f.y + f.h <= 598, "above the region chips and the command bar");
+  for (const o of rects) assert.ok(!overlaps(f, o), `frame overlaps ${JSON.stringify(o)}`);
+  assert.deepEqual(safeFrame(grid.map((r) => r.map(() => true)), W, H, fb), fb);
+  assert.deepEqual(safeFrame(grid.map((r) => r.map(() => false)), W, H, fb), fb);
+  assert.deepEqual(safeFrame([], W, H, fb), fb);
 });

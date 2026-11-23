@@ -49,9 +49,11 @@ const colorOf = (country: string) => REGION_COLOR[regionOf(country) ?? ""] ?? NO
 /** One pressure system per country: its biggest event cluster, classified by independent outlets. */
 export function systems(hs: Hotspot[]): WxSystem[] {
   return hs.flatMap((h) => {
-    const top = clusterEvents(h.stories.map(asArt))[0];
-    if (!top) return [];
-    const ind = independentOutlets(top), kind = kindOf(ind.length);
+    // the country's story with the most independent outlets (not just the most articles: wire copies inflate a cluster)
+    const ranked = clusterEvents(h.stories.map(asArt)).map((c) => ({ c, ind: independentOutlets(c) }));
+    const best = ranked.reduce<(typeof ranked)[number] | null>((m, x) => (!m || x.ind.length > m.ind.length ? x : m), null);
+    if (!best) return [];
+    const top = best.c, ind = best.ind, kind = kindOf(ind.length);
     if (!kind) return [];
     const lead = ind[0];
     return [{ key: h.name, country: h.name, label: displayName(h.name), lat: h.lat, lon: h.lon, region: regionOf(h.name), color: colorOf(h.name),
@@ -85,12 +87,28 @@ export function fronts(hs: Hotspot[], max = 3): WxFront[] {
     .sort((a, b) => b.outlets - a.outlets).slice(0, max);
 }
 
+/** Front symbols as on a surface-pressure chart: cold (blue triangles) = a confirmed story (5+ outlets) crossing borders,
+ *  warm (red semicircles) = one still forming, occluded (purple, both) = a front that joins two storms. */
+export type FrontType = "cold" | "warm" | "occluded";
+export function frontType(f: WxFront, sys: WxSystem[]): FrontType {
+  const kind = (k: string) => sys.find((s) => s.key === k)?.kind;
+  if (kind(f.from) === "storm" && kind(f.to) === "storm") return "occluded";
+  return f.outlets >= STORM_MIN ? "cold" : "warm";
+}
+
+/** High-pressure centres: one "H" in the middle of each region with no storm or cell (the "calm over …" in the forecast). */
+export function highs(sys: WxSystem[]): { region: string; lon: number; lat: number }[] {
+  const busy = new Set(sys.map((s) => s.region));
+  return Object.entries(REGIONS).filter(([r]) => !busy.has(r)).map(([region, c]) => ({ region, lon: c.lon, lat: c.lat }));
+}
+
 /** "3 storms, 2 fronts. Calm over Africa and Oceania." Calm = a region with no storm or cell at all. Estonian too. */
 export function forecast(sys: WxSystem[], fr: WxFront[], lang = "en"): string {
   const et = lang === "et";
   const storms = sys.filter((s) => s.kind === "storm").length;
   const pl = (n: number, w: string) => (et ? `${n} ${w === "storm" ? (n === 1 ? "torm" : "tormi") : n === 1 ? "front" : "fronti"}` : `${n} ${w}${n === 1 ? "" : "s"}`);
-  const head = storms || fr.length ? `${pl(storms, "storm")}, ${pl(fr.length, "front")}.` : et ? "Täna torme pole." : "No storms today.";
+  const noStorm = et ? "Torme pole" : "No storms", noFront = et ? "fronte pole" : "no fronts";
+  const head = storms || fr.length ? `${storms ? pl(storms, "storm") : noStorm}, ${fr.length ? pl(fr.length, "front") : noFront}.` : et ? "Täna torme pole." : "No storms today.";
   const busy = new Set(sys.map((s) => s.region));
   const all = Object.keys(REGIONS), calm = all.filter((r) => !busy.has(r)).map((r) => (et ? REGION_ET[r] ?? r : r));
   const and = et ? "ja" : "and";
@@ -242,16 +260,22 @@ export function pressureField(pts: { lon: number; lat: number; reports: number }
   const v = new Float64Array(gw * gh);
   let max = 0;
   for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
-    const lon = ((x + 0.5) / gw) * 360 - 180, lat = 90 - ((y + 0.5) / gh) * 180;
-    let s = 0;
-    for (const p of pts) {
-      const d = arcDeg(lon, lat, p.lon, p.lat), w = 5 + Math.sqrt(p.reports) * 1.1;
-      if (d < w * 4) s += Math.sqrt(p.reports) * Math.exp(-(d * d) / (2 * w * w));
-    }
+    const s = fieldValue(pts, ((x + 0.5) / gw) * 360 - 180, 90 - ((y + 0.5) / gh) * 180);
     v[y * gw + x] = s; if (s > max) max = s;
   }
   return { v, gw, gh, max };
 }
+/** The field at one point (the same sum pressureField uses for each grid cell). */
+export function fieldValue(pts: { lon: number; lat: number; reports: number }[], lon: number, lat: number): number {
+  let s = 0;
+  for (const p of pts) {
+    const d = arcDeg(lon, lat, p.lon, p.lat), w = 5 + Math.sqrt(p.reports) * 1.1;
+    if (d < w * 4) s += Math.sqrt(p.reports) * Math.exp(-(d * d) / (2 * w * w));
+  }
+  return s;
+}
+/** The chart's numbers: news "pressure" in hPa-style units. Quiet = 1016, the busiest point today = 972; lower = busier. */
+export const toHpa = (value: number, max: number) => Math.round(1016 - 44 * (max > 0 ? Math.min(1, value / max) : 0));
 export const fieldAt = (f: Field, gx: number, gy: number) => f.v[gy * f.gw + (((gx % f.gw) + f.gw) % f.gw)];
 const toLonLat = (f: Field, gx: number, gy: number): [number, number] => [((gx + 0.5) / f.gw) * 360 - 180, 90 - ((gy + 0.5) / f.gh) * 180];
 
@@ -320,12 +344,16 @@ function chain(segs: [number, number, number, number][], gw: number): [number, n
 
 // ---------- the whole model ----------
 export type Briefing = { id: string; title: string; content: string; citations?: Cite[] | null; created_at?: string };
-export type Weather = { systems: WxSystem[]; fronts: WxFront[]; isobars: { level: number; lines: [number, number][][] }[]; forecast: string; stops: Stop[] };
+export type Isobar = { level: number; hpa: number; lines: [number, number][][] };
+/** `hpa`: the number written under each L (system key) and H ("H:" + region). */
+export type Weather = { systems: WxSystem[]; fronts: WxFront[]; isobars: Isobar[]; hpa: Record<string, number>; forecast: string; stops: Stop[] };
 /** Everything the weather view draws, from /api/news/geo hotspots and today's briefing (if any). */
 export function weather(hs: Hotspot[], briefing: Briefing | null, lang = "en"): Weather {
   const sys = systems(hs), fr = fronts(hs);
-  const f = pressureField(hs.map((h) => ({ lon: h.lon, lat: h.lat, reports: h.count })));
-  const isobars = contours(f, isobarLevels(f.max));
+  const pts = hs.map((h) => ({ lon: h.lon, lat: h.lat, reports: h.count })), f = pressureField(pts);
+  const isobars = contours(f, isobarLevels(f.max)).map((c) => ({ ...c, hpa: toHpa(c.level, f.max) }));
+  const at = (lon: number, lat: number) => toHpa(fieldValue(pts, lon, lat), f.max);
+  const hpa = Object.fromEntries([...sys.map((s) => [s.key, at(s.lon, s.lat)]), ...highs(sys).map((h) => [`H:${h.region}`, at(h.lon, h.lat)])]);
   const st = briefing ? stops(briefing.content, briefing.citations ?? [], sys) : [];
-  return { systems: sys, fronts: fr, isobars, forecast: forecast(sys, fr, lang), stops: st };
+  return { systems: sys, fronts: fr, isobars, hpa, forecast: forecast(sys, fr, lang), stops: st };
 }
