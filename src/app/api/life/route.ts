@@ -1,10 +1,11 @@
 import { requireUser } from "@/lib/supabase/server";
 import { emit } from "@/lib/claude";
 import { LOCKED_TEXT, journalNotes, openLifeJournal } from "@/lib/life-journal";
-import { ackReminder, addHabit, addReminder, checkHabit, getDue, getLifeForOwner, logFocus, markFired, removeHabit, removeReminder, saveJournal, setHabitNudge, setHabitPlan, setLiveFocus } from "@/lib/life";
+import { ackReminder, addHabit, addReminder, checkHabit, getDue, getLifeForOwner, getLifeLite, logFocus, markFired, removeHabit, removeReminder, saveJournal, setHabitNudge, setHabitPlan, setLiveFocus } from "@/lib/life";
 import { getWeekReview } from "@/lib/life-week";
 import { takeHabitToasts } from "@/lib/habit-nudge";
 import { restoreFocusTimer } from "@/lib/focus-timer-pure";
+import { setLifeShield } from "@/lib/life-shield";
 import { MAX_FOCUS_MIN, habitPlanPatch, isRepeat } from "@/lib/life-pure";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,8 @@ export const dynamic = "force-dynamic";
 // LIFE workspace. GET → full state (?due=1 → { due } reminders whose time has come and that haven't fired).
 // addReminder takes optional repeat: daily|weekdays|weekly.
 // POST { action: addHabit|removeHabit|check|nudge|habitPlan|addReminder|removeReminder|fired|focus|timer|journal, ... }.
+// ?lite=1 → counts only (habits, reminders, focus, journalDays), never journal text or notes.
+// POST { action: "shield", on } → a LIFE screen is open (or closed): desk screenshots are refused meanwhile (expires by itself).
 // ?week=1 → the weekly review (LIF08, local data only, never the journal).
 // ?due=1 also drains in-app habit nudges ({ habits }) from habit-nudge.ts.
 
@@ -20,6 +23,8 @@ export async function GET(req: Request) {
   if (res) return res;
   if (new URL(req.url).searchParams.get("week") === "1") return Response.json(await getWeekReview());
   if (new URL(req.url).searchParams.get("due") === "1") return Response.json({ due: await getDue(), habits: takeHabitToasts() });
+  // Counts only (ANALYTICS, the simple page, refresh after a habit check): nothing is decrypted, no journal or notes.
+  if (new URL(req.url).searchParams.get("lite") === "1") return Response.json(await getLifeLite());
   // The journal is stored encrypted; this owner-only response is where it is opened (never for a model: life-journal.ts).
   const [st, notes] = await Promise.all([getLifeForOwner(openLifeJournal), journalNotes(sb, user.id).catch(() => [])]);
   return Response.json({ ...st, notes });
@@ -86,6 +91,9 @@ export async function POST(req: Request) {
     }
     case "timer": // the PC's live focus timer, for /screen; anything invalid becomes a paused timer
       await setLiveFocus(restoreFocusTimer(JSON.stringify(b.timer ?? null), Date.now()).timer);
+      return Response.json({ ok: true });
+    case "shield":
+      setLifeShield(b.on === true, Date.now(), b.who === "evening" ? "evening" : "panel");
       return Response.json({ ok: true });
     case "journal": {
       const text = str(b.text, 2000);

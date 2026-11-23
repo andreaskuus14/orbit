@@ -2,6 +2,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import StateNote from "./StateNote";
 import { ALL_DAYS, MAX_JOURNAL, MAX_NAME, MAX_REMINDER, MAX_UNIT, REPEAT_LABEL, addDays, isRepeat, type HabitView, type LifeState } from "@/lib/life-pure";
+import { DRAFT_KEY, parseDraft, type LifeLite } from "@/lib/life-private-pure";
+import { useLifeShield } from "./useLifeShield";
+import { toast } from "./ui/Toast";
 import { hhmm, nudgeMinute, windowLabel } from "@/lib/habit-nudge-pure";
 import type { LifeView } from "@/lib/nav-pure";
 import { FOCUS_TIMER_KEY, advanceFocusTimer, focusPhaseSeconds, pickTimer, restoreFocusTimer, workedMinutes, type FocusTimer, type RestoredFocusTimer } from "@/lib/focus-timer-pure";
@@ -38,17 +41,18 @@ export default function LifePanel({ open }: { open?: { tab: LifeView; start?: tr
     { id: "journal", label: tr("life.tab.Journal"), secondary: true }, { id: "school", label: tr("life.tab.School"), secondary: true },
   ];
   const [tab, setTab] = useWorkspaceView<Tab>("life", views);
+  useLifeShield("panel"); // desk screenshots are refused while LIFE is open
   useEffect(() => { if (!open) return; setTab(TAB_OF[open.tab]); if (open.start) startTimer(); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [st, setSt] = useState<LifeState | null>(null);
+  const [st, setSt] = useState<LifeLite | null>(null);
   const [plan, setPlan] = useState<{ plan: DayPlan; review: { text: string } | null } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const load = useCallback(async () => {
     try {
-      const [res, pr] = await Promise.all([fetch("/api/life"), fetch("/api/dayplan").catch(() => null)]);
+      const [res, pr] = await Promise.all([fetch("/api/life?lite=1", { cache: "no-store" }), fetch("/api/dayplan").catch(() => null)]);
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
-      setSt(json as LifeState); setErr(null);
-      adoptTimer((json as LifeState).timer);
+      setSt(json as LifeLite); setErr(null);
+      adoptTimer((json as LifeLite).timer);
       if (pr?.ok) setPlan(await pr.json());
     } catch (e) { setErr((e as Error).message); }
   }, []);
@@ -79,7 +83,7 @@ export default function LifePanel({ open }: { open?: { tab: LifeView; start?: tr
         {tab === "review" && <Review st={st} act={act} review={plan?.review ?? null} />}
         {tab === "habits" && <Habits st={st} act={act} />}
         {tab === "focus" && <Focus st={st} reload={load} />}
-        {tab === "journal" && <Journal st={st} act={act} />}
+        {tab === "journal" && <Journal act={act} />}
         {tab === "school" && <SchoolPanel />}
       </>}
     </WorkspaceFrame>
@@ -101,7 +105,7 @@ function Dots({ h }: { h: HabitView }) {
 
 type PlanAct = (body: object) => Promise<unknown>;
 
-function Today({ st, act, plan, planAct, focusOn }: { st: LifeState; act: Act; plan: DayPlan | null; planAct: PlanAct; focusOn: (task: string) => void }) {
+function Today({ st, act, plan, planAct, focusOn }: { st: LifeLite; act: Act; plan: DayPlan | null; planAct: PlanAct; focusOn: (task: string) => void }) {
   const { t } = useT();
   const [note, setNote] = useState<string | null>(null);
   const todays = st.habits.filter((h) => h.scheduledToday);
@@ -166,7 +170,7 @@ function Today({ st, act, plan, planAct, focusOn }: { st: LifeState; act: Act; p
   );
 }
 
-function Capture({ st, act, planAct }: { st: LifeState; act: Act; planAct: PlanAct }) {
+function Capture({ st, act, planAct }: { st: LifeLite; act: Act; planAct: PlanAct }) {
   const { t } = useT();
   const [task, setTask] = useState(""), [min, setMin] = useState("30"), [rank, setRank] = useState("2"), [due, setDue] = useState("");
   const [ok, setOk] = useState(false);
@@ -194,7 +198,7 @@ function Capture({ st, act, planAct }: { st: LifeState; act: Act; planAct: PlanA
   );
 }
 
-function Review({ st, act, review }: { st: LifeState; act: Act; review: { text: string } | null }) {
+function Review({ st, act, review }: { st: LifeLite; act: Act; review: { text: string } | null }) {
   const { t } = useT();
   const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Tallinn" });
   return (
@@ -219,7 +223,7 @@ function Review({ st, act, review }: { st: LifeState; act: Act; review: { text: 
   );
 }
 
-function Habits({ st, act }: { st: LifeState; act: Act }) {
+function Habits({ st, act }: { st: LifeLite; act: Act }) {
   const { t } = useT();
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("");
@@ -456,7 +460,7 @@ if (typeof window !== "undefined") {
   if (timer.endAt) ensureTick(); // resume even before the Focus tab is opened; the first tick emits focusSignal
 }
 
-function Focus({ st, reload }: { st: LifeState; reload: () => Promise<void> }) {
+function Focus({ st, reload }: { st: LifeLite; reload: () => Promise<void> }) {
   const { t } = useT();
   const [, force] = useState(0);
   const rerender = () => force((n) => n + 1);
@@ -504,7 +508,7 @@ function Focus({ st, reload }: { st: LifeState; reload: () => Promise<void> }) {
 }
 
 /* ---------------- Reminders ---------------- */
-function Reminders({ st, act }: { st: LifeState; act: Act }) {
+function Reminders({ st, act }: { st: LifeLite; act: Act }) {
   const { t } = useT();
   const [text, setText] = useState("");
   const [at, setAt] = useState("");
@@ -550,32 +554,76 @@ function Reminders({ st, act }: { st: LifeState; act: Act }) {
 }
 
 /* ---------------- Journal ---------------- */
-function Journal({ st, act }: { st: LifeState; act: Act }) {
+// The decrypted journal is fetched only here, when this tab opens (the rest of LIFE uses ?lite=1). Past entries and notes stay
+// blurred until clicked, and the region is marked data-private so capture tools can blank it.
+const keepDraft = (date: string, text: string) => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ date, text })); } catch { /* private mode */ } };
+const dropDraft = () => { try { localStorage.removeItem(DRAFT_KEY); } catch { /* private mode */ } };
+
+function Journal({ act }: { act: Act }) {
+  const { t } = useT();
+  const [st, setSt] = useState<LifeState | null>(null);
+  const [failed, setFailed] = useState("");
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch("/api/life", { cache: "no-store" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
+      setSt(j as LifeState); setFailed("");
+    } catch (e) { setFailed((e as Error).message); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  if (failed) return <StateNote state="failed" what={failed} action={{ label: t("state.retry"), run: () => void load() }} />;
+  if (!st) return <StateNote state="loading" />;
+  return <JournalBody st={st} act={act} />;
+}
+
+function JournalBody({ st, act }: { st: LifeState; act: Act }) {
   const { t } = useT();
   const today = st.journal[0];
-  const [text, setText] = useState(today.text);
+  const [text, setText] = useState(() => { let d: string | null = null; try { d = parseDraft(localStorage.getItem(DRAFT_KEY), today.date); } catch { /* private mode */ } return d ?? today.text; });
   const [saved, setSaved] = useState<string | null>(null);
-  const latest = useRef({ text, base: today.text, date: today.date });
-  latest.current = { text, base: today.text, date: today.date };
-  // Closing the drawer while typing may unmount without a blur: save what's there on the way out.
-  useEffect(() => () => { const l = latest.current; if (l.text !== l.base) post({ action: "journal", text: l.text, date: l.date }).catch(() => {}); }, []);
+  const [lostNote, setLostNote] = useState("");
+  const [shown, setShown] = useState<Set<string>>(new Set());
+  const show = (k: string) => setShown((s) => new Set(s).add(k));
+  const [base, setBase] = useState(today.text); // what the server has
+  const latest = useRef({ text, base, date: today.date });
+  latest.current = { text, base, date: today.date };
+  // Closing the drawer while typing may unmount without a blur: save what's there on the way out. If that fails, the text is
+  // kept on this PC and comes back next time the Journal opens.
+  useEffect(() => () => {
+    const l = latest.current;
+    if (l.text === l.base) return;
+    keepDraft(l.date, l.text);
+    post({ action: "journal", text: l.text, date: l.date }).then(dropDraft, () => {
+      toast({ tone: "error", text: t("life.saveKept") });
+    });
+  }, []);
   const save = async () => { // true when today's text is saved (or unchanged)
-    if (text === today.text) return true;
-    if (await act({ action: "journal", text, date: today.date })) { setSaved(t("life.saved")); return true; }
+    if (text === base) return true;
+    keepDraft(today.date, text);
+    if (await act({ action: "journal", text, date: today.date })) { dropDraft(); setBase(text); setLostNote(""); setSaved(t("life.saved")); return true; }
+    setLostNote(t("life.saveKeptHere"));
     return false;
   };
+  const Hidden = ({ k, children }: { k: string; children: string }) => shown.has(k)
+    ? <p className="whitespace-pre-wrap">{children}</p>
+    : <button type="button" className="block w-full text-left" onClick={() => show(k)} aria-label={t("life.showEntry")}>
+        <p className="whitespace-pre-wrap select-none" style={{ filter: "blur(6px)" }} aria-hidden>{children.slice(0, 160)}</p>
+        <span className="muted text-xs">{t("life.hiddenEntry")}</span>
+      </button>;
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-private>
       <label className="card block space-y-2">
         <span className="flex justify-between text-sm"><b>{t("life.tab.Today")}</b><span className="muted text-xs">{saved ?? `${text.length}/${MAX_JOURNAL}`}</span></span>
         <textarea className="field min-h-32 w-full" value={text} onChange={(e) => { setText(e.target.value); setSaved(null); }} onBlur={save}
           maxLength={MAX_JOURNAL} placeholder={t("life.journalPh")} />
+        {lostNote && <span className="error block text-xs" role="alert">{lostNote}</span>}
       </label>
       <ul className="space-y-2">
         {st.journal.slice(1).filter((j) => j.text).map((j) => (
           <li key={j.date} className="card text-sm">
             <div className="muted text-xs">{longDate(j.date)}</div>
-            <p className="whitespace-pre-wrap">{j.text}</p>
+            <Hidden k={`j:${j.date}`}>{j.text}</Hidden>
           </li>
         ))}
       </ul>
@@ -586,7 +634,7 @@ function Journal({ st, act }: { st: LifeState; act: Act }) {
             {st.notes.map((n) => (
               <li key={n.id} className="card text-sm">
                 <div className="muted text-xs">{longDate(n.date.slice(0, 10))}</div>
-                <p className="whitespace-pre-wrap">{n.text}</p>
+                <Hidden k={`n:${n.id}`}>{n.text}</Hidden>
               </li>
             ))}
           </ul>

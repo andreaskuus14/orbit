@@ -12,7 +12,7 @@ import { BackToSimple, PlanetHome, useManual, type SimplePlanet } from "./Planet
 import css from "./PlanetHome.module.css";
 
 /** LIFE simple page: today's scheduled habits, one tap to check off (the same "check" the Habits tab sends). Only names and
- *  streaks are shown; journal text in the same reply is never rendered here. Optimistic, rolled back if the save fails. */
+ *  streaks: the lite reply carries no journal at all. Optimistic, rolled back if the save fails. */
 type HabitLite = { id: string; name: string; emoji: string; doneToday: boolean; scheduledToday: boolean; off?: boolean; streak: number };
 function useTodayHabits(on: boolean) {
   const [items, setItems] = useState<HabitLite[]>([]);
@@ -20,7 +20,7 @@ function useTodayHabits(on: boolean) {
   useEffect(() => {
     if (!on) return;
     let live = true;
-    fetch("/api/life", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+    fetch("/api/life?lite=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => {
       if (!live || !Array.isArray(j?.habits)) return;
       setItems((j.habits as HabitLite[]).filter((h) => h.scheduledToday && !h.off).map(({ id, name, emoji, doneToday, scheduledToday, off, streak }) => ({ id, name, emoji, doneToday, scheduledToday, off, streak })));
     }, () => {});

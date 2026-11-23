@@ -1,17 +1,26 @@
 "use client";
 // "Today in a minute": a short evening note. Opens on Ctrl/⌘+Shift+E, from the command bar ("today in a minute") or the search palette,
-// and by itself once a day from the evening briefing time. Saved as a private journal memory (POST /api/evening); never sent anywhere else.
+// and by itself once a day from the evening briefing time. Dictation is local Whisper only (never the browser recognizer,
+// which sends audio to Google); without it, typing only. Saved as a private journal memory (POST /api/evening); never sent anywhere else.
 import { useEffect, useRef, useState } from "react";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { ENTRY_MAX, eveningDay, eveningDue } from "@/lib/evening-pure";
-import { getSpeechRecognition, speechErrorMessage, speechLang, VOICE_PAUSE, VOICE_RESUME, type SpeechRec } from "./voice/useVoiceInput";
+import { speechErrorMessage, speechLang, VOICE_PAUSE, VOICE_RESUME } from "./voice/useVoiceInput";
+import { recordUtterance, transcribeAudio } from "./voice/whisper";
+import { whisperLang } from "./voice/bus";
+import { useLifeShield } from "./useLifeShield";
+import { useT } from "./i18n";
 
 const KEY = "orbit.evening.shown"; // local day it last opened by itself
 const typing = () => { const el = document.activeElement as HTMLElement | null; return !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable); };
 
 export function EveningCapture() {
+  const { t: tr } = useT();
   const ref = useRef<HTMLDialogElement>(null);
-  const rec = useRef<SpeechRec | null>(null);
+  const rec = useRef<{ stop(): void; abort(): void } | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [noLocal, setNoLocal] = useState(false);
+  useLifeShield("evening", isOpen); // desk screenshots are refused while this is open
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -20,9 +29,10 @@ export function EveningCapture() {
   const [review, setReview] = useState(""); // the accepted day plan: done / missed (api/dayplan)
 
   useEffect(() => {
-    setCanVoice(!!getSpeechRecognition());
     const open = () => {
-      const d = ref.current; if (!d || d.open) return; setMsg(null); d.showModal();
+      const d = ref.current; if (!d || d.open) return; setMsg(null); d.showModal(); setIsOpen(true);
+      // Local Whisper on this PC is the only way to dictate here.
+      fetch(`/api/voice/transcribe?lang=${whisperLang(speechLang())}`).then((r) => r.json()).then((j) => { setCanVoice(j?.ready === true); setNoLocal(j?.ready !== true); }, () => { setCanVoice(false); setNoLocal(true); });
       fetch("/api/dayplan").then((r) => r.json()).then((j) => setReview(j?.review?.text ?? ""), () => {});
     };
     const onKey = (e: KeyboardEvent) => {
@@ -47,20 +57,23 @@ export function EveningCapture() {
 
   const stopVoice = () => rec.current?.stop();
   const startVoice = () => {
-    const Rec = getSpeechRecognition();
-    if (!Rec || rec.current) return;
-    const r = new Rec();
-    r.lang = speechLang(); r.continuous = true; r.interimResults = false; r.maxAlternatives = 1;
-    r.onresult = (e) => {
-      let said = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) said += e.results[i][0].transcript;
-      if (said.trim()) setText((t) => `${t}${t && !/\s$/.test(t) ? " " : ""}${said.trim()}`.slice(0, ENTRY_MAX));
-    };
-    r.onerror = (e) => { const m = speechErrorMessage(e.error); if (m) setMsg({ ok: false, text: m }); };
-    r.onend = () => { rec.current = null; setListening(false); dispatchEvent(new Event(VOICE_RESUME)); };
+    if (rec.current || !navigator.mediaDevices?.getUserMedia) return;
+    const ctrl = new AbortController();
+    let finish = () => {};
+    rec.current = { stop: () => finish(), abort: () => ctrl.abort() };
+    const done = () => { rec.current = null; setListening(false); dispatchEvent(new Event(VOICE_RESUME)); };
     dispatchEvent(new Event(VOICE_PAUSE)); // "Hey Orbit" lets go of the mic meanwhile
-    rec.current = r; setListening(true); setMsg(null);
-    try { r.start(); } catch { r.onend?.(); }
+    setListening(true); setMsg(null);
+    void (async () => {
+      try {
+        const audio = await recordUtterance(ctrl.signal, (f) => { finish = f; });
+        if (!audio) { setMsg({ ok: false, text: tr("evening.noSpeech") }); return; }
+        const said = (await transcribeAudio(audio, ctrl.signal, whisperLang(speechLang()))).trim();
+        if (said) setText((t) => `${t}${t && !/\s$/.test(t) ? " " : ""}${said}`.slice(0, ENTRY_MAX));
+      } catch (e) {
+        if (!ctrl.signal.aborted) setMsg({ ok: false, text: e instanceof DOMException && e.name === "NotAllowedError" ? speechErrorMessage("not-allowed")! : tr("evening.dictStopped") });
+      } finally { done(); }
+    })();
   };
 
   const save = async () => {
@@ -79,7 +92,7 @@ export function EveningCapture() {
   };
 
   return (
-    <dialog ref={ref} className="glass keys-overlay" aria-labelledby="evening-title" onClose={stopVoice}
+    <dialog ref={ref} className="glass keys-overlay" aria-labelledby="evening-title" onClose={() => { rec.current?.abort(); setIsOpen(false); }}
       onClick={(e) => { if (e.target === e.currentTarget) e.currentTarget.close(); }}>
       <form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); void save(); }}>
         <div className="flex items-center justify-between gap-4">
@@ -97,6 +110,7 @@ export function EveningCapture() {
               {listening ? "■ Stop dictating" : "🎙 Dictate"}
             </button>
           )}
+          {noLocal && <span className="muted text-xs">{tr("evening.noLocal")}</span>}
           <span className="num muted ml-auto text-xs" aria-hidden>{text.length}/{ENTRY_MAX}</span>
         </div>
         <p className="muted text-xs">Ctrl/⌘ Enter saves · Esc closes</p>
