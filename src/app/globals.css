@@ -1077,10 +1077,12 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 }
 @media (max-width: 640px) {
   .drawer:has([data-intel-surface]) { height: 58dvh; }
+  /* News weather on a phone: a lower sheet leaves its headline, Play and key a band above it (the layer fits itself to what's free) */
+  :root:has([data-news-weather]) .drawer:has([data-intel-surface]) { height: 44dvh; }
 }
 /* The INTELLIGENCE panel reads like a news page (owner, 23 Nov: "why it looks so AI"): a plain dark sheet with a hairline edge,
    no corner brackets, sheen, scan line or glow, and the planet name in the headline face, sentence case. */
-.drawer.glass:has([data-intel-surface]) { background: #0b0d12; backdrop-filter: none; -webkit-backdrop-filter: none; border: 1px solid rgba(255, 255, 255, 0.09); box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.7); border-radius: 14px; }
+.orbit-shell .drawer.glass:has([data-intel-surface]) { background: #0b0d12; backdrop-filter: none; -webkit-backdrop-filter: none; border: 1px solid rgba(255, 255, 255, 0.09); box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.7); border-radius: 14px; }
 .drawer:has([data-intel-surface])::before, .drawer:has([data-intel-surface])::after { display: none; }
 .drawer:has([data-intel-surface]) .world-header { font-family: "Iowan Old Style", Charter, "Source Serif Pro", Georgia, "Times New Roman", serif; font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; text-transform: none; color: #f2f0eb; text-shadow: none; }
 .drawer:has([data-intel-surface]) .world-header :is(svg, canvas, img) { display: none; }

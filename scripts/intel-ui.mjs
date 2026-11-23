@@ -116,7 +116,7 @@ const GEO_ARTS = [
 ];
 const GEO = { hours: 72, total: GEO_ARTS.length, ...hotspots(GEO_ARTS) };
 
-const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
+const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--disable-dev-shm-usage"] });
 try {
   const RUNS = [["desktop", { width: 1440, height: 900 }, true], ["laptop", { width: 1280, height: 760 }, true], ["phone", { width: 390, height: 844 }, true], ["desktop-simple", { width: 1440, height: 900 }, false]];
   if (TAG !== "before") RUNS.push(["desktop-weather", { width: 1440, height: 900 }, true], ["laptop-weather", { width: 1280, height: 720 }, true], ["phone-weather", { width: 390, height: 844 }, true], ["small-weather", { width: 800, height: 600 }, true]);
@@ -124,6 +124,7 @@ try {
     const weather = name.endsWith("-weather"); // the news weather layer (#746, ORBIT_UI_MOTION) vs the classic globe
     const ctx = await browser.newContext({ viewport: vp, reducedMotion: "reduce", deviceScaleFactor: 1 });
     const page = await ctx.newPage(), posts = [];
+    page.setDefaultTimeout(120_000);
     await page.addInitScript((m) => { try { localStorage.setItem("orbit.lang", "en"); localStorage.setItem("orbit.manual.intelligence", m[0] ? "1" : "0"); localStorage.setItem("orbit.newsWeather.view", m[1] ? "weather" : "classic"); } catch {} }, [manual, weather]);
     page.on("pageerror", (e) => console.log("pageerror", e.message));
     await ctx.route(`${ORIGIN}/**`, async (route) => {
