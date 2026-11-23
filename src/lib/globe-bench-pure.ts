@@ -13,7 +13,7 @@ export type PhaseStats = {
   cpuP50: number; cpuP95: number; cpuMax: number; longTasks: number; longMax: number; eventMax: number; handlerMax: number; glTop: { call: string; n: number; ms: number; max: number }[];
 };
 
-export const PHASES = ["open", "idle", "hover", "window", "search", "country"] as const;
+export const PHASES = ["open", "idle", "hover", "window", "search", "country", "switch"] as const;
 
 /** Value at quantile q (0..1) of an unsorted list, nearest-rank; 0 for an empty list. */
 export function quantile(xs: number[], q: number) {
@@ -64,7 +64,7 @@ export function benchStats(runs: BenchRun[]): PhaseStats[] {
 
 export function formatBench(stats: PhaseStats[], meta: { renderer: string; size: string; runs: number; software: boolean }) {
   const head = `INTELLIGENCE globe bench · ${meta.software ? "SOFTWARE GL (SwiftShader, CPU-bound; compare runs only)" : "hardware GPU"} · ${meta.renderer} · ${meta.size} · ${meta.runs} run(s)`;
-  const rows = stats.map((s) => `${s.phase.padEnd(8)} ${String(s.fps).padStart(6)} fps  p50 ${String(s.p50).padStart(6)}  p95 ${String(s.p95).padStart(6)}  max ${String(s.max).padStart(6)}  >50ms ${String(s.over50).padStart(4)}  cpu ${s.cpuP50}/${s.cpuP95}/${s.cpuMax}  long ${String(s.longTasks).padStart(3)} (max ${s.longMax})  input max ${s.eventMax} (handler ${s.handlerMax})` +
+  const rows = stats.filter((s) => s.frames).map((s) => `${s.phase.padEnd(8)} ${String(s.fps).padStart(6)} fps  p50 ${String(s.p50).padStart(6)}  p95 ${String(s.p95).padStart(6)}  max ${String(s.max).padStart(6)}  >50ms ${String(s.over50).padStart(4)}  cpu ${s.cpuP50}/${s.cpuP95}/${s.cpuMax}  long ${String(s.longTasks).padStart(3)} (max ${s.longMax})  input max ${s.eventMax} (handler ${s.handlerMax})` +
     (s.glTop.length ? `\n         gl/run: ${s.glTop.map((g) => `${g.call} ${g.n}× ${g.ms} ms (max ${g.max})`).join(", ")}` : ""));
   return [head, "phase       fps        frame ms (p50 / p95 / max)          frames over 50 ms · main-thread ms per frame (p50/p95/max) · long tasks · slowest input handler", ...rows].join("\n");
 }

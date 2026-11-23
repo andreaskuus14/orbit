@@ -2,7 +2,8 @@
 // INTELLIGENCE globe benchmark: mounts the real NewsGlobe (same modules the app ships, fixture news) in headless Chrome and
 // records frame times, long tasks, slow input handlers and WebGL call costs while it opens, idles, is hovered, switches the
 // time window, searches and opens a country. Repeatable: same fixture, same script, same viewport.
-//   node scripts/globe-bench.mjs [--runs 3] [--size 1280x720] [--dpr 1.25] [--gpu] [--json out.json] [--profile out.cpuprofile]
+//   node --experimental-strip-types scripts/globe-bench.mjs [--runs 3] [--size 1280x720] [--dpr 1.25] [--gpu] [--view classic|weather]
+//     [--before origin/main] [--json out.json] [--profile out.cpuprofile] [--shot still.png] [--quick] [--ablate nopost,noland,noblur,…]
 // Below 1280x720 the search bar covers the time-window chips (the run then warns that a step did not happen).
 // Default GL is SwiftShader (software, CPU-bound: compare runs with each other, not with a real GPU). --gpu asks Chrome for
 // the hardware GPU (ANGLE default backend); the renderer string is printed either way.
@@ -10,6 +11,7 @@
 import { build } from "esbuild";
 import { chromium } from "playwright-core";
 import { readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { benchStats, formatBench } from "../src/lib/globe-bench-pure.ts";
@@ -21,6 +23,9 @@ const runs = Number(arg("--runs", 3));
 const [W, H] = arg("--size", "1280x720").split("x").map(Number);
 const dpr = Number(arg("--dpr", 1.25));
 const gpu = flag("--gpu");
+// --view classic (default): the 3D globe, "Classic map" chosen. --view weather: the news weather view (ORBIT_UI_MOTION's
+// default), which pauses the 3D globe under it; its steps are open, idle, hover, then "switch" (to Classic map and back).
+const view = arg("--view", "classic");
 const quick = flag("--quick"); // open + idle only: for comparing what the idle scene costs to draw (--ablate)
 const origin = "http://orbit.test";
 // Profiling only: --ablate a,b cuts one suspect at bundle time (the app's files are not touched) to see what it costs.
@@ -36,14 +41,16 @@ const ABLATE = {
 // CSS-side suspect: the glass panels' backdrop blur, recomposited over the moving canvas every frame.
 const noblur = (arg("--ablate", "") || "").split(",").includes("noblur");
 const ablate = (arg("--ablate", "") || "").split(",").filter(Boolean);
-// --globe old.tsx: bench another copy of NewsGlobe.tsx (e.g. `git show origin/main:src/components/NewsGlobe.tsx`) for before/after.
-const globeSrc = arg("--globe");
+// --before <git ref>: bench the globe's files (NewsGlobe.tsx, WarmCompile.tsx) as they are at that ref, e.g. origin/main.
+const before = arg("--before");
+const atRef = (file) => execFileSync("git", ["show", `${before}:${path.relative(root, file)}`], { cwd: root, encoding: "utf8", maxBuffer: 1 << 26 });
 // --shot out.png: a still of the idle globe with motion reduced (no spin, frozen shader time), to compare looks before/after.
 const shot = arg("--shot");
 const ablatePlugin = { name: "ablate", setup(b) {
-  if (!ablate.length && !globeSrc) return;
+  if (!ablate.length && !before) return;
+  if (before) b.onLoad({ filter: /components\/WarmCompile\.tsx$/ }, (a) => ({ contents: atRef(a.path), loader: "tsx" }));
   b.onLoad({ filter: /NewsGlobe\.tsx$/ }, (a) => {
-    let src = readFileSync(globeSrc ?? a.path, "utf8");
+    let src = before ? atRef(a.path) : readFileSync(a.path, "utf8");
     for (const k of ablate) { if (k === "noblur") continue; const [re, to] = ABLATE[k] ?? []; if (!re || !re.test(src)) throw new Error(`ablation ${k} did not apply`); src = src.replace(re, to); }
     return { contents: src, loader: "tsx" };
   });
@@ -63,7 +70,7 @@ createRoot(document.getElementById("root")).render(<NewsGlobe reduced={${shot ? 
 })).outputFiles[0].text;
 // The app's own stylesheet (Tailwind's import dropped) + the few utilities the globe's layout needs to have a size.
 let css = readFileSync(path.join(root, "src/app/globals.css"), "utf8").replace(/^@import[^\n]*\n/m, "") +
-  ".absolute{position:absolute}.relative{position:relative}.inset-0{inset:0}.pointer-events-none{pointer-events:none}.overflow-hidden{overflow:hidden}.left-0{left:0}.top-0{top:0}.flex{display:flex}.hidden{display:none}" +
+  ".bottom-36{bottom:9rem}.bottom-24{bottom:6rem}.left-3{left:.75rem}.right-3{right:.75rem}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}.absolute{position:absolute}.relative{position:relative}.inset-0{inset:0}.pointer-events-none{pointer-events:none}.overflow-hidden{overflow:hidden}.left-0{left:0}.top-0{top:0}.flex{display:flex}.hidden{display:none}" +
   ".globe-side{display:block!important}" + // narrower --size runs keep the side panel the hover/window/search steps click
   (noblur ? "*{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}" : "");
 
@@ -136,14 +143,16 @@ try {
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.addInitScript(probes);
+    await page.addInitScript((v) => { try { localStorage.setItem("orbit.newsWeather.view", v); } catch {} }, view);
     const asked = [];
     await page.route("**/*", (route) => {
       const u = new URL(route.request().url());
       if (u.pathname.startsWith("/api/")) asked.push(u.pathname + u.search);
       if (u.origin !== origin) return route.abort();
-      if (u.pathname === "/demo") return route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><style>${css}</style></head><body style="margin:0;background:#01040b"><main class="orbit-shell relative" style="width:100vw;height:100vh;overflow:hidden"><div id="root"></div></main><script type="module" src="/app.js"></script></body></html>` });
+      if (u.pathname === "/demo") return route.fulfill({ contentType: "text/html", body: `<!doctype html><html data-motion="on"><head><style>${css}</style></head><body style="margin:0;background:#01040b"><main class="orbit-shell relative" style="width:100vw;height:100vh;overflow:hidden"><div id="root"></div></main><script type="module" src="/app.js"></script></body></html>` });
       if (u.pathname === "/app.js") return route.fulfill({ contentType: "text/javascript", body: js });
       if (u.pathname === "/api/news/geo") return route.fulfill({ json: geo(Number(u.searchParams.get("hours") ?? 72)) });
+      if (u.pathname === "/api/briefings") return route.fulfill({ json: { briefings: [] } });
       if (u.pathname === "/api/news/follows") return route.fulfill({ json: { countries: ["Estonia", "Ukraine", "Finland"] } });
       if (u.pathname === "/api/news/search") {
         const c = u.searchParams.get("country");
@@ -163,10 +172,24 @@ try {
     });
     await phase("idle"); await page.waitForTimeout(5000);
     if (shot) { await page.screenshot({ path: shot }); await ctx.close(); break; }
-    if (quick) { await phase("end"); all.push(await page.evaluate(() => window.__b)); await ctx.close(); continue; }
+    const stopProfile = async () => { if (cdp) { const { profile } = await cdp.send("Profiler.stop"); writeFileSync(arg("--profile"), JSON.stringify(profile)); } };
+    if (quick) { await phase("end"); all.push(await page.evaluate(() => window.__b)); await stopProfile(); await ctx.close(); continue; }
     await phase("hover");
     for (let i = 0; i < 80; i++) { await page.mouse.move(W * (0.35 + 0.3 * Math.sin(i / 9)), H * (0.4 + 0.2 * Math.cos(i / 7))); await page.waitForTimeout(50); }
     await page.mouse.move(5, H - 5);
+    if (view === "weather") {
+      await phase("switch");
+      await page.getByRole("button", { name: /classic map/i }).click();
+      await page.waitForTimeout(4000);
+      await page.getByRole("button", { name: /news weather/i }).click();
+      await page.waitForTimeout(3000);
+      await phase("end");
+      all.push(await page.evaluate(() => window.__b));
+      await stopProfile();
+      if (errors.length) console.error("page errors:", errors.slice(0, 5));
+      await ctx.close();
+      continue;
+    }
     await phase("window");
     await page.getByRole("button", { name: "24h", exact: true }).click({ force: true });
     await page.waitForTimeout(3000);
@@ -183,7 +206,7 @@ try {
     await page.waitForTimeout(4000);
     await phase("end");
     const b = await page.evaluate(() => window.__b);
-    if (cdp) { const { profile } = await cdp.send("Profiler.stop"); writeFileSync(arg("--profile"), JSON.stringify(profile)); }
+    await stopProfile();
     if (errors.length) console.error("page errors:", errors.slice(0, 5));
     // The steps must really have run, or their numbers mean nothing.
     for (const need of ["hours=24", "hours=168", "/api/news/search?q=", "/api/news/search?country="])
@@ -194,5 +217,5 @@ try {
 } finally { await browser.close(); }
 
 const stats = benchStats(all);
-console.log(formatBench(stats, { renderer, size: `${W}x${H}@${dpr}${ablate.length ? ` · ablate ${ablate}` : ""}`, runs, software: !gpu }));
+console.log(formatBench(stats, { renderer, size: `${W}x${H}@${dpr} · ${view} view${before ? ` · files from ${before}` : ""}${ablate.length ? ` · ablate ${ablate}` : ""}`, runs, software: !gpu }));
 if (arg("--json")) writeFileSync(arg("--json"), JSON.stringify({ renderer, size: `${W}x${H}@${dpr}`, stats }, null, 2));
