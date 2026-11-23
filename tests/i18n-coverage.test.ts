@@ -33,10 +33,10 @@ const counts = Object.fromEntries(files.map((f) => [f.replaceAll("\\", "/"), cou
 
 // Ceilings (current counts). Files not listed are reported only, never failed, so new components can land first.
 const CEILING: Record<string, number> = {
-  "ActivityView.tsx": 3, "AgentMission.tsx": 23, "AgentScorecard.tsx": 17, "AgentStatsCard.tsx": 9, "AgentsPanels.tsx": 1,
+  "ActivityView.tsx": 3, "AgentMission.tsx": 23, "AgentScorecard.tsx": 17, "AgentStatsCard.tsx": 9, "AgentsPanels.tsx": 0, "OperationsShell.tsx": 0,
   "AgentsStation.tsx": 13, "AlertWatch.tsx": 0, "AlienScript.tsx": 0, "AmbientListener.tsx": 0, "AmbientOverlay.tsx": 0,
   "AmbientSound.tsx": 4, "ArchCrit.tsx": 8, "ArchDaylight.tsx": 13, "ArchMaterials.tsx": 24, "ArchPlans.tsx": 19, "ArchSite.tsx": 23,
-  "ArchStudio.tsx": 27, "ArchTimeMachine.tsx": 14, "ArchWorld.tsx": 0, "AutomationFields.tsx": 26, "AutonomySection.tsx": 13,
+  "ArchStudio.tsx": 27, "ArchTimeMachine.tsx": 14, "ArchWorld.tsx": 0, "AutonomySection.tsx": 13,
   "AutopilotPanel.tsx": 0, "BeliefsPanel.tsx": 16, "BootSequence.tsx": 0, "BusinessMap.tsx": 0, "BusinessPanel.tsx": 49,
   "CalendarCard.tsx": 5, "Chronicle.tsx": 14, "Cinematic.tsx": 5, "ClipFactory.tsx": 0, "ClipPicks.tsx": 4, "CodeHelper.tsx": 17,
   "CommandPalette.tsx": 10, "CompanyPanel.tsx": 15, "ContinueWork.tsx": 8, "ContractsPanel.tsx": 48, "CoreActivity.tsx": 4,

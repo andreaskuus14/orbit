@@ -4,6 +4,7 @@ import { str } from "@/lib/pure";
 import { capabilityStart } from "@/lib/capability";
 import { withHeadsUp } from "@/lib/capability-pure";
 import { projectId } from "@/lib/project-desk-pure";
+import { listTag, slimTask } from "@/lib/operations-planet-pure";
 
 const COLS = "id, parent_id, project_id, agent, title, request, status, result, error, trace, pending, created_at, started_at, finished_at";
 
@@ -19,7 +20,13 @@ export async function GET(req: Request) {
   if (p.get("project")) q = q.eq("project_id", p.get("project")!);
   const { data, error } = await q;
   if (error) return Response.json({ error: error.message }, { status: 500 });
-  return Response.json({ tasks: data });
+  if (p.get("lite") !== "1") return Response.json({ tasks: data });
+  // lite (OPERATIONS polling): step names/times without each step's detail, result/request cut to 400 characters, and a weak
+  // ETag so an unchanged list costs a 304 with no body (the panel then skips its re-render).
+  const tag = listTag(data ?? []);
+  const head = { etag: tag, "cache-control": "private, no-cache" };
+  if (req.headers.get("if-none-match") === tag) return new Response(null, { status: 304, headers: head });
+  return Response.json({ tasks: (data ?? []).map(slimTask) }, { headers: head });
 }
 
 /** Create a task for an agent (Nova by default) and start it as soon as a slot is free. */
