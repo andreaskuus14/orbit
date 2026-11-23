@@ -91,7 +91,7 @@ const atmoVS = `${LOG} varying vec3 vN; varying vec3 vW; void main(){ vN = norma
 const atmoFS = `${LOGF} uniform vec3 uSun; uniform vec3 uCam; varying vec3 vN; varying vec3 vW;
 void main(){ \n#include <logdepthbuf_fragment>\n vec3 V = normalize(uCam - vW); vec3 N = normalize(vW);
   float k = pow(clamp(.72 + dot(normalize(vN), vec3(0,0,1)) * 0. - dot(N, -V)*0.0 , 0., 1.), 1.);
-  float edge = 1. - abs(dot(N, V)); float i = pow(edge, 3.2) * 1.5;
+  float edge = 1. - abs(dot(N, V)); float i = pow(max(edge, 0.), 3.2) * 1.5;
   float sd = dot(N, uSun), lit = smoothstep(-.3, .35, sd);
   vec3 sky = mix(vec3(1.,.55,.3), vec3(.35,.62,1.), smoothstep(-.05,.3,sd));
   gl_FragColor = vec4(sky * i * (.05 + 1.2*lit) * k, i * (.05 + lit)); }`;
@@ -132,7 +132,7 @@ void main(){ \n#include <logdepthbuf_fragment>\n vec2 p = vUv*2.-1.; float r = l
   float core = smoothstep(.07,.0,r); float a = (ring + core + tick) * uOp; if (a < .01) discard;
   gl_FragColor = vec4(uColor, a); }`;
 const beamFS = `${LOGF} uniform vec3 uColor; uniform float uOp; uniform float uT; varying vec2 vUv;
-void main(){ \n#include <logdepthbuf_fragment>\n float a = pow(1. - vUv.y, 1.6) * uOp; float side = 1. - abs(vUv.x*2.-1.);
+void main(){ \n#include <logdepthbuf_fragment>\n float a = pow(clamp(1. - vUv.y, 0., 1.), 1.6) * uOp; float side = 1. - abs(vUv.x*2.-1.);
   gl_FragColor = vec4(uColor*1.4, a * side); }`;
 
 /* ---------- the scene ---------- */
@@ -162,7 +162,10 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
         for (int i = -4; i <= 4; i++) for (int j = -4; j <= 4; j++) { vec2 o = vec2(float(i), float(j)) * k * 2.2 / uRes; float w = 1. / (1. + float(i*i + j*j) * .15); c += texture2D(tDiffuse, vUv + o) * w; tot += w; }
         vec4 base = texture2D(tDiffuse, vUv); gl_FragColor = mix(base, c / tot, step(.001, k));
         float vig = smoothstep(1.2, .35, length((vUv - .5) * vec2(1.2, 1.))); gl_FragColor.rgb *= mix(.55, 1., vig); }` });
-  composer.addPass(bloom); composer.addPass(dof); composer.addPass(new OutputPass());
+  // one NaN pixel (a pow() of a tiny negative) gets smeared by bloom into black blocks: clean before bloom
+  const clean = new ShaderPass({ uniforms: { tDiffuse: { value: null } }, vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }",
+    fragmentShader: "uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv); bool bad = !(c.r == c.r && c.g == c.g && c.b == c.b && c.a == c.a) || any(greaterThan(abs(c), vec4(1e4))); gl_FragColor = bad ? vec4(0., 0., 0., 1.) : min(c, vec4(64.)); }" });
+  composer.addPass(clean); composer.addPass(bloom); composer.addPass(dof); composer.addPass(new OutputPass());
   const sunV = new THREE.Vector3();
   const setSun = (ms: number) => {
     const d = new Date(ms), y0 = Date.UTC(d.getUTCFullYear(), 0, 1), doy = (ms - y0) / 864e5;
