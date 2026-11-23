@@ -25,6 +25,7 @@ import { REFRESH_MS } from "@/lib/follows-pure";
 import { useAlienEnv } from "./alien/env";
 import { useManual } from "./planet-manual";
 import NewsWeatherLayer from "./news-weather/NewsWeatherLayer";
+import EarthView from "./earth/EarthView";
 
 // INTELLIGENCE → World Pulse: a holographic Earth where the news happens.
 // Country shapes come from world-atlas; each country in the news gets a cluster of twinkling city-light dots
@@ -1285,6 +1286,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
         </nav>
       )}
 
+      <EarthView reduced={reduced} paused={paused} />{/* ORBIT_UI_MOTION: Planet Earth view; "News weather" falls back to the layer below */}
       <NewsWeatherLayer reduced={reduced} paused={paused} onActive={setWeatherOn} />{/* ORBIT_UI_MOTION: news weather over the paused globe */}
       <button className="chip world-back absolute bottom-24 right-3 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
     </div>
