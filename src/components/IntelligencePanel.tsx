@@ -18,6 +18,8 @@ import type { FeedHealth, Prefs, rankingGate, Vote } from "@/lib/news-intel-pure
 import { schedState } from "@/lib/panel-states-pure";
 import { coverage, outletsOf, parseBriefing, runLine, storyKey, storyTrust, summaryOf, type Cite, type Story, type Trust } from "@/lib/briefing-view-pure";
 import css from "./IntelligencePanel.module.css";
+import { NearYou, PlaceChip, SourceIcon, Thumb, Ticker, MiniMap } from "./IntelRich";
+import { ago, placeOf, readMinutes } from "@/lib/intel-rich-pure";
 
 type Dev = { key: string; rev: string; status: "new" | "corrected" | "resolved"; title: string; why: string; independent: number; articles: Article[] };
 type Intel = { prefs: Prefs; topics: { topic: string; items: Dev[]; known: number }[]; health: Record<string, Partial<FeedHealth> & { disabled?: boolean }>; done: string[];
@@ -59,11 +61,11 @@ function inline(text: string, cites: Cite[]): ReactNode[] {
 }
 
 /** A story's last 24 h of reports as one thin line (real report times; drawn only with 3+ reports). */
-function Spark({ bins, label }: { bins: number[]; label: string }) {
-  const max = Math.max(1, ...bins), w = 52, h = 14, step = w / (bins.length - 1);
+function Spark({ bins, label, big }: { bins: number[]; label: string; big?: boolean }) {
+  const max = Math.max(1, ...bins), w = big ? 132 : 52, h = big ? 30 : 14, step = w / (bins.length - 1);
   const pts = bins.map((v, i) => `${(i * step).toFixed(1)},${(h - 1 - (v / max) * (h - 3)).toFixed(1)}`).join(" ");
   return (
-    <svg className={css.spark} width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={label}>
+    <svg className={`${css.spark} ${big ? css.sparkBig : ""}`} width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={label}>
       <polygon points={`0,${h} ${pts} ${w},${h}`} className={css.sparkFill} /><polyline points={pts} className={css.sparkLine} />
     </svg>
   );
@@ -129,7 +131,7 @@ function TaskForm({ title, url, published_at, post, done }: { title: string; url
   );
 }
 
-function StoryCard({ b, story, post, actions, clusters }: { b: Briefing; story: Story; post: Post; actions: ReturnType<typeof useStoryActions>; clusters: Article[][] }) {
+function StoryCard({ b, story, post, actions, clusters, lead, index }: { b: Briefing; story: Story; post: Post; actions: ReturnType<typeof useStoryActions>; clusters: Article[][]; lead?: boolean; index: number }) {
   const { t } = useT();
   const [task, setTask] = useState(false), [full, setFull] = useState(!story.title);
   const bodyId = useId();
@@ -143,19 +145,35 @@ function StoryCard({ b, story, post, actions, clusters }: { b: Briefing; story: 
   for (const g of clusters) if (g.some((a) => ids.has(a.id) || urls.has(a.url))) for (const a of g) reports.set(a.url, a.published_at);
   const bins = coverage([...reports.values()], Date.now());
   const outlets = !o.names.length ? "" : o.more ? t("intel.outletsMore", { a: o.names[0], b: o.names[1], n: o.more }) : o.names.length === 2 ? t("intel.outlets2", { a: o.names[0], b: o.names[1] }) : o.names[0];
+  const plain = story.lines.join(" ").replace(/\[a:[0-9a-f-]{36}\]/gi, "");
+  const place = placeOf(`${story.title ?? ""} ${plain}`);
+  const mins = readMinutes([plain, ...mine.filter((c) => c.evidence === "fetched").map((c) => c.passage ?? "")].join(" "));
   return (
-    <article className={css.story} aria-label={story.title ?? undefined}>
+    <article className={`${css.story} ${css.reveal} ${lead ? css.lead : ""}`} style={{ ["--i" as string]: index }} aria-label={story.title ?? undefined}>
+      {lead && <div className={css.leadMedia}>
+        <Thumb url={first?.url} source={first?.source ?? null} size="lead" />
+        {place && <div className={css.leadMap}><MiniMap place={place} w={96} h={64} /><span>{place.label}</span></div>}
+        <span className={css.leadTag}>{t("intel.rich.lead")}</span>
+      </div>}
       <div className={css.row}>
+        {!lead && <Thumb url={first?.url} source={first?.source ?? null} size="sm" />}
         <div className={css.main}>
           {story.title && <h4 className={css.title}><button type="button" className={css.titleBtn} aria-expanded={full} aria-controls={bodyId} onClick={() => setFull((f) => !f)}>{story.title}</button></h4>}
           {full ? <div id={bodyId} className={css.body}>{story.lines.map((l, i) => <p key={i}>{inline(l.replace(/^([-*]|\d+\.)\s+/, ""), b.citations)}</p>)}</div>
             : <p id={bodyId} className={css.summary}>{summaryOf(story)}</p>}
           {(outlets || mine.length > 0) && <div className={css.meta}>
+            {first && <SourceIcon url={first.url} source={first.source} />}
             {outlets && <span>{outlets}</span>}
             {outlets && mine.length > 0 && <span aria-hidden="true">•</span>}
             {mine.length > 0 && <TrustMark trust={trust} cites={mine} all={b.citations} />}
-            {bins && <Spark bins={bins} label={t("intel.spark", { n: bins.reduce((x, y) => x + y, 0) })} />}
+            {bins && !lead && <Spark bins={bins} label={t("intel.spark", { n: bins.reduce((x, y) => x + y, 0) })} />}
           </div>}
+          <div className={css.meta2}>
+            {place && !lead && <PlaceChip place={place} />}
+            <span>{t("intel.rich.read", { n: mins })}</span>
+            {first?.published_at && ago(first.published_at, Date.now()) && <span>· {t("intel.rich.ago", { t: ago(first.published_at, Date.now())! })}</span>}
+          </div>
+          {lead && bins && <div className={css.leadSpark}><Spark big bins={bins} label={t("intel.spark", { n: bins.reduce((x, y) => x + y, 0) })} /><span>{t("intel.spark", { n: bins.reduce((x, y) => x + y, 0) })}</span></div>}
         </div>
         <MoreMenu label={t("intel.storyMenu", { title })} items={actions({ key: storyKey(b.id, title), title, url: first?.url, published_at: first?.published_at ?? null, sources: trust.outlets }, () => setTask(true))} />
       </div>
@@ -178,7 +196,7 @@ function BriefingView({ b, post, intel }: { b: Briefing; post: Post; intel: Inte
             : <>{i === firstWorld && <h3 className={css.sh}>{t("intel.worldH")}</h3>}{s.heading && <h4 className={css.kicker}>{s.heading}</h4>}</>}
           {s.kind === "next"
             ? <ul className={css.next}>{s.stories.flatMap((st) => st.lines).map((l, j) => <li key={j}>{inline(l.replace(/^([-*]|\d+\.)\s+/, ""), b.citations)}</li>)}</ul>
-            : s.stories.map((st, j) => <StoryCard key={`${b.id}-${i}-${j}`} b={b} story={st} post={post} actions={actions} clusters={clusters} />)}
+            : s.stories.map((st, j) => <StoryCard key={`${b.id}-${i}-${j}`} b={b} story={st} post={post} actions={actions} clusters={clusters} lead={i === 0 && j === 0} index={j} />)}
         </section>
       ))}
       <details className={css.foot}>
@@ -311,12 +329,15 @@ export function IntelligencePanel() {
         {listen && b && <audio key={b.id} className={css.audio} controls autoPlay preload="none" src={`/api/briefings/${b.id}/audio`} aria-label={`${t("intel.listen")}: ${b.title}`} />}
         {s !== "configured" && s !== "checking" && <SchedNote s={s} retry={() => void load()} quiet />}
         {err && !loadFailed && <p className={`${css.bad} text-sm`} role="alert">{err}</p>}
+        {articles.length > 0 && <Ticker articles={articles} />}
       </div>
 
       {briefings === null ? <Loading rows={3} label={t("intel.loading")} />
         : loadFailed ? <ErrorState title={t("intel.loadFailed")} text={t("intel.loadFailedText")} retryLabel={t("state.retry")} onRetry={() => void load()} />
         : b ? <BriefingView key={b.id} b={b} post={post} intel={intel} />
         : <Empty title={t("intel.emptyTitle")} text={t("intel.empty")} />}
+
+      {b && <NearYou articles={[...articles, ...b.citations.map((c) => ({ id: c.id, title: c.title, url: c.url, source: c.source, published_at: c.published_at }))]} />}
 
       {intel && <Developments intel={intel} post={post} />}
 
