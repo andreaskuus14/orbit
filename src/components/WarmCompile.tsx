@@ -121,6 +121,19 @@ async function readPrograms(gl: THREE.WebGLRenderer, alive: () => boolean) {
   }
 }
 
+/** three measures each geometry's bounding sphere (for culling) the first time it draws: ~50 ms for the globe's spheres in
+ *  its first frame. Measured here, a few ms per task. */
+async function measureGeometry(scene: THREE.Object3D, alive: () => boolean) {
+  const geos = new Set<THREE.BufferGeometry>();
+  scene.traverse((o) => { const g = (o as THREE.Mesh).geometry; if (g?.isBufferGeometry && !g.boundingSphere && o.frustumCulled) geos.add(g); });
+  let t0 = performance.now();
+  for (const g of geos) {
+    if (!alive()) return;
+    if (performance.now() - t0 > 8) { await tick(); t0 = performance.now(); }
+    g.computeBoundingSphere();
+  }
+}
+
 /** How long each program `since` did not have took to compile (KHR_parallel_shader_compile completion), slowest first:
  *  the perf log then names what to cut. Polls without blocking; gives up after a minute. */
 function timePrograms(gl: THREE.WebGLRenderer, since: Set<Prog>, t0: number) {
@@ -253,7 +266,7 @@ export function WarmCompile({ cap = 20_000, defer = false, onDone, onLater, worl
       // synchronously).
       const timed = timePrograms(gl, had, t0);
       Promise.all([p, ...[...(composers.get(gl) ?? [])].map(warmNow)])
-        .then(() => uploadTextures(gl, scene, () => alive)).then(() => readPrograms(gl, () => alive)).catch(() => {})
+        .then(() => uploadTextures(gl, scene, () => alive)).then(() => readPrograms(gl, () => alive)).then(() => measureGeometry(scene, () => alive)).catch(() => {})
         .finally(() => {
           if (!alive) return;
           const ms = Math.round(performance.now() - t0), programs = gl.info.programs?.length ?? -1;

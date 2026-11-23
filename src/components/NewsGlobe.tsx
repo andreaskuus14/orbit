@@ -814,9 +814,13 @@ function Globe({ tint, mode, region, reduced, lit, selected, hover, onPick, onHo
   const gl = useThree((s) => s.gl);
   useEffect(() => {
     let gone = false;
-    const upload = (t: THREE.Texture) => void whenReady(t).then(() => setTimeout(() => { if (!gone) gl.initTexture(t); }, 0));
-    const apply = () => { const r = regionMaps(); u.uDimMap.value = r.dim; u.uMaskA.value = r.a; u.uMaskB.value = r.b; [r.dim, r.a, r.b].forEach(upload); };
-    upload(texture); // usually already up (WarmCompile), unless its bitmap was still on the way
+    // each upload in its own task; the shader gets the maps only once all three are up (until then it skips them)
+    const upload = (t: THREE.Texture) => whenReady(t).then(() => new Promise<void>((ok) => setTimeout(() => { if (!gone) gl.initTexture(t); ok(); }, 0)));
+    const apply = () => {
+      const r = regionMaps();
+      void upload(r.dim).then(() => upload(r.a)).then(() => upload(r.b)).then(() => { if (!gone) { u.uDimMap.value = r.dim; u.uMaskA.value = r.a; u.uMaskB.value = r.b; } });
+    };
+    void upload(texture); // usually already up (WarmCompile), unless its bitmap was still on the way
     if (region) { apply(); return () => { gone = true; }; }
     if (u.uDimMap.value) return () => { gone = true; };
     const idle = typeof requestIdleCallback === "function";

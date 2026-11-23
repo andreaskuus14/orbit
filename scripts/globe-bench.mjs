@@ -131,9 +131,9 @@ function probes() {
   }
 }
 
-const args = ["--ignore-gpu-blocklist", "--enable-features=Vulkan", "--disable-background-timer-throttling", "--disable-renderer-backgrounding"];
-if (!gpu) args.push("--use-angle=swiftshader", "--enable-unsafe-swiftshader");
-const browser = await chromium.launch({ executablePath: process.env.CHROME ?? "/usr/bin/google-chrome", headless: true, args });
+const args = ["--ignore-gpu-blocklist", "--disable-background-timer-throttling", "--disable-renderer-backgrounding"];
+if (!gpu) args.push("--enable-features=Vulkan", "--use-angle=swiftshader", "--enable-unsafe-swiftshader");
+const browser = await chromium.launch({ executablePath: process.env.CHROME ?? (process.platform === "win32" ? "C:/Program Files/Google/Chrome/Application/chrome.exe" : "/usr/bin/google-chrome"), headless: true, args });
 const all = [];
 let renderer = "";
 try {
