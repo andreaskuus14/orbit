@@ -95,7 +95,6 @@ import { FocusWork, JumpPill, useFocusProgress } from "./motion/FocusWork";
 import { HomeDepth } from "./motion/HomeDepth";
 import { useFollowWork } from "./motion/useFollowWork";
 import { followHome, followPlanet } from "@/lib/follow-pure";
-import { Toaster } from "./ui"; // the one toast stack (design language); brings planet-ui.css (all scoped under .pu)
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const PerfRun = dynamic(() => import("./PerfRun"), { ssr: false }); // only with ?perfrun=1
@@ -946,7 +945,6 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         {(cmdErr || voice.error) && <p className="error mt-1 px-1" role="alert">{cmdErr || voice.error}</p>}
         {cmdReply && <p className="muted mt-1 px-1" role="status">{cmdReply}</p>}
       </form>
-      <Toaster dismissLabel={t("sx.dismiss")} />{/* STUDIO "3 Shorts are ready to check · Check", "Channel data is up to date" */}
     </main>
   );
 }
