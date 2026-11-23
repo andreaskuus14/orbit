@@ -233,3 +233,11 @@ test("free frame: the panel, the top bands and the bottom bands come off; nonsen
   assert.deepEqual(safeFrame(grid.map((r) => r.map(() => false)), W, H, fb), fb);
   assert.deepEqual(safeFrame([], W, H, fb), fb);
 });
+
+test("safe frame on a phone: top bars and a bottom sheet leave the band between them", async () => {
+  const { safeFrame } = await import("../src/lib/news-weather-motion-pure.ts");
+  const rows = 24, cols = 32, covered = Array.from({ length: rows }, (_, y) => Array.from({ length: cols }, () => y < 4 || y >= 13));
+  const f = safeFrame(covered, 390, 844, { x: 0, y: 0, w: 390, h: 844 });
+  assert.equal(f.x, 0); assert.equal(f.w, 390);
+  assert.ok(f.y > 130 && f.y < 160 && f.y + f.h < 460 && f.h > 250, JSON.stringify(f));
+});

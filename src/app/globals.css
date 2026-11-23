@@ -1014,3 +1014,30 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .planet-boundary-mark { width: 10px; height: 10px; border-radius: 50%; background: #fb7185; box-shadow: 0 0 0 4px rgba(251, 113, 133, 0.18); }
 @media (prefers-reduced-motion: reduce) { .planet-boundary { animation: none; } }
 
+
+/* INTELLIGENCE one surface: a slimmer briefing panel, and the globe's search bar and region chips sit in the free space between
+   the world list (left) and the panel (right), so neither is ever under the panel. Phones: a shorter sheet keeps the globe,
+   the search bar and the region chips in view above it. */
+:root { --intel-w: min(26rem, max(22rem, 44vw)); }
+@media (min-width: 721px) { .drawer:has([data-intel-surface]) { width: var(--intel-w); } }
+@media (min-width: 721px) and (min-height: 521px) {
+  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) :is(.globe-search, .globe-regions) {
+    zoom: 1; transform: none; left: 0.75rem; right: calc(var(--intel-w) + 2.25rem); max-width: 34rem; margin-inline: auto; }
+  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) .globe-search { width: auto; }
+  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) .globe-regions { width: fit-content; max-width: 46rem; }
+}
+@media (min-width: 1101px) and (min-height: 521px) {
+  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) :is(.globe-search, .globe-regions) { left: 18.5rem; }
+}
+@media (max-width: 640px) {
+  .drawer:has([data-intel-surface]) { height: 58dvh; }
+  /* News weather on a phone: a lower sheet leaves its headline, Play and key a band above it (the layer fits itself to what's free) */
+  :root:has([data-news-weather]) .drawer:has([data-intel-surface]) { height: 44dvh; }
+}
+/* The INTELLIGENCE panel reads like a news page (owner, 23 Nov: "why it looks so AI"): a plain dark sheet with a hairline edge,
+   no corner brackets, sheen, scan line or glow, and the planet name in the headline face, sentence case. */
+.orbit-shell .drawer.glass:has([data-intel-surface]) { background: #0b0d12; backdrop-filter: none; -webkit-backdrop-filter: none; border: 1px solid rgba(255, 255, 255, 0.09); box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.7); border-radius: 14px; }
+.drawer:has([data-intel-surface])::before, .drawer:has([data-intel-surface])::after { display: none; }
+.drawer:has([data-intel-surface]) .world-header { font-family: "Iowan Old Style", Charter, "Source Serif Pro", Georgia, "Times New Roman", serif; font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; text-transform: none; color: #f2f0eb; text-shadow: none; }
+.drawer:has([data-intel-surface]) .world-header :is(svg, canvas, img) { display: none; }
+.drawer:has([data-intel-surface]) .drag-handle > .chip { font-family: var(--font-inter), system-ui, sans-serif; text-transform: none; letter-spacing: normal; background: transparent; border-color: rgba(255, 255, 255, 0.14); box-shadow: none; }

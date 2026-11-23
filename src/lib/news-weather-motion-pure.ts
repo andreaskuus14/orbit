@@ -204,7 +204,9 @@ export function safeFrame(covered: boolean[][], W: number, H: number, fallback: 
   if (!rows || !cols) return fallback;
   const all = covered.flat(), share = all.filter(Boolean).length / all.length;
   if (share > 0.7) return fallback;
-  const colCov = (c: number) => covered.filter((r) => r[c]).length / rows;
+  // a side panel covers the middle of the screen top to bottom; a phone's bottom sheet and the top bars don't (so they don't eat columns)
+  const mid = covered.slice(Math.floor(rows * 0.25), Math.ceil(rows * 0.75));
+  const colCov = (c: number) => mid.filter((r) => r[c]).length / mid.length;
   let l = 0, r = cols;
   while (l < cols && colCov(l) >= 0.5) l++;
   while (r > l && colCov(r - 1) >= 0.5) r--;
@@ -214,6 +216,7 @@ export function safeFrame(covered: boolean[][], W: number, H: number, fallback: 
   let t = 0, b = rows;
   for (let y = 0; y < Math.floor(rows * 0.45); y++) if (rowHit(y)) t = y + 1;
   for (let y = rows - 1; y >= Math.ceil(rows * 0.55); y--) if (rowHit(y)) b = y;
+  while (b < rows && b > t + 1 && rowHit(b - 1)) b--; // a sheet that starts higher than that: the band ends at its top edge
   if (r - l < 2 || b - t < 2) return fallback;
   const cw = W / cols, ch = H / rows;
   const x = l ? l * cw + pad : 0, y = t ? t * ch + pad : 0, x2 = r < cols ? r * cw - pad : W, y2 = b < rows ? b * ch - pad : H;

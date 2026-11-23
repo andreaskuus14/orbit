@@ -244,7 +244,7 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
   if (!motion) return null;
   if (!active) return <button className="chip absolute bottom-36 left-3" onClick={() => pick(false)}>{text.weatherMap}</button>;
   return (
-    <div ref={box} className="absolute inset-0 select-none" style={{ background: "#18191b", touchAction: "none", cursor: hover ? "pointer" : down.current ? "grabbing" : "grab" }}
+    <div ref={box} data-news-weather="" className="absolute inset-0 select-none" style={{ background: "#18191b", touchAction: "none", cursor: hover ? "pointer" : down.current ? "grabbing" : "grab" }}
       onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} aria-label={text.title}>
       <canvas ref={cv} className="absolute inset-0 h-full w-full" aria-hidden />
       <p className="sr-only">{wx ? `${text.title}. ${wx.forecast} ${since.join(". ")}` : ""}</p>

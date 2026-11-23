@@ -50,8 +50,8 @@ export function WatchesSection() {
         <select className="chip" aria-label={t("pw.every")} value={f.every} onChange={(e) => setF({ ...f, every: Number(e.target.value) })}>
           {EVERY.map((h) => <option key={h} value={h}>{t(`pw.e.${h}` as const)}</option>)}
         </select>
-        <label className="chip flex items-center gap-1" title="For pages that only show their content with JavaScript: ORBIT checks them in its hidden browser">
-          <input type="checkbox" checked={f.render} onChange={(e) => setF({ ...f, render: e.target.checked })} /> JS page
+        <label className="chip flex items-center gap-1" title={t("pw.jsTitle")}>
+          <input type="checkbox" checked={f.render} onChange={(e) => setF({ ...f, render: e.target.checked })} /> {t("pw.js")}
         </label>
         <button className="btn" disabled={busy === "add"}>{t("pw.add")}</button>
       </form>

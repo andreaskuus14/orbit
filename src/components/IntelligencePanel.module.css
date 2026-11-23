@@ -1,0 +1,105 @@
+/* INTELLIGENCE one surface on the planet design language (planet-ui.css, reports/design-language.md): the root is a .pu
+   surface with data-planet="intelligence", so the kit's tokens (Inter, neutral glass, one cyan accent) apply. Cards are flat
+   raised surfaces; green = confirmed, amber = check. Motion only under html[data-motion="on"] (ORBIT_UI_MOTION), never with
+   reduced motion; the kit's Sheet and MoreMenu bring their own. */
+.page { display: flex; flex-direction: column; gap: 20px; color: var(--pu-ink); }
+.page :global(.card) { background: transparent; border: 0; border-top: 1px solid rgba(255, 255, 255, 0.09); box-shadow: none; border-radius: 0; padding-inline: 0; }
+.page :global(.chip) { background: var(--pu-raised); border-color: var(--pu-line-strong); box-shadow: none; font-family: var(--pu-font); letter-spacing: normal; text-transform: none; }
+.page :global(.btn) { background: var(--pu-accent-fill); color: var(--pu-on-accent); border: 0; border-radius: var(--pu-r-md); box-shadow: none; font: var(--pu-body); font-weight: 600; letter-spacing: normal; text-transform: none; }
+.page :global(.btn:hover:not(:disabled)) { box-shadow: none; filter: brightness(1.08); }
+.page :global(.link) { color: var(--pu-accent-ink); }
+.page :global(.field) { background: var(--pu-surface); border-color: var(--pu-line-strong); font-family: var(--pu-font); }
+.page :global(.muted) { color: var(--pu-ink-3); }
+.page :global(.ws-tabs) { flex-wrap: wrap; }
+.bad { color: var(--pu-bad); }
+.select { height: var(--pu-h-md); padding: 0 28px 0 12px; border-radius: var(--pu-r-md); background: var(--pu-raised); color: var(--pu-ink); border: 0; box-shadow: inset 0 0 0 1px var(--pu-line-strong); font: var(--pu-meta); }
+.sheetBody { display: flex; flex-direction: column; gap: 12px; }
+
+/* Top bar: status line, then the few actions. */
+.bar { display: flex; flex-direction: column; gap: 0.5rem; }
+.statusRow { display: flex; align-items: center; gap: 0.5rem; }
+.status { flex: 1; min-width: 0; font: var(--pu-meta); color: var(--pu-ink-2); min-height: 18px; margin: 0; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.actions .grow { flex: 1; }
+.audio { width: 100%; height: 2.25rem; }
+
+/* Briefing: editorial, not cards. A headline face for titles, Inter for text, hairline rules between stories, colour only
+   where it means something (the trust dot, links). */
+.page { --serif: "Iowan Old Style", Charter, "Source Serif Pro", Georgia, "Times New Roman", serif; --rule: rgba(255, 255, 255, 0.09); --paper-ink: #f2f0eb; }
+.section { display: flex; flex-direction: column; }
+.sh { font: 700 30px/36px var(--serif); letter-spacing: -0.01em; color: var(--paper-ink); margin: 6px 0 0; padding-bottom: 8px; border-bottom: 1px solid var(--rule); }
+.kicker { font: 600 12px/16px var(--pu-font); color: var(--pu-ink-3); margin: 14px 0 0; }
+.story { position: relative; padding: 12px 0 13px; }
+.story + .story { border-top: 1px solid var(--rule); }
+.row { display: flex; align-items: center; gap: 12px; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.head { display: flex; align-items: flex-start; gap: 8px; }
+.title { font: 700 18px/23px var(--serif); letter-spacing: -0.005em; color: var(--paper-ink); margin: 0; }
+.titleBtn { all: unset; cursor: pointer; }
+.titleBtn:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: rgba(242, 240, 235, 0.4); }
+.titleBtn:focus-visible { box-shadow: var(--pu-focus); border-radius: 4px; }
+.summary { margin: 0; color: var(--pu-ink-3); font: 450 13.5px/19px var(--pu-font); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.body { color: var(--pu-ink-2); font: 450 14px/21px var(--pu-font); }
+.body p + p { margin-top: 6px; }
+.body :global(.link) { color: var(--pu-ink-3); font-size: 11px; text-decoration: none; vertical-align: 0.3em; margin-left: 1px; }
+.body :global(.link:hover) { color: var(--pu-accent-ink); }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font: 450 12px/16px var(--pu-font); color: var(--pu-ink-2); }
+.row > :global(.pu-menu-wrap) { align-self: center; }
+/* Numbers and names stay plain text here: no highlight colours that carry no meaning. */
+.page :global(:is(.hl-num, .hl-place)) { color: inherit; font-weight: 600; }
+.page :global(.hl-strong) { background: none; color: var(--paper-ink); -webkit-text-fill-color: currentColor; }
+.next { margin: 8px 0 0; padding-left: 1.1rem; list-style: disc; color: var(--pu-ink-2); font: 450 14px/21px var(--pu-font); }
+.next li + li { margin-top: 4px; }
+
+/* Trust: a dot and one short word; the evidence opens on hover, focus or click. */
+.trust { position: relative; flex-shrink: 0; }
+.trustBtn { display: inline-flex; align-items: center; gap: 5px; padding: 1px 4px; margin-left: -4px; border-radius: 6px; font: 450 12px/16px var(--pu-font); color: var(--pu-ink-3); border: 1px solid transparent; }
+.trustBtn:hover, .trustBtn[aria-expanded="true"] { border-color: rgba(148, 163, 184, 0.3); color: var(--pu-ink); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pu-ink-3); }
+.confirmed .dot { background: #e8e6e1; }
+.single .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--pu-ink-3); }
+.check .dot { background: var(--pu-warn); }
+.check.trustBtn { color: var(--pu-warn); }
+.pop { position: absolute; z-index: 5; left: -4px; top: calc(100% + 0.35rem); width: min(21rem, 78vw); padding: 0.7rem 0.8rem; border-radius: 12px; background: var(--pu-overlay); border: 1px solid rgba(148, 163, 184, 0.28); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); font-size: 0.78rem; color: var(--pu-ink-2); display: flex; flex-direction: column; gap: 0.45rem; }
+.pop b { color: var(--pu-ink); font-weight: 600; }
+.pop ul { display: flex; flex-direction: column; gap: 0.3rem; }
+.flag { color: var(--pu-warn); }
+.flag q { color: var(--pu-ink); }
+.src { color: var(--pu-ink-3); }
+
+.task { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.3rem; }
+
+/* New since you last looked */
+.dev { display: flex; flex-direction: column; gap: 0.3rem; }
+.devRow { display: flex; align-items: flex-start; gap: 0.5rem; }
+.dev > li + li { border-top: 1px solid var(--rule); padding-top: 8px; margin-top: 8px; }
+.pill { display: inline-block; font-size: 0.68rem; padding: 0 0.45rem; margin-right: 0.35rem; border-radius: 999px; border: 1px solid rgba(148, 163, 184, 0.3); color: var(--pu-ink-2); vertical-align: 0.1em; }
+.pill.new { border-color: var(--pu-accent-line); color: var(--pu-accent-ink); }
+.meta { font-size: 0.75rem; color: var(--pu-ink-3); }
+
+.foot { font-size: 0.78rem; color: var(--pu-ink-3); }
+.foot > summary { cursor: pointer; color: var(--pu-ink-2); }
+.foot ol { margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.3rem; }
+
+/* Motion (ORBIT_UI_MOTION): the sheet slides in, popovers and menus fade up. */
+@media (prefers-reduced-motion: no-preference) {
+  :global(html[data-motion="on"]) .pop { animation: intel-pop var(--dur-quick, 200ms) var(--ease-out, ease-out) both; transform-origin: top left; }
+}
+@keyframes intel-pop { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
+
+/* Advanced where it's real data: a slim live strip, a 24 h coverage line per story, a three-step confidence bar (independent outlets). */
+.status { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; white-space: nowrap; overflow: hidden; }
+.live { width: 6px; height: 6px; border-radius: 50%; background: var(--pu-good); flex: none; }
+.live[data-state="failed"] { background: var(--pu-bad); }
+.live[data-state="running"] { background: var(--pu-accent); }
+.stripAt { color: var(--pu-ink-3); overflow: hidden; text-overflow: ellipsis; }
+@media (prefers-reduced-motion: no-preference) { :global(html[data-motion="on"]) .live[data-state="running"] { animation: intel-live 1.6s ease-in-out infinite; } }
+@keyframes intel-live { 50% { opacity: 0.35; } }
+.bars { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 9px; }
+.bars i { width: 3px; border-radius: 1px; background: rgba(255, 255, 255, 0.16); }
+.bars i:nth-child(1) { height: 4px; } .bars i:nth-child(2) { height: 6.5px; } .bars i:nth-child(3) { height: 9px; }
+.bars i[data-on] { background: #e8e6e1; }
+.check .bars i[data-on] { background: var(--pu-warn); }
+.spark { margin-left: auto; flex: none; }
+.sparkLine { fill: none; stroke: var(--pu-ink-2); stroke-width: 1.2; stroke-linejoin: round; }
+.sparkFill { fill: rgba(255, 255, 255, 0.06); }
