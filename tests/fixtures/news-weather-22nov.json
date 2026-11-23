@@ -1,0 +1,457 @@
+{
+ "_note": "FIXTURE in the shape of /api/news/geo (hours=72) and /api/briefings on 22 Nov 2026. Countries, report counts, outlet counts and the factory-fire text follow the approved style frames (real 22 Nov data); individual headlines, URLs and times are made up to match. stories are not cut to 8 per country.",
+ "geo": {
+  "hours": 72,
+  "total": 417,
+  "untagged": 0,
+  "hotspots": [
+   {
+    "name": "United States of America",
+    "lat": 39,
+    "lon": -98,
+    "count": 158,
+    "stories": [
+     {
+      "title": "Iran blockade exit talks open in Oman",
+      "url": "https://apnews.com/news/2026/11/22/2",
+      "source": "AP News",
+      "published_at": "2026-11-22T18:13:00Z"
+     },
+     {
+      "title": "Exit talks on Iran blockade begin in Oman",
+      "url": "https://aljazeera.com/news/2026/11/22/5",
+      "source": "Al Jazeera",
+      "published_at": "2026-11-22T13:52:00Z"
+     },
+     {
+      "title": "Iran blockade exit talks open in Oman as oil eases",
+      "url": "https://ft.com/news/2026/11/22/10",
+      "source": "Financial Times",
+      "published_at": "2026-11-22T12:57:00Z"
+     },
+     {
+      "title": "Oil eases as Iran blockade exit talks open",
+      "url": "https://bloomberg.com/news/2026/11/22/9",
+      "source": "Bloomberg",
+      "published_at": "2026-11-22T12:44:00Z"
+     },
+     {
+      "title": "Iran blockade: exit talks begin",
+      "url": "https://bbc.com/news/2026/11/22/4",
+      "source": "BBC World",
+      "published_at": "2026-11-22T11:39:00Z"
+     },
+     {
+      "title": "What to know about the Iran blockade exit talks",
+      "url": "https://npr.org/news/2026/11/22/8",
+      "source": "NPR",
+      "published_at": "2026-11-22T10:31:00Z"
+     },
+     {
+      "title": "Iran blockade exit talks open in Oman",
+      "url": "https://abcnews.go.com/news/2026/11/22/3",
+      "source": "ABC News",
+      "published_at": "2026-11-22T10:26:00Z"
+     },
+     {
+      "title": "Iran blockade exit talks begin",
+      "url": "https://theguardian.com/news/2026/11/22/6",
+      "source": "The Guardian",
+      "published_at": "2026-11-22T09:05:00Z"
+     },
+     {
+      "title": "US and Iran begin blockade exit talks",
+      "url": "https://cnn.com/news/2026/11/22/7",
+      "source": "CNN",
+      "published_at": "2026-11-22T08:18:00Z"
+     },
+     {
+      "title": "US opens Iran blockade exit talks",
+      "url": "https://reuters.com/news/2026/11/22/1",
+      "source": "Reuters",
+      "published_at": "2026-11-22T07:00:00Z"
+     }
+    ]
+   },
+   {
+    "name": "Iran",
+    "lat": 32.5,
+    "lon": 54,
+    "count": 74,
+    "stories": [
+     {
+      "title": "Iran blockade exit talks open in Oman",
+      "url": "https://apnews.com/news/2026/11/22/2",
+      "source": "AP News",
+      "published_at": "2026-11-22T18:13:00Z"
+     },
+     {
+      "title": "Exit talks on Iran blockade begin in Oman",
+      "url": "https://aljazeera.com/news/2026/11/22/5",
+      "source": "Al Jazeera",
+      "published_at": "2026-11-22T13:52:00Z"
+     },
+     {
+      "title": "Iran blockade exit talks open in Oman as oil eases",
+      "url": "https://ft.com/news/2026/11/22/10",
+      "source": "Financial Times",
+      "published_at": "2026-11-22T12:57:00Z"
+     },
+     {
+      "title": "Oil eases as Iran blockade exit talks open",
+      "url": "https://bloomberg.com/news/2026/11/22/9",
+      "source": "Bloomberg",
+      "published_at": "2026-11-22T12:44:00Z"
+     },
+     {
+      "title": "Iran blockade: exit talks begin",
+      "url": "https://bbc.com/news/2026/11/22/4",
+      "source": "BBC World",
+      "published_at": "2026-11-22T11:39:00Z"
+     },
+     {
+      "title": "What to know about the Iran blockade exit talks",
+      "url": "https://npr.org/news/2026/11/22/8",
+      "source": "NPR",
+      "published_at": "2026-11-22T10:31:00Z"
+     },
+     {
+      "title": "Iran blockade exit talks open in Oman",
+      "url": "https://abcnews.go.com/news/2026/11/22/3",
+      "source": "ABC News",
+      "published_at": "2026-11-22T10:26:00Z"
+     },
+     {
+      "title": "Iran blockade exit talks begin",
+      "url": "https://theguardian.com/news/2026/11/22/6",
+      "source": "The Guardian",
+      "published_at": "2026-11-22T09:05:00Z"
+     },
+     {
+      "title": "US and Iran begin blockade exit talks",
+      "url": "https://cnn.com/news/2026/11/22/7",
+      "source": "CNN",
+      "published_at": "2026-11-22T08:18:00Z"
+     },
+     {
+      "title": "US opens Iran blockade exit talks",
+      "url": "https://reuters.com/news/2026/11/22/1",
+      "source": "Reuters",
+      "published_at": "2026-11-22T07:00:00Z"
+     }
+    ]
+   },
+   {
+    "name": "United Kingdom",
+    "lat": 54,
+    "lon": -2,
+    "count": 54,
+    "stories": [
+     {
+      "title": "UK, EU sign deals on trade",
+      "url": "https://reuters.com/news/2026/11/22/13",
+      "source": "Reuters",
+      "published_at": "2026-11-22T14:26:00Z"
+     },
+     {
+      "title": "COP31 draft text out, talks go on",
+      "url": "https://bbc.com/news/2026/11/22/26",
+      "source": "BBC World",
+      "published_at": "2026-11-22T13:39:00Z"
+     },
+     {
+      "title": "COP31 draft text: what is in it",
+      "url": "https://theguardian.com/news/2026/11/22/24",
+      "source": "The Guardian",
+      "published_at": "2026-11-22T12:13:00Z"
+     },
+     {
+      "title": "COP31 draft text published in Antalya",
+      "url": "https://reuters.com/news/2026/11/22/23",
+      "source": "Reuters",
+      "published_at": "2026-11-22T11:00:00Z"
+     },
+     {
+      "title": "What the UK–EU trade deals mean",
+      "url": "https://politico.eu/news/2026/11/22/16",
+      "source": "Politico Europe",
+      "published_at": "2026-11-22T10:05:00Z"
+     },
+     {
+      "title": "UK and EU sign trade deals in London",
+      "url": "https://news.sky.com/news/2026/11/22/15",
+      "source": "Sky News",
+      "published_at": "2026-11-22T08:52:00Z"
+     },
+     {
+      "title": "UK and EU seal trade deals",
+      "url": "https://ft.com/news/2026/11/22/14",
+      "source": "Financial Times",
+      "published_at": "2026-11-22T06:39:00Z"
+     },
+     {
+      "title": "COP31 draft text lands in Antalya",
+      "url": "https://climatechangenews.com/news/2026/11/22/25",
+      "source": "Climate Home",
+      "published_at": "2026-11-22T06:26:00Z"
+     },
+     {
+      "title": "UK–EU deals signed on trade and energy",
+      "url": "https://theguardian.com/news/2026/11/22/12",
+      "source": "The Guardian",
+      "published_at": "2026-11-22T04:13:00Z"
+     },
+     {
+      "title": "UK and EU sign new trade deals",
+      "url": "https://bbc.com/news/2026/11/22/11",
+      "source": "BBC World",
+      "published_at": "2026-11-22T04:00:00Z"
+     }
+    ]
+   },
+   {
+    "name": "Russia",
+    "lat": 60,
+    "lon": 90,
+    "count": 50,
+    "stories": [
+     {
+      "title": "Russian strikes hit Lviv power grid",
+      "url": "https://aljazeera.com/news/2026/11/22/20",
+      "source": "Al Jazeera",
+      "published_at": "2026-11-22T15:39:00Z"
+     },
+     {
+      "title": "Russian strikes on Lviv hit power grid",
+      "url": "https://kyivindependent.com/news/2026/11/22/17",
+      "source": "Kyiv Independent",
+      "published_at": "2026-11-22T12:00:00Z"
+     },
+     {
+      "title": "Lviv power cut after Russian strikes",
+      "url": "https://bbc.com/news/2026/11/22/19",
+      "source": "BBC World",
+      "published_at": "2026-11-22T09:26:00Z"
+     },
+     {
+      "title": "Russian strikes on Lviv: power out",
+      "url": "https://dw.com/news/2026/11/22/21",
+      "source": "DW",
+      "published_at": "2026-11-22T06:52:00Z"
+     },
+     {
+      "title": "Russian strikes on Lviv knock out power",
+      "url": "https://reuters.com/news/2026/11/22/18",
+      "source": "Reuters",
+      "published_at": "2026-11-22T05:13:00Z"
+     },
+     {
+      "title": "Lviv without power after Russian strikes",
+      "url": "https://theguardian.com/news/2026/11/22/22",
+      "source": "The Guardian",
+      "published_at": "2026-11-22T04:05:00Z"
+     }
+    ]
+   },
+   {
+    "name": "Ukraine",
+    "lat": 49,
+    "lon": 31.5,
+    "count": 36,
+    "stories": [
+     {
+      "title": "Russian strikes hit Lviv power grid",
+      "url": "https://aljazeera.com/news/2026/11/22/20",
+      "source": "Al Jazeera",
+      "published_at": "2026-11-22T15:39:00Z"
+     },
+     {
+      "title": "Russian strikes on Lviv hit power grid",
+      "url": "https://kyivindependent.com/news/2026/11/22/17",
+      "source": "Kyiv Independent",
+      "published_at": "2026-11-22T12:00:00Z"
+     },
+     {
+      "title": "Lviv power cut after Russian strikes",
+      "url": "https://bbc.com/news/2026/11/22/19",
+      "source": "BBC World",
+      "published_at": "2026-11-22T09:26:00Z"
+     },
+     {
+      "title": "Russian strikes on Lviv: power out",
+      "url": "https://dw.com/news/2026/11/22/21",
+      "source": "DW",
+      "published_at": "2026-11-22T06:52:00Z"
+     },
+     {
+      "title": "Russian strikes on Lviv knock out power",
+      "url": "https://reuters.com/news/2026/11/22/18",
+      "source": "Reuters",
+      "published_at": "2026-11-22T05:13:00Z"
+     },
+     {
+      "title": "Lviv without power after Russian strikes",
+      "url": "https://theguardian.com/news/2026/11/22/22",
+      "source": "The Guardian",
+      "published_at": "2026-11-22T04:05:00Z"
+     }
+    ]
+   },
+   {
+    "name": "Turkey",
+    "lat": 39,
+    "lon": 35,
+    "count": 18,
+    "stories": [
+     {
+      "title": "COP31 draft text out, talks go on",
+      "url": "https://bbc.com/news/2026/11/22/26",
+      "source": "BBC World",
+      "published_at": "2026-11-22T13:39:00Z"
+     },
+     {
+      "title": "COP31 draft text: what is in it",
+      "url": "https://theguardian.com/news/2026/11/22/24",
+      "source": "The Guardian",
+      "published_at": "2026-11-22T12:13:00Z"
+     },
+     {
+      "title": "COP31 draft text published in Antalya",
+      "url": "https://reuters.com/news/2026/11/22/23",
+      "source": "Reuters",
+      "published_at": "2026-11-22T11:00:00Z"
+     },
+     {
+      "title": "COP31 draft text lands in Antalya",
+      "url": "https://climatechangenews.com/news/2026/11/22/25",
+      "source": "Climate Home",
+      "published_at": "2026-11-22T06:26:00Z"
+     }
+    ]
+   },
+   {
+    "name": "South Korea",
+    "lat": 36.4,
+    "lon": 127.9,
+    "count": 10,
+    "stories": [
+     {
+      "title": "Minister resigns over exam cheating scandal",
+      "url": "https://koreaherald.com/news/2026/11/22/31",
+      "source": "Korea Herald",
+      "published_at": "2026-11-22T09:13:00Z"
+     },
+     {
+      "title": "South Korea minister resigns over exam cheating",
+      "url": "https://en.yna.co.kr/news/2026/11/22/30",
+      "source": "Yonhap",
+      "published_at": "2026-11-22T06:00:00Z"
+     }
+    ]
+   },
+   {
+    "name": "Indonesia",
+    "lat": -2.5,
+    "lon": 118,
+    "count": 9,
+    "stories": [
+     {
+      "title": "Indonesia factory fire: three dead, 36 missing",
+      "url": "https://bbc.com/news/2026/11/22/28",
+      "source": "BBC World",
+      "published_at": "2026-11-22T12:13:00Z"
+     },
+     {
+      "title": "Factory fire in Indonesia kills three, 36 missing",
+      "url": "https://theguardian.com/news/2026/11/22/29",
+      "source": "The Guardian",
+      "published_at": "2026-11-22T07:26:00Z"
+     },
+     {
+      "title": "Indonesia factory fire kills three, 36 missing",
+      "url": "https://aljazeera.com/news/2026/11/22/27",
+      "source": "Al Jazeera",
+      "published_at": "2026-11-22T05:00:00Z"
+     }
+    ]
+   },
+   {
+    "name": "Mexico",
+    "lat": 23,
+    "lon": -102,
+    "count": 8,
+    "stories": [
+     {
+      "title": "Mexico arrests cartel boss in Sinaloa",
+      "url": "https://reuters.com/news/2026/11/22/32",
+      "source": "Reuters",
+      "published_at": "2026-11-22T11:00:00Z"
+     },
+     {
+      "title": "Cartel boss arrested in Sinaloa, Mexico",
+      "url": "https://english.elpais.com/news/2026/11/22/33",
+      "source": "El País",
+      "published_at": "2026-11-22T05:13:00Z"
+     }
+    ]
+   }
+  ]
+ },
+ "briefing": {
+  "id": "00000000-0000-4000-8000-000000000900",
+  "kind": "morning",
+  "title": "Morning briefing · Sun 22 Nov",
+  "content": "## World\n### Factory fire kills three, 36 missing — Confirmed\nRescuers found 15 survivors; firefighters were still tackling flames on Sunday. [a:00000000-0000-4000-8000-000000000027] The cause is not yet known. [a:00000000-0000-4000-8000-000000000028][a:00000000-0000-4000-8000-000000000029]\nWhy it matters: it is the third deadly factory fire in Banten this year.\n### US and Iran open blockade exit talks — Confirmed\nTalks on ending the blockade opened in Oman. [a:00000000-0000-4000-8000-000000000001][a:00000000-0000-4000-8000-000000000004][a:00000000-0000-4000-8000-000000000005]\n",
+  "citations": [
+   {
+    "id": "00000000-0000-4000-8000-000000000027",
+    "title": "Indonesia factory fire kills three, 36 missing",
+    "url": "https://aljazeera.com/news/2026/11/22/27",
+    "source": "Al Jazeera",
+    "published_at": "2026-11-22T05:00:00Z",
+    "evidence": "fetched"
+   },
+   {
+    "id": "00000000-0000-4000-8000-000000000028",
+    "title": "Indonesia factory fire: three dead, 36 missing",
+    "url": "https://bbc.com/news/2026/11/22/28",
+    "source": "BBC World",
+    "published_at": "2026-11-22T12:13:00Z",
+    "evidence": "snippet"
+   },
+   {
+    "id": "00000000-0000-4000-8000-000000000029",
+    "title": "Factory fire in Indonesia kills three, 36 missing",
+    "url": "https://theguardian.com/news/2026/11/22/29",
+    "source": "The Guardian",
+    "published_at": "2026-11-22T07:26:00Z",
+    "evidence": "snippet"
+   },
+   {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "title": "US opens Iran blockade exit talks",
+    "url": "https://reuters.com/news/2026/11/22/1",
+    "source": "Reuters",
+    "published_at": "2026-11-22T07:00:00Z",
+    "evidence": "fetched"
+   },
+   {
+    "id": "00000000-0000-4000-8000-000000000004",
+    "title": "Iran blockade: exit talks begin",
+    "url": "https://bbc.com/news/2026/11/22/4",
+    "source": "BBC World",
+    "published_at": "2026-11-22T11:39:00Z",
+    "evidence": "snippet"
+   },
+   {
+    "id": "00000000-0000-4000-8000-000000000005",
+    "title": "Exit talks on Iran blockade begin in Oman",
+    "url": "https://aljazeera.com/news/2026/11/22/5",
+    "source": "Al Jazeera",
+    "published_at": "2026-11-22T13:52:00Z",
+    "evidence": "fetched"
+   }
+  ],
+  "created_at": "2026-11-22T07:30:00Z"
+ }
+}
