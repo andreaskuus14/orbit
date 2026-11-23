@@ -100,18 +100,23 @@ const terrVS = `${LOG} attribute vec2 uvM; attribute vec2 uvN; varying vec2 vUv;
 void main(){ vH = hm; vUvE = uvE; vUv = uvM; vUvN = uvN; vN = normalize(normal); vEdge = edge; vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz;
   gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
 const terrFS = `${LOGF} uniform sampler2D uDay; uniform sampler2D uNight; uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; uniform float uHaze; uniform float uNightK;
-varying vec2 vUv; varying vec2 vUvN; varying vec3 vN; varying vec3 vW; varying float vEdge; varying float vH; varying vec2 vUvE; uniform sampler2D uLand;
+varying vec2 vUv; varying vec2 vUvN; varying vec3 vN; varying vec3 vW; varying float vEdge; varying float vH; varying vec2 vUvE; uniform sampler2D uLand; uniform float uLakes;
 void main(){ \n#include <logdepthbuf_fragment>\n
   vec4 dayA = texture2D(uDay, vUv); if (dayA.a < .5) discard; // tile not loaded yet: the globe underneath shows instead of black
   vec3 day = dayA.rgb; vec3 night = texture2D(uNight, vUvN).rgb;
   vec3 up = normalize(vW); float sun = dot(up, uSun), lit = smoothstep(-.1, .2, sun);
-  float water = 1. - smoothstep(.35, .65, texture2D(uLand, vUvE).r); // elevation <= 0: clean dark sea instead of the grey, blotchy tile
+  float water = 1. - smoothstep(.35, .65, texture2D(uLand, vUvE).r);
+  // big lakes (Ladoga, Onega, Peipus) sit above sea level and read as flat grey in the 2016 mosaic: on the wide Baltic patch, low,
+  // grey, unsaturated ground is treated as water too (cities are too small to matter at that scale)
+  float mx = max(day.r, max(day.g, day.b)), mn = min(day.r, min(day.g, day.b));
+  water = max(water, uLakes * (1. - smoothstep(.04, .09, mx - mn)) * smoothstep(.12, .2, mx) * (1. - smoothstep(25., 60., vH)));
+  water = max(water, smoothstep(.02, .06, day.b - day.r) * (1. - smoothstep(.18, .3, mx)) * (1. - smoothstep(40., 90., vH))); // dark blue in the imagery = a lake // elevation <= 0: clean dark sea instead of the grey, blotchy tile
   vec3 V0 = normalize(uCam - vW); float glint = pow(max(dot(reflect(-uSun, up), V0), 0.), 40.) * .35 * lit;
   day = mix(day, vec3(.004,.012,.03) + glint, water * .95);
   float relief = clamp(1. + 4.*dot(normalize(vN) - up, uSun), .55, 1.5);
   vec3 c = day * (0.32 + 1.1*sqrt(max(sun, 0.))) * mix(.55, 1., lit) * relief * 1.35 * vec3(1.06,1.,.9) + night * vec3(1.,.8,.5) * 0.9 * uNightK * (1. - lit);
   float dist = length(uCam - vW) * 6371.; float haze = 1. - exp(-dist * uHaze);
-  float low = 1. - smoothstep(0., .000012, length(vW) - 1.); // fog lies in the low ground
+  float low = (1. - smoothstep(0., .000012, length(vW) - 1.)) * smoothstep(3., 15., vH); // fog lies in the low ground
   c = mix(c, vec3(.78,.76,.72) * mix(.4, 1., lit), (haze*.35 + low*.12) * (1. - water*.85));
   gl_FragColor = vec4(c, uOp * smoothstep(0., .22, vEdge)); }`;
 
@@ -195,7 +200,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   /* terrain patches */
   type Patch = { mesh: THREE.Mesh; u: { uOp: { value: number }; uNightK: { value: number } }; lo: number; hi: number };
   const patches: Patch[] = [];
-  async function patch(box: Box, zi: number, ze: number, exag: number, lift: number, seg: number, lo: number, hi: number, haze: number) {
+  async function patch(box: Box, zi: number, ze: number, exag: number, lift: number, seg: number, lo: number, hi: number, haze: number, lakes = 0) {
     const [day, night, elev] = await Promise.all([mosaic(o, "day", box, zi), mosaic(o, "night", box, Math.min(zi, 8)), mosaic(o, "elev", box, ze)]);
     const eg = elev.canvas.getContext("2d")!, ed = eg.getImageData(0, 0, elev.canvas.width, elev.canvas.height).data, ew = elev.canvas.width, eh = elev.canvas.height;
     const hAt = (lon: number, lat: number) => {
@@ -223,7 +228,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("uvM", new THREE.BufferAttribute(uvM, 2)); g.setAttribute("uvN", new THREE.BufferAttribute(uv2, 2));
     g.setAttribute("edge", new THREE.BufferAttribute(edge, 1)); g.setAttribute("hm", new THREE.BufferAttribute(hm, 1)); g.setAttribute("uvE", new THREE.BufferAttribute(uvE, 2)); g.setIndex(idx); g.computeVertexNormals();
     const nightT = tex(night.canvas); // same box, coarser zoom: its own uv would differ only slightly, so share uvM via a matched mosaic box
-    const u = { uDay: { value: tex(day.canvas) as THREE.Texture }, uNight: { value: nightT as THREE.Texture }, uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 }, uHaze: { value: haze }, uNightK: { value: 1 }, uLand: { value: landT as THREE.Texture } };
+    const u = { uDay: { value: tex(day.canvas) as THREE.Texture }, uNight: { value: nightT as THREE.Texture }, uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 }, uHaze: { value: haze }, uNightK: { value: 1 }, uLand: { value: landT as THREE.Texture }, uLakes: { value: lakes } };
     const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ vertexShader: terrVS, fragmentShader: terrFS, uniforms: u, transparent: true }));
     mesh.renderOrder = 2 + patches.length;
     scene.add(mesh);
@@ -231,7 +236,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   }
   // Estonia (z8 imagery ≈ 600 m/px, z8 elevation) and central Tallinn (z14 imagery ≈ 5 m/px drawn, z12 elevation)
   const terrainReady = ready.then(() => Promise.all([
-    patch({ w: 8, e: 38, s: 53, n: 66 }, 6, 7, 3, 0, 200, 30, 3500, 0.0001),
+    patch({ w: 8, e: 38, s: 53, n: 66 }, 6, 7, 3, 0, 200, 30, 3500, 0.0001, 1),
     patch({ w: 21.6, e: 28.4, s: 57.4, n: 59.85 }, 10, 9, 6, 40, 360, 1, 2600, 0.00025),
     patch({ w: 24.45, e: 25.08, s: 59.32, n: 59.55 }, 14, 12, 6, 260, 256, 0.5, 90, 0.004),
   ]));
@@ -365,7 +370,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   function frame(p: Pose, tMs: number) {
     pose = p; applyPose(p);
     const alt = p.alt, t = tMs / 1000;
-    cloudU.uT.value = t; U.uT.value = t; cloudU.uFade.value = band(alt, 900, 1e9, 1.2);
+    cloudU.uT.value = t; U.uT.value = t; cloudU.uFade.value = band(alt, 3000, 1e9, 1.0); // gone before the country shot: half-faded clouds read as grey blobs
     for (const q of patches) { q.u.uOp.value = band(alt, q.lo, q.hi, 0.9); q.u.uNightK.value = band(alt, 120, 1e9, 1.5); } // coarse city lights only from high up
     dof.uniforms.uAmt.value = 0.3 * band(alt, 0.5, 60, 1.2);
     bloom.strength = 0.45;
@@ -438,7 +443,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     setData, frame, flyTo, playPath, focusPlace,
     start() { cancelAnimationFrame(raf); t0 = performance.now(); loop(); },
     stop() { cancelAnimationFrame(raf); },
-    renderPathAt(p: Shot[], ms: number) { frame(poseAt(p, ms).pose, ms); },
+    renderPathAt(p: Shot[], ms: number) { frame(poseAt(p, ms).pose, ms); const gl = renderer.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.finish(); },
     dispose() {
       cancelAnimationFrame(raf); ro?.disconnect();
       scene.traverse((x) => { const m = x as THREE.Mesh; m.geometry?.dispose(); const mat = m.material as THREE.ShaderMaterial | undefined; if (mat) { for (const u of Object.values(mat.uniforms ?? {})) (u.value as THREE.Texture)?.isTexture && (u.value as THREE.Texture).dispose(); mat.dispose(); } });

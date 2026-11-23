@@ -46,7 +46,7 @@ for (let i = 0, since = 0; i <= (process.env.STILLS ? -1 : n); i++) {
   if (existsSync(file)) continue;
   try {
     if (since++ >= 90) { await open(); since = 0; }
-    await page.evaluate((t) => { window.renderAt(t - 34); window.renderAt(t); }, ms); // the frame before primes label placement
+    await page.evaluate(async (t) => { window.renderAt(t - 34); window.renderAt(t); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); }, ms); // the frame before primes label placement
     await page.screenshot({ path: file, type: "jpeg", quality: 90 });
   } catch (e) { console.log("reopening after", String(e).slice(0, 80)); await open(); since = 0; i--; continue; }
   if (i % 60 === 0) console.log(`frame ${i}/${n}`);
