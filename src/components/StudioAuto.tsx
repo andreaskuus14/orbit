@@ -36,10 +36,10 @@ export function useAutoState(rev: number, on: boolean): AutoState {
       if (!live) return;
       const a = val(ap), sc = val(scout)?.scout, au = val(autonomy);
       setS({
-        autopilot: a?.settings.auto ?? null, perDay: a?.settings.dailyDownloads ?? null, inbox: val(inbox)?.enabled ?? null,
+        autopilot: a?.settings?.auto ?? null, perDay: a?.settings?.dailyDownloads ?? null, inbox: val(inbox)?.enabled ?? null,
         niche: sc?.nicheAuto ?? null, devlog: val(devlog)?.enabled ?? null,
-        creators: sc ? { auto: sc.watchlist.filter((w) => w.autoClip).length, total: sc.watchlist.length } : null,
-        publish: au?.levels["studio-publish"] ?? null, publishPerDay: au?.limits.publishPerDay ?? null,
+        creators: sc?.watchlist ? { auto: sc.watchlist.filter((w) => w.autoClip).length, total: sc.watchlist.length } : null,
+        publish: au?.levels?.["studio-publish"] ?? null, publishPerDay: au?.limits?.publishPerDay ?? null,
       });
     });
     return () => { live = false; };
@@ -54,7 +54,7 @@ export function AutoLine({ s, onOpen }: { s: AutoState; onOpen: () => void }) {
   if (!parts.length) return null;
   return (
     <p className="muted flex flex-wrap items-center gap-x-1.5 text-[11px]" aria-label={t("sa.title")}>
-      <span aria-hidden>🤖</span>{parts.map((p) => t(p.key as Key, p.vars)).join(" · ")}
+      {parts.map((p) => t(p.key as Key, p.vars)).join(" · ")}
       <button type="button" className="chip !px-2 !py-0 !text-[10px]" onClick={onOpen}>{t("sa.change")}</button>
     </p>
   );
@@ -88,7 +88,7 @@ export function AutoCard({ s: read, inbox, onChanged, onOpenFind }: {
   const post = s.publish === "auto" ? t("sa.postAuto", { n: s.publishPerDay ?? 1 }) : s.publish === "off" ? t("sa.postOff") : s.publish ? t("sa.postAsk") : t("sa.unknown");
   return (
     <section className="card space-y-2 text-xs" aria-labelledby="sa-title">
-      <h3 id="sa-title" className="hud-title studio-title !text-[0.7rem]">🤖 {t("sa.title").toUpperCase()}</h3>
+      <h3 id="sa-title" className="hud-title studio-title !text-[0.7rem]">{t("sa.title")}</h3>
       <p className="muted">{t("sa.intro")}</p>
       <ul className="space-y-2">
         <Row label={t("sa.autopilot")} what={t("sa.autopilotWhat", { n: s.perDay ?? 1 })} on={s.autopilot} busy={busy === "autopilot"}

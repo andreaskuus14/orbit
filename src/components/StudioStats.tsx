@@ -342,7 +342,7 @@ function Coach({ findings }: { findings: Finding[] }) {
 function Section({ title, children, className = "" }: { title: string; children: ReactNode; className?: string }) {
   return (
     <section className={`card ${className}`} aria-label={title}>
-      <h3 className="hud-title studio-title mb-2 !text-[0.7rem]">{title.toUpperCase()}</h3>
+      <h3 className="hud-title studio-title mb-2 !text-[0.7rem]">{title}</h3>
       {children}
     </section>
   );
@@ -438,7 +438,7 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
     <div className={`studio-stats glass @container h-full w-full overflow-y-auto p-3 sm:p-4 ${reduced ? "" : "panel-in"}`} role="region" aria-label={tr("ss.region")} aria-busy={loading}>
       {/* header */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="hud-title studio-title truncate">{tr("ss.stats")}{live ? ` · ${live.channelTitle.toUpperCase()}` : ""}</h2>
+        <h2 className="hud-title studio-title truncate">{tr("ss.stats")}{live ? ` · ${live.channelTitle}` : ""}</h2>
         <div className="flex items-center gap-2">
           {live && <span className="muted text-[11px]">{tr("ss.updated")} {new Date(live.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
           <button className="chip" onClick={() => load(true)} disabled={loading} aria-label={tr("ss.refreshAria")}>{tr(loading ? "common.loading" : "cf.refresh")}</button>
@@ -514,7 +514,7 @@ export function StudioStats({ videoId, videoTitle, reduced, onPickVideo, titleOf
 
           <section className="card" aria-label={tr("ss.trend")}>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="hud-title studio-title !text-[0.7rem]">{tr("ss.perDay", { m: tr(`ss.m.${m[0]}`) }).toUpperCase()}</h3>
+              <h3 className="hud-title studio-title !text-[0.7rem]">{tr("ss.perDay", { m: tr(`ss.m.${m[0]}`) })}</h3>
               <div className="flex gap-1" role="group" aria-label={tr("ss.metric")}>
                 {METRICS.map(([k]) => <button key={k} className="chip" aria-pressed={metric === k} onClick={() => setMetric(k)}>{tr(`ss.m.${k}`)}</button>)}
               </div>

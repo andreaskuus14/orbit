@@ -493,7 +493,7 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .studio .hud-row:hover { background: rgba(255, 255, 255, 0.045); }
 .studio .hud-row.on { background: rgba(255, 255, 255, 0.08); }
 .studio .hud-row .num { color: var(--ice); }
-.studio .field:focus-visible, .studio .btn:focus-visible, .studio .chip:focus-visible, .studio .hud-row:focus-visible, .studio-modes button:focus-visible, .studio-back:focus-visible, .studio-hot:focus-visible { outline: 2px solid var(--ice); outline-offset: 2px; }
+.studio .field:focus-visible, .studio .btn:focus-visible, .studio .chip:focus-visible, .studio .hud-row:focus-visible { outline: 2px solid var(--ice); outline-offset: 2px; }
 .studio-clips :is(button, a, summary, input, select, textarea):focus-visible { outline: 2px solid #eef3f8; outline-offset: 2px; }
 .studio-clips .aspect-\[9\/16\] > button:focus-visible { outline-offset: -3px; } /* play tile: its box clips an outside ring */
 .studio-title { color: var(--ice-dim); text-shadow: none; font-family: var(--font-mono); font-weight: 500; letter-spacing: 0.28em; }
@@ -502,48 +502,11 @@ button.card:hover { border-color: var(--line-strong); box-shadow: 0 0 16px rgba(
 .studio-tip img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 9px; }
 .studio-tip span { color: var(--ice-dim); font-size: 11px; }
 
-/* Over the 3D: a darker edge so the chrome stays legible (the holo scene keeps its colour). */
-.studio-head { text-shadow: 0 0 2px #000, 0 1px 14px rgba(0, 0, 0, 0.9); }
 .studio-vignette { background: radial-gradient(115% 85% at 50% 45%, transparent 38%, rgba(3, 5, 9, 0.62)); transition: background-color 0.4s; }
 /* A detailed editor (Stats/Clips/Produce) is open: the film strip, planet, rings and glow fall back behind a dark veil. */
 .studio:has(.studio-sheet) .studio-vignette { background-color: rgba(3, 5, 9, 0.72); }
 
-/* Title block (top left): quiet kicker line, the channel name revealed with a scramble. */
-.studio-back { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--ice-dim); transition: color 0.2s; }
-.studio-back:hover { color: var(--ice); }
-.studio-kicker { margin-top: 0.9rem; font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ice-dim); }
-.studio-name { margin-top: 0.15rem; font-family: var(--font-display); font-weight: 500; font-size: clamp(1.6rem, 3.2vw, 2.6rem); line-height: 1; letter-spacing: 0.04em; color: var(--ice); text-wrap: balance; }
-.studio-hot { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: var(--ice); text-align: left; }
-.studio-hot i { width: 6px; height: 6px; border-radius: 50%; background: var(--cherry); flex: none; }
-.studio-hot span { color: var(--ice-dim); font-family: var(--font-mono); font-size: 0.66rem; }
-
-/* Section switch: a bounded strip; native scrolling keeps every section reachable on narrow screens. */
-.studio-modes { display: flex; align-items: center; gap: 0.15rem; padding: 0.25rem; border-radius: 1px; background: rgba(4, 7, 13, 0.72); border: 1px solid transparent; border-image: linear-gradient(100deg, #7ae3ff80, #9b7bff70 55%, #ff6fb560) 1;
-  max-width: calc(100vw - 1.5rem); overflow-x: auto; scrollbar-width: thin;
-  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
-.studio-modes { --mw: 6rem; }
-.studio-modes > button { position: relative; z-index: 1; flex-shrink: 0; width: var(--mw); padding: 0.4rem 0; border-radius: 0; font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ice-dim); transition: color 0.35s var(--ease-out); }
-.studio-modes > button[aria-pressed="true"] { color: #06080c; font-weight: 600; background: linear-gradient(100deg, #c9f6ff, #e6dcff); box-shadow: 0 0 18px -4px #7ae3ffaa; }
-.studio-modes > .studio-refresh { width: 2rem; color: var(--ice-dim); }
-.studio-modes > .studio-sep { box-shadow: inset 1px 0 0 #7ae3ff55; } /* YouTube | Websites, Other */
-.studio-modes > .studio-wide { width: auto; min-width: var(--mw); padding-inline: 0.6rem; white-space: nowrap; } /* Production details, Websites, More drafts */
-.studio-modes > .studio-more-item { color: var(--ice); }
-/* Between phone and wide screens the centred switch would sit on the title and the video rail: both drop below it. */
-@media (min-width: 641px) and (max-width: 1199px) { .studio-head[data-mode="channel"] { top: 7.5rem; } }
-@media (min-width: 900px) and (max-width: 1199px) { .studio .studio-rail { top: 7.5rem; max-height: calc(100dvh - 14rem); } }
-
-/* Panels arrive with a soft blur-in, from the side they live on. */
-.studio-rail { animation: studio-in-right 0.8s var(--ease-out) both; }
-.studio-sheet { animation: studio-in-left 0.8s var(--ease-out) both; }
-.studio-head { animation: studio-rise 1.1s var(--ease-out) both; }
-.studio-selected { animation: studio-rise 0.5s var(--ease-out) both; }
-@keyframes studio-in-right { from { opacity: 0; transform: translateX(24px); filter: blur(10px); } to { opacity: 1; transform: none; filter: none; } }
-@keyframes studio-in-left { from { opacity: 0; transform: translateX(-24px); filter: blur(10px); } to { opacity: 1; transform: none; filter: none; } }
-@keyframes studio-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) {
-  .studio-rail, .studio-sheet, .studio-head, .studio-selected { animation: none; }
-  .studio-modes > button { transition: none; }
-}
+/* STUDIO panels: see studio-planet.css (planet look). */
 
 /* Hype timeline + virality score (HypeScore.tsx): heat runs plum (quiet) → cherry → ember gold (peak). */
 .hype-wave { padding: 0.5rem 0.6rem 0.45rem; border-radius: 12px; border: 1px solid rgba(255, 143, 171, 0.12); background: radial-gradient(120% 90% at 50% 120%, rgba(255, 46, 99, 0.14), transparent 60%), rgba(10, 1, 6, 0.55); }
@@ -696,8 +659,8 @@ main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
 
 /* Touch screens: finger-sized targets. */
 @media (pointer: coarse) {
-  .chip, .hud-menu-item, .btn, .hud-row, button.link, .studio-hot { min-height: 40px; }
-  .hud-more, .chip, .studio-modes > .studio-refresh { min-width: 40px; }
+  .chip, .hud-menu-item, .btn, .hud-row, button.link { min-height: 40px; }
+  .hud-more, .chip { min-width: 40px; }
 }
 
 /* Phones, both orientations. --hdr / --bar (header and command-bar heights) are set per orientation below. */
@@ -710,7 +673,7 @@ main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
   .logo .brand { font-size: 0.95rem; letter-spacing: 0.3em; }
   .logo .muted { display: none; }
   .hud-menu { top: var(--hdr); right: max(0.75rem, env(safe-area-inset-right, 0px)); }
-  .status-hud, .world-back, .studio-back, .agents-log { display: none; } /* the ORBIT logo already goes home */
+  .status-hud, .world-back, .agents-log { display: none; } /* the ORBIT logo already goes home */
   /* The worlds' 0.9 zoom also scales offsets, which would misalign the sheets. */
   .globe-in > :not(:has(canvas)):not(.pointer-events-none) { zoom: 1; }
   /* Hands-free status shrinks to its dot (text stays for screen readers); the "Talking" button keeps its words. */
@@ -736,11 +699,7 @@ main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
   .globe-search { left: 0.5rem; right: 0.5rem; width: auto; }
   .globe-regions { top: calc(var(--hdr) + 3.7rem); left: 0.5rem; right: 0.5rem; max-width: none; }
   /* STUDIO: section switch under the header, title under it, sheets below both. */
-  .studio-modes { top: var(--hdr); --mw: 3.4rem; }
-  .studio-modes > button { min-height: 2.75rem; font-size: 0.56rem; letter-spacing: 0.04em; }
-  .studio-head { top: calc(var(--hdr) + 4rem); left: 0.75rem; }
-  .studio-kicker { margin-top: 0; }
-  .studio-sheet { top: calc(var(--hdr) + 4rem); bottom: var(--bar); }
+  .studio-sheet { top: calc(var(--hdr) + 0.5rem); bottom: var(--bar); }
 }
 @keyframes sheet-in { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
 @keyframes sheet-out { to { opacity: 0; transform: translateY(24px); } }
@@ -767,12 +726,7 @@ main > header { padding-top: max(0.75rem, env(safe-area-inset-top, 0px)); }
   /* CORE docked over a world takes the same right-hand spot: hide the world panel meanwhile instead of squeezing it. */
   :root:has(.drawer.drawer-dock:not(.drawer-out)) .world-panel { display: none; }
   /* STUDIO: switch top-left (the video rail owns the right), title under it, Stats/Clips sheet full width between header and bar. */
-  .studio-modes { top: var(--hdr); left: var(--edge-l); translate: none; max-width: var(--left-w); --mw: 4.75rem; }
-  .studio-modes > button { min-height: 2rem; padding-block: 0.2rem; }
-  .studio-head { top: calc(var(--hdr) + 3.25rem); left: var(--edge-l); max-width: var(--left-w); }
-  .studio-kicker { margin-top: 0; }
-  .studio-name { font-size: 1.4rem; }
-  .studio-sheet { top: calc(var(--hdr) + 3.25rem); bottom: var(--bar); left: var(--edge-l); right: var(--edge-r); }
+  .studio-sheet { top: calc(var(--hdr) + 0.5rem); bottom: var(--bar); left: var(--edge-l); right: var(--edge-r); }
 }
 
 /* CORE chat list: a sheet over the CORE panel (Claude-app style sidebar); full width on phones. */

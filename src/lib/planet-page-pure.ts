@@ -103,6 +103,8 @@ export function briefingWork(job: { status: string; detail?: string | null; star
 
 // Internal names that leak into default screens → plain words. Applied to error/status lines we don't write ourselves.
 const PLAIN: [RegExp, { en: string; et: string }][] = [
+  // whole-line swaps first: an ffmpeg/ffprobe failure means the video file couldn't be read (STUDIO clip jobs)
+  [/^.*(?:\b(?:ffmpeg|ffprobe) exited\b|\bmoov atom not found\b|\bInvalid data found when processing input\b).*$/gi, { en: "The video file couldn't be read. It may be broken or still copying", et: "Videofaili ei saanud lugeda. See võib olla katki või alles kopeerimisel" }],
   [/\bgpu lease\b|\blease\b/gi, { en: "the graphics card is busy", et: "graafikakaart on hõivatud" }],
   [/\bpacer\b/gi, { en: "the daily AI limit", et: "päevane tehisaru piir" }],
   [/\bscout\b/gi, { en: "video finder", et: "videootsija" }],
