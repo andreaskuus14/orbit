@@ -9,11 +9,13 @@ import { speechErrorMessage, speechLang, VOICE_PAUSE, VOICE_RESUME } from "./voi
 import { recordUtterance, transcribeAudio } from "./voice/whisper";
 import { whisperLang } from "./voice/bus";
 import { useLifeShield } from "./useLifeShield";
+import { useT } from "./i18n";
 
 const KEY = "orbit.evening.shown"; // local day it last opened by itself
 const typing = () => { const el = document.activeElement as HTMLElement | null; return !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable); };
 
 export function EveningCapture() {
+  const { t: tr } = useT();
   const ref = useRef<HTMLDialogElement>(null);
   const rec = useRef<{ stop(): void; abort(): void } | null>(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -65,11 +67,11 @@ export function EveningCapture() {
     void (async () => {
       try {
         const audio = await recordUtterance(ctrl.signal, (f) => { finish = f; });
-        if (!audio) { setMsg({ ok: false, text: "I didn't hear anything. Try again." }); return; }
+        if (!audio) { setMsg({ ok: false, text: tr("evening.noSpeech") }); return; }
         const said = (await transcribeAudio(audio, ctrl.signal, whisperLang(speechLang()))).trim();
         if (said) setText((t) => `${t}${t && !/\s$/.test(t) ? " " : ""}${said}`.slice(0, ENTRY_MAX));
       } catch (e) {
-        if (!ctrl.signal.aborted) setMsg({ ok: false, text: e instanceof DOMException && e.name === "NotAllowedError" ? speechErrorMessage("not-allowed")! : "Dictation stopped. You can type instead." });
+        if (!ctrl.signal.aborted) setMsg({ ok: false, text: e instanceof DOMException && e.name === "NotAllowedError" ? speechErrorMessage("not-allowed")! : tr("evening.dictStopped") });
       } finally { done(); }
     })();
   };
@@ -108,7 +110,7 @@ export function EveningCapture() {
               {listening ? "■ Stop dictating" : "🎙 Dictate"}
             </button>
           )}
-          {noLocal && <span className="muted text-xs">Dictation needs local voice on this PC. Typing works.</span>}
+          {noLocal && <span className="muted text-xs">{tr("evening.noLocal")}</span>}
           <span className="num muted ml-auto text-xs" aria-hidden>{text.length}/{ENTRY_MAX}</span>
         </div>
         <p className="muted text-xs">Ctrl/⌘ Enter saves · Esc closes</p>

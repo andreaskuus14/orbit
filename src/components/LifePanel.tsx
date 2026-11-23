@@ -595,21 +595,21 @@ function JournalBody({ st, act }: { st: LifeState; act: Act }) {
     if (l.text === l.base) return;
     keepDraft(l.date, l.text);
     post({ action: "journal", text: l.text, date: l.date }).then(dropDraft, () => {
-      toast({ tone: "error", text: "Couldn't save your journal. It's kept on this PC and comes back when you open the Journal." });
+      toast({ tone: "error", text: t("life.saveKept") });
     });
   }, []);
   const save = async () => { // true when today's text is saved (or unchanged)
     if (text === base) return true;
     keepDraft(today.date, text);
     if (await act({ action: "journal", text, date: today.date })) { dropDraft(); setBase(text); setLostNote(""); setSaved(t("life.saved")); return true; }
-    setLostNote("Couldn't save. Your text is kept on this PC; try again later.");
+    setLostNote(t("life.saveKeptHere"));
     return false;
   };
   const Hidden = ({ k, children }: { k: string; children: string }) => shown.has(k)
     ? <p className="whitespace-pre-wrap">{children}</p>
-    : <button type="button" className="block w-full text-left" onClick={() => show(k)} aria-label="Show entry">
+    : <button type="button" className="block w-full text-left" onClick={() => show(k)} aria-label={t("life.showEntry")}>
         <p className="whitespace-pre-wrap select-none" style={{ filter: "blur(6px)" }} aria-hidden>{children.slice(0, 160)}</p>
-        <span className="muted text-xs">Hidden. Click to show.</span>
+        <span className="muted text-xs">{t("life.hiddenEntry")}</span>
       </button>;
   return (
     <div className="space-y-3" data-private>

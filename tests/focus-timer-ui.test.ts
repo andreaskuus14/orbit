@@ -40,6 +40,9 @@ function browser(raw: string | null, now = 1_000_000) {
       require: (id: string) => {
         if (id === "react") return { useState: (v: unknown) => [v, () => {}], useRef: (current: unknown) => ({ current }), useEffect() {}, useCallback: (fn: unknown) => fn };
         if (id.endsWith("focus-timer-pure")) return focus;
+        if (id.endsWith("life-private-pure")) return { DRAFT_KEY: "d", parseDraft: () => null };
+        if (id === "./useLifeShield") return { useLifeShield() {} };
+        if (id === "./ui/Toast") return { toast() {} };
         if (id.endsWith("life-pure")) return { ALL_DAYS: [] };
         if (id.endsWith("habit-nudge-pure")) return {};
         if (id === "./i18n") return { useT: () => ({ t: (k: Parameters<typeof translate>[1], v?: Record<string, string | number>) => translate("en", k, v) }) };
