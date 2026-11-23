@@ -147,9 +147,11 @@ export function createWeatherDraw(canvas: HTMLCanvasElement, fonts: Fonts): Weat
       const i = Math.floor(s), p = pts[i], q = pts[i + 2];
       const k = Math.min(horizonFade(p.z, 0.4, 0.02), horizonFade(q.z, 0.4, 0.02));
       if (k <= 0) continue;
-      const dx = q.x - p.x, dy = q.y - p.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L, h = 7 * Math.min(1.6, Math.sqrt(v.scale / 320));
+      // fixed screen size whatever the zoom (the line's samples spread far apart when the camera is close)
+      const dx = q.x - p.x, dy = q.y - p.y, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, zk = Math.min(1.6, Math.sqrt(v.scale / 320));
+      const base = Math.min(L, 16 * zk), h = 7 * zk;
       g.fillStyle = hex(fr.color, 0.95 * k * alpha);
-      g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y); g.lineTo(p.x + dx * 0.72 + nx * h, p.y + dy * 0.72 + ny * h); g.closePath(); g.fill();
+      g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x + ux * base, p.y + uy * base); g.lineTo(p.x + ux * base * 0.72 - uy * h, p.y + uy * base * 0.72 + ux * h); g.closePath(); g.fill();
     }
   }
 
