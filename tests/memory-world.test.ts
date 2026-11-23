@@ -68,7 +68,7 @@ test("MEMORY never crashes on a star without tags (the map route once lost tags 
 
 test("the memory map route returns tags, folder, date and source for every star", () => {
   const src = readFileSync(new URL("../src/app/api/memories/map/route.ts", import.meta.url), "utf8");
-  const line = src.split("\n").find((l) => /tags: r\.tags \?\? \[\], folder: r\.folder, created_at: r\.created_at, source: r\.source/.test(l));
+  const line = src.split("\n").find((l) => /tags: j \? \[\] : cleanTagList\(r\.tags\), folder: j \? null : r\.folder, created_at: isoOrNull\(r\.created_at\), source: r\.source/.test(l));
   assert.ok(line, "the items line lists tags, folder, created_at and source");
   assert.ok(!/\/\/.*tags: r\.tags/.test(line!), "not hidden inside a // comment");
 });

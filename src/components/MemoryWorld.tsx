@@ -1,46 +1,40 @@
 "use client";
 // MEMORY world: every memory is a star. Positions come from /api/memories/map (server-side layout from embeddings),
-// links are faint threads, CORE-learned memories carry a ring. The list drawer lives on as "List view" in the side panel.
-import { WorldEmblem } from "./WorldEmblem";
-import { WorldHeaderArt } from "./WorldHeaderArt";
-import { useEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType } from "react";
+// links are faint threads, CORE-learned memories carry a ring. The one calm surface on the right (MemoryShell) holds the
+// main job: find or remember, Needs you, Recent; a memory, the map options, the timeline and people open in its sheet.
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type RootState, type ThreeEvent } from "@react-three/fiber";
-import { Html, OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
+import { OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping, SMAA } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import type { MemoryPanel } from "./panels"; // passed in by Orbit: the public demo must not bundle panels (Supabase client)
-import { MemoryReview } from "./MemoryWorkspace";
-import { BackToSimple, PlanetHome, useManual } from "./PlanetHome";
-import { beliefsPending } from "./BeliefsPanel";
+import { beliefsPending, takeBeliefsRequest } from "./BeliefsPanel";
 import { studyPending } from "./StudyCards";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
-import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { centroid, connections, isLearned, searchStars, starProjects, subgraph } from "@/lib/memory-world-pure";
+import { kindColor, normMap, type Star } from "@/lib/memory-planet-pure";
 import { useT } from "./i18n";
+import type { Key } from "@/lib/i18n-pure";
 import { DAY, edgeBorn, edgeGlow } from "@/lib/memory-edges-pure";
 import { useAlienEnv } from "./alien/env";
-import { ClusterHalos, ClusterList } from "./MemoryClusters";
+import { ClusterHalos } from "./MemoryClusters";
 import type { Graph } from "@/lib/memory-graph-pure";
 import { useMountLater, WarmCompile } from "./WarmCompile";
 import { smoothDampVec } from "@/lib/smooth-damp-pure";
-import { PeopleCanvas, PeoplePanel, usePeople } from "./PeopleRing";
+import { PeoplePanel, usePeople } from "./PeopleRing";
+import { MEMORY_SHEET_EVENT, MemoryShell } from "./MemoryShell";
+import { Button } from "./ui";
 import dynamic from "next/dynamic";
 
 const Chronicle = dynamic(() => import("./Chronicle"), { ssr: false }); // its own canvas, loaded only when he opens Chronicle
 
-type Star = { id: string; title: string; kind: string; tags: string[]; folder?: string | null; created_at: string; source: string | null; x: number; y: number; z: number };
 type MapData = { items: Star[]; links: { from: string; to: string }[]; edges?: [number, number, number][]; total: number; graph?: Graph | null };
 
 const BG = "#020308";
-const KIND_COLOR: Record<string, string> = {
-  note: "#9ec9ff", idea: "#ffd27a", link: "#7de3d0", document: "#c3b4ff", image: "#ff9ec7", research: "#7dc4ff",
-  conversation: "#b8f0a8", project: "#ffb27a", preference: "#f0a8ff", decision: "#ff8f8f", goal: "#fff3a8",
-};
-const kindColor = (k: string) => KIND_COLOR[k] ?? "#a9b4c8";
 const WEB = new THREE.Color("#a5b4fc"); // similarity web
 const PEARL = new THREE.Color("#dfe8ff"), PEARL_RGB = [PEARL.r, PEARL.g, PEARL.b]; // dust and sparks: pearl / blue-white, only a hint of the kind colour
 const REPLAY_TICKS = 120, REPLAY_MS = 80, REPLAY_TICKS_REDUCED = 8, REPLAY_MS_REDUCED = 700; // ~10 s replay; reduced motion jumps in a few steps
@@ -268,6 +262,8 @@ function Constellation({ data, at, hi, searching, reduced, lite, onHover, onPick
   }, [uniforms]);
   useEffect(() => () => { mats.web.dispose(); mats.sparks.dispose(); mats.dust.dispose(); }, [mats]);
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3 } | null;
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => { invalidate(); }, [hi, searching, at, data, invalidate]); // reduced motion renders on demand: draw once per change
   useFrame(({ clock }, rawDt) => {
     const dt = Math.min(Math.max(rawDt, 0), 0.1), k = reduced ? 1 : 1 - Math.exp(-dt * 14);
     if (hiMoving.current) {
@@ -309,22 +305,25 @@ function Constellation({ data, at, hi, searching, reduced, lite, onHover, onPick
 
 /** created_at as ms per star, plus the oldest one and the load moment ("now" when not replaying). */
 function created(items: Star[]) {
-  const at = items.map((m) => { const t = Date.parse(m.created_at); return Number.isFinite(t) ? t : 0; }), now = Date.now();
-  return { at, t0: at.length ? Math.min(...at) : now, now };
+  const now = Date.now(), raw = items.map((m) => (m.created_at ? Date.parse(m.created_at) : NaN));
+  let t0 = now;
+  for (const t of raw) if (Number.isFinite(t) && t < t0) t0 = t; // no spread: 2000 args is fine, but a missing date must not pull t0 to 1970
+  return { at: raw.map((t) => (Number.isFinite(t) ? t : t0)), t0, now }; // undated stars count as the oldest
 }
 
 /** Eases OrbitControls' target and the camera distance toward `goal`; jumps when reduced. Shifts the view left of the side panel. */
-function Fly({ goal, reduced }: { goal: { at: [number, number, number]; dist: number; n: number } | null; reduced: boolean }) {
+function Fly({ goal, reduced, shift }: { goal: { at: [number, number, number]; dist: number; n: number } | null; reduced: boolean; shift: number }) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void } | null;
   const size = useThree((s) => s.size);
   const active = useRef(false);
-  useEffect(() => { active.current = !!goal; }, [goal]);
-  useEffect(() => {
-    if (size.width >= 900) camera.setViewOffset(size.width, size.height, 240, 0, size.width, size.height);
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => { active.current = !!goal; invalidate(); }, [goal, invalidate]);
+  useEffect(() => { // centre the stars in the space left of the surface (half its width + margin)
+    if (size.width >= 900 && shift > 0) camera.setViewOffset(size.width, size.height, shift, 0, size.width, size.height);
     else camera.clearViewOffset();
-    camera.updateProjectionMatrix();
-  }, [camera, size]);
+    camera.updateProjectionMatrix(); invalidate();
+  }, [camera, size, shift, invalidate]);
   const to = useMemo(() => new THREE.Vector3(), []), dir = useMemo(() => new THREE.Vector3(), []), want = useMemo(() => new THREE.Vector3(), []);
   const vT = useMemo(() => new THREE.Vector3(), []), vP = useMemo(() => new THREE.Vector3(), []); // spring velocities: a re-target curves, never jerks
   useEffect(() => { if (!goal) { vT.set(0, 0, 0); vP.set(0, 0, 0); } }, [goal, vT, vP]);
@@ -337,209 +336,219 @@ function Fly({ goal, reduced }: { goal: { at: [number, number, number]; dist: nu
     if (reduced) { controls.target.copy(to); camera.position.copy(want); }
     else { const step = Math.min(dt, 0.1); smoothDampVec(controls.target, to, vT, 0.55, step); smoothDampVec(camera.position, want, vP, 0.55, step); }
     controls.update();
+    if (!reduced) invalidate(); // demand mode (reduced motion) only draws when asked
     if (controls.target.distanceTo(to) < 0.01 && camera.position.distanceTo(want) < 0.02) active.current = false; // let the user orbit again
   });
   return null;
 }
 
+/** Places the DOM labels (sharp text, outside WebGL) on their stars every drawn frame: project to the canvas, hide behind the camera. */
+function Projector({ items, labels, els }: { items: Star[]; labels: { i: number }[]; els: React.RefObject<Map<number, HTMLDivElement>> }) {
+  const v = useMemo(() => new THREE.Vector3(), []);
+  const invalidate = useThree((st) => st.invalidate);
+  useEffect(() => { invalidate(); }, [labels, invalidate]);
+  useFrame(({ camera, size }) => {
+    for (const l of labels) {
+      const el = els.current?.get(l.i), m = items[l.i];
+      if (!el || !m) continue;
+      v.set(m.x, m.y, m.z).project(camera);
+      const off = v.z > 1 || Math.abs(v.x) > 1.2 || Math.abs(v.y) > 1.2;
+      el.style.opacity = off ? "0" : "1";
+      if (!off) el.style.transform = `translate3d(${Math.round((v.x * 0.5 + 0.5) * size.width) + 12}px, ${Math.round((-v.y * 0.5 + 0.5) * size.height)}px, 0) translateY(-50%)`;
+    }
+  });
+  return null;
+}
+
+/** The open star's connections as precise lines (explicit links solid-bright, similar ones fainter), drawn over the web. */
+function FocusLines({ items, from, to }: { items: Star[]; from: number | null; to: { i: number; kind: "explicit" | "inferred" }[] }) {
+  const geo = useMemo(() => {
+    const g = new THREE.BufferGeometry(), a = from === null ? undefined : items[from], pos: number[] = [], col: number[] = [];
+    if (a) for (const c of to) { const b = items[c.i]; if (!b) continue; const k = c.kind === "explicit" ? 0.95 : 0.45; pos.push(a.x, a.y, a.z, b.x, b.y, b.z); col.push(0.75 * k, 0.66 * k, k, 0.75 * k, 0.66 * k, k); }
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+    return g;
+  }, [items, from, to]);
+  useEffect(() => () => geo.dispose(), [geo]);
+  const invalidate = useThree((st) => st.invalidate);
+  useEffect(() => { invalidate(); }, [geo, invalidate]);
+  return <lineSegments geometry={geo} raycast={() => null}><lineBasicMaterial vertexColors transparent depthWrite={false} blending={THREE.AdditiveBlending} /></lineSegments>;
+}
+
+const MAP_SHIFT = 220; // the detail column sits on the right (≈ 440 px): centre the stars in the space left of it
+
 export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", focusId, onChanged, paused = false, List }: {
   onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode; focusId: string | null; onChanged: () => void; paused?: boolean /* kept mounted but hidden */;
-  List?: ComponentType<ComponentProps<typeof MemoryPanel>>; // absent = read-only demo: constellation only, no list or hygiene
+  List?: ComponentType<ComponentProps<typeof MemoryPanel>>; // absent = read-only demo: no editing tools
 }) {
   const glr = useGlRecovery();
-  const later = useMountLater(); // the panel paints first; the WebGL context and scene come in the next task
+  const later = useMountLater(); // the surface paints first; the WebGL context comes in the next task
   const q = useLeanQuality(quality);
-  const { t } = useT();
-  const [raw, setData] = useState<MapData | null>(null);
+  const { t, tn, lang } = useT();
+  const [raw, setRaw] = useState<MapData | null>(null);
+  const [err, setErr] = useState(false);
+  const [reload, setReload] = useState(0);
   const [project, setProject] = useState(""); // MEM06: project-focused subgraph ("" = everything)
   const projects = useMemo(() => (raw ? starProjects(raw.items) : []), [raw]);
-  const data = useMemo(() => (raw && project ? { ...raw, ...subgraph(raw.items, raw.edges, project), graph: null } : raw), [raw, project]);
-  const [err, setErr] = useState("");
-  const [list, setList] = useState(() => !!List && (!!focusId || beliefsPending() || studyPending()));
+  const data = useMemo(() => (raw && project ? { ...raw, ...subgraph(raw.items, raw.edges, project), links: raw.links, graph: null } : raw), [raw, project]);
   const [query, setQuery] = useState("");
   const [hover, setHover] = useState<number | null>(null);
-  const [sel, setSel] = useState<number | null>(null);
+  const [openId, setOpenId] = useState<string | null>(focusId);
   const [goal, setGoal] = useState<{ at: [number, number, number]; dist: number; n: number } | null>(null);
   const [when, setWhen] = useState<number | null>(null); // replayed moment (ms); null = now
   const [playing, setPlaying] = useState(false);
-  const [chron, setChron] = useState(false), [slot, setSlot] = useState<HTMLDivElement | null>(null);
-  const river = chron && !list && !flat; // Chronicle replaces the constellation's canvas (one WebGL context at a time)
-  const [people, setPeople] = useState(false); // the People ring replaces the constellation (its own canvas); not in the demo
-  const peep = people && !!List && !list;
-  const ppl = usePeople(peep && !paused);
-  const fly = (at: [number, number, number], dist: number) => setGoal((g) => ({ at, dist, n: (g?.n ?? 0) + 1 }));
+  // Notes is the calm default (the canvas is not drawn behind it); Map shows the stars with the open memory beside them.
+  const [mode, setMode] = useState<"notes" | "map">(List ? "notes" : "map");
+  const [seenMap, setSeenMap] = useState(!List);
+  useEffect(() => { if (mode === "map") setSeenMap(true); }, [mode]);
+  const [river, setRiver] = useState(false), [slot, setSlot] = useState<HTMLDivElement | null>(null);
+  const [peopleOn, setPeopleOn] = useState(false);
+  const ppl = usePeople(peopleOn && !paused && !!List);
+  const fly = useCallback((at: [number, number, number], dist: number) => setGoal((g) => ({ at, dist, n: (g?.n ?? 0) + 1 })), []);
 
-  useEffect(() => { // refetch when returning from List view or to the world: memories may have been added or deleted meanwhile
-    if (paused || (list && data)) return;
+  useEffect(() => { // (re)load the map: on entry, after a change, on Try again. Never while hidden.
+    if (paused) return;
     let live = true;
     fetch("/api/memories/map").then(async (r) => {
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || `Could not load memories (${r.status})`);
-      if (live) { setData(j as MapData); setErr(""); }
-    }).catch((e: Error) => { if (live) setErr(e.message); });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j) throw new Error(String(r.status));
+      if (live) { setRaw(normMap(j) as MapData); setErr(false); }
+    }).catch(() => { if (live) setErr(true); });
     return () => { live = false; };
-  }, [list, paused]); // eslint-disable-line react-hooks/exhaustive-deps -- data is only the "already loaded" guard
-  const conns = useMemo(() => (data && sel !== null ? connections(sel, data.items, data.links, data.edges) : []), [data, sel]);
+  }, [paused, reload]);
+  const changed = useCallback(() => { setReload((n) => n + 1); onChanged(); }, [onChanged]);
+  const patched = useCallback((id: string, p: Partial<Star>) => setRaw((d) => d && { ...d, items: d.items.map((m) => (m.id === id ? { ...m, ...p } : m)) }), []);
 
   const index = useMemo(() => new Map(data?.items.map((m, i) => [m.id, i]) ?? []), [data]);
-  useEffect(() => { if (focusId) setList(true); }, [focusId]); // a newly opened memory shows its detail once; Constellation stays reachable
-  useEffect(() => { setSel(null); setHover(null); setWhen(null); setPlaying(false); }, [data]); // positions are array indexes: a refetch reorders them
-  useEffect(() => { // OPEN_MEMORY_EVENT (palette, CORE, a star click) arrives as focusId: select and fly to its star
-    if (!focusId) return;
-    const i = index.get(focusId);
-    if (i !== undefined && data) { setSel(i); const m = data.items[i]; fly([m.x, m.y, m.z], 9); }
-  }, [focusId, index, data]);
-  useEffect(() => { // not gated on paused: this nav also opens MEMORY, and arrives before the world un-pauses
-    const h = (e: Event) => { const d = (e as CustomEvent<NavTarget>).detail; if (d?.beliefs || d?.study) setList(true); };
+  const flyTo = useCallback((id: string) => { const i = index.get(id), m = i === undefined ? undefined : data?.items[i]; if (m) { setOpenId(id); setMode("map"); fly([m.x, m.y, m.z], 9); } }, [index, data, fly]);
+  useEffect(() => { setHover(null); setWhen(null); setPlaying(false); }, [data]); // positions are array indexes: a refetch reorders them
+  useEffect(() => { if (focusId) setOpenId(focusId); }, [focusId]); // palette, CORE or a link opened a memory
+  useEffect(() => { // in the map, the open memory's star comes to the centre
+    if (mode !== "map" || !openId) return;
+    const i = index.get(openId), m = i === undefined ? undefined : data?.items[i];
+    if (m) fly([m.x, m.y, m.z], 11);
+  }, [openId, mode, index]); // eslint-disable-line react-hooks/exhaustive-deps -- once per opened memory / view switch
+  useEffect(() => { // "what do you know about me" / "study" arrive as nav events and open the matching sheet
+    const open = (k: "knows" | "all") => setTimeout(() => dispatchEvent(new CustomEvent(MEMORY_SHEET_EVENT, { detail: k })), 0);
+    if (beliefsPending()) { takeBeliefsRequest(); open("knows"); }
+    else if (studyPending() && List) open("all");
+    const h = (e: Event) => { const d = (e as CustomEvent<NavTarget>).detail; if (d?.beliefs) { takeBeliefsRequest(); setMode("notes"); open("knows"); } else if (d?.study && List) { setMode("notes"); open("all"); } };
     addEventListener(NAV_EVENT, h);
     return () => removeEventListener(NAV_EVENT, h);
-  }, []);
+  }, [List]);
 
   const span = useMemo(() => (data ? created(data.items) : null), [data]);
   const spanDays = span ? Math.max(1, Math.ceil((span.now - span.t0) / DAY)) : 1;
   useEffect(() => { // replay: step the moment forward from the first memory to now
     if (!playing || !span) return;
     const ticks = reduced ? REPLAY_TICKS_REDUCED : REPLAY_TICKS, step = (span.now - span.t0) / ticks;
-    const t = setInterval(() => setWhen((w) => {
+    const id = setInterval(() => setWhen((w) => {
       const next = (w ?? span.t0) + step;
       if (next >= span.now) { setPlaying(false); return null; }
       return next;
     }), reduced ? REPLAY_MS_REDUCED : REPLAY_MS);
-    return () => clearInterval(t);
+    return () => clearInterval(id);
   }, [playing, span, reduced]);
   const play = () => { if (!span) return; if (playing) { setPlaying(false); return; } setWhen(span.t0); setPlaying(true); };
-  const whenLabel = when === null ? "Now · live" : new Date(when).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  const loc = lang === "et" ? "et-EE" : "en-GB";
+  const whenLabel = when === null ? t("mp.map.live") : new Date(when).toLocaleDateString(loc, { day: "numeric", month: "short", year: "numeric" });
 
-  const hits = useMemo(() => (data ? searchStars(data.items, query) : []), [data, query]);
+  const hits = useMemo(() => (data && mode === "map" ? searchStars(data.items, query) : []), [data, query, mode]);
   useEffect(() => { // ease toward the matches as the query settles
     if (!data || !hits.length) return;
-    const t = setTimeout(() => {
+    const id = setTimeout(() => {
       const pts = hits.map((i) => data.items[i]), c = centroid(pts);
       const spread = Math.max(...pts.map((p) => Math.hypot(p.x - c[0], p.y - c[1], p.z - c[2])));
       fly(c, Math.min(48, Math.max(9, spread * 2.4)));
     }, 350);
-    return () => clearTimeout(t);
-  }, [hits, data]);
+    return () => clearTimeout(id);
+  }, [hits, data, fly]);
+  const sel = openId ? index.get(openId) ?? null : null;
+  const near = useMemo(() => (data && sel !== null ? connections(sel, data.items, data.links, data.edges).slice(0, 6) : []), [data, sel]);
   const hi = useMemo(() => {
     const s = new Set(hits);
     if (hover !== null) s.add(hover);
-    if (sel !== null) s.add(sel);
+    if (sel !== null) { s.add(sel); for (const c of near) s.add(c.i); }
     return s;
-  }, [hits, hover, sel]);
-
-  const open = (i: number) => {
-    const m = data?.items[i];
-    if (!m) return;
-    setSel(i);
-    setList(true);
-    dispatchEvent(new CustomEvent(OPEN_MEMORY_EVENT, { detail: { id: m.id } }));
-  };
-  // Simple home until he opens Manual tools, a view, a star or a search (a memory opened from elsewhere opens List view).
-  const [manual, setManual] = useManual("memory");
-  const simple = !manual && !list && !chron && !people && sel === null && !query.trim();
-  const toSimple = () => { setManual(false); setList(false); setChron(false); setPeople(false); setSel(null); setQuery(""); };
-  const recent = useMemo(() => (!data ? null : data.items.map((m, i) => ({ m, i })).sort((a, b) => b.m.created_at.localeCompare(a.m.created_at)).slice(0, 4)
-    .map(({ m, i }) => ({ id: m.id, title: m.title, sub: `${m.kind} · ${new Date(m.created_at).toLocaleDateString()}`, open: () => open(i) }))), [data]); // eslint-disable-line react-hooks/exhaustive-deps
-  const labelAt = hover ?? sel;
-  const label = labelAt !== null ? data?.items[labelAt] : undefined;
+  }, [hits, hover, sel, near]);
+  const pick = useCallback((i: number) => { const m = data?.items[i]; if (m) setOpenId(m.id); }, [data]);
   const kinds = useMemo(() => [...new Set(data?.items.map((m) => m.kind))].sort(), [data]);
+  const kindName = (k: string) => { const v = t(`mp.k.${k}` as Key); return v === `mp.k.${k}` ? k.charAt(0).toUpperCase() + k.slice(1) : v; };
   const onCreated = (s: RootState) => { glr.onCreated(s); s.raycaster.params.Points = { threshold: 0.45 }; };
+  const labels = useMemo(() => { // the open star, its connections and the hovered one: precise labels drawn by Projector
+    const out: { i: number; main: boolean }[] = [];
+    if (sel !== null) out.push({ i: sel, main: true });
+    for (const c of near) if (c.i !== hover) out.push({ i: c.i, main: false });
+    if (hover !== null && hover !== sel) out.push({ i: hover, main: true });
+    return out.filter((l) => !!data?.items[l.i]);
+  }, [sel, near, hover, data]);
+  const labelEls = useRef(new Map<number, HTMLDivElement>());
+
+  const close = useCallback(() => onClose(), [onClose]);
+  const retry = useCallback(() => { setErr(false); setRaw(null); setReload((n) => n + 1); }, []);
+  const toMode = useCallback((m: "notes" | "map") => { setMode(m); if (m === "notes") setRiver(false); }, []);
+  const peopleNode = useMemo(() => (List ? { node: <PeoplePanel st={ppl} />, count: ppl.people ? ppl.people.length : null, onOpen: () => setPeopleOn(true) } : undefined), [List, ppl]);
+  const showMap = mode === "map" && !paused;
+  const demand = reduced; // reduced motion: nothing moves on its own, so draw only when something changes
+  const stats = raw ? [tn("overview.memories", raw.total || raw.items.length), raw.graph?.clusters.length ? tn("mp.stat.groups", raw.graph.clusters.length) : "",
+    raw.links.length ? tn("mp.stat.links", raw.links.length) : "", raw.edges?.length ? t("mp.stat.similar", { n: raw.edges.length }) : ""].filter(Boolean) : [];
 
   return (
-    <div role="region" className="absolute inset-0 globe-in" aria-label="MEMORY: your memories as a constellation" style={{ background: BG }}>
-      {river && <Chronicle reduced={reduced} quality={quality} paused={paused} slot={slot} />}
-      {!flat && later && peep && <PeopleCanvas st={ppl} reduced={reduced} paused={paused} />}
-      {!flat && later && !river && !peep && (
-        <Canvas key={glr.key} onCreated={onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 6, 46], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: false }}
-          onPointerMissed={() => setSel(null)} style={{ cursor: hover !== null ? "pointer" : undefined }}>
+    <div role="region" className="absolute inset-0 globe-in mp-world" aria-label={t("mp.region")} style={{ background: BG }} data-mode={mode}>
+      {showMap && river && <Chronicle reduced={reduced} quality={quality} paused={paused} slot={slot} />}
+      {!flat && later && seenMap && !river && (
+        <div className="mp-canvas" hidden={mode !== "map"}>
+        <Canvas key={glr.key} onCreated={onCreated} frameloop={!showMap ? "never" : demand ? "demand" : "always"} camera={{ position: [0, 6, 46], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: false }}
+          onPointerMissed={() => setHover(null)} style={{ cursor: hover !== null ? "pointer" : undefined }}>
           {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
           <WarmCompile world="memory" />
           <color attach="background" args={[BG]} />
           <Stars radius={120} depth={60} count={reduced ? 800 : Math.min(3000, q.stars)} factor={2.2} fade speed={reduced ? 0 : 0.2} />
           <FarRings reduced={reduced} />
-          {data && <Constellation data={data} at={when} hi={hi} searching={!!query.trim()} reduced={reduced} lite={q.bloomScale === 0} onHover={setHover} onPick={open} />}
-          {data?.graph && !query.trim() && <ClusterHalos graph={data.graph} items={data.items} />}
-          {label && (
-            <Html position={[label.x, label.y, label.z]} style={{ pointerEvents: "none", transform: "translate(14px, -50%)" }} zIndexRange={[12, 0]}>
-              <div className="memory-star-label"><b>{label.title}</b><span>{label.kind}{isLearned(label.source) ? " · learned by CORE" : ""}</span></div>
-            </Html>
-          )}
-          <OrbitControls makeDefault enableDamping dampingFactor={0.08} minDistance={3} maxDistance={110} autoRotate={!reduced && hover === null} autoRotateSpeed={0.18} />
-          <Fly goal={goal} reduced={reduced} />
+          {data && <Constellation data={data} at={when} hi={hi} searching={!!query.trim()} reduced={reduced} lite={q.bloomScale === 0} onHover={setHover} onPick={pick} />}
+          {data && <FocusLines items={data.items} from={sel} to={near} />}
+          {data?.graph && !query.trim() && sel === null && <ClusterHalos graph={data.graph} items={data.items} />}
+          {data && <Projector items={data.items} labels={labels} els={labelEls} />}
+          <OrbitControls makeDefault enableDamping={!demand} dampingFactor={0.08} minDistance={3} maxDistance={110} autoRotate={!reduced && hover === null && sel === null} autoRotateSpeed={0.18} />
+          <Fly goal={goal} reduced={reduced} shift={MAP_SHIFT} />
           {q.bloomScale > 0 && (
             <EffectComposer multisampling={q.msaa}>
-              <Bloom intensity={(reduced ? 0.3 : 0.5) * q.bloomScale} luminanceThreshold={0.6} luminanceSmoothing={0.35} mipmapBlur />
+              <Bloom intensity={(reduced ? 0.3 : 0.45) * q.bloomScale} luminanceThreshold={0.65} luminanceSmoothing={0.35} mipmapBlur />
               <Vignette offset={0.3} darkness={0.75} />
               <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
               {q.msaa ? <></> : <SMAA />}
             </EffectComposer>
           )}
         </Canvas>
+        <div className="mp-labels" aria-hidden="true">{labels.map((l) => { const m = data!.items[l.i]; return (
+          <div key={`${m.id}-${l.main ? "m" : "n"}`} ref={(el) => { if (el) labelEls.current.set(l.i, el); else labelEls.current.delete(l.i); }} className="memory-star-label" data-main={l.main ? "" : undefined}>
+            <b>{m.kind === "journal" ? t("mp.journal") : m.title}</b>{l.main && <span>{kindName(m.kind)}{isLearned(m.source) ? ` · ${t("mp.d.learned")}` : ""}</span>}</div>); })}</div>
+        </div>
       )}
 
-      <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] flex max-h-[45dvh] flex-col gap-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label="MEMORY controls">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="brand world-header flex items-center gap-2 text-base"><WorldEmblem id="memory" size={28} />MEMORY <span className="muted num text-xs font-normal">{data ? `${data.items.length}${data.total > data.items.length ? ` of ${data.total}` : ""} stars` : ""}</span><WorldHeaderArt id="memory" /></h2>
-          {!flat && List && !simple && <div className="flex basis-full flex-wrap gap-1.5">{/* own line: five chips beside the flex:1 header crushed it */}
-            <button className="chip" aria-pressed={!list && !chron && !peep} onClick={() => { setList(false); setChron(false); setPeople(false); }}>Constellation</button>
-            <button className="chip" aria-pressed={river} onClick={() => { setList(false); setChron(true); setPeople(false); }}>Chronicle</button>
-            <button className="chip" aria-pressed={peep} onClick={() => { setList(false); setChron(false); setPeople(true); }}>People</button>
-            <button className="chip" aria-pressed={list} onClick={() => { setList(true); setChron(false); setPeople(false); }}>List view</button>
-          </div>}
-        </div>
-
-        {simple ? <PlanetHome planet="memory" results={err ? [] : recent} onManual={() => setManual(true)}>
-          {List && <MemoryReview onChanged={onChanged} />}
-        </PlanetHome> : <>
-        <BackToSimple onClick={toSimple} />
-        {List && !peep && !list && !flat && <MemoryReview onChanged={onChanged} />}{/* in List view these live under Review */}
-        {peep ? <PeoplePanel st={ppl} /> : List && (list || flat) ? <List focusId={focusId} onChanged={onChanged} /> : List && river ? <div ref={setSlot} /> : <>
-          <input className="field" type="search" placeholder="Find a memory · title, kind or tag" value={query} maxLength={200}
-            onChange={(e) => setQuery(e.target.value)} aria-label="Search memories in the constellation" />
-          {projects.length > 0 && <select className="field text-xs" value={project} onChange={(e) => { setProject(e.target.value); setQuery(""); }} aria-label={t("mapx.project")}>
-            <option value="">{t("mapx.allProjects")}</option>{projects.map((p) => <option key={p}>{p}</option>)}</select>}
-          {err && <p className="error" role="alert">{err}</p>}
-          {!data && !err && <p className="muted" role="status">Charting your memories…</p>}
-          {data && !data.items.length && <p className="muted">No memories yet. Open List view to capture your first one.</p>}
-          {query.trim() && data && <div className="space-y-1" aria-live="polite">
-            <div className="muted text-[10px] uppercase tracking-widest">{hits.length ? `${hits.length} match${hits.length > 1 ? "es" : ""}` : "Nothing matched"}</div>
-            <ul className="space-y-0.5">{hits.slice(0, 12).map((i) => { const m = data.items[i]; return (
-              <li key={m.id}><button className="chip w-full justify-between text-left" aria-pressed={sel === i}
-                onClick={() => { setSel(i); fly([m.x, m.y, m.z], 9); }} onDoubleClick={() => open(i)}>
-                <span className="truncate">{m.title}</span><span className="muted">{m.kind}</span></button></li>); })}</ul>
-          </div>}
-          {sel !== null && data?.items[sel] && <div className="card space-y-1">
-            <div className="font-medium">{data.items[sel].title}</div>
-            <p className="muted text-xs">{data.items[sel].kind} · {new Date(data.items[sel].created_at).toLocaleDateString([], { dateStyle: "medium" })}{isLearned(data.items[sel].source) ? " · learned by CORE" : ""}{data.items[sel].tags?.length ? ` · #${data.items[sel].tags.slice(0, 4).join(" #")}` : ""}</p>
-            <button className="btn" onClick={() => open(sel)}>Open memory</button>
-            <div className="muted pt-1 text-[10px] uppercase tracking-widest">{t("mapx.links")}</div>
-            {!conns.length ? <p className="muted text-xs">{t("mapx.none")}</p> : <ul className="space-y-0.5">{conns.slice(0, 12).map((c) => { const m = data.items[c.i]; return (
-              <li key={m.id} className="flex items-center gap-2 text-xs">
-                <span className={c.kind === "explicit" ? "shrink-0" : "muted shrink-0"} title={t(c.kind === "explicit" ? "mapx.explicitHint" : "mapx.inferredHint")}>
-                  {c.kind === "explicit" ? t("mapx.explicit") : t("mapx.inferred", { p: Math.round((c.sim ?? 0) * 100) })}</span>
-                <button className="link min-w-0 flex-1 truncate text-left" onClick={() => { setSel(c.i); fly([m.x, m.y, m.z], 9); }} aria-label={`${t("mapx.select")}: ${m.title}`}>{m.title}</button>
-                <button className="link shrink-0" onClick={() => open(c.i)}>{t("mapx.open")}</button>
-              </li>); })}</ul>}
-          </div>}
-          {span && data && data.items.length > 1 && <div role="group" aria-label="Memory timeline" className="flex items-center gap-3 text-xs">
-            <button className="chip" onClick={play} aria-pressed={playing}>{playing ? "Pause" : "Replay"}</button>
-            <span className="w-24 shrink-0 tabular-nums" aria-live={playing ? "off" : "polite"}>{whenLabel}</span>
-            <input type="range" min={0} max={spanDays} step={1} value={when === null ? spanDays : Math.round((when - span.t0) / DAY)}
-              aria-label="Day in your memory history" aria-valuetext={whenLabel} className="h-1 min-w-0 flex-1 accent-sky-300"
+      {mode === "map" && <div className="pu mp-strip" data-planet="memory" role="group" aria-label={t("mp.map.title")}>
+        <p className="mp-stats pu-num" aria-live="polite">{stats.map((x, i) => <span key={i}>{x}</span>)}</p>
+        <div className="mp-strip-row">
+          <div className="mp-seg" role="group" aria-label={t("mp.view")}>
+            <button type="button" aria-pressed={!river} onClick={() => setRiver(false)}>{t("mp.map.stars")}</button>
+            <button type="button" aria-pressed={river} onClick={() => setRiver(true)}>{t("mp.map.river")}</button>
+          </div>
+          {!river && span && data && data.items.length > 1 && <div className="mp-time" role="group" aria-label={t("mp.map.time")}>
+            <Button size="sm" variant="ghost" onClick={play} aria-pressed={playing}>{playing ? t("mp.map.pause") : t("mp.map.replay")}</Button>
+            <input type="range" min={0} max={spanDays} step={1} value={when === null ? spanDays : Math.round((when - span.t0) / DAY)} aria-label={t("mp.map.day")} aria-valuetext={whenLabel}
               onChange={(e) => { setPlaying(false); const d = Number(e.target.value); setWhen(d >= spanDays ? null : span.t0 + d * DAY); }} />
-            <button className="chip" onClick={() => { setPlaying(false); setWhen(null); }} disabled={when === null}>Now</button>
+            <span className="mp-when" aria-live={playing ? "off" : "polite"}>{whenLabel}</span>
           </div>}
-          {data?.graph && <ClusterList graph={data.graph} items={data.items} onFly={fly} onSelect={(i) => { setSel(i); const m = data.items[i]; fly([m.x, m.y, m.z], 9); }} />}
-          {kinds.length > 0 && <ul className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]" aria-label="Legend">
-            {kinds.map((k) => <li key={k} className="muted flex items-center gap-1.5"><i aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 9, background: kindColor(k), boxShadow: `0 0 6px ${kindColor(k)}` }} />{k}</li>)}
-            <li className="muted flex items-center gap-1.5"><i aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 9, border: "1px solid currentColor" }} />learned by CORE</li>
-          </ul>}
-          <p className="muted text-[11px]">Nearby stars are similar memories; threads are links, and the faint web joins similar memories (newer links glow brighter). Drag to orbit, scroll to zoom, click a star to open it.</p>
-        </>}
-        </>}
-      </section>
+          {!river && projects.length > 0 && <select className="mp-input mp-proj" value={project} aria-label={t("mp.map.project")} onChange={(e) => { setProject(e.target.value); setQuery(""); }}>
+            <option value="">{t("mp.map.all")}</option>{projects.map((p) => <option key={p}>{p}</option>)}</select>}
+        </div>
+        {river ? <div ref={setSlot} className="mp-river" /> : <ul className="mp-legend" aria-label={t("mp.map.legend")}>{kinds.map((k) => <li key={k}><i aria-hidden="true" style={{ background: kindColor(k) }} />{kindName(k)}</li>)}
+          <li><i aria-hidden="true" className="mp-ring" />{t("mp.map.ring")}</li></ul>}
+        {!river && <p className="mp-help">{t("mp.map.help")}</p>}
+      </div>}
 
-      <button className="chip world-back absolute bottom-28 right-3 z-[15] min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
+      <MemoryShell stars={raw?.items ?? null} links={raw?.links ?? []} edges={raw?.edges ?? []} total={raw?.total ?? 0} err={err && !raw} onRetry={retry}
+        onQuery={setQuery} openId={openId} onOpen={setOpenId} onFly={flyTo} onChanged={changed} onPatched={patched}
+        mode={mode} onMode={toMode} onClose={close} List={List} people={peopleNode} />
     </div>
   );
 }

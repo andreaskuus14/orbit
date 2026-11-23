@@ -31,6 +31,7 @@ import { loadUsageTotals } from "@/lib/analytics-usage";
 import { usageSummary, type UsageDays, type UsageTotal } from "@/lib/analytics-usage-pure";
 import { eventLabel } from "@/lib/event-label-pure";
 import { isLearned } from "@/lib/memory-world-pure";
+import { cleanTagList } from "@/lib/memory-planet-pure";
 import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import MemoryControls from "./MemoryControls";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
@@ -46,7 +47,9 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
   return json as T;
 }
-const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+const when = (iso: string | null | undefined) => { const t = iso ? Date.parse(iso) : NaN; return Number.isFinite(t) ? new Date(t).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : ""; };
+/** Any field of a stored row can be missing (#719: tags; a NULL inside tags[]): the list never crashes on one. */
+const fixRow = (x: Memory): Memory => ({ ...x, title: x.title || "Untitled", content: x.content ?? "", tags: cleanTagList(x.tags), kind: (x.kind || "note") as Kind, source: x.source || "unknown" });
 
 export { CorePanel } from "./CoreChat";
 
@@ -103,7 +106,8 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   const load = useCallback(async (query: string) => {
     try {
       const r = await api<{ results: Memory[]; mode: string }>(`/api/memories${query ? `?q=${encodeURIComponent(query)}` : ""}`);
-      if (query) { setHits(r.results); setMode(r.mode); setQ(query); } else setItems(r.results);
+      const rows = (Array.isArray(r.results) ? r.results : []).filter((x) => x && typeof x.id === "string").map(fixRow);
+      if (query) { setHits(rows); setMode(r.mode); setQ(query); } else setItems(rows);
       setErr("");
     } catch (e) { setErr(e instanceof Error ? e.message : "Could not load"); }
   }, []);
@@ -115,7 +119,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   const reload = () => Promise.all([load(""), q && load(q)]).then(() => {});
   useEffect(() => {
     if (!focusId) return;
-    api<{ memory: Memory }>(`/api/memories/${focusId}`).then((r) => setOpen(r.memory)).catch((e) => setErr(e.message));
+    api<{ memory: Memory }>(`/api/memories/${focusId}`).then((r) => setOpen(fixRow(r.memory))).catch((e) => setErr(e.message));
   }, [focusId]);
 
   async function capture(e?: React.FormEvent, choice?: DupChoice) {
@@ -257,7 +261,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
   function pick(m: Memory) { setOpen(m); dispatchEvent(new CustomEvent(OPEN_MEMORY_EVENT, { detail: { id: m.id } })); }
 
   function setFocus(id: string) {
-    api<{ memory: Memory }>(`/api/memories/${id}`).then((r) => setOpen(r.memory)).catch((e) => setErr(e.message));
+    api<{ memory: Memory }>(`/api/memories/${id}`).then((r) => setOpen(fixRow(r.memory))).catch((e) => setErr(e.message));
   }
 }
 
