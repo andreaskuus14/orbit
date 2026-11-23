@@ -32,7 +32,7 @@ jobs:
         env: { ONNXRUNTIME_NODE_INSTALL_CUDA: skip }
       - name: Bench
         run: |
-          set -u
+          set +e -u
           CAP=12G # hard memory cap per build (a systemd scope); a runaway Turbopack took the whole runner down twice
           S=$GITHUB_STEP_SUMMARY; NODE=$(command -v node)
           echo "| Run | Exit | Wall | Peak memory (whole build, cgroup) |" | tee -a $S rows.md; echo "|---|---|---|---|" | tee -a $S rows.md
@@ -42,7 +42,8 @@ jobs:
               console.log([...m].sort((a,b)=>b[1]-a[1]).slice(0,14).map(([k,d])=>k+" "+(d/1e6).toFixed(1)+"s").join("; "))' "$1"; }
           run() { # label, then next's arguments. Runs in its own cgroup: memory.peak is the true peak of every process.
             local label=$1; shift; local t0=$(date +%s)
-            sudo -E systemd-run --quiet --scope --unit="bench-$label" -p MemoryMax=$CAP -p MemorySwapMax=0 --uid=$(id -u) --gid=$(id -g) \
+            sudo systemd-run --quiet --scope --unit="bench-$label" -p MemoryMax=$CAP -p MemorySwapMax=0 --uid=$(id -u) --gid=$(id -g) \
+              env HOME="$HOME" PATH="$PATH" NEXT_TELEMETRY_DISABLED=1 NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" ORBIT_DIST_DIR=.next-build ORBIT_FAST_PROD_BUILD=1 \
               sh -c '"$0" node_modules/next/dist/bin/next build "$@" > "build-'"$label"'.log" 2>&1; c=$?; cat /sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.peak > peak.txt; exit $c' "$NODE" "$@"
             local code=$?; local wall=$(( $(date +%s) - t0 ))
             local note=""; [ $code = 137 ] && note=" (killed at the $CAP cap)"
