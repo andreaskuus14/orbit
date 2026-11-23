@@ -104,6 +104,12 @@ function Update-Release([bool]$force, [bool]$stopFirst, [scriptblock]$stopServer
     if ((Test-Path $cache) -and -not (Test-Path (Join-Path $distNew "cache\webpack"))) {
       try { $null = New-Item -ItemType Directory -Force -Path (Join-Path $distNew "cache"); Move-Item -LiteralPath $cache -Destination (Join-Path $distNew "cache\webpack") } catch { }
     }
+    # Keep the server-actions key too (cache\.rscinfo): Next puts it in the webpack cache version, so a new key every
+    # build made the cache above miss and every build ran cold. Next itself renews the key every 14 days.
+    $rscInfo = Join-Path $distLive "cache\.rscinfo"
+    if ((Test-Path $rscInfo) -and -not (Test-Path (Join-Path $distNew "cache\.rscinfo"))) {
+      try { $null = New-Item -ItemType Directory -Force -Path (Join-Path $distNew "cache"); Copy-Item -LiteralPath $rscInfo -Destination (Join-Path $distNew "cache\.rscinfo") } catch { }
+    }
     $env:ORBIT_DIST_DIR = ".next-build" # inherited by npm -> next build (read in next.config.ts)
     $env:ORBIT_FAST_PROD_BUILD = "1"    # main commits are already typechecked/linted in CI; cuts live swap build time
     try {

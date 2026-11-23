@@ -1,0 +1,81 @@
+name: Build speed bench
+
+# Measures the live-build options for scripts/launch.ps1 side by side on a throwaway 16 GB Linux runner. "before" is
+# origin/main's next.config.ts with launch.ps1's old cache carry (cache/webpack only); "after" is this commit's config with
+# the new carry (cache/webpack + cache/.rscinfo). Both use launch.ps1's flags (ORBIT_DIST_DIR=.next-build,
+# ORBIT_FAST_PROD_BUILD=1). Then `next build --turbopack`, cold and warm, under a memory watchdog (a runaway Turbopack
+# killed the whole runner once). Wall time, peak RSS and the slowest build phases (from Next's own .next/trace) go to the
+# job summary as each run ends. No secrets, never the owner's PC. Start it from the Actions tab or by pushing to
+# ci/build-bench.
+on:
+  push:
+    branches: [ci/build-bench]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: test-placeholder-anon-key
+    steps:
+      - uses: actions/checkout@v4
+      - run: git fetch --depth=1 origin main && git show FETCH_HEAD:next.config.ts > /tmp/next.config.main.ts && cp next.config.ts /tmp/next.config.branch.ts
+      - uses: actions/setup-node@v4
+        with: { node-version: '24', cache: npm, cache-dependency-path: package-lock.json }
+      - run: npm ci --no-audit --no-fund
+        env: { ONNXRUNTIME_NODE_INSTALL_CUDA: skip }
+      - name: Bench
+        run: |
+          set +e -u
+          CAP=12G # hard memory cap per build (a systemd scope); a runaway Turbopack took the whole runner down twice
+          S=$GITHUB_STEP_SUMMARY; NODE=$(command -v node)
+          echo "| Run | Exit | Wall | Peak memory (whole build, cgroup) |" | tee -a $S rows.md; echo "|---|---|---|---|" | tee -a $S rows.md
+          phases() { # the slowest spans of Next's own trace for this run
+            node -e 'const fs=require("fs");const f=process.argv[1];if(!fs.existsSync(f))process.exit(0);const ev=fs.readFileSync(f,"utf8").split("\n").filter(Boolean).flatMap(l=>JSON.parse(l));
+              const keep=ev.filter(e=>e.duration>2e6);const m=new Map();for(const e of keep){const k=e.name+(e.tags&&e.tags.name?" ("+e.tags.name+")":"");m.set(k,(m.get(k)||0)+e.duration)}
+              console.log([...m].sort((a,b)=>b[1]-a[1]).slice(0,14).map(([k,d])=>k+" "+(d/1e6).toFixed(1)+"s").join("; "))' "$1"; }
+          run() { # label, then next's arguments. Runs in its own cgroup: memory.peak is the true peak of every process.
+            local label=$1; shift; local t0=$(date +%s)
+            sudo systemd-run --quiet --scope --unit="bench-$label" -p MemoryMax=$CAP -p MemorySwapMax=0 --uid=$(id -u) --gid=$(id -g) \
+              env HOME="$HOME" PATH="$PATH" NEXT_TELEMETRY_DISABLED=1 NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" ORBIT_DIST_DIR=.next-build ORBIT_FAST_PROD_BUILD=1 \
+              sh -c '"$0" node_modules/next/dist/bin/next build "$@" > "build-'"$label"'.log" 2>&1; c=$?; cat /sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.peak > peak.txt; exit $c' "$NODE" "$@"
+            local code=$?; local wall=$(( $(date +%s) - t0 ))
+            local note=""; [ $code = 137 ] && note=" (killed at the $CAP cap)"
+            echo "| $label | $code$note | ${wall}s | $(( $(cat peak.txt 2>/dev/null || echo 0) / 1048576 )) MB |" | tee -a $S rows.md
+            echo "$label phases: $(phases .next-build/trace)" | tee -a phases.md
+            cp .next-build/trace "trace-$label.json" 2>/dev/null || true
+            tail -8 "build-$label.log"
+            return $code
+          }
+          edit() { echo "// bench $1" >> src/app/layout.tsx; } # a pulled commit: one source line changes between builds
+          swap() { rm -rf .next; mv .next-build .next; }      # what Switch-Release does
+          carry() { mkdir -p .next-build/cache; mv .next/cache/webpack .next-build/cache/webpack; if [ "$1" = keep ]; then cp .next/cache/.rscinfo .next-build/cache/; fi; }
+          export ORBIT_DIST_DIR=.next-build ORBIT_FAST_PROD_BUILD=1
+
+          cp /tmp/next.config.main.ts next.config.ts
+          run before-cold ; swap
+          edit 1; carry drop; run before-warm ; swap
+          rm -rf .next
+          cp /tmp/next.config.branch.ts next.config.ts
+          run after-cold ; swap
+          edit 2; carry keep; run after-warm ; swap
+          edit 3; carry keep; run after-warm-2 
+          echo "source maps in the build: $(find .next-build -name '*.map' | wc -l)" | tee -a phases.md
+          echo "largest server files:" >> phases.md; find .next-build/server -name '*.js' -printf '%s %p\n' | sort -rn | head -25 | awk '{printf "%7.0f KB %s\n",$1/1024,$2}' >> phases.md
+          rm -rf .next .next-build
+
+          run turbopack-cold --turbopack; tc=$?; echo "kernel OOM log after turbopack-cold: $(sudo dmesg | grep -iE 'oom|killed process' | tail -3 | tr '\n' ' ')" | tee -a phases.md
+          if [ $tc = 0 ]; then
+            swap; edit 4; mkdir -p .next-build; mv .next/cache .next-build/cache 2>/dev/null; run turbopack-warm --turbopack || true
+          fi
+          { echo; echo '```'; cat phases.md; echo '```'; } >> $S
+          cat rows.md phases.md
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with: { name: build-bench, path: "build-*.log\ntrace-*.json\nphases.md\nrows.md", retention-days: 14 }
