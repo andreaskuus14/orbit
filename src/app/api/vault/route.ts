@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/supabase/server";
 import { vaultPodcast } from "@/lib/vault-podcast";
-import { VaultError, cloudList, cloudOnlyNames, cloudMove, cloudPut, cloudRemove, deleteFile, listDetailed, listTrash, markSync, previewText, purgeTrash, readStream, renameFile, restoreFromCloud, restoreTrash, saveUpload, searchVaultInfo, syncToCloud, usage } from "@/lib/vault";
+import { VaultError, docText, thumbnail, warmIndex, cloudList, cloudOnlyNames, cloudMove, cloudPut, cloudRemove, deleteFile, listDetailed, listTrash, markSync, previewText, purgeTrash, readStream, renameFile, restoreFromCloud, restoreTrash, saveUpload, searchVaultInfo, syncToCloud, usage } from "@/lib/vault";
 import { logActivity } from "@/lib/activity";
 import { MAX_FILE, mergeCloud, serveHeaders } from "@/lib/vault-pure";
 
@@ -19,6 +19,9 @@ function fail(e: unknown) {
 //   GET ?file=name&preview=1    → { text, truncated } (text/code only, first 20 KB)
 //   GET ?file=name&intake=1     → { intake: sidecar | null } (fields extracted from an incoming invoice / PO)
 //   GET ?q=text&content=1       → { results: [{ name, snippet }], notIndexed: [name] }
+//   GET ?file=name&text=1       → { text, cov } first words of a PDF / Word / text file from the content index (no OCR)
+//   GET ?file=name&thumb=96|640 → image/webp thumbnail of a picture (cached on this PC)
+//   GET ?changes=1              → { changes } what ORBIT made or changed in VAULT (TIME MACHINE, last 7 days) with Undo state
 export async function GET(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
@@ -33,11 +36,21 @@ export async function GET(req: Request) {
       return new Response(stream, { status: 206, headers: { ...headers, "Content-Length": String(range[1] - range[0] + 1), "Content-Range": `bytes ${range[0]}-${range[1]}/${size}` } });
     }
     if (file !== null && q.get("intake") === "1") return Response.json({ intake: await (await import("@/lib/vault-intake")).readIntake(file) });
+    if (file !== null && q.get("thumb")) {
+      const img = await thumbnail(file, Number(q.get("thumb")) || 96);
+      return new Response(img as BodyInit, { headers: { "Content-Type": "image/webp", "X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=3600", "Content-Security-Policy": "sandbox; default-src 'none'" } });
+    }
+    if (file !== null && q.get("text") === "1") return Response.json(await docText(file));
+    if (q.get("changes") === "1") {
+      const [{ readRecords }, { vaultChanges }] = await Promise.all([import("@/lib/time-machine"), import("@/lib/vault-ui-pure")]);
+      return Response.json({ changes: vaultChanges(await readRecords().catch(() => []), Date.now()) });
+    }
     if (file !== null && q.get("preview") === "1") return Response.json(await previewText(file));
     if (q.get("content") === "1") return Response.json(await searchVaultInfo(q.get("q") ?? "", 50));
     let cloud: Map<string, number> | null = null, cloudError: string | null = null;
     try { cloud = await cloudList(sb, user.id); } catch (e) { cloudError = e instanceof Error ? e.message : "cloud unavailable"; }
     const files = await listDetailed(cloud);
+    warmIndex(); // the first "search inside" then answers at once (index work runs after this reply)
     return Response.json({ ...mergeCloud(files, cloud), cloudError, trash: await listTrash(), usage: await usage(files) });
   } catch (e) { return fail(e); }
 }

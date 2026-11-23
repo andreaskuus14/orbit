@@ -87,8 +87,9 @@ function Label({ p, reduced }: { p: Place; reduced: boolean }) {
   );
 }
 
-export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClose, paused = false, children }: {
+export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClose, paused = false, bare = false, children }: {
   id: PlanetWorldId; flat?: boolean; reduced: boolean; quality?: QualityMode; onClose: () => void; paused?: boolean; children: ReactNode; // children: the planet's workspace panel
+  bare?: boolean; // the child is a whole planet shell (design language: header, close, sheet): no glass, header or back chip of our own
 }) {
   const glr = useGlRecovery();
   const later = useMountLater();
@@ -159,18 +160,22 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
         </Canvas>
       )}
 
-      <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] flex max-h-[45dvh] flex-col gap-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label={`${planet.name} workspace`}>
-        <h2 className="brand world-header flex items-center gap-2 text-base"><WorldEmblem id={id} size={28} />{t(`planet.${id}`)}<WorldHeaderArt id={id} /></h2>
-        {!flat && <div className="planet-world-head" style={{ borderColor: planet.color }} aria-live="polite">
-          {err ? <span className="error" role="alert">{err}</span> : !scene ? <span className="muted" role="status">{t("common.loading")}</span> : <>
-            <span>{scene.summary}{fresh ? `, ${fresh} new today` : ""}</span>
-            {sel !== null && flatPlaces[sel] && <span className="muted">{flatPlaces[sel].label}: {flatPlaces[sel].sub}</span>}
-          </>}
-        </div>}
-        {children}
-      </section>
+      {bare ? (
+        <div className="world-shell absolute inset-x-3 bottom-32 z-[14] flex max-h-[45dvh] min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[27.5rem]">{children}</div>
+      ) : <>
+        <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] flex max-h-[45dvh] flex-col gap-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label={`${planet.name} workspace`}>
+          <h2 className="brand world-header flex items-center gap-2 text-base"><WorldEmblem id={id} size={28} />{t(`planet.${id}`)}<WorldHeaderArt id={id} /></h2>
+          {!flat && <div className="planet-world-head" style={{ borderColor: planet.color }} aria-live="polite">
+            {err ? <span className="error" role="alert">{err}</span> : !scene ? <span className="muted" role="status">{t("common.loading")}</span> : <>
+              <span>{scene.summary}{fresh ? `, ${fresh} new today` : ""}</span>
+              {sel !== null && flatPlaces[sel] && <span className="muted">{flatPlaces[sel].label}: {flatPlaces[sel].sub}</span>}
+            </>}
+          </div>}
+          {children}
+        </section>
 
-      <button className="chip world-back absolute bottom-28 right-3 z-[15] min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>{t("arch.backGalaxy")}</button>
+        <button className="chip world-back absolute bottom-28 right-3 z-[15] min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>{t("arch.backGalaxy")}</button>
+      </>}
     </div>
   );
 }

@@ -3,7 +3,7 @@
 // planets' own daily items on the simple page (BUSINESS today queue, LIFE habits). Kept out of PlanetHome so the public demo's
 // import graph (tests/demo-leak.test.ts) never reaches business or LIFE code.
 import { useEffect, useState, type ReactNode } from "react";
-import { businessRows, vaultRows, type SimpleRow } from "@/lib/planet-page-pure";
+import { businessRows, type SimpleRow } from "@/lib/planet-page-pure";
 import { todayQueue, type TodayItem } from "@/lib/planet-view-pure";
 import type { Prospect } from "@/lib/business-pure";
 import { VOICE_ASK } from "./voice/bus";
@@ -41,20 +41,20 @@ function useTodayHabits(on: boolean) {
 }
 
 
-/** Wrap a planet panel (opened by Orbit): simple page first, the panel itself behind More → All tools. BUSINESS and VAULT get their
+/** Wrap a planet panel (opened by Orbit): simple page first, the panel itself behind More → All tools. BUSINESS gets its
  *  latest items as results; LIFE shows none on purpose (its text stays private, and there's nothing for ORBIT to "make" there). */
 export function SimpleOr({ planet, onOpenTask, onOpenGoal, children }: { planet: SimplePlanet; onOpenTask: (id: string) => void; onOpenGoal?: (id: string) => void; children: ReactNode }) {
   const { t, lang } = useT();
   const [manual, setManual] = useManual(planet);
   const [rows, setRows] = useState<SimpleRow[] | null>(null);
   const [today, setToday] = useState<TodayItem[]>([]); // BUSINESS: the day's job (follow-ups due, drafts to check, first messages)
-  const src = planet === "business" ? "/api/business" : planet === "vault" ? "/api/vault" : null;
+  const src = planet === "business" ? "/api/business" : null; // VAULT has its own shell (VaultPlanet)
   useEffect(() => {
     if (manual || !src) return;
     let live = true;
     fetch(src, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => {
       if (!live) return;
-      setRows(!j ? [] : planet === "business" ? businessRows(j.prospects ?? [], lang) : vaultRows(j.files ?? [], lang));
+      setRows(!j ? [] : businessRows(j.prospects ?? [], lang));
       if (planet === "business" && Array.isArray(j?.prospects)) setToday(todayQueue(j.prospects as Prospect[], Date.now(), 5));
     }, () => { if (live) setRows([]); });
     return () => { live = false; };
