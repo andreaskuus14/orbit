@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { translate } from "../src/lib/i18n-pure.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -92,23 +93,23 @@ test("results timer starts once, runs without a UI, and respects Stop-all", asyn
 
 test("Last Shorts renders escaped titles, 48h views, both directions, baseline waiting and optional retention", () => {
   const m = { exports: {} as any };
-  runInNewContext(compile("components/LastShorts.tsx"), { module: m, exports: m.exports, require: (n: string) => (n === "./world-paused" ? { useWorldPaused: () => false } : require(n)) });
+  runInNewContext(compile("components/LastShorts.tsx"), { module: m, exports: m.exports, require: (n: string) => (n === "./world-paused" ? { useWorldPaused: () => false } : n === "./i18n" ? { useT: () => ({ lang: "en", t: (k: never, v?: never) => translate("en", k, v) }) } : require(n)) });
   const rows: pure.ShortResult[] = [
     { videoId: "abcdefghijk", title: "<script>My title</script>", hook: "", capturedAt: "", views48: 400, medianViews: 200, changePct: 100, verdict: "worked", avgViewPct: 0 },
     { videoId: "lmnopqrstuv", title: "Slow start", hook: "", capturedAt: "", views48: 100, medianViews: 200, changePct: -50, verdict: "flopped" },
     { videoId: "12345678901", title: "New channel", hook: "", capturedAt: "", views48: 200, medianViews: null, changePct: null, verdict: null },
   ];
   const html = renderToStaticMarkup(createElement(m.exports.ShortsStrip, { shorts: rows }));
-  assert.match(html, /Last Shorts/); assert.match(html, /400 views at 48h/);
-  assert.match(html, /↑ 100% vs median · worked/); assert.match(html, /↓ 50% vs median · flopped/);
-  assert.match(html, /Waiting for a channel baseline/); assert.match(html, /0% average viewed/);
+  assert.match(html, /Last Shorts/); assert.match(html, /400 views at 48 h/);
+  assert.match(html, /↑ 100% vs your usual · did well/); assert.match(html, /↓ 50% vs your usual · did worse/);
+  assert.match(html, /Not enough Shorts yet to compare/); assert.match(html, /0% watched on average/);
   assert.doesNotMatch(html, /<script>/); assert.match(html, /&lt;script&gt;/);
-  assert.match(renderToStaticMarkup(createElement(m.exports.ShortsStrip, { shorts: [] })), /Results appear after/);
+  assert.match(renderToStaticMarkup(createElement(m.exports.ShortsStrip, { shorts: [] })), /Results show up a day after/);
   const pm = { ...pmPure.emptyPostmortem(), status: "1 post-mortem waiting: connect YouTube (Analytics) in STUDIO",
     items: [{ videoId: "abcdefghijk", title: "", at: "", durationSec: 20, hold3s: 0.8, hold30s: null, drops: [{ start: 5, end: 8, lostPct: 20, label: "" }], rule: "Test cutting.", ruleStatus: "proposed" as const }] };
   const view = { ...pm, items: pm.items.map((p) => ({ ...p, line: pmPure.pmLine(p) })) };
   const withPm = renderToStaticMarkup(createElement(m.exports.ShortsStrip, { shorts: rows, pm: view, onRule: () => {} }));
-  assert.match(withPm, /hook held 80% at 3 s · biggest drop 5 s–8 s \(−20%\)/); assert.match(withPm, /Rule idea: Test cutting\./); assert.match(withPm, /Add to playbook/);
+  assert.match(withPm, /hook held 80% at 3 s · biggest drop 5 s–8 s \(−20%\)/); assert.match(withPm, /Idea for your playbook: Test cutting\./); assert.match(withPm, /Add to playbook/);
   assert.match(withPm, /connect YouTube \(Analytics\)/);
 });
 

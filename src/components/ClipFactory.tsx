@@ -83,7 +83,7 @@ async function api<T>(url: string, init?: { method: string; body?: unknown }): P
   return json as T;
 }
 
-const JOB_LABEL: Record<JobStatus, string> = { queued: "⏳ Queued", probing: "🔍 Reading video", transcribing: "📝 Transcribing", finding: "✨ Finding moments", rendering: "🎞 Rendering", done: "✓ Done", failed: "⚠ Failed" };
+const JOB_LABEL: Record<JobStatus, string> = { queued: "Queued", probing: "Reading video", transcribing: "Transcribing", finding: "Finding moments", rendering: "Cutting", done: "Done", failed: "Didn't work" };
 const CLIP_LABEL: Record<ClipStatus, string> = { rendering: "🎞 Rendering", ready: "● Ready for review", failed: "⚠ Failed", approved: "✓ Approved", rejected: "✕ Rejected" };
 const Status = ({ text, tone }: { text: string; tone?: "good" | "bad" }) => (
   <span className="chip !cursor-default whitespace-nowrap !px-2 !py-0.5 !text-[10px]" style={tone === "good" ? { borderColor: "#ff8fab", color: "#ffd6e0" } : tone === "bad" ? { borderColor: "#fb7185", color: "#fda4af" } : undefined}>{text}</span>
@@ -94,7 +94,7 @@ function Section({ title, children, right }: { title: string; children: ReactNod
   return (
     <section className="card" aria-label={title}>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="hud-title studio-title !text-[0.7rem]">{title.toUpperCase()}</h3>{right}
+        <h3 className="hud-title studio-title !text-[0.7rem]">{title}</h3>{right}
       </div>
       {children}
     </section>
@@ -322,7 +322,7 @@ export default function ClipFactory({ reduced, onClose, review, failed }: { redu
   const health = data ? uploadHealth(data.jobs) : [];
   const fails = data ? failureGroups(data, [...(data.failAck ?? []), ...acked]) : [];
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-  const workText = workingJobs.length ? `⏳ ${plural(workingJobs.length, "job")} working… ${avg(workingJobs.map((j) => j.progress))}%`
+  const workText = workingJobs.length ? `${plural(workingJobs.length, "job")} working… ${avg(workingJobs.map((j) => j.progress))}%`
     : dls.length ? `⬇ ${plural(dls.length, "download")}… ${avg(dls.map((d) => d.progress))}%` : "";
   const workNext = <button className="chip num" onClick={() => selectTab(workingJobs.length ? "clips" : "find")} aria-label={`${workText}. Show progress`}>{workText}</button>;
   // Calendar card → the clip's card in the Clips tab (ids set in JobCard).
@@ -337,14 +337,14 @@ export default function ClipFactory({ reduced, onClose, review, failed }: { redu
   };
   const goSchedule = () => { selectTab("clips"); requestAnimationFrame(() => document.getElementById("schedule-all")?.focus()); };
   // One obvious next step, in priority order: review > schedule > connect YouTube > wait for work > find videos.
-  const next = fresh ? <button className="btn" onClick={() => openReview()} aria-label={tr("cf.reviewAria", { n: fresh })}>☀ {tn("cf.readyReview", fresh)}</button>
+  const next = fresh ? <button className="btn" onClick={() => openReview()} aria-label={tr("cf.reviewAria", { n: fresh })}>{tn("cf.readyReview", fresh)}</button>
     : unpublished && yt?.canUpload ? <button className="btn" onClick={goSchedule} aria-label={tr("cf.scheduleAllAria", { n: unpublished })}>🕒 {tr("cf.approvedSchedule", { n: unpublished })}</button>
     : unpublished && yt?.configured ? <a className="btn" href="/api/studio/oauth/start">🔗 {tr("cf.connectToPublish", { n: unpublished })}</a>
     : workText ? workNext
-    : <button className="btn" onClick={() => { selectTab("find"); setScoutRun((n) => n + 1); }} aria-label={tr("cf.findAria")}>🔭 {tr("cf.findVideos")}</button>;
+    : <button className="btn" onClick={() => { selectTab("find"); setScoutRun((n) => n + 1); }} aria-label={tr("cf.findAria")}>{tr("cf.findVideos")}</button>;
   // Find · Review · Scheduled in the row, the rest behind More ▾ (studio-ui-pure.ts); the open tab always shows in the row.
-  const TAB_LABEL: Record<Tab, string> = { find: `🔭 ${tr("cf.tab.find")}`, clips: `🎬 ${tr("cf.tab.review")}${fresh ? tr("cf.tab.new", { n: fresh }) : ""}`, calendar: `📅 ${tr("cf.tab.scheduled")}`,
-    autopilot: `🤖 ${tr("cf.tab.autopilot")}`, pipeline: `▦ ${tr("cf.tab.pipeline")}`, story: `✨ ${tr("cf.tab.story")}`, longform: `🎞 ${tr("cf.tab.longform")}`, insights: `🧠 ${tr("cf.tab.insights")}` };
+  const TAB_LABEL: Record<Tab, string> = { find: tr("cf.tab.find"), clips: `${tr("cf.tab.review")}${fresh ? tr("cf.tab.new", { n: fresh }) : ""}`, calendar: tr("cf.tab.scheduled"),
+    autopilot: tr("cf.tab.autopilot"), pipeline: tr("cf.tab.pipeline"), story: tr("cf.tab.story"), longform: tr("cf.tab.longform"), insights: tr("cf.tab.insights") };
   const { row: tabRow, more: tabMore } = splitTabs(CLIP_TABS, shown);
   const onTabKey = (e: KeyboardEvent) => {
     const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
@@ -358,7 +358,7 @@ export default function ClipFactory({ reduced, onClose, review, failed }: { redu
   return (
     <div className={`studio-clips glass @container h-full w-full overflow-y-auto p-3 sm:p-4 ${reduced ? "" : "panel-in"}`} role="region" aria-label={tr("cf.title")} aria-busy={loading}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="hud-title studio-title truncate">{tr("cf.title").toUpperCase()}</h2>
+        <h2 className="hud-title studio-title truncate">{tr("cf.title")}</h2>
         <div className="flex items-center gap-2">
           <button className="chip" onClick={() => { void load(); void loadYt(); }} disabled={loading} aria-label={tr(loading ? "cf.refreshing" : "cf.refreshAria")}>↻ {tr("cf.refresh")}</button>
           {onClose && <button className="chip" onClick={onClose} aria-label={tr("cf.close")}>×</button>}
@@ -505,7 +505,7 @@ export default function ClipFactory({ reduced, onClose, review, failed }: { redu
                           job ? <Status text={JOB_LABEL[job.status] ?? job.status} tone={toneOf(job.status)} /> : <Status text={tr("cf.hasJob")} />
                         ) : (
                           <button className="chip" aria-expanded={form === f.name} aria-controls={fid} onClick={() => setForm((c) => (c === f.name ? null : f.name))}
-                            aria-label={tr("cf.makeFrom", { name: f.name })}>🎬 {tr("cf.makeClips")}</button>
+                            aria-label={tr("cf.makeFrom", { name: f.name })}>{tr("cf.makeClips")}</button>
                         )}
                       </div>
                       {form === f.name && !f.jobId && (
@@ -575,8 +575,8 @@ export default function ClipFactory({ reduced, onClose, review, failed }: { redu
                 ))}
               </ul>
             )) : <>
-            {fresh > 0 && <button className="btn mb-2" onClick={() => openReview()} aria-label={tr("cf.reviewAria", { n: fresh })}>☀ {tr("cf.reviewOne", { n: fresh })}</button>}
-            {!jobs.length && <Empty text={tr("cf.noClips")} action={<button className="btn" onClick={() => selectTab("find")}>🔭 {tr("cf.findVideos")}</button>} />}
+            {fresh > 0 && <button className="btn mb-2" onClick={() => openReview()} aria-label={tr("cf.reviewAria", { n: fresh })}>{tr("cf.reviewOne", { n: fresh })}</button>}
+            {!jobs.length && <Empty text={tr("cf.noClips")} action={<button className="btn" onClick={() => selectTab("find")}>{tr("cf.findVideos")}</button>} />}
             <div className="space-y-3">
               {jobs.map((j) => (
                 <JobCard key={j.id} job={j} reduced={reduced} showRejected={showRejected} busy={busy} Note={Note} yt={yt} publishing={data.publishing}
@@ -663,7 +663,7 @@ function ScoutSection({ visible, onQueued, runSignal, reduced, layout, rev, onOp
     <Section title={tr("cf.scout")} right={d && (
       <div className="flex items-center gap-1.5">
         <button className="chip" aria-expanded={open} aria-controls="scout-settings" onClick={() => setOpen((o) => !o)} aria-label={tr("cf.scoutSettings")}>⚙ {tr("cf.settings")}</button>
-        <button className="btn !px-3 !py-1 !text-xs" onClick={() => void run()} disabled={busy.run || d.running || !d.configured} aria-label={tr("cf.runScoutAria")}>{d.running ? tr(d.researching ? "cf.researching" : "cf.scouting") : busy.run ? tr("cf.starting") : `🔭 ${tr("cf.runScoutNow")}`}</button>
+        <button className="btn !px-3 !py-1 !text-xs" onClick={() => void run()} disabled={busy.run || d.running || !d.configured} aria-label={tr("cf.runScoutAria")}>{d.running ? tr(d.researching ? "cf.researching" : "cf.scouting") : busy.run ? tr("cf.starting") : tr("cf.runScoutNow")}</button>
       </div>
     )}>
       {err && <p className="error text-xs" role="alert">{err}</p>}
@@ -690,7 +690,7 @@ function ScoutSection({ visible, onQueued, runSignal, reduced, layout, rev, onOp
           {!picks.length ? (
             s.watchlist.length || s.keywords.length || s.aiKeywords.length
               ? <Empty text={tr(last ? "cf.noPicksTune" : "cf.noPicksRun")}
-                  action={<button className="chip" onClick={() => void run()} disabled={busy.run || d.running || !d.configured}>🔭 {tr("cf.runScout")}</button>} />
+                  action={<button className="chip" onClick={() => void run()} disabled={busy.run || d.running || !d.configured}>{tr("cf.runScout")}</button>} />
               : <Empty text={tr("cf.addCreatorFirst")} />
           ) : (
             <ul className="mt-2 space-y-2" aria-label={tr("cf.scoutPicks")}>
@@ -770,7 +770,7 @@ function NicheCard({ d, busy, Note, onSave, onAdd, onResearch, onUse }: { d: Sco
     <div className="mt-2 rounded-xl border border-white/10 p-2 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <b className="flex-1 text-sm">🧭 {tr("cf.nicheReport")}</b>
-        <button className="chip" onClick={onResearch} disabled={busy.niche || d.running || !d.configured} aria-label={tr("cf.researchAria")}>{d.researching ? tr("cf.researching") : `🔭 ${tr("cf.findNiche")}`}</button>
+        <button className="chip" onClick={onResearch} disabled={busy.niche || d.running || !d.configured} aria-label={tr("cf.researchAria")}>{d.researching ? tr("cf.researching") : tr("cf.findNiche")}</button>
       </div>
       <div className="flex flex-wrap items-center gap-x-1">
       <p className="muted num text-[11px]" aria-live="polite">
@@ -836,7 +836,7 @@ function ScoutSettingsForm({ s, busy, Note, onSave, onOpenAuto }: { s: ScoutSett
         </label>
         <p>{says}{" "}
           <button type="button" className="chip !px-2 !py-0.5 !text-[11px]" onClick={() => dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text:
-            `Help me change my STUDIO video finder (scout) settings. Now it looks at creators' videos from the last ${s.creatorMaxAgeDays} days and keyword videos from the last ${s.maxAgeHours} h, at least ${s.minMinutes} min long, every day at ${s.runAt}:00, auto-clipping up to ${s.dailyAuto} a day. Ask me what I want different, then tell me the exact numbers to set under Advanced.` } }))}>✦ {tr("cf.changeCore")}</button></p>
+            `Help me change my STUDIO video finder (scout) settings. Now it looks at creators' videos from the last ${s.creatorMaxAgeDays} days and keyword videos from the last ${s.maxAgeHours} h, at least ${s.minMinutes} min long, every day at ${s.runAt}:00, auto-clipping up to ${s.dailyAuto} a day. Ask me what I want different, then tell me the exact numbers to set under Advanced.` } }))}>{tr("cf.changeCore")}</button></p>
         <FineTune label={tr("ft.advanced")}>
           {numField("creatorMaxAgeDays", tr("cf.creatorAge"), 1, 60)}{numField("maxAgeHours", tr("cf.kwAge"), 1, 336)}{numField("minMinutes", tr("cf.minLen"), 1, 180)}
           {numField("dailyAuto", tr("cf.autoPerDay"), 0, 5)}{numField("runAt", tr("cf.runHour"), 0, 23)}
@@ -902,7 +902,7 @@ function Progress({ pct, step, label, reduced }: { pct: number; step: string; la
   );
 }
 
-const DL_LABEL: Record<Download["status"], string> = { queued: "⏳ Queued", downloading: "⬇ Downloading", done: "✓ Downloaded", failed: "⚠ Failed" };
+const DL_LABEL: Record<Download["status"], string> = { queued: "Queued", downloading: "Downloading", done: "Downloaded", failed: "Didn't work" };
 
 function AddFromLink({ tools, opts, setOpts, busy, onSubmit }: {
   tools: ToolsStatus; opts: Opts; setOpts: (f: (o: Opts) => Opts) => void; busy?: boolean;
@@ -1132,7 +1132,7 @@ function AskChange({ clip: c, jobId, base }: { clip: Clip; jobId?: string; base:
         <textarea className="field w-full !px-2 !py-1 !text-xs" rows={2} maxLength={400} value={text} placeholder={tr("ft.changePh")}
           onChange={(e) => { setText(e.target.value); setSent(false); }} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } }} /></label>
       <div className="flex flex-wrap items-center gap-1.5">
-        <button type="button" className="chip" disabled={!text.trim()} onClick={send}>✦ {tr("ft.send")}</button>
+        <button type="button" className="chip" disabled={!text.trim()} onClick={send}>{tr("ft.send")}</button>
         <span className="muted text-[10px]" role="status">{sent ? tr("ft.sent") : tr("ft.hint")}</span>
       </div>
     </div>
@@ -1512,7 +1512,7 @@ function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublis
   if (unsure && !form) { // no plain retry: it could duplicate the video
     return (
       <div className="space-y-1 rounded-md px-1.5 py-1 text-[11px]" style={PUB_BOX} role="status">
-        <p>⏳ {(p?.status === "unknown" && p.error) || tr("cf.unknown")}</p>
+        <p>{(p?.status === "unknown" && p.error) || tr("cf.unknown")}</p>
         {!yt?.connected && reconnect(tr("cf.checkNeeds"))}
         <div className="flex flex-wrap gap-1">
           <button className="chip" onClick={onCheck} disabled={busy} aria-label={`Check YouTube for ${c.title}`}>{busy ? tr("cf.checking") : `🔍 ${tr("cf.checkYt")}`}</button>

@@ -1,0 +1,131 @@
+/* STUDIO in the planet look (design language + reports/hf-refs/studio-*.png). Builds on planet-ui.css (.pu tokens, accent per
+   planet); only STUDIO's own pieces live here: where the shell sits over the 3D world, the Shorts pipeline strip, video rows with
+   thumbnails, the video sheet (hero, numbers, retention), the 28-day card and the tool workspace's header.
+   Motion: only transform/opacity; prefers-reduced-motion → fades; ORBIT_UI_MOTION=0 (html[data-motion="off"]) → none. */
+
+/* ---------- placement over the world ---------- */
+.st-wrap { position: absolute; z-index: 15; left: 16px; top: 4.5rem; bottom: 7rem; width: min(440px, calc(100vw - 32px)); display: flex; flex-direction: column; pointer-events: none; }
+.st-wrap > * { pointer-events: auto; }
+.studio.globe-in > .st-wrap, .studio.globe-in > .st-tele { zoom: 1; } /* the worlds' 0.9 overlay zoom would shrink the kit's 14 px type to 12.6 px */
+.st-shell { max-height: 100%; }
+@media (max-width: 640px) { .st-wrap { top: calc(var(--hdr, 3.5rem) + 0.5rem); bottom: var(--bar, 6rem); left: 8px; width: calc(100vw - 16px); } }
+
+/* ---------- Shorts pipeline: Find → Cut → Check → Post ---------- */
+.st-pipe { list-style: none; margin: 0 0 4px; padding: 0; display: flex; align-items: stretch; gap: 0; }
+.st-pipe > li { flex: 1; display: flex; align-items: center; min-width: 0; }
+.st-stage { flex: 1; min-width: 0; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 8px; row-gap: 6px; align-items: baseline;
+  padding: 10px 10px 8px; border: 0; border-radius: var(--pu-r-md); background: var(--pu-raised); color: var(--pu-ink); text-align: left; font: inherit; cursor: pointer;
+  box-shadow: inset 0 0 0 1px var(--pu-line); transition: background-color var(--dur-instant) var(--ease-out), transform var(--dur-instant) var(--ease-out); }
+.st-stage:hover { background: color-mix(in srgb, var(--pu-raised) 88%, white); }
+.st-stage:active { transform: scale(0.97); }
+.st-stage-n { font: var(--pu-lead); font-weight: 600; color: var(--pu-ink); }
+.st-stage-name { font: var(--pu-meta); color: var(--pu-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-stage[data-zero] .st-stage-n { color: var(--pu-ink-3); font-weight: 450; }
+.st-stage-bar { grid-column: 1 / -1; height: 2px; border-radius: 1px; background: var(--pu-line); overflow: hidden; }
+.st-stage-bar > i { display: block; height: 100%; background: var(--pu-ink-3); transform-origin: left; transform: scaleX(var(--p, 0)); transition: transform var(--dur-base) var(--ease-out); }
+.st-stage[data-live] { box-shadow: inset 0 0 0 1px var(--pu-accent-line); }
+.st-stage[data-live] .st-stage-bar > i { background: var(--pu-accent); }
+.st-stage[data-live] .st-stage-name::after { content: ""; display: inline-block; width: 5px; height: 5px; margin-left: 6px; vertical-align: middle; border-radius: 50%; background: var(--pu-accent); } /* static: the running job's card already pulses (one moving thing at a time) */
+.st-stage-sep { flex: none; width: 8px; height: 1px; background: var(--pu-line-strong); }
+
+/* ---------- your videos ---------- */
+.st-videos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.st-video { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 6px 10px 6px 6px; border: 0; border-radius: var(--pu-r-md);
+  background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; transition: background-color var(--dur-instant) var(--ease-out); }
+.st-video:hover { background: var(--pu-hover); }
+.st-video:active { background: var(--pu-press); }
+.st-video[aria-current="true"] { background: var(--pu-accent-soft); }
+.st-thumb { flex: none; position: relative; width: 72px; height: 40.5px; border-radius: var(--pu-r-sm); overflow: hidden; background: var(--pu-overlay); box-shadow: inset 0 0 0 1px var(--pu-line); }
+.st-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.st-thumb[data-short]::after { content: ""; position: absolute; right: 4px; bottom: 4px; width: 6px; height: 10px; border-radius: 1.5px; box-shadow: 0 0 0 1.25px rgba(255, 255, 255, 0.85); } /* tiny 9:16 mark */
+.st-views { flex: none; font: var(--pu-meta); color: var(--pu-ink-2); }
+.st-pace { flex: none; padding: 2px 8px; border-radius: 999px; font: var(--pu-caption); color: var(--pu-accent-ink); background: var(--pu-accent-soft); }
+
+/* ---------- video sheet ---------- */
+.st-hero { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: var(--pu-r-lg); overflow: hidden; background: var(--pu-raised); box-shadow: inset 0 0 0 1px var(--pu-line); }
+.st-hero[data-short] { width: 46%; aspect-ratio: 9 / 16; margin: 0 auto; }
+.st-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.st-paceline { display: flex; align-items: center; gap: 8px; margin: 0; font: var(--pu-body); color: var(--pu-ink); }
+.st-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 16px; margin: 0; padding: 12px 0; border-top: 1px solid var(--pu-line); border-bottom: 1px solid var(--pu-line); }
+.st-stats dt { font: var(--pu-caption); color: var(--pu-ink-3); }
+.st-stats dd { margin: 2px 0 0; font: var(--pu-body); font-weight: 500; color: var(--pu-ink); }
+.st-ret { display: flex; flex-direction: column; gap: 8px; }
+.st-ret-chart, .st-tele-chart { width: 100%; height: auto; display: block; overflow: visible; }
+.st-grid { stroke: var(--pu-line); stroke-width: 1; vector-effect: non-scaling-stroke; shape-rendering: crispEdges; }
+.st-tick { fill: var(--pu-ink-3); font: 500 10px/1 var(--font-inter, Inter), system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.st-line { fill: none; stroke: var(--pu-accent); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.st-area { fill: var(--pu-accent-soft); stroke: none; }
+.st-mark { stroke: var(--pu-ink-3); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.st-dotm { fill: var(--pu-bg); stroke: var(--pu-accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.st-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; font: var(--pu-body); color: var(--pu-ink-2); }
+.st-code { margin: 8px 0 0; padding: 10px 12px; border-radius: var(--pu-r-sm); background: var(--pu-raised); color: var(--pu-ink); font: 12px/1.5 var(--font-mono, monospace); white-space: pre-wrap; }
+
+/* ---------- 28 days, beside the planet ---------- */
+.st-tele { position: absolute; z-index: 14; right: 16px; bottom: 7rem; width: 320px; padding: 14px 16px 12px; border-radius: var(--pu-r-lg);
+  background: var(--pu-glass); backdrop-filter: blur(var(--pu-blur)) saturate(140%); -webkit-backdrop-filter: blur(var(--pu-blur)) saturate(140%);
+  box-shadow: var(--pu-e2), var(--pu-highlight); display: flex; flex-direction: column; gap: 10px; animation: st-rise var(--dur-base) var(--ease-out) both; }
+.st-tele-head { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 2px; }
+.st-tele-head .pu-section-title { flex-basis: 100%; }
+.st-tele-big { font: var(--pu-title); letter-spacing: -0.014em; color: var(--pu-ink); }
+.st-tele-delta { font: var(--pu-meta); color: var(--pu-ink-3); }
+.st-tele-delta[data-up] { color: var(--pu-good); }
+@media (max-width: 1100px), (max-height: 640px) { .st-tele { display: none; } }
+
+/* ---------- tool workspace (Shorts tools, Stats, Production, …) ---------- */
+.st-tool-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.st-tool-back { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 8px; border: 0; border-radius: var(--pu-r-md); cursor: pointer;
+  background: var(--pu-glass); color: var(--pu-ink); font: 500 13px/18px var(--font-inter, Inter), system-ui, sans-serif;
+  backdrop-filter: blur(var(--pu-blur)); -webkit-backdrop-filter: blur(var(--pu-blur)); box-shadow: var(--pu-e2), var(--pu-highlight);
+  transition: background-color var(--dur-instant) var(--ease-out), transform var(--dur-instant) var(--ease-out); }
+.st-tool-back:hover { background: var(--pu-overlay); }
+.st-tool-back:active { transform: scale(0.97); }
+.st-tool-back:focus-visible { box-shadow: var(--pu-focus); outline: none; }
+.st-tool-title { font: 600 15px/20px var(--font-inter, Inter), system-ui, sans-serif; color: var(--pu-ink); text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8); }
+
+@keyframes st-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.st-wrap { animation: st-in var(--dur-slow, 320ms) var(--ease-out) both; }
+@keyframes st-in { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .st-wrap, .st-tele { animation-name: pu-fade; }
+  .st-stage, .st-stage-bar > i { transition: none; }
+}
+html[data-motion="off"] .st-wrap, html[data-motion="off"] .st-tele { animation: none !important; }
+html[data-motion="off"] .st-stage, html[data-motion="off"] .st-stage-bar > i, html[data-motion="off"] .st-video, html[data-motion="off"] .st-tool-back { transition: none !important; }
+
+/* ---------- the tools, calmed to the planet look (no spaced capitals, no gradient borders, no corner ticks) ----------
+   Scoped to the STUDIO tool workspace; everywhere else keeps the HUD look until its own planet pass. */
+.orbit-shell .studio .st-tool :is(.glass, .card) { border: 0; border-image: none; border-radius: 14px; background-image: none; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+.orbit-shell .studio .st-tool .glass { border-radius: 20px; background-color: rgba(12, 15, 23, 0.86); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); }
+.orbit-shell .studio .st-tool .card { background-color: #121621; }
+.orbit-shell .studio .st-tool :is(.hud-title, .h3, .studio-title) { font-family: var(--font-inter), Inter, system-ui, sans-serif; font-size: 13px !important; line-height: 18px; font-weight: 600; letter-spacing: 0; text-transform: none; color: #a9b2c3; text-shadow: none; }
+.orbit-shell .studio .st-tool h2:is(.hud-title, .studio-title) { font-size: 16px !important; line-height: 24px; color: #ecf0f7; }
+.orbit-shell .studio .st-tool .hud-title::before { content: none; }
+.orbit-shell .studio .st-tool .chip { border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.12); background: transparent; box-shadow: none; font-family: var(--font-inter), Inter, system-ui, sans-serif;
+  font-size: 13px; letter-spacing: 0; text-transform: none; color: #ecf0f7; min-height: 28px; transition: background-color 120ms var(--ease-out), border-color 120ms var(--ease-out), transform 120ms var(--ease-out); }
+.orbit-shell .studio .st-tool .chip:hover { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.2); box-shadow: none; }
+.orbit-shell .studio .st-tool .chip:active:not(:disabled) { transform: scale(0.97); }
+.orbit-shell .studio .st-tool .chip:is([aria-pressed="true"], [aria-selected="true"]) { background: color-mix(in srgb, #f43f5e 14%, transparent); border-color: color-mix(in srgb, #f43f5e 38%, transparent); color: #ecf0f7; box-shadow: none; }
+.orbit-shell .studio .st-tool .btn { border: 0; border-image: none; border-radius: 10px; background: #f43f5e; color: #05070c; font-family: var(--font-inter), Inter, system-ui, sans-serif; font-size: 13px; font-weight: 600;
+  letter-spacing: 0; text-transform: none; box-shadow: none; }
+.orbit-shell .studio .st-tool .btn:hover:not(:disabled) { background: #f65a75; box-shadow: none; transform: none; }
+.orbit-shell .studio .st-tool .btn.danger { background: rgba(242, 139, 130, 0.16); color: #f28b82; }
+.orbit-shell .studio .st-tool .field { border-radius: 10px; background: #121621; border-color: rgba(255, 255, 255, 0.1); }
+.orbit-shell .studio .st-tool .field:focus { border-color: color-mix(in srgb, #f43f5e 50%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, #f43f5e 14%, transparent); }
+.orbit-shell .studio .st-tool .hud-row { border-radius: 10px; }
+.orbit-shell .studio .st-tool .hud-row:hover { background: rgba(255, 255, 255, 0.04); box-shadow: none; }
+.orbit-shell .studio .st-tool :is(button, a, summary, select, input, textarea, [tabindex]):focus-visible { outline: 2px solid #f8a5b4; outline-offset: 2px; }
+.orbit-shell .studio .st-tool .uppercase { text-transform: none; }
+.orbit-shell .studio .st-tool :is(.tracking-widest, .tracking-wider, [class*="tracking-[0."]) { letter-spacing: 0; }
+.studio .st-tool.studio-sheet { animation: none; } /* was 0.8 s with a 10 px blur filter: slow and soft; now 320 ms transform + opacity */
+html[data-motion="on"] .studio .st-tool.studio-sheet { animation: st-rise var(--dur-base) var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) { html[data-motion="on"] .studio .st-tool.studio-sheet { animation-name: pu-fade; } }
+
+/* ---------- compact cards in STUDIO's lists: text left, the one action right (fits 1280×720 with Working on it in view) ---------- */
+.st-needs .pu-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; padding: 12px 14px; }
+.st-needs .pu-card > .pu-card-actions { grid-column: 2; grid-row: 1; }
+.st-needs .pu-card > :not(.pu-card-actions) { grid-column: 1; min-width: 0; }
+.st-needs .pu-card .pu-card-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-height: 800px) { .st-shell .pu-ask .pu-chips { display: none; } } /* short windows: the box first, the examples rotate in CORE */
+.st-shell .pu-sheet footer { flex-wrap: wrap; row-gap: 8px; }
+.orbit-shell .studio .st-tool :is(.font-mono, .num, code):not(pre code) { font-family: var(--font-inter), Inter, system-ui, sans-serif; font-variant-numeric: tabular-nums; letter-spacing: 0; }

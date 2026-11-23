@@ -127,7 +127,7 @@ export default function AutopilotPanel({ active: tabOn, rev = 0, onChanged, onRe
       {/* ---- waiting for you ---- */}
       {show("waiting") && <section className="card space-y-2" aria-label={tr("ap.waiting")}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className={H}>👀 {tr("ap.waiting").toUpperCase()} <span className="num">({waiting.length})</span></h3>
+          <h3 className={H}>{tr("ap.waiting")} <span className="num">({waiting.length})</span></h3>
           {waiting.length > 0 && onReview && <button className="btn !px-3 !py-1 !text-xs" onClick={() => onReview(waiting[0].key)}>☀ {tr("ap.reviewAll", { n: waiting.length })}</button>}
         </div>
         {!waiting.length ? <p className="muted py-3 text-center text-sm">
@@ -149,7 +149,7 @@ export default function AutopilotPanel({ active: tabOn, rev = 0, onChanged, onRe
       {/* ---- candidates ---- */}
       {show("found") && <section className="card space-y-2" aria-label={tr("ap.candidates")}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className={H}>🔭 {tr("ap.candidates").toUpperCase()}</h3>
+          <h3 className={H}>{tr("ap.candidates")}</h3>
           <button className="btn !px-3 !py-1 !text-xs" disabled={!!busy || d.scout.running || !d.scout.configured} onClick={() => void act("find", () => call("POST", { action: "find" }), "Looking for new videos…")}>
             {tr(d.scout.running ? "ap.searching" : "ap.find")}</button>
         </div>
@@ -183,7 +183,7 @@ export default function AutopilotPanel({ active: tabOn, rev = 0, onChanged, onRe
 
       {/* ---- one pipeline stage ---- */}
       {pipeFilter && <section className="card space-y-1.5" aria-label={`${pipeFilter} clips`}>
-        <h3 className={H}>{(STEPS.find(([k]) => k === pipeFilter)?.[1] ?? "Failed").toUpperCase()}</h3>
+        <h3 className={H}>{STEPS.find(([k]) => k === pipeFilter)?.[1] ?? "Failed"}</h3>
         {!pipeRows.length ? <p className="muted">{tr("ap.empty")}</p> : <ul className="space-y-1.5">{pipeRows.map((r) => (
           <li key={r.key} className="flex items-center gap-2">
             {r.thumb && /* eslint-disable-next-line @next/next/no-img-element */ <img src={media(r.thumb)} alt="" loading="lazy" className="aspect-[9/16] w-7 shrink-0 rounded object-cover" />}
@@ -193,7 +193,7 @@ export default function AutopilotPanel({ active: tabOn, rev = 0, onChanged, onRe
 
       {/* ---- what's working ---- */}
       {!filter && <section className="card space-y-2" aria-label={tr("ap.working")}>
-        <h3 className={H}>📈 {tr("ap.working").toUpperCase()} <span className="muted normal-case tracking-normal">· {d.working.confidence}</span></h3>
+        <h3 className={H}>{tr("ap.working")} <span className="muted normal-case tracking-normal">· {d.working.confidence}</span></h3>
         {d.working.n < 2 ? <p className="muted">{tr("ap.workingWait")}</p> : <>
           <div className="grid gap-2 sm:grid-cols-3">
             <Bars title={tr("cf.creators")} dim="creator" rec={d.working.dims?.creator} />
@@ -208,7 +208,7 @@ export default function AutopilotPanel({ active: tabOn, rev = 0, onChanged, onRe
 
       {/* ---- settings drawer ---- */}
       <details className="card" aria-label={tr("ap.settings")}>
-        <summary className="cursor-pointer select-none"><span className={H}>⚙ {tr("cf.settings").toUpperCase()}</span> <span className="muted">· {tr("ap.perDay", { n: s.dailyDownloads })} · {LAYOUTS.find(([v]) => v === s.options.layout)?.[1]}{s.options.captions ? tr("cf.withCaptions") : ""}</span></summary>
+        <summary className="cursor-pointer select-none"><span className={H}>{tr("cf.settings")}</span> <span className="muted">· {tr("ap.perDay", { n: s.dailyDownloads })} · {LAYOUTS.find(([v]) => v === s.options.layout)?.[1]}{s.options.captions ? tr("cf.withCaptions") : ""}</span></summary>
         <div className="mt-2 space-y-2">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <label className="flex items-center gap-1.5">{tr("ap.videosPerDay")}

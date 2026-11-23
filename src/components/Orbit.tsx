@@ -95,6 +95,7 @@ import { FocusWork, JumpPill, useFocusProgress } from "./motion/FocusWork";
 import { HomeDepth } from "./motion/HomeDepth";
 import { useFollowWork } from "./motion/useFollowWork";
 import { followHome, followPlanet } from "@/lib/follow-pure";
+import { Toaster } from "./ui"; // the one toast stack (design language); brings planet-ui.css (all scoped under .pu)
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const PerfRun = dynamic(() => import("./PerfRun"), { ssr: false }); // only with ?perfrun=1
@@ -540,7 +541,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     if (shown === entry.id && panel !== "core") {
       const previous = document.activeElement;
       const focusBack = () => {
-        const back = root.querySelector<HTMLElement>(".kept:not([hidden]) :is(.world-back, .studio-back), :scope > .globe-in .world-back");
+        const back = root.querySelector<HTMLElement>(".kept:not([hidden]) :is(.world-back, .st-tool-back, .st-shell > .pu-head .pu-head-actions > :last-child), :scope > .globe-in .world-back"); // STUDIO: its shell's close button
         if (!back) return false;
         entry.entered = true;
         const active = document.activeElement;
@@ -945,6 +946,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         {(cmdErr || voice.error) && <p className="error mt-1 px-1" role="alert">{cmdErr || voice.error}</p>}
         {cmdReply && <p className="muted mt-1 px-1" role="status">{cmdReply}</p>}
       </form>
+      <Toaster dismissLabel={t("sx.dismiss")} />{/* STUDIO "3 Shorts are ready to check · Check", "Channel data is up to date" */}
     </main>
   );
 }
