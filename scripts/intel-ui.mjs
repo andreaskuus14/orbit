@@ -4,7 +4,7 @@
 // (factcheck-pure applyBriefing + briefingNote) and a job row with the real pulse detail line. No server, no sign-in, no network.
 // Out: INTEL_OUT (default ./smoke-shots/intel-ui). INTEL_TAG names the files (e.g. before / after). Exits 1 on a failed check.
 import { createRequire } from "node:module";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { build } from "esbuild";
 import postcss from "postcss";
@@ -60,6 +60,9 @@ const ART = [
   ["Oil falls as supply worries ease", "https://example.com/oil", "NPR Economy", "economy", 10, "Oil prices fell 2% on Friday as worries about supply eased."],
   ["Estonia's parliament passes new tech budget", "https://example.com/estonia-budget", "ERR News", "politics", 12, "Estonia's parliament approved a budget that adds money for digital services."],
   ["Japan election: ruling party loses seats", "https://example.com/japan-vote", "NPR World", "politics", 11, "Japan's ruling party lost seats in Sunday's election, results showed."],
+  ["Harbour: new ferry line from Tallinn to Helsinki", "https://example.com/tallinn-ferry", "ERR News", "Estonia", 0.6, "A new fast ferry line will link Tallinn and Helsinki from March."],
+  ["Tallinn old town Christmas market opens Friday", "https://example.com/tallinn-market", "Postimees", "Estonia", 2, "The Christmas market in Tallinn's old town opens on Friday."],
+  ["Tartu gets new electric buses", "https://example.com/tartu-buses", "Delfi", "Estonia", 4, "Tartu will add 20 electric buses next year."],
 ].map(([title, url, source, topic, h, passage], i) => ({ id: id(i + 1), title, url, source, topic, published_at: ago(h), passage }));
 const A = (i) => `[a:${ART[i].id}]`;
 const raw = `## For you
@@ -137,6 +140,13 @@ try {
         "/api/news/follows": { topics: [{ name: "Estonia", at: NOW, items: [{ title: "Estonia passes tech budget", url: "https://example.com/ee0", source: "ERR News", published_at: ago(6), new: true }] }] },
         "/api/watches": { watches: [], changes: [] } }[p];
       if (J) return route.fulfill({ json: J });
+      if (p === "/api/news/thumb") { // harness pictures: INTEL_THUMB_DIR files in turn; every 4th article and all icons get none (shows the fallback)
+        const dir = process.env.INTEL_THUMB_DIR, art = u.searchParams.get("u") ?? "";
+        const files = dir ? readdirSync(dir).filter((f) => /\.(png|jpe?g)$/i.test(f)).sort() : [];
+        const n = [...art].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+        if (u.searchParams.get("kind") === "image" && files.length && n % 4) return route.fulfill({ contentType: /png$/i.test(files[n % files.length]) ? "image/png" : "image/jpeg", body: readFileSync(resolve(dir, files[n % files.length])) });
+        return route.fulfill({ status: 404, body: "" });
+      }
       return route.fulfill({ status: 404, json: { error: "not in harness" } });
     });
     await page.goto(`${ORIGIN}/`);
@@ -168,6 +178,13 @@ try {
         check(await page.getByRole("tab", { name: "Watches" }).isVisible(), `${TAG}: sheet shows Following / Watches / Research / Sources`);
         await page.screenshot({ path: `${OUT}/${TAG}-sheet.png` });
         await page.keyboard.press("Escape"); await page.waitForTimeout(300);
+        check(await page.locator("aside.drawer article").first().locator("img").count() > 0, `${TAG}: lead story has a picture`);
+        check(/Near you/.test(await page.locator("aside.drawer").innerText()), `${TAG}: Near you section`);
+        check(await page.locator("aside.drawer [role=region]").count() > 0, `${TAG}: breaking ticker`);
+        await page.locator("aside.drawer").evaluate((el) => { el.querySelector(".min-h-0")?.scrollTo(0, 0); });
+        await page.screenshot({ path: `${OUT}/${TAG}-briefing-top.png`, clip: await page.locator("aside.drawer").boundingBox() });
+        const near = page.locator("#intel-near"); await near.scrollIntoViewIfNeeded(); await page.waitForTimeout(400);
+        await page.screenshot({ path: `${OUT}/${TAG}-near-you.png`, clip: await page.locator("aside.drawer").boundingBox() });
         check(await page.getByRole("button", { name: "New briefing" }).isVisible(), `${TAG}: Esc closes the sheet`);
       }
     }
