@@ -4,7 +4,7 @@
 // (Research) and Sources live in a secondary sheet ("Sources & more"); deep links to those views open the sheet. No run counters
 // in the UI (the job log keeps them). The globe's search and region chips stay on: this panel switches the globe tools on.
 // Pure parts: lib/briefing-view-pure.ts.
-import { Fragment, useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as RKey, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { highlight } from "./Highlight";
 import { dedupe } from "@/lib/dashboard";
 import { packOrder } from "@/lib/source-packs-pure";
@@ -13,10 +13,10 @@ import { WatchesSection } from "./WatchesSection";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { useT } from "./i18n";
 import { useManual } from "./planet-manual";
-import { useUiMotion } from "./motion/motion";
+import { Button, Empty, ErrorState, Loading, MoreMenu, Sheet, type MenuItem } from "./ui";
 import type { FeedHealth, Prefs, rankingGate, Vote } from "@/lib/news-intel-pure";
 import { schedState } from "@/lib/panel-states-pure";
-import { parseBriefing, runLine, storyKey, storyTrust, type Cite, type Story, type Trust } from "@/lib/briefing-view-pure";
+import { coverage, outletsOf, parseBriefing, runLine, storyKey, storyTrust, summaryOf, type Cite, type Story, type Trust } from "@/lib/briefing-view-pure";
 import css from "./IntelligencePanel.module.css";
 
 type Dev = { key: string; rev: string; status: "new" | "corrected" | "resolved"; title: string; why: string; independent: number; articles: Article[] };
@@ -38,6 +38,8 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
   return json as T;
 }
+/** Short time for the status strip: today = the time only. */
+const short = (iso: string) => { const d = new Date(iso); return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString([], { timeStyle: "short" }) : d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); };
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "—");
 const safeHref = (u: string) => (/^https?:\/\//i.test(u) ? u : "#");
 
@@ -56,39 +58,14 @@ function inline(text: string, cites: Cite[]): ReactNode[] {
   });
 }
 
-/** One "…" menu: arrow keys move, Esc closes and returns focus, a click outside closes. */
-type Item = { label: string; run: () => void; checked?: boolean; disabled?: boolean } | "sep";
-function DotsMenu({ label, items }: { label: string; items: Item[] }) {
-  const [open, setOpen] = useState(false);
-  const wrap = useRef<HTMLDivElement>(null), btn = useRef<HTMLButtonElement>(null), id = useId();
-  useEffect(() => {
-    if (!open) return;
-    wrap.current?.querySelector<HTMLElement>("[role^=menuitem]:not(:disabled)")?.focus();
-    const off = (e: PointerEvent) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
-    addEventListener("pointerdown", off);
-    return () => removeEventListener("pointerdown", off);
-  }, [open]);
-  const key = (e: RKey) => {
-    if (e.key === "Escape") { e.stopPropagation(); setOpen(false); btn.current?.focus(); return; }
-    if (e.key === "Tab") { setOpen(false); return; }
-    const all = [...(wrap.current?.querySelectorAll<HTMLElement>("[role^=menuitem]:not(:disabled)") ?? [])];
-    const i = all.indexOf(document.activeElement as HTMLElement);
-    const j = e.key === "ArrowDown" ? (i + 1) % all.length : e.key === "ArrowUp" ? (i - 1 + all.length) % all.length : e.key === "Home" ? 0 : e.key === "End" ? all.length - 1 : -1;
-    if (j >= 0) { e.preventDefault(); all[j]?.focus(); }
-  };
+/** A story's last 24 h of reports as one thin line (real report times; drawn only with 3+ reports). */
+function Spark({ bins, label }: { bins: number[]; label: string }) {
+  const max = Math.max(1, ...bins), w = 52, h = 14, step = w / (bins.length - 1);
+  const pts = bins.map((v, i) => `${(i * step).toFixed(1)},${(h - 1 - (v / max) * (h - 3)).toFixed(1)}`).join(" ");
   return (
-    <div ref={wrap} className={css.menuWrap} onKeyDown={open ? key : undefined}>
-      <button ref={btn} type="button" className={css.dots} aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined}
-        onClick={() => setOpen((o) => !o)} onKeyDown={(e) => { if (e.key === "ArrowDown" && !open) { e.preventDefault(); setOpen(true); } }}>…</button>
-      {open && (
-        <div id={id} role="menu" aria-label={label} className={css.menu}>
-          {items.map((it, i) => it === "sep" ? <hr key={i} /> : (
-            <button key={i} type="button" role={it.checked === undefined ? "menuitem" : "menuitemcheckbox"} aria-checked={it.checked} disabled={it.disabled} tabIndex={-1}
-              onClick={() => { setOpen(false); btn.current?.focus(); it.run(); }}>{it.label}</button>
-          ))}
-        </div>
-      )}
-    </div>
+    <svg className={css.spark} width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={label}>
+      <polygon points={`0,${h} ${pts} ${w},${h}`} className={css.sparkFill} /><polyline points={pts} className={css.sparkLine} />
+    </svg>
   );
 }
 
@@ -103,10 +80,10 @@ function TrustMark({ trust, cites, all }: { trust: Trust; cites: Cite[]; all: Ci
   return (
     <div ref={wrap} className={css.trust} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       onFocus={() => setHover(true)} onBlur={(e) => { if (!wrap.current?.contains(e.relatedTarget as Node)) { setHover(false); setPinned(false); } }}
-      onKeyDown={(e) => { if (e.key === "Escape" && open) { e.stopPropagation(); setHover(false); setPinned(false); } }}>
+      onKeyDown={(e) => { if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); setHover(false); setPinned(false); } }}>
       <button type="button" className={`${css.trustBtn} ${css[trust.level]}`} aria-expanded={open} aria-controls={id} aria-label={t("intel.tr.aria", { level: word })}
         onClick={() => setPinned((p) => !p)}>
-        <span className={css.dot} aria-hidden="true" /><span aria-hidden="true">{t(`intel.tr.short.${trust.level}`)}</span>
+        <span className={css.bars} aria-hidden="true">{[1, 2, 3].map((k) => <i key={k} data-on={k <= Math.max(1, Math.min(3, trust.outlets)) ? "" : undefined} />)}</span><span aria-hidden="true">{t(`intel.tr.short.${trust.level}`)}</span>
       </button>
       <div id={id} className={css.pop} role="group" aria-label={word} hidden={!open}>
         <b>{word}</b>
@@ -126,14 +103,14 @@ function TrustMark({ trust, cites, all }: { trust: Trust; cites: Cite[]; all: Ci
 function useStoryActions(post: Post, intel: Intel | null) {
   const { t } = useT();
   const done = new Set(intel?.done ?? []);
-  return (s: { key: string; title: string; url?: string; published_at: string | null; sources: number }, onTask: () => void): Item[] => [
-    ...(["useful", "not_useful", "wrong"] as const).map((v) => ({ label: t(`intel.fb.${v}`), checked: intel?.votes?.[s.key] === v,
-      run: () => void post({ action: "feedback", key: s.key, title: s.title, vote: v, sources: s.sources }) })),
-    "sep" as const,
-    { label: t("intel.less"), run: () => void post({ action: "less", title: s.title }) },
+  return (s: { key: string; title: string; url?: string; published_at: string | null; sources: number }, onTask: () => void): MenuItem[] => [
+    ...(["useful", "not_useful", "wrong"] as const).map((v) => ({ label: t(`intel.fb.${v}`), hint: intel?.votes?.[s.key] === v ? "✓" : undefined,
+      onSelect: () => void post({ action: "feedback", key: s.key, title: s.title, vote: v, sources: s.sources }) })),
+    "separator" as const,
+    { label: t("intel.less"), onSelect: () => void post({ action: "less", title: s.title }) },
     ...(s.url ? (["note", "watch"] as const).map((k) => ({ label: t(`intel.${k}`), disabled: done.has(`${k}:${s.url}`),
-      run: () => void post({ action: "story", kind: k, title: s.title, url: s.url, published_at: s.published_at }) })) : []),
-    ...(s.url ? [{ label: t("intel.task"), run: onTask }] : []),
+      onSelect: () => void post({ action: "story", kind: k, title: s.title, url: s.url, published_at: s.published_at }) })) : []),
+    ...(s.url ? [{ label: t("intel.task"), onSelect: onTask }] : []),
   ];
 }
 
@@ -144,46 +121,64 @@ function TaskForm({ title, url, published_at, post, done }: { title: string; url
   useEffect(() => { first.current?.focus(); }, []);
   return (
     <form className={css.task} onSubmit={(e) => { e.preventDefault(); void post({ action: "story", kind: "task", title, url, published_at, objective: obj, acceptance: acc }).then(done); }}
-      onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); done(); } }}>
+      onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(); } }}>
       <input ref={first} className="field w-full" required maxLength={300} value={obj} onChange={(e) => setObj(e.target.value)} placeholder={t("intel.objective")} aria-label={t("intel.objective")} />
       <input className="field w-full" required maxLength={300} value={acc} onChange={(e) => setAcc(e.target.value)} placeholder={t("intel.acceptance")} aria-label={t("intel.acceptance")} />
-      <span className="flex gap-1.5"><button className="btn">{t("intel.propose")}</button><button type="button" className="chip" onClick={done}>{t("common.close")}</button></span>
+      <span className="flex gap-1.5"><Button type="submit" size="sm" variant="primary">{t("intel.propose")}</Button><Button size="sm" onClick={done}>{t("common.close")}</Button></span>
     </form>
   );
 }
 
-function StoryCard({ b, story, post, actions }: { b: Briefing; story: Story; post: Post; actions: ReturnType<typeof useStoryActions> }) {
+function StoryCard({ b, story, post, actions, clusters }: { b: Briefing; story: Story; post: Post; actions: ReturnType<typeof useStoryActions>; clusters: Article[][] }) {
   const { t } = useT();
-  const [task, setTask] = useState(false);
+  const [task, setTask] = useState(false), [full, setFull] = useState(!story.title);
+  const bodyId = useId();
   const trust = storyTrust(story, b.citations);
   const mine = story.cites.map((id) => b.citations.find((c) => c.id === id)).filter((c): c is Cite => !!c);
-  const title = story.title ?? story.lines[0]?.replace(/\[a:[^\]]+\]/g, "").slice(0, 80) ?? "";
+  const title = story.title ?? summaryOf(story, 80);
   const first = mine[0];
+  const o = outletsOf(story, b.citations);
+  const ids = new Set(mine.map((c) => c.id)), urls = new Set(mine.map((c) => c.url));
+  const reports = new Map<string, string | null>(mine.map((c) => [c.url, c.published_at]));
+  for (const g of clusters) if (g.some((a) => ids.has(a.id) || urls.has(a.url))) for (const a of g) reports.set(a.url, a.published_at);
+  const bins = coverage([...reports.values()], Date.now());
+  const outlets = !o.names.length ? "" : o.more ? t("intel.outletsMore", { a: o.names[0], b: o.names[1], n: o.more }) : o.names.length === 2 ? t("intel.outlets2", { a: o.names[0], b: o.names[1] }) : o.names[0];
   return (
-    <article className={`card ${css.story}`} aria-label={story.title ?? undefined}>
-      <div className={css.head}>
-        {story.title ? <h4 className={css.title}>{story.title}</h4> : <span className="flex-1" />}
-        {mine.length > 0 && <TrustMark trust={trust} cites={mine} all={b.citations} />}
-        <DotsMenu label={t("intel.storyMenu", { title })} items={actions({ key: storyKey(b.id, title), title, url: first?.url, published_at: first?.published_at ?? null, sources: trust.outlets }, () => setTask(true))} />
+    <article className={css.story} aria-label={story.title ?? undefined}>
+      <div className={css.row}>
+        <div className={css.main}>
+          {story.title && <h4 className={css.title}><button type="button" className={css.titleBtn} aria-expanded={full} aria-controls={bodyId} onClick={() => setFull((f) => !f)}>{story.title}</button></h4>}
+          {full ? <div id={bodyId} className={css.body}>{story.lines.map((l, i) => <p key={i}>{inline(l.replace(/^([-*]|\d+\.)\s+/, ""), b.citations)}</p>)}</div>
+            : <p id={bodyId} className={css.summary}>{summaryOf(story)}</p>}
+          {(outlets || mine.length > 0) && <div className={css.meta}>
+            {outlets && <span>{outlets}</span>}
+            {outlets && mine.length > 0 && <span aria-hidden="true">•</span>}
+            {mine.length > 0 && <TrustMark trust={trust} cites={mine} all={b.citations} />}
+            {bins && <Spark bins={bins} label={t("intel.spark", { n: bins.reduce((x, y) => x + y, 0) })} />}
+          </div>}
+        </div>
+        <MoreMenu label={t("intel.storyMenu", { title })} items={actions({ key: storyKey(b.id, title), title, url: first?.url, published_at: first?.published_at ?? null, sources: trust.outlets }, () => setTask(true))} />
       </div>
-      <div className={css.body}>{story.lines.map((l, i) => <p key={i}>{inline(l.replace(/^([-*]|\d+\.)\s+/, ""), b.citations)}</p>)}</div>
       {task && first && <TaskForm title={title} url={first.url} published_at={first.published_at} post={post} done={() => setTask(false)} />}
     </article>
   );
 }
 
 function BriefingView({ b, post, intel }: { b: Briefing; post: Post; intel: Intel | null }) {
+  const clusters = (intel?.topics ?? []).flatMap((tp) => tp.items.map((d) => d.articles));
   const { t } = useT();
   const actions = useStoryActions(post, intel);
   const p = parseBriefing(b.content);
+  const firstWorld = p.sections.findIndex((s) => s.kind !== "for_you");
   return (
     <>
       {p.sections.map((s, i) => (
         <section key={i} className={css.section} aria-label={s.heading || b.title}>
-          {s.heading && <h3 className={css.sh}>{s.heading}</h3>}
+          {s.kind === "for_you" ? <h3 className={css.sh}>{s.heading}</h3>
+            : <>{i === firstWorld && <h3 className={css.sh}>{t("intel.worldH")}</h3>}{s.heading && <h4 className={css.kicker}>{s.heading}</h4>}</>}
           {s.kind === "next"
             ? <ul className={css.next}>{s.stories.flatMap((st) => st.lines).map((l, j) => <li key={j}>{inline(l.replace(/^([-*]|\d+\.)\s+/, ""), b.citations)}</li>)}</ul>
-            : s.stories.map((st, j) => <StoryCard key={`${b.id}-${i}-${j}`} b={b} story={st} post={post} actions={actions} />)}
+            : s.stories.map((st, j) => <StoryCard key={`${b.id}-${i}-${j}`} b={b} story={st} post={post} actions={actions} clusters={clusters} />)}
         </section>
       ))}
       <details className={css.foot}>
@@ -222,16 +217,14 @@ export function IntelligencePanel() {
   const [sched, setSched] = useState<{ scheduled?: boolean; failed?: "network" | "server" }>({}); // undefined = still checking: no setup notice yet
   const [open, setOpen] = useState<string | null>(null);
   const { t } = useT();
-  const motion = useUiMotion();
   const [view, setView] = useWorkspaceView<ViewId>("intelligence", VIEWS);
   const [tools, setTools] = useManual("intelligence");
   const [intel, setIntel] = useState<Intel | null>(null);
   const [running, setRunning] = useState(false);
-  const [focus, setFocus] = useState<Focus>("world");
   const [listen, setListen] = useState(false);
   const [add, setAdd] = useState("");
   const [err, setErr] = useState("");
-  const moreRef = useRef<HTMLButtonElement>(null), sheetRef = useRef<HTMLDivElement>(null), wasSheet = useRef(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   useEffect(() => { if (!tools) setTools(true); }, [tools]); // eslint-disable-line react-hooks/exhaustive-deps -- one surface: the globe's search and regions are always on
 
   const load = useCallback(async () => {
@@ -241,23 +234,18 @@ export function IntelligencePanel() {
         api<{ briefings: Briefing[]; articles: Article[]; jobs: Job[]; scheduled: boolean }>("/api/briefings"),
         api<{ feeds: Feed[] }>("/api/feeds"),
       ]);
-      setBriefings(b.briefings); setArticles(b.articles); setJobs(b.jobs); setSched({ scheduled: b.scheduled }); setFeeds(f.feeds);
+      setLoadFailed(false); setBriefings(b.briefings); setArticles(b.articles); setJobs(b.jobs); setSched({ scheduled: b.scheduled }); setFeeds(f.feeds);
       setOpen((o) => o ?? b.briefings[0]?.id ?? null);
       setIntel(await api<Intel>("/api/news/intel"));
     } catch (e) {
       setSched((s) => (s.scheduled === undefined ? { failed: e instanceof TypeError ? "network" : "server" } : s)); // fetch throws TypeError when offline
-      setBriefings((b) => b ?? []);
+      setBriefings((b) => { if (!b) setLoadFailed(true); return b ?? []; });
       setErr(e instanceof Error ? e.message : "Could not load");
     }
   }, []);
   useEffect(() => { void load(); }, [load]);
 
   const sheet = view !== "today";
-  useEffect(() => { // focus follows the sheet: into it on open, back to "Sources & more" on close
-    if (sheet) sheetRef.current?.querySelector<HTMLElement>("[data-sheet-back]")?.focus();
-    else if (wasSheet.current) moreRef.current?.focus();
-    wasSheet.current = sheet;
-  }, [sheet]);
 
   async function generate(f: Focus) {
     setRunning(true); setErr("");
@@ -298,45 +286,43 @@ export function IntelligencePanel() {
   const s = schedState(sched);
   const sheetViews = VIEWS.filter((v): v is (typeof VIEWS)[number] & { id: SheetView } => v.id !== "today").map((v) => ({ ...v, label: t(`intel.v.${v.id}` as const) }));
 
+  const tools_: MenuItem[] = [
+    ...(b ? [{ label: listen ? t("intel.listenStop") : t("intel.listen"), onSelect: () => setListen((l) => !l) }, "separator" as const] : []),
+    { label: t("intel.newMine"), onSelect: () => void generate("mine"), disabled: running },
+    { label: t("intel.newAll"), onSelect: () => void generate("all"), disabled: running },
+    "separator",
+    ...sheetViews.map((v) => ({ label: v.label, onSelect: () => setView(v.id) })),
+  ];
+
   return (
-    <div className={css.page} data-ws="intelligence" data-intel-surface="">
-      {/* The briefing surface stays mounted under the sheet, so its scroll and open menus survive a visit to Sources. */}
-      <div hidden={sheet} className="flex flex-col gap-[0.9rem]">
-        <div className={css.bar}>
-          <div className={css.statusRow}>
+    <div className={`pu ${css.page}`} data-planet="intelligence" data-ws="intelligence" data-intel-surface="">
+      <div className={css.bar}>
+        <div className={css.statusRow}>
           <p className={css.status} role="status" aria-live="polite">
+            <span className={css.live} data-state={run?.state ?? "idle"} aria-hidden="true" />
             {run?.state === "running" ? <>{t("intel.working")} {t("intel.runningNote")}</>
-              : run?.state === "failed" ? <span className="error">{t("intel.failed", { e: run.error ?? "" })}</span>
-              : b ? t("intel.made", { at: when(b.created_at), n: b.citations.length }) : null}
+              : run?.state === "failed" ? <span className={css.bad}>{t("intel.failed", { e: run.error ?? "" })}</span>
+              : <>{t("intel.strip", { n: feeds.filter((f) => f.enabled).length })}{b && <span className={css.stripAt}> · {t("intel.stripAt", { at: short(b.created_at) })}</span>}</>}
           </p>
-          {b && <button type="button" className="chip shrink-0" aria-pressed={listen} aria-label={t("intel.listenAria")} onClick={() => setListen((l) => !l)}>{t("intel.listen")}</button>}
-          </div>
-          <div className={css.actions}>
-            <button type="button" className="btn" onClick={() => void generate(focus)} disabled={running}>{running ? t("intel.working") : t("intel.new")}</button>
-            <select className="chip" aria-label={t("intel.focus")} value={focus} onChange={(e) => setFocus(e.target.value as Focus)} disabled={running}>
-              <option value="world">{t("intel.world")}</option><option value="mine">{t("intel.mine")}</option><option value="all">{t("intel.all")}</option>
-            </select>
-            <span className={css.grow} />
-            <button ref={moreRef} type="button" className="chip" aria-expanded={sheet} aria-controls="intel-sheet" title={t("intel.moreAria")} onClick={() => setView("following")}>{t("intel.more")}</button>
-          </div>
-          {/* two-voice audio of this briefing (local Kokoro voices; the first play takes a minute to make it) */}
-          {listen && b && <audio key={b.id} className={css.audio} controls autoPlay preload="none" src={`/api/briefings/${b.id}/audio`} aria-label={`${t("intel.listen")}: ${b.title}`} />}
-          {s !== "configured" && s !== "checking" && <SchedNote s={s} retry={() => void load()} quiet />}
-          {err && <p className="error text-sm" role="alert">{err}</p>}
+          <Button size="sm" busy={running} onClick={() => void generate("world")}>{running ? t("intel.working") : t("intel.new")}</Button>
+          <MoreMenu label={t("intel.moreAria")} items={tools_} />
         </div>
-
-        {briefings === null ? <div className={css.skeleton} role="status" aria-label={t("intel.loading")}><span /><span /><span /></div>
-          : b ? <BriefingView key={b.id} b={b} post={post} intel={intel} />
-          : <p className="muted">{t("intel.empty")}</p>}
-
-        {intel && <Developments intel={intel} post={post} />}
+        {/* two-voice audio of this briefing (local Kokoro voices; the first play takes a minute to make it) */}
+        {listen && b && <audio key={b.id} className={css.audio} controls autoPlay preload="none" src={`/api/briefings/${b.id}/audio`} aria-label={`${t("intel.listen")}: ${b.title}`} />}
+        {s !== "configured" && s !== "checking" && <SchedNote s={s} retry={() => void load()} quiet />}
+        {err && !loadFailed && <p className={`${css.bad} text-sm`} role="alert">{err}</p>}
       </div>
 
-      {sheet && (
-        <div id="intel-sheet" ref={sheetRef} className={motion ? css.sheetIn : undefined}
-          onKeyDown={(e) => { if (e.key === "Escape" && !e.defaultPrevented) { e.stopPropagation(); setView("today"); } }}>
-          <WorkspaceFrame planet="intelligence" title={t("intel.title")} view={view as SheetView} onView={setView} views={sheetViews}
-            action={<button type="button" data-sheet-back className="link text-xs" onClick={() => setView("today")}>← {t("intel.back")}</button>}>
+      {briefings === null ? <Loading rows={3} label={t("intel.loading")} />
+        : loadFailed ? <ErrorState title={t("intel.loadFailed")} text={t("intel.loadFailedText")} retryLabel={t("state.retry")} onRetry={() => void load()} />
+        : b ? <BriefingView key={b.id} b={b} post={post} intel={intel} />
+        : <Empty title={t("intel.emptyTitle")} text={t("intel.empty")} />}
+
+      {intel && <Developments intel={intel} post={post} />}
+
+      <Sheet open={sheet} title={t("intel.more")} onClose={() => setView("today")} closeLabel={t("intel.back")}>
+        <div id="intel-sheet" className={css.sheetBody}>
+          <WorkspaceFrame planet="intelligence" title={t("intel.more")} view={(sheet ? view : "following") as SheetView} onView={setView} views={sheetViews}>
             {err && <p className="error" role="alert">{err}</p>}
             {view === "following" && (<>
               <FollowingSection />
@@ -401,7 +387,7 @@ export function IntelligencePanel() {
             )}
           </WorkspaceFrame>
         </div>
-      )}
+      </Sheet>
     </div>
   );
 }
@@ -432,7 +418,7 @@ function Developments({ intel, post }: { intel: Intel; post: Post }) {
     <section className={css.section} aria-labelledby="intel-new-since">
       <h3 id="intel-new-since" className={css.sh}>{t("intel.newSince")}</h3>
       {topics.map((tp) => (
-        <div key={tp.topic} className={`card ${css.story}`}>
+        <div key={tp.topic} className={css.story}>
           <div className={css.head}>
             <h4 className={css.title}>{tp.topic}</h4>
             <button className="chip" onClick={() => post({ action: "ack", topic: tp.topic, events: tp.items.map(({ key, rev }) => ({ key, rev })) })}>{t("intel.markSeen")}</button>
@@ -453,7 +439,7 @@ function Developments({ intel, post }: { intel: Intel; post: Post }) {
                         </details>
                       )}
                     </div>
-                    <DotsMenu label={t("intel.storyMenu", { title: d.title })} items={actions({ key: d.key, title: d.title, url: a.url, published_at: a.published_at, sources: d.independent }, () => setTask(d.key))} />
+                    <MoreMenu label={t("intel.storyMenu", { title: d.title })} items={actions({ key: d.key, title: d.title, url: a.url, published_at: a.published_at, sources: d.independent }, () => setTask(d.key))} />
                   </div>
                   {task === d.key && <TaskForm title={d.title} url={a.url} published_at={a.published_at} post={post} done={() => setTask(null)} />}
                 </li>

@@ -105,3 +105,35 @@ export function runLine(job: { status: string; detail: string | null; started_at
 
 /** Feedback key for a briefing story (the vote store takes any key; the title drives the ranking check). */
 export const storyKey = (briefingId: string, title: string) => `b:${briefingId}:${title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().slice(0, 120)}`;
+
+/** The one-line summary under a headline: the story's first sentence, plain (no citations, no bold), at most `max` chars. */
+export function summaryOf(story: Story, max = 170): string {
+  const text = story.lines.map((l) => l.replace(/\[a:[0-9a-f-]{36}\]/gi, "").replace(/\*\*/g, "").replace(/^\s*([-*]|\d+\.)\s+/, "")).join(" ").replace(/\s+([.,;:!?])/g, "$1").replace(/\s+/g, " ").trim();
+  const first = text.match(/^.+?[.!?](?=\s|$)/)?.[0] ?? text;
+  return first.length <= max ? first : `${first.slice(0, max - 1).replace(/\s+\S*$/, "")}…`;
+}
+
+/** "Reuters, AP and 4 more": the distinct outlets a story cites, in citation order. */
+export function outletsOf(story: Story, cites: Cite[]): { names: string[]; more: number } {
+  const seen = new Map<string, string>();
+  for (const id of story.cites) {
+    const c = cites.find((x) => x.id === id);
+    const name = c?.source?.trim();
+    if (name && !seen.has(OUTLET(name))) seen.set(OUTLET(name), name);
+  }
+  const all = [...seen.values()];
+  return { names: all.slice(0, 2), more: Math.max(0, all.length - 2) };
+}
+
+/** A story's coverage over the last `hours`, in `bins` equal slices (oldest first), from real report times (its cited articles
+ *  and the clustered reports of the same event). null when fewer than 3 reports fall inside: too few to draw a line honestly. */
+export function coverage(times: (string | null | undefined)[], now: number, hours = 24, bins = 12): number[] | null {
+  const span = hours * 3_600_000, out = Array.from({ length: bins }, () => 0);
+  let n = 0;
+  for (const s of times) {
+    const t = s ? Date.parse(s) : NaN;
+    if (!Number.isFinite(t) || t > now || now - t >= span) continue;
+    out[Math.min(bins - 1, Math.floor((t - (now - span)) / (span / bins)))]++; n++;
+  }
+  return n >= 3 ? out : null;
+}

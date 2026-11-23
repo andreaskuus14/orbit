@@ -32,6 +32,7 @@ import { IntelligencePanel } from "@/components/IntelligencePanel";
 const n = () => {};
 createRoot(document.getElementById("root")).render(
   <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view="3d">
+    <header className="absolute inset-x-0 top-0 z-30 flex h-14 items-center px-4"><span className="brand">Orbital</span></header>
     <NewsGlobe reduced onClose={n} quality="low" />
     <aside className="glass drawer" role="dialog" aria-label="Intelligence">
       <div className="drag-handle mb-3 flex items-center justify-between"><h2 className="brand world-header flex items-center gap-2 text-base">Intelligence</h2><button className="chip">Close</button></div>
@@ -41,7 +42,7 @@ createRoot(document.getElementById("root")).render(
   </main>);`, loader: "tsx", resolveDir: resolve("src") },
   bundle: true, write: false, outdir: "/tmp/intel-ui-out", format: "esm", jsx: "automatic", logLevel: "error",
   define: { "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_SUPABASE_URL": '""', "process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY": '""' },
-  loader: { ".json": "json", ".css": "local-css" },
+  loader: { ".json": "json", ".css": "css", ".module.css": "local-css" },
 })).outputFiles;
 const appJs = js.find((f) => f.path.endsWith(".js")).text, moduleCss = js.find((f) => f.path.endsWith(".css"))?.text ?? "";
 
@@ -100,7 +101,7 @@ const FEEDS = { feeds: [
   { id: id(201), url: "https://www.bing.com/news/search?q=Roblox&format=rss", title: "News: Roblox", topic: "Roblox", enabled: true, last_fetched_at: ago(1), last_error: null },
   { id: id(202), url: "https://example.com/broken.xml", title: "Old blog", topic: null, enabled: true, last_fetched_at: ago(1), last_error: "Not an RSS or Atom feed" },
 ] };
-const dev = (k, i, status, why) => ({ key: k, rev: "1", status, title: ART[i].title, why, independent: i === 3 ? 2 : 1, articles: i === 3 ? [ART[3], ART[4]] : [ART[i]] });
+const dev = (k, i, status, why) => ({ key: k, rev: "1", status, title: ART[i].title, why, independent: i === 3 ? 2 : 1, articles: i === 3 ? [ART[3], ART[4], ...[2, 5, 7, 11, 16].map((hh, k) => ({ ...ART[3], id: id(300 + k), url: `https://example.com/cairo-${k}`, source: ["Reuters", "AP", "DW World", "NPR World", "France 24"][k], published_at: ago(hh) }))] : [ART[i]] });
 const INTEL = { prefs: { topics: ["Roblox", "game development", "artificial intelligence"], regions: ["Europe"], projects: ["pet simulator"], exclusions: [], length: "normal", less: [] },
   topics: [{ topic: "Roblox", items: [dev("k1", 0, "new", "Your topic: Roblox")], known: 4 }, { topic: "world", items: [dev("k2", 3, "new", "2 outlets"), dev("k3", 5, "corrected", "Updated story")], known: 9 }, { topic: "game development", items: [], known: 3 }],
   health: { [id(202)]: { kind: "parse", lastError: "Not an RSS or Atom feed" } }, done: [], votes: { k2: "useful" },
@@ -117,10 +118,13 @@ const GEO = { hours: 72, total: GEO_ARTS.length, ...hotspots(GEO_ARTS) };
 
 const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
 try {
-  for (const [name, vp, manual] of [["desktop", { width: 1440, height: 900 }, true], ["laptop", { width: 1280, height: 760 }, true], ["phone", { width: 390, height: 844 }, true], ["desktop-simple", { width: 1440, height: 900 }, false]]) {
+  const RUNS = [["desktop", { width: 1440, height: 900 }, true], ["laptop", { width: 1280, height: 760 }, true], ["phone", { width: 390, height: 844 }, true], ["desktop-simple", { width: 1440, height: 900 }, false]];
+  if (TAG !== "before") RUNS.push(["desktop-weather", { width: 1440, height: 900 }, true], ["laptop-weather", { width: 1280, height: 720 }, true], ["phone-weather", { width: 390, height: 844 }, true], ["small-weather", { width: 800, height: 600 }, true]);
+  for (const [name, vp, manual] of RUNS) {
+    const weather = name.endsWith("-weather"); // the news weather layer (#746, ORBIT_UI_MOTION) vs the classic globe
     const ctx = await browser.newContext({ viewport: vp, reducedMotion: "reduce", deviceScaleFactor: 1 });
     const page = await ctx.newPage(), posts = [];
-    await page.addInitScript((m) => { try { localStorage.setItem("orbit.lang", "en"); localStorage.setItem("orbit.manual.intelligence", m ? "1" : "0"); } catch {} }, manual);
+    await page.addInitScript((m) => { try { localStorage.setItem("orbit.lang", "en"); localStorage.setItem("orbit.manual.intelligence", m[0] ? "1" : "0"); localStorage.setItem("orbit.newsWeather.view", m[1] ? "weather" : "classic"); } catch {} }, [manual, weather]);
     page.on("pageerror", (e) => console.log("pageerror", e.message));
     await ctx.route(`${ORIGIN}/**`, async (route) => {
       const r = route.request(), u = new URL(r.url()), p = u.pathname;
@@ -148,24 +152,37 @@ try {
       const firstH = await page.locator("aside.drawer h3").first().innerText().catch(() => "");
       check(/for you/i.test(firstH), `${TAG}-${name}: briefing starts with For you (${firstH})`);
       if (name === "desktop") {
-        const mark = page.locator("aside.drawer article").filter({ hasText: "marketing help" }).locator("button[aria-expanded]").first();
+        const mark = page.locator("aside.drawer article").filter({ hasText: "Roblox opens" }).getByRole("button", { name: /Show the evidence/ }).first();
         await mark.hover(); await page.waitForTimeout(300);
         check(/did not check out/i.test(await page.locator("aside.drawer").innerText()), `${TAG}: evidence shows on hover`);
         await page.screenshot({ path: `${OUT}/${TAG}-trust-hover.png`, clip: await page.locator("aside.drawer").boundingBox() });
         await page.mouse.move(5, 5);
         const dots = page.locator("aside.drawer article").first().getByRole("button", { name: /^Actions for/ });
         await dots.focus(); await page.keyboard.press("Enter"); await page.waitForTimeout(250);
-        check(await page.getByRole("menuitemcheckbox", { name: "Useful" }).first().isVisible(), `${TAG}: "…" menu opens from the keyboard`);
+        check(await page.getByRole("menuitem", { name: /^Useful/ }).first().isVisible(), `${TAG}: "…" menu opens from the keyboard`);
         await page.screenshot({ path: `${OUT}/${TAG}-menu.png`, clip: await page.locator("aside.drawer").boundingBox() });
         await page.keyboard.press("Escape");
-        await page.getByRole("button", { name: "Sources & more" }).click(); await page.waitForTimeout(500);
+        await page.getByRole("button", { name: /^More: following/ }).click(); await page.waitForTimeout(200);
+        await page.getByRole("menuitem", { name: "Following" }).click(); await page.waitForTimeout(600);
         check(await page.getByRole("tab", { name: "Watches" }).isVisible(), `${TAG}: sheet shows Following / Watches / Research / Sources`);
         await page.screenshot({ path: `${OUT}/${TAG}-sheet.png` });
         await page.keyboard.press("Escape"); await page.waitForTimeout(300);
         check(await page.getByRole("button", { name: "New briefing" }).isVisible(), `${TAG}: Esc closes the sheet`);
       }
     }
-    if (manual || TAG !== "before") {
+    if (weather) { // the weather layer's play button, "Classic map" and its forecast stay clear of the panel (and the panel of them)
+      const free = await page.evaluate(() => {
+        const out = {};
+        for (const [k, el] of [["play", [...document.querySelectorAll(".globe-in button")].find((b) => b.style.width && !b.textContent.trim())], ["classic", [...document.querySelectorAll(".globe-in button")].find((b) => /Classic map/.test(b.textContent))]]) {
+          if (!el) { out[k] = "missing"; continue; }
+          const r = el.getBoundingClientRect(), top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          out[k] = el.contains(top) ? "ok" : `covered by ${top?.className?.toString().slice(0, 40)}`;
+        }
+        return out;
+      });
+      check(free.play === "ok", `${TAG}-${name}: weather play button not under the panel (${free.play})`);
+      check(free.classic === "ok", `${TAG}-${name}: "Classic map" not under the panel (${free.classic})`);
+    } else if (manual || TAG !== "before") {
       const vis = await page.evaluate(() => {
         const free = (sel) => { // three points across the element (both ends and the middle) must be the element itself
           const el = document.querySelector(sel); if (!el) return "missing"; const b = el.getBoundingClientRect(), cy = b.top + b.height / 2;

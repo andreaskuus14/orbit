@@ -96,3 +96,21 @@ test("storyKey is stable per briefing and title", () => {
   assert.equal(storyKey("b1", "Roblox opens a fund!"), storyKey("b1", "roblox  opens a fund"));
   assert.notEqual(storyKey("b1", "x"), storyKey("b2", "x"));
 });
+
+test("summary is the first sentence, plain; outlets line names two and counts the rest", async () => {
+  const { summaryOf, outletsOf } = await import("../src/lib/briefing-view-pure.ts");
+  const p = parseBriefing(`### X\nNegotiators returned to **Cairo** on Saturday ${A(1)}. US mediators joined ${A(2)}.`);
+  const st = p.sections[0].stories[0];
+  assert.equal(summaryOf(st), "Negotiators returned to Cairo on Saturday.");
+  assert.ok(summaryOf({ ...st, lines: ["word ".repeat(80)] }, 50).endsWith("…"));
+  const many: Cite[] = [1, 2, 3, 4].map((n) => ({ id: id(n), url: "https://e.com", title: "t", source: ["Reuters", "AP", "BBC", "The Reuters"][n - 1], published_at: null }));
+  assert.deepEqual(outletsOf({ ...st, cites: [id(1), id(2), id(3), id(4)] }, many), { names: ["Reuters", "AP"], more: 1 }, "the same outlet twice counts once");
+});
+
+test("coverage: hourly report counts in the last 24 h, oldest first; too few = no line", async () => {
+  const { coverage } = await import("../src/lib/briefing-view-pure.ts");
+  const now = Date.parse("2026-11-23T12:00:00Z"), h = (x: number) => new Date(now - x * 3_600_000).toISOString();
+  assert.deepEqual(coverage([h(1), h(1.5), h(23), h(30), null, "bad"], now, 24, 4), [1, 0, 0, 2]);
+  assert.equal(coverage([h(1), h(2)], now), null);
+  assert.equal(coverage([h(-1), h(1), h(2)], now), null, "future times don't count");
+});
