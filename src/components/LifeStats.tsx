@@ -1,21 +1,21 @@
 "use client";
 import { useEffect, useState } from "react";
-import type { LifeState } from "@/lib/life-pure";
+import type { LifeLite } from "@/lib/life-private-pure";
 import { bestStreak, todayCount, weekCompletion } from "@/lib/life-stats-pure";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 
-// ANALYTICS → LIFE stats: habits today, 7-day completion bars, best streak, focus minutes. Data: GET /api/life.
+// ANALYTICS → LIFE stats: habits today, 7-day completion bars, best streak, focus minutes. Data: GET /api/life?lite=1 (counts only, never the journal).
 
 const day = (k: string, weekday: "narrow" | "long") => new Date(`${k}T12:00:00`).toLocaleDateString("en", { weekday });
 const openLife = () => window.dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: "life" } }));
 
 export function LifeStats() {
-  const [s, setS] = useState<LifeState | null>(null);
+  const [s, setS] = useState<LifeLite | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let live = true;
-    fetch("/api/life")
-      .then((r) => (r.ok ? (r.json() as Promise<LifeState>) : Promise.reject(r.status)))
+    fetch("/api/life?lite=1", { cache: "no-store" })
+      .then((r) => (r.ok ? (r.json() as Promise<LifeLite>) : Promise.reject(r.status)))
       .then((d) => { if (live) setS(d); })
       .catch(() => { if (live) setFailed(true); });
     return () => { live = false; };

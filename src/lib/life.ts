@@ -59,6 +59,7 @@ function update<T>(fn: (s: LifeStore) => T): Promise<T> {
   g.__orbitLife = p;
   return p;
 }
+import { liteLife, type LifeLite } from "./life-private-pure";
 const today = () => dateKey(new Date());
 
 /** LIFE for every server caller (CORE modules, brief, insights, worlds): the journal's days are there, its text never is
@@ -66,6 +67,11 @@ const today = () => dateKey(new Date());
 export async function getLife(): Promise<LifeState> {
   const s = await read();
   return view({ ...s, journal: Object.fromEntries(Object.keys(s.journal).map((d) => [d, ""])) }, Date.now());
+}
+/** Counts-only LIFE (GET /api/life?lite=1): no journal text or notes, never decrypts anything (life-private-pure liteLife). */
+export async function getLifeLite(): Promise<LifeLite> {
+  const s = await read();
+  return liteLife(await getLife(), Object.values(s.journal).filter(Boolean).length);
 }
 /** LIFE → Journal for the owner (GET /api/life only): the same view with the journal opened. */
 export async function getLifeForOwner(openJournal: (j: Record<string, string>) => Record<string, string>): Promise<LifeState> {

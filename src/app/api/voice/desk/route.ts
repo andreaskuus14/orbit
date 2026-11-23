@@ -5,6 +5,8 @@ import { cleanWhisperText } from "@/components/voice/hear";
 import { extractWakeQuestion, isSleepCommand } from "@/components/voice/wake";
 import { stopAllOn } from "@/lib/stop-all";
 import { deskWho, privateWindow, wakeBlocked, wantsScreen, windowLine } from "@/lib/jarvis-pure";
+import { screenshotAllowed } from "@/lib/life-private-pure";
+import { lifeShieldUntil } from "@/lib/life-shield";
 import { confirmReply } from "@/lib/pc-policy-pure";
 import { confirmPc, fromHelper, nextPing, noteGlance, pendingPc, screenshot, wakeSettings } from "@/lib/jarvis";
 
@@ -89,7 +91,8 @@ export async function POST(req: Request) {
   try { win = JSON.parse(decodeURIComponent(req.headers.get("x-orbit-window") ?? "")); } catch { win = null; }
   const w = win && typeof win === "object" ? { app: String(win.app ?? "").slice(0, 80), title: String(win.title ?? "").slice(0, 200) } : null;
   const line = windowLine(w);
-  const shot = !privateWindow(w) && wantsScreen(wake.question) ? await screenshot().catch(() => null) : null;
+  // Also refused while any LIFE screen is open in ORBIT (another monitor, behind a window): the shot is the whole screen.
+  const shot = screenshotAllowed(privateWindow(w), lifeShieldUntil(Date.now()), Date.now()) && wantsScreen(wake.question) ? await screenshot().catch(() => null) : null;
 
   const [{ ownerClient }, { deskSession, callTurn }] = await Promise.all([import("@/lib/remote"), import("@/lib/call")]);
   let sb;
