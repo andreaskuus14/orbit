@@ -75,6 +75,7 @@ import { useDragPanel } from "./useDragPanel";
 import { ASK_FOCUS } from "./PlanetHome";
 import { SimpleOr } from "./SimpleOr";
 import { PlanetBoundary } from "./PlanetBoundary";
+import { StaleBuildWatch } from "./StaleBuildWatch";
 import { useDialogFocus } from "./useDialogFocus";
 import { TimeDilation } from "./TimeDilation";
 import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
@@ -868,6 +869,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {boot >= 2 && <CursorRing />}
       <PerfBeacon />
       <AmbientSound />
+      <StaleBuildWatch open={panel} />
       {perfRun && <PerfRun />}
       {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><RemoteCall compact /><PcConfirm /></>}
 

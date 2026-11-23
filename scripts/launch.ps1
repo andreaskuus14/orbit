@@ -82,6 +82,34 @@ function Switch-Release {
     throw
   }
   Write-Log "New build installed (the previous one is kept in .next-prev)."
+  Copy-PrevStatic
+}
+
+# A tab opened before the update still loads the old build's lazy chunks (/_next/static/...); without them it hit "This
+# part hit a problem". Copy the previous build's own static files into the new one (hashed names, never overwriting).
+# Files .next-prev had itself inherited (listed in static-inherited.txt) are skipped, so this keeps one build back and
+# doesn't pile up. Runs while the server is stopped: next start lists the static folder once at startup. Best effort.
+function Copy-PrevStatic {
+  try {
+    $from = Join-Path $distPrev "static"; $to = Join-Path $distLive "static"
+    if (-not (Test-Path $from) -or -not (Test-Path $to)) { return }
+    $skip = @{}
+    $prevList = Join-Path $distPrev "static-inherited.txt"
+    if (Test-Path $prevList) { foreach ($l in Get-Content -LiteralPath $prevList) { if ($l) { $skip[$l] = $true } } }
+    $base = (Resolve-Path -LiteralPath $from).Path.TrimEnd('\', '/')
+    $copied = New-Object System.Collections.Generic.List[string]
+    foreach ($f in Get-ChildItem -LiteralPath $from -Recurse -File) {
+      $rel = $f.FullName.Substring($base.Length + 1)
+      if ($skip.ContainsKey($rel)) { continue }
+      $dest = Join-Path $to $rel
+      if (Test-Path -LiteralPath $dest) { continue }
+      $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest)
+      Copy-Item -LiteralPath $f.FullName -Destination $dest
+      $copied.Add($rel)
+    }
+    Set-Content -LiteralPath (Join-Path $distLive "static-inherited.txt") -Value ($copied -join "`r`n")
+    if ($copied.Count) { Write-Log "Kept $($copied.Count) static files from the previous build, so tabs opened before the update keep working." }
+  } catch { Write-Log "Couldn't keep the previous build's static files (old tabs reload instead): $($_.Exception.Message)" }
 }
 
 # Builds into .next-build while whatever runs keeps running; only when the build succeeds is the server stopped
