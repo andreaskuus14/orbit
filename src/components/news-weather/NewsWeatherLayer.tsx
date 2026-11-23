@@ -6,15 +6,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUiMotion } from "../motion/motion";
 import { useT } from "../i18n";
 import type { Hotspot } from "@/lib/geo";
-import { parseSnapshot, shouldReplace, sinceLast, snapshotOf, storyCues, tourPlan, weather, type Briefing } from "@/lib/news-weather-pure";
-import { restView, storyView, type Free, type View } from "@/lib/news-weather-motion-pure";
+import { parseSnapshot, shortTitle, shouldReplace, sinceLast, snapshotOf, storyCues, tourPlan, weather, type Briefing } from "@/lib/news-weather-pure";
+import { restView, safeFrame, storyView, subsolar, type Free, type View } from "@/lib/news-weather-motion-pure";
 import { CTL0, frameAt, keyAction, nextClock, tourStartDelay, type Ctl } from "@/lib/news-weather-tour-pure";
 import { tourLength, wxText } from "@/lib/news-weather-text-pure";
-import { createWeatherDraw, peaksOf, type WeatherDraw, type WxModel } from "./weather-draw";
+import { createWeatherDraw, TEXTURES, type TextureKind, type WeatherDraw, type WxModel } from "./weather-draw";
 
 const VIEW_KEY = "orbit.newsWeather.view", SNAP_KEY = "orbit.newsWeather.snap.v1";
-const PANEL = 512; // the Intelligence panel's width on wide screens (32rem): nothing important goes under it
-type Audio = { el: HTMLAudioElement; url: string; ms: number; data: Float32Array | null; rate: number };
+const PANEL = 512; // the Intelligence panel's width on wide screens (32rem): the guess until the real free frame is measured
+type Audio = { el: HTMLAudioElement; url: string; ms: number };
 
 export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduced: boolean; paused: boolean; onActive: (on: boolean) => void }) {
   const motion = useUiMotion();
@@ -73,11 +73,11 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
         const buf = await r.arrayBuffer();
         if (gone) return;
         const url = URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
-        let data: Float32Array | null = null, rate = 24000, ms = 0;
-        try { const ac = new AudioContext(); const dec = await ac.decodeAudioData(buf.slice(0)); data = dec.getChannelData(0); rate = dec.sampleRate; ms = dec.duration * 1000; ac.close(); } catch { /* peaks fall back */ }
+        let ms = 0;
+        try { const ac = new AudioContext(); const dec = await ac.decodeAudioData(buf.slice(0)); ms = dec.duration * 1000; ac.close(); } catch { /* metadata below */ }
         const el = new Audio(url); el.preload = "auto";
         if (!ms) await new Promise<void>((ok) => { el.onloadedmetadata = () => ok(); setTimeout(ok, 3000); });
-        audio.current = { el, url, ms: ms || el.duration * 1000 || 0, data, rate };
+        audio.current = { el, url, ms: ms || el.duration * 1000 || 0 };
       } catch { /* no voice: the tour runs on its own clock */ }
     }, 2500);
     return () => { gone = true; clearTimeout(t); const a = audio.current; if (a) { a.el.pause(); URL.revokeObjectURL(a.url); audio.current = null; } };
@@ -93,7 +93,28 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
     ro.observe(el);
     return () => ro.disconnect();
   }, [active]);
-  const free: Free = useMemo(() => ({ x: 0, y: 0, w: size.w >= 900 ? size.w - PANEL : size.w, h: size.h }), [size]);
+  // The free frame: what the panel, top bar, search box, region chips and command bar leave uncovered, measured by sampling the
+  // screen (elementFromPoint) at rest — on resize and every 2 s, since panels open and close. Kept still during the tour.
+  const guess: Free = useMemo(() => ({ x: 0, y: 0, w: size.w >= 900 ? size.w - PANEL : size.w, h: size.h }), [size]);
+  const [free, setFree] = useState<Free>(guess);
+  useEffect(() => { setFree(guess); }, [guess]);
+  const modeRef = useRef<"rest" | "tour" | "back">("rest");
+  useEffect(() => {
+    const el = box.current;
+    if (!active || !el || !size.w) return;
+    const measure = () => {
+      if (modeRef.current !== "rest") return;
+      const r = el.getBoundingClientRect(), C = 32, Rw = 24;
+      const covered = Array.from({ length: Rw }, (_, y) => Array.from({ length: C }, (_, x) => {
+        const hit = document.elementFromPoint(r.left + ((x + 0.5) / C) * r.width, r.top + ((y + 0.5) / Rw) * r.height);
+        return !!hit && !el.contains(hit);
+      }));
+      const f = safeFrame(covered, r.width, r.height, guess);
+      setFree((o) => (Math.abs(o.x - f.x) + Math.abs(o.y - f.y) + Math.abs(o.w - f.w) + Math.abs(o.h - f.h) < 4 ? o : f));
+    };
+    const t0 = setTimeout(measure, 300), t = setInterval(measure, 2000);
+    return () => { clearTimeout(t0); clearInterval(t); };
+  }, [active, size, guess]);
   const drag = useRef({ dLon: 0, dLat: 0 });
   const rest0 = useMemo(() => (hs ? restView(hs.map((h) => ({ lon: h.lon, lat: h.lat, reports: h.count })), free) : null), [hs, free]);
 
@@ -113,13 +134,13 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
     plan.current = tourPlan(n, cues, a?.ms);
     clock.current = { t: -tourStartDelay, last: performance.now(), voiced: !!cues, started: false };
     ctl.current = { ...CTL0, mode: "tour", pressAt: performance.now() };
-    setMode("tour");
+    modeRef.current = "tour"; setMode("tour");
   }, [wx, brief]);
   const back = useCallback(() => {
     if (ctl.current.mode !== "tour") return;
     audio.current?.el.pause();
     ctl.current = { ...ctl.current, mode: "back", backAt: performance.now(), backFrom: lastView.current };
-    setMode("back"); setLive("");
+    modeRef.current = "back"; setMode("back"); setLive("");
   }, []);
   const togglePause = useCallback(() => {
     const c = ctl.current; if (c.mode !== "tour") return;
@@ -158,17 +179,21 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
     if (!active || !wx || !rest0 || !cv.current || !size.w) return;
     if (!draw.current) {
       const css = getComputedStyle(document.documentElement), v = (n: string, f: string) => css.getPropertyValue(n).trim() || f;
-      draw.current = createWeatherDraw(cv.current, { sans: `${v("--font-inter", "Inter")}, system-ui, sans-serif`, mono: `${v("--font-jetbrains", "'JetBrains Mono'")}, ui-monospace, monospace`, display: `${v("--font-rajdhani", "Rajdhani")}, system-ui, sans-serif` });
+      const d0 = (draw.current = createWeatherDraw(cv.current, { sans: `${v("--font-inter", "Inter")}, system-ui, sans-serif`, serif: `${v("--font-serif", "'Source Serif 4'")}, Georgia, serif` }));
+      for (const k of Object.keys(TEXTURES) as TextureKind[]) { // the globe's pictures, quietly after the first frame (flat land until then)
+        const im = new Image(); im.decoding = "async"; im.onload = () => d0.setTexture(k, im); im.src = TEXTURES[k];
+      }
     }
     const d = draw.current;
     const views = wx.stops.map((s) => storyView(s.system, free));
     const n = wx.stops.length;
+    let chapters: { title: string; start: number; end: number }[] = [], chFor: unknown = null;
     const model: WxModel = {
-      systems: wx.systems, fronts: wx.fronts, isobars: wx.isobars, forecast: wx.forecast, since, text,
+      systems: wx.systems, fronts: wx.fronts, isobars: wx.isobars, hpa: wx.hpa, forecast: wx.forecast, since, text,
       title: `${text.title} · ${new Date().toLocaleDateString(lang === "et" ? "et-EE" : "en-GB", { weekday: "long" }).replace(/^./, (c) => c.toUpperCase())}`,
       playSub: n ? tourLength(n, audio.current?.ms || tourPlan(n).at(-1)!.end, lang) : "", canPlay: n > 0,
     };
-    let raf = 0, lastIdx = -2, lastDraw = 0, peaksFor = -1, peaks: number[] = [];
+    let raf = 0, lastIdx = -2, lastDraw = 0;
     const dpr = Math.min(2, devicePixelRatio || 1);
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
@@ -185,14 +210,16 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
       const rest = restNow()!;
       const x = { rest, views, stops: wx.stops, plan: plan.current, reduced };
       const f = frameAt(c, now, k.t, x);
-      if (c.mode === "back" && now - c.backAt > 1900) { ctl.current = CTL0; setMode("rest"); }
+      if (c.mode === "back" && now - c.backAt > 1900) { ctl.current = CTL0; modeRef.current = "rest"; setMode("rest"); }
       if (f.done && c.mode === "tour") { lastView.current = f.view; back(); }
       lastView.current = f.view;
       const st = f.i >= 0 && c.mode === "tour" ? wx.stops[f.i] : null;
-      if (st && f.i !== peaksFor) { peaksFor = f.i; const p = plan.current[f.i]; peaks = peaksOf(k.voiced && a ? a.data : null, a?.rate ?? 24000, p.start / 1000, p.end / 1000); }
+      if (chFor !== plan.current) { chFor = plan.current; chapters = plan.current.map((q, i) => ({ title: shortTitle(wx.stops[i]?.headline ?? "", 30), start: q.start, end: q.end })); }
       if (f.i !== lastIdx) { lastIdx = f.i; setLive(st ? `${f.i + 1} / ${n}. ${st.headline}. ${st.lines.join(" ")}` : ""); }
-      d.draw(model, { W: size.w, H: size.h, dpr, free, view: f.view, now, reduced, rest: f.rest, hover: hoverRef.current,
-        tour: st && f.scene ? { stop: st, prev: f.i > 0 ? wx.stops[f.i - 1] : null, scene: f.scene, idx: f.i, n, from: f.from, paused: c.paused, peaks, voiced: k.voiced } : null });
+      const p = st ? plan.current[f.i] : null;
+      d.draw(model, { W: size.w, H: size.h, dpr, free, view: f.view, now, reduced, rest: f.rest, hover: hoverRef.current, sun: subsolar(Date.now()),
+        tour: st && f.scene && p ? { stop: st, prev: f.i > 0 ? wx.stops[f.i - 1] : null, scene: f.scene, idx: f.i, n, from: f.from, paused: c.paused, voiced: k.voiced,
+          dur: p.end - p.start, clock: k.t, chapters } : null });
     };
     raf = requestAnimationFrame(tick);
     requestAnimationFrame(() => setPlayRect(d.playRect()));
@@ -217,7 +244,7 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
   if (!motion) return null;
   if (!active) return <button className="chip absolute bottom-36 left-3" onClick={() => pick(false)}>{text.weatherMap}</button>;
   return (
-    <div ref={box} className="absolute inset-0 select-none" style={{ background: "#02050b", touchAction: "none", cursor: hover ? "pointer" : down.current ? "grabbing" : "grab" }}
+    <div ref={box} className="absolute inset-0 select-none" style={{ background: "#18191b", touchAction: "none", cursor: hover ? "pointer" : down.current ? "grabbing" : "grab" }}
       onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} aria-label={text.title}>
       <canvas ref={cv} className="absolute inset-0 h-full w-full" aria-hidden />
       <p className="sr-only">{wx ? `${text.title}. ${wx.forecast} ${since.join(". ")}` : ""}</p>

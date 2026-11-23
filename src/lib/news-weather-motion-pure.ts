@@ -175,3 +175,47 @@ export function backView(from: View, rest: View, t: number, reduced = false): Vi
   const p = beat(t, 0, PRESS.back);
   return p >= 1 ? rest : flyView(from, rest, p, arcFor(from, rest) * 0.6);
 }
+
+// ---------- sunlight ----------
+/** The point on Earth with the sun overhead at `ms` (UTC): declination from the day of the year, longitude from the time of day
+ *  (good to about 1°, ignoring the equation of time). The globe is lit from here, so day and night are the real ones. */
+export function subsolar(ms: number): { lon: number; lat: number } {
+  const d = new Date(ms), y0 = Date.UTC(d.getUTCFullYear(), 0, 1), doy = (ms - y0) / 86_400_000;
+  const lat = -23.44 * Math.cos(((2 * Math.PI) / 365.25) * (doy + 10));
+  const h = d.getUTCHours() + d.getUTCMinutes() / 60 + d.getUTCSeconds() / 3600;
+  let lon = -(h - 12) * 15;
+  if (lon < -180) lon += 360;
+  return { lon, lat };
+}
+/** How lit a point is: 0 night … 1 day, with a soft twilight band about 6° either side of the terminator. */
+export function daylight(sun: { lon: number; lat: number }, lon: number, lat: number): number {
+  const cz = Math.sin(lat * RAD) * Math.sin(sun.lat * RAD) + Math.cos(lat * RAD) * Math.cos(sun.lat * RAD) * Math.cos((lon - sun.lon) * RAD);
+  const u = Math.min(1, Math.max(0, (cz + 0.1) / 0.2));
+  return u * u * (3 - 2 * u);
+}
+
+// ---------- the free frame ----------
+/** The part of the screen nothing else covers. `covered[row][col]` = a sample point is under another part of the app (the panel,
+ *  the top bar, the search box, the region chips, the command bar…), sampled by the app with elementFromPoint. Columns mostly
+ *  covered at the sides are cut off (the panel), then the bands at the top and bottom that hold covered points (bars, chips).
+ *  If almost everything reads as covered, the sampling is wrong (an invisible full-screen layer): keep `fallback`. */
+export function safeFrame(covered: boolean[][], W: number, H: number, fallback: Free, pad = 12): Free {
+  const rows = covered.length, cols = covered[0]?.length ?? 0;
+  if (!rows || !cols) return fallback;
+  const all = covered.flat(), share = all.filter(Boolean).length / all.length;
+  if (share > 0.7) return fallback;
+  const colCov = (c: number) => covered.filter((r) => r[c]).length / rows;
+  let l = 0, r = cols;
+  while (l < cols && colCov(l) >= 0.5) l++;
+  while (r > l && colCov(r - 1) >= 0.5) r--;
+  const rowHit = (y: number) => covered[y].slice(l, r).some(Boolean);
+  // the top band ends under the lowest covered row in the top 45%, the bottom band starts at the highest covered row in the
+  // bottom 45% (bars float with gaps around them: a clear row between the command bar and the chips doesn't end the band)
+  let t = 0, b = rows;
+  for (let y = 0; y < Math.floor(rows * 0.45); y++) if (rowHit(y)) t = y + 1;
+  for (let y = rows - 1; y >= Math.ceil(rows * 0.55); y--) if (rowHit(y)) b = y;
+  if (r - l < 2 || b - t < 2) return fallback;
+  const cw = W / cols, ch = H / rows;
+  const x = l ? l * cw + pad : 0, y = t ? t * ch + pad : 0, x2 = r < cols ? r * cw - pad : W, y2 = b < rows ? b * ch - pad : H;
+  return { x, y, w: Math.max(0, x2 - x), h: Math.max(0, y2 - y) };
+}
