@@ -33,23 +33,20 @@ jobs:
       - name: Bench
         run: |
           set -u
-          LIMIT_MB=11000 # watchdog: kill the build above this (all node processes together), so the runner survives
-          S=$GITHUB_STEP_SUMMARY
-          echo "| Run | Exit | Wall | Peak RSS, all node processes | Peak RSS, main process |" >> $S; echo "|---|---|---|---|---|" >> $S
-          sampler() { local peak=0 s; while [ ! -f stop ]; do s=$(ps -C node -o rss= | awk '{t+=$1} END {print t+0}'); [ "$s" -gt "$peak" ] && peak=$s
-            if [ $((s/1024)) -gt $LIMIT_MB ]; then echo "watchdog: $((s/1024)) MB, killing" > killed.txt; pkill -f "next build"; fi; sleep 1; done; echo $peak > peak.txt; }
+          CAP=12G # hard memory cap per build (a systemd scope); a runaway Turbopack took the whole runner down twice
+          S=$GITHUB_STEP_SUMMARY; NODE=$(command -v node)
+          echo "| Run | Exit | Wall | Peak memory (whole build, cgroup) |" | tee -a $S rows.md; echo "|---|---|---|---|" | tee -a $S rows.md
           phases() { # the slowest spans of Next's own trace for this run
             node -e 'const fs=require("fs");const f=process.argv[1];if(!fs.existsSync(f))process.exit(0);const ev=fs.readFileSync(f,"utf8").split("\n").filter(Boolean).flatMap(l=>JSON.parse(l));
               const keep=ev.filter(e=>e.duration>2e6);const m=new Map();for(const e of keep){const k=e.name+(e.tags&&e.tags.name?" ("+e.tags.name+")":"");m.set(k,(m.get(k)||0)+e.duration)}
               console.log([...m].sort((a,b)=>b[1]-a[1]).slice(0,14).map(([k,d])=>k+" "+(d/1e6).toFixed(1)+"s").join("; "))' "$1"; }
-          run() { # label, then the command
-            local label=$1; shift
-            rm -f stop peak.txt killed.txt; sampler & local sp=$!
-            /usr/bin/time -v -o time.txt "$@" > "build-$label.log" 2>&1; local code=$?
-            touch stop; wait $sp
-            local wall=$(grep 'Elapsed (wall' time.txt | awk '{print $NF}'); local rss=$(grep 'Maximum resident' time.txt | awk '{print $NF}')
-            local note=""; [ -f killed.txt ] && note=" ($(cat killed.txt))"
-            echo "| $label | $code$note | $wall | $(( $(cat peak.txt) / 1024 )) MB | $((rss/1024)) MB |" >> $S
+          run() { # label, then next's arguments. Runs in its own cgroup: memory.peak is the true peak of every process.
+            local label=$1; shift; local t0=$(date +%s)
+            sudo -E systemd-run --quiet --scope --unit="bench-$label" -p MemoryMax=$CAP -p MemorySwapMax=0 --uid=$(id -u) --gid=$(id -g) \
+              sh -c '"$0" node_modules/next/dist/bin/next build "$@" > "build-'"$label"'.log" 2>&1; c=$?; cat /sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.peak > peak.txt; exit $c' "$NODE" "$@"
+            local code=$?; local wall=$(( $(date +%s) - t0 ))
+            local note=""; [ $code = 137 ] && note=" (killed at the $CAP cap)"
+            echo "| $label | $code$note | ${wall}s | $(( $(cat peak.txt 2>/dev/null || echo 0) / 1048576 )) MB |" | tee -a $S rows.md
             echo "$label phases: $(phases .next-build/trace)" | tee -a phases.md
             cp .next-build/trace "trace-$label.json" 2>/dev/null || true
             tail -8 "build-$label.log"
@@ -61,22 +58,22 @@ jobs:
           export ORBIT_DIST_DIR=.next-build ORBIT_FAST_PROD_BUILD=1
 
           cp /tmp/next.config.main.ts next.config.ts
-          run before-cold npx next build; swap
-          edit 1; carry drop; run before-warm npx next build; swap
+          run before-cold ; swap
+          edit 1; carry drop; run before-warm ; swap
           rm -rf .next
           cp /tmp/next.config.branch.ts next.config.ts
-          run after-cold npx next build; swap
-          edit 2; carry keep; run after-warm npx next build; swap
-          edit 3; carry keep; run after-warm-2 npx next build
+          run after-cold ; swap
+          edit 2; carry keep; run after-warm ; swap
+          edit 3; carry keep; run after-warm-2 
           echo "source maps in the build: $(find .next-build -name '*.map' | wc -l)" | tee -a phases.md
           echo "largest server files:" >> phases.md; find .next-build/server -name '*.js' -printf '%s %p\n' | sort -rn | head -25 | awk '{printf "%7.0f KB %s\n",$1/1024,$2}' >> phases.md
           rm -rf .next .next-build
 
-          if run turbopack-cold npx next build --turbopack; then
-            swap; edit 4; mkdir -p .next-build; mv .next/cache .next-build/cache 2>/dev/null; run turbopack-warm npx next build --turbopack || true
+          if run turbopack-cold --turbopack; then
+            swap; edit 4; mkdir -p .next-build; mv .next/cache .next-build/cache 2>/dev/null; run turbopack-warm --turbopack || true
           fi
           { echo; echo '```'; cat phases.md; echo '```'; } >> $S
-          cat phases.md
+          cat rows.md phases.md
       - if: ${{ always() }}
         uses: actions/upload-artifact@v4
-        with: { name: build-bench, path: "build-*.log\ntrace-*.json\nphases.md", retention-days: 14 }
+        with: { name: build-bench, path: "build-*.log\ntrace-*.json\nphases.md\nrows.md", retention-days: 14 }

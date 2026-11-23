@@ -19,9 +19,11 @@ const nextConfig: NextConfig = {
     // drei is one big barrel file (~150 re-exports); this makes webpack read only the parts ORBIT imports.
     optimizePackageImports: ["@react-three/drei"],
   },
-  // scripts/launch.ps1 sets ORBIT_FAST_PROD_BUILD=1 when pulling CI-verified main commits (skips duplicate tsc/eslint during swap).
+  // scripts/launch.ps1 sets ORBIT_FAST_PROD_BUILD=1 when pulling CI-verified main commits: no duplicate tsc/eslint, and no
+  // file tracing. Tracing (~30 s, a third of a warm build) only writes .nft.json lists for standalone/serverless deploys;
+  // `next start` on the laptop never reads them. Excluding everything makes the tracer skip every file.
   ...(process.env.ORBIT_FAST_PROD_BUILD === "1"
-    ? { typescript: { ignoreBuildErrors: true }, eslint: { ignoreDuringBuilds: true } }
+    ? { typescript: { ignoreBuildErrors: true }, eslint: { ignoreDuringBuilds: true }, outputFileTracingExcludes: { "*": ["**/*"] } }
     : {}),
   async headers() {
     return [
