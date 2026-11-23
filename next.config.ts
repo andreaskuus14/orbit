@@ -16,7 +16,8 @@ const nextConfig: NextConfig = {
   // The middleware buffers request bodies (10 MB by default); CORE attachments are up to 3 files as base64 JSON (~40 MB).
   experimental: {
     middlewareClientMaxBodySize: "45mb",
-    optimizePackageImports: ["lucide-react"],
+    // drei is one big barrel file (~150 re-exports); this makes webpack read only the parts ORBIT imports.
+    optimizePackageImports: ["@react-three/drei"],
   },
   // scripts/launch.ps1 sets ORBIT_FAST_PROD_BUILD=1 when pulling CI-verified main commits (skips duplicate tsc/eslint during swap).
   ...(process.env.ORBIT_FAST_PROD_BUILD === "1"

@@ -1,10 +1,12 @@
 name: Build speed bench
 
-# Measures the live-build options for scripts/launch.ps1 side by side on a throwaway 16 GB Linux runner: the normal webpack
-# build (the same flags launch.ps1 uses: ORBIT_DIST_DIR=.next-build, ORBIT_FAST_PROD_BUILD=1) cold and warm, the warm build
-# without the kept .rscinfo (what launch.ps1 did before), and `next build --turbopack` cold and warm. Wall time and peak RSS
-# (/usr/bin/time -v) go to the job summary. No secrets, never the owner's PC. Start it from the Actions tab or by pushing
-# to ci/build-bench.
+# Measures the live-build options for scripts/launch.ps1 side by side on a throwaway 16 GB Linux runner. "before" is
+# origin/main's next.config.ts with launch.ps1's old cache carry (cache/webpack only); "after" is this commit's config with
+# the new carry (cache/webpack + cache/.rscinfo). Both use launch.ps1's flags (ORBIT_DIST_DIR=.next-build,
+# ORBIT_FAST_PROD_BUILD=1). Then `next build --turbopack`, cold and warm, under a memory watchdog (a runaway Turbopack
+# killed the whole runner once). Wall time, peak RSS and the slowest build phases (from Next's own .next/trace) go to the
+# job summary as each run ends. No secrets, never the owner's PC. Start it from the Actions tab or by pushing to
+# ci/build-bench.
 on:
   push:
     branches: [ci/build-bench]
@@ -23,7 +25,7 @@ jobs:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: test-placeholder-anon-key
     steps:
       - uses: actions/checkout@v4
-        with: { persist-credentials: false }
+      - run: git fetch --depth=1 origin main && git show FETCH_HEAD:next.config.ts > /tmp/next.config.main.ts && cp next.config.ts /tmp/next.config.branch.ts
       - uses: actions/setup-node@v4
         with: { node-version: '24', cache: npm, cache-dependency-path: package-lock.json }
       - run: npm ci --no-audit --no-fund
@@ -31,32 +33,50 @@ jobs:
       - name: Bench
         run: |
           set -u
-          echo "| Run | Exit | Wall | Peak RSS, all processes | Peak RSS, largest process |" > bench.md; echo "|---|---|---|---|---|" >> bench.md
-          # Sums the RSS of every node process once a second (next build's workers are separate processes); prints the peak.
-          sampler() { local peak=0 s; while [ ! -f stop ]; do s=$(ps -C node -o rss= | awk '{t+=$1} END {print t+0}'); [ "$s" -gt "$peak" ] && peak=$s; sleep 1; done; echo $peak > peak.txt; }
+          LIMIT_MB=11000 # watchdog: kill the build above this (all node processes together), so the runner survives
+          S=$GITHUB_STEP_SUMMARY
+          echo "| Run | Exit | Wall | Peak RSS, all node processes | Peak RSS, main process |" >> $S; echo "|---|---|---|---|---|" >> $S
+          sampler() { local peak=0 s; while [ ! -f stop ]; do s=$(ps -C node -o rss= | awk '{t+=$1} END {print t+0}'); [ "$s" -gt "$peak" ] && peak=$s
+            if [ $((s/1024)) -gt $LIMIT_MB ]; then echo "watchdog: $((s/1024)) MB, killing" > killed.txt; pkill -f "next build"; fi; sleep 1; done; echo $peak > peak.txt; }
+          phases() { # the slowest spans of Next's own trace for this run
+            node -e 'const fs=require("fs");const f=process.argv[1];if(!fs.existsSync(f))process.exit(0);const ev=fs.readFileSync(f,"utf8").split("\n").filter(Boolean).flatMap(l=>JSON.parse(l));
+              const keep=ev.filter(e=>e.duration>2e6);const m=new Map();for(const e of keep){const k=e.name+(e.tags&&e.tags.name?" ("+e.tags.name+")":"");m.set(k,(m.get(k)||0)+e.duration)}
+              console.log([...m].sort((a,b)=>b[1]-a[1]).slice(0,14).map(([k,d])=>k+" "+(d/1e6).toFixed(1)+"s").join("; "))' "$1"; }
           run() { # label, then the command
             local label=$1; shift
-            rm -f stop peak.txt; sampler & local sp=$!
+            rm -f stop peak.txt killed.txt; sampler & local sp=$!
             /usr/bin/time -v -o time.txt "$@" > "build-$label.log" 2>&1; local code=$?
             touch stop; wait $sp
             local wall=$(grep 'Elapsed (wall' time.txt | awk '{print $NF}'); local rss=$(grep 'Maximum resident' time.txt | awk '{print $NF}')
-            echo "| $label | $code | $wall | $(( $(cat peak.txt) / 1024 )) MB | $((rss/1024)) MB |" >> bench.md
-            tail -25 "build-$label.log"
+            local note=""; [ -f killed.txt ] && note=" ($(cat killed.txt))"
+            echo "| $label | $code$note | $wall | $(( $(cat peak.txt) / 1024 )) MB | $((rss/1024)) MB |" >> $S
+            echo "$label phases: $(phases .next-build/trace)" | tee -a phases.md
+            cp .next-build/trace "trace-$label.json" 2>/dev/null || true
+            tail -8 "build-$label.log"
+            return $code
           }
-          # Simulates a pulled commit: one source line changes between builds.
-          edit() { echo "// bench $1" >> src/app/layout.tsx; }
-          swap() { rm -rf .next; mv .next-build .next; } # what Switch-Release does
-          # launch.ps1 before this change: only cache/webpack moved over. After: .rscinfo is kept too.
+          edit() { echo "// bench $1" >> src/app/layout.tsx; } # a pulled commit: one source line changes between builds
+          swap() { rm -rf .next; mv .next-build .next; }      # what Switch-Release does
           carry() { mkdir -p .next-build/cache; mv .next/cache/webpack .next-build/cache/webpack; if [ "$1" = keep ]; then cp .next/cache/.rscinfo .next-build/cache/; fi; }
           export ORBIT_DIST_DIR=.next-build ORBIT_FAST_PROD_BUILD=1
-          run webpack-cold npx next build; swap
-          edit 1; carry drop; run webpack-warm-old npx next build; swap
-          edit 2; carry keep; run webpack-warm-new npx next build; swap
-          edit 3; carry keep; run webpack-warm-new-2 npx next build; swap
+
+          cp /tmp/next.config.main.ts next.config.ts
+          run before-cold npx next build; swap
+          edit 1; carry drop; run before-warm npx next build; swap
+          rm -rf .next
+          cp /tmp/next.config.branch.ts next.config.ts
+          run after-cold npx next build; swap
+          edit 2; carry keep; run after-warm npx next build; swap
+          edit 3; carry keep; run after-warm-2 npx next build
+          echo "source maps in the build: $(find .next-build -name '*.map' | wc -l)" | tee -a phases.md
+          echo "largest server files:" >> phases.md; find .next-build/server -name '*.js' -printf '%s %p\n' | sort -rn | head -25 | awk '{printf "%7.0f KB %s\n",$1/1024,$2}' >> phases.md
           rm -rf .next .next-build
-          run turbopack-cold npx next build --turbopack; swap
-          edit 4; mkdir -p .next-build; mv .next/cache .next-build/cache 2>/dev/null; run turbopack-warm npx next build --turbopack
-          cat bench.md >> "$GITHUB_STEP_SUMMARY"; cat bench.md
+
+          if run turbopack-cold npx next build --turbopack; then
+            swap; edit 4; mkdir -p .next-build; mv .next/cache .next-build/cache 2>/dev/null; run turbopack-warm npx next build --turbopack || true
+          fi
+          { echo; echo '```'; cat phases.md; echo '```'; } >> $S
+          cat phases.md
       - if: ${{ always() }}
         uses: actions/upload-artifact@v4
-        with: { name: build-bench, path: "build-*.log", retention-days: 14 }
+        with: { name: build-bench, path: "build-*.log\ntrace-*.json\nphases.md", retention-days: 14 }
