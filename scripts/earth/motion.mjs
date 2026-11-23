@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from "node
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { chromium } from "playwright-core";
-const out = path.resolve(process.argv[2] ?? "/tmp/earth-out"), W = 1280, H = 720, FPS = 30, tmp = "/tmp/earth-h";
+const out = path.resolve(process.argv[2] ?? "/tmp/earth-out"), W = 1280, H = 720, FPS = 30, tmp = process.env.EARTH_TMP ?? "/tmp/earth-h";
 mkdirSync(`${tmp}/frames`, { recursive: true }); mkdirSync(out, { recursive: true });
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
 await build({ entryPoints: [`${root}/scripts/earth/entry.ts`], bundle: true, outfile: `${tmp}/bundle.js`, format: "iife", tsconfig: `${root}/tsconfig.json`, logLevel: "warning" });
@@ -33,15 +33,15 @@ page.on("console", (m) => { if (m.type() === "error") console.log("page:", m.tex
 await page.goto(`http://127.0.0.1:${port}/`);
 await page.evaluate(() => window.earthReady);
 const len = await page.evaluate(() => window.pathLen), n = Math.round((len / 1000) * FPS);
-rmSync(`${tmp}/frames`, { recursive: true, force: true }); mkdirSync(`${tmp}/frames`);
-const stills = { "still-orbit.jpg": 1200, "still-country.jpg": 5300, "still-region.jpg": 7800, "still-tallinn.jpg": len - 200 };
+if (!process.env.STILLS) { rmSync(`${tmp}/frames`, { recursive: true, force: true }); mkdirSync(`${tmp}/frames`); }
+const stills = { "still-orbit.jpg": 1200, "still-country.jpg": 5600, "still-region.jpg": 8400, "still-tallinn.jpg": len - 200 };
 for (let i = 0; i <= (process.env.STILLS ? -1 : n); i++) {
   const ms = (i / FPS) * 1000;
   await page.evaluate((t) => window.renderAt(t), ms);
   await page.screenshot({ path: `${tmp}/frames/f${String(i).padStart(4, "0")}.jpg`, type: "jpeg", quality: 90 });
   if (i % 60 === 0) console.log(`frame ${i}/${n}`);
 }
-for (const [name, ms] of Object.entries(stills)) { await page.evaluate((t) => window.renderAt(t), ms); await page.screenshot({ path: `${out}/${name}`, type: "jpeg", quality: 92 }); }
+for (const [name, ms] of Object.entries(stills)) { await page.evaluate((t) => { window.renderAt(t); window.renderAt(t); }, ms); await page.screenshot({ path: `${out}/${name}`, type: "jpeg", quality: 92 }); }
 await browser.close(); srv.close();
 if (!process.env.STILLS) execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-framerate", String(FPS), "-i", `${tmp}/frames/f%04d.jpg`, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", `${out}/earth-motion.mp4`]);
 console.log(`wrote ${out}/earth-motion.mp4 (${(len / 1000).toFixed(1)} s) and stills`);

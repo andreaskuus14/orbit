@@ -79,10 +79,10 @@ export type Pose = { lon: number; lat: number; alt: number; tilt: number; headin
 export type Shot = Pose & { name: string; hold: number; move: number };
 
 export const SHOTS = {
-  orbit: { name: "orbit", lon: 18, lat: 38, alt: 16000, tilt: 0, heading: 0 },
+  orbit: { name: "orbit", lon: 22, lat: 40, alt: 10500, tilt: 0, heading: 0 },
   country: { name: "country", lon: 25.0, lat: 58.4, alt: 900, tilt: 28, heading: 0 },
   region: { name: "region", lon: 25.4, lat: 58.75, alt: 210, tilt: 50, heading: -12 },
-  town: { name: "town", lon: 24.745, lat: 59.437, alt: 9, tilt: 60, heading: 24 },
+  town: { name: "town", lon: 24.75, lat: 59.425, alt: 22, tilt: 55, heading: 20 },
 } as const satisfies Record<string, Pose & { name: string }>;
 export type ShotName = keyof typeof SHOTS;
 
@@ -129,7 +129,7 @@ export function poseAt(p: Shot[], ms: number): { pose: Pose; shot: string; settl
 }
 /** Which level of detail the view should show at an altitude (km). */
 export function levelAt(alt: number): "orbit" | "country" | "region" | "town" {
-  return alt > 4000 ? "orbit" : alt > 400 ? "country" : alt > 40 ? "region" : "town";
+  return alt > 4000 ? "orbit" : alt > 400 ? "country" : alt > 60 ? "region" : "town";
 }
 /** 0…1 fade for a layer that lives between two altitudes (with a soft edge of `soft` in log2 units). */
 export function band(alt: number, lo: number, hi: number, soft = 0.7): number {
@@ -142,7 +142,7 @@ export function band(alt: number, lo: number, hi: number, soft = 0.7): number {
 export type Place = { name: string; lon: number; lat: number; kind: "city" | "town" | "village" | "district"; pop: number; stem?: string; strict?: boolean };
 /** Estonian places with coordinates from GeoNames. stem = the base the case endings attach to (Tallinn → Tallinna-s);
  *  strict = a name that is also a common word, matched only when capitalised mid-sentence. */
-export const EE_PLACES: Place[] = [
+export const EE_PLACES: Place[] = ([
   { name: "Tallinn", lon: 24.7536, lat: 59.437, kind: "city", pop: 438000, stem: "Tallinna" },
   { name: "Tartu", lon: 26.7290, lat: 58.3780, kind: "city", pop: 97000 },
   { name: "Narva", lon: 28.1903, lat: 59.3772, kind: "city", pop: 53000 },
@@ -199,7 +199,7 @@ export const EE_PLACES: Place[] = [
   { name: "Haabersti", lon: 24.6400, lat: 59.4300, kind: "district", pop: 0 },
   { name: "Ülemiste", lon: 24.7980, lat: 59.4220, kind: "district", pop: 0 },
   { name: "Rotermanni", lon: 24.7590, lat: 59.4380, kind: "district", pop: 0 },
-].filter((p, i, a) => a.findIndex((q) => q.name === p.name) === i);
+] as Place[]).filter((p, i, a) => a.findIndex((q) => q.name === p.name) === i);
 
 // Estonian case endings that attach to a place name (inessive, elative, illative, adessive, ablative, allative, comitative,
 // terminative, essive, abessive, translative, partitive), plus the genitive -i/-a for consonant-final stems.

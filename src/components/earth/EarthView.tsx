@@ -27,6 +27,7 @@ export default function EarthView({ reduced, paused, onActive }: { reduced: bool
     try {
       e = createEarth(host.current, {
         tileUrl: (k, z, x, y) => `/api/earth/tile?k=${k}&z=${z}&x=${x}&y=${y}`,
+        rightInset: () => (innerWidth >= 900 ? 512 : 0), // the Intelligence panel's 32rem keeps its free space
         onTown: (t: TownNews) => { void e.focusPlace(t.lon, t.lat); e.flyTo(t.kind === "district" ? { lon: t.lon, lat: t.lat, alt: 5, tilt: 58, heading: 20 } : { lon: t.lon, lat: t.lat, alt: 14, tilt: 58, heading: 15 }); },
       });
     } catch { setFailed(true); return; }

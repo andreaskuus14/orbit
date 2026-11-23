@@ -969,6 +969,7 @@ function MapLegend({ d }: { d: Data }) {
 
 export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string; search?: string } | null; quality?: QualityMode; paused?: boolean }) {
   const q = worldQuality(quality);
+  const [earthOn, setEarthOn] = useState(false); // Planet Earth view showing: the old globe, pulse list and region chips step aside
   const [weatherOn, setWeatherOn] = useState(false); // news weather showing: the 3D globe underneath stops drawing
   const glr = useGlRecovery();
   const later = useMountLater();
@@ -1147,8 +1148,8 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
   }, [stored, liveNews, selected]);
 
   return (
-    <div className="absolute inset-0 globe-in" aria-label="World news globe">
-      {ready && later && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused || weatherOn ? "never" : "always"} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
+    <div className={`absolute inset-0 globe-in${earthOn ? " earth-on" : ""}`} aria-label="World news globe">
+      {ready && later && !earthOn && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused || weatherOn ? "never" : "always"} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         {quality === "auto" && <PerformanceMonitor onDecline={() => setLean(true)} />}
         <WarmCompile world="intelligence" />
         <color attach="background" args={["#01040b"]} />
@@ -1174,9 +1175,9 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
         </EffectComposer>
         {process.env.NODE_ENV === "development" && <FrameMark name="intelligence" />}
       </Canvas>}
-      {!(ready && later) && <GlobeLoading />}
+      {!(ready && later) && !earthOn && <GlobeLoading />}
 
-      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+      {!earthOn && <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         {top.map((h) => (
           <span key={`${mode}-${h.name}`} ref={(el) => { labels.current[h.name] = el; }} className="globe-label absolute left-0 top-0" style={{ ["--accent" as string]: colorFor(h.name, mode) }}>
             {displayName(h.name)} <b>{h.count}</b>
@@ -1187,9 +1188,9 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
             {displayName(hover)}{tint.get(hover) ? ` · ${tint.get(hover)} stories` : ""}
           </span>
         )}
-      </div>
+      </div>}
 
-      {manual && <form onSubmit={runSearch} className="glass globe-search" role="search">
+      {manual && <form onSubmit={runSearch} className={earthOn ? "earth-search" : "glass globe-search"} role="search">
         <input className="field w-full" value={query} onChange={(e) => setQuery(e.target.value)} maxLength={120}
           placeholder="Search world news… e.g. elections, oil prices, AI chips" aria-label="Search world news" />
         <button className="btn shrink-0" disabled={searching || query.trim().length < 2}>{searching ? "Searching…" : "Search"}</button>
@@ -1197,7 +1198,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
       </form>}
 
       {/* Simple page (INTELLIGENCE panel, not More): the globe stays as a calm picture; search, country list and regions are the tools behind More. */}
-      {manual && !selected && <section className="glass hud-panel globe-side panel-in" key={mode}>
+      {manual && !selected && (!earthOn || search) && <section className={earthOn ? "earth-side panel-in" : "glass hud-panel globe-side panel-in"} key={mode}>
         {search ? (
           <>
             <div className="hud-title" style={{ color: "#e9d5ff" }}>SEARCH · {search.q.toUpperCase()}</div>
@@ -1274,7 +1275,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
           onCountry={setSelected} onBack={() => setSelected(null)} backLabel={search ? "Results" : "All countries"} />
       )}
 
-      {manual && !search && (
+      {manual && !search && !earthOn && (
         <nav className="globe-regions glass" aria-label="World regions">
           <button className={`region${!region ? " on" : ""}`} onClick={() => { setRegion(null); setSelected(null); }}>World</button>
           {regionTotals.map(({ r, n }) => (
@@ -1286,8 +1287,8 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
         </nav>
       )}
 
-      <EarthView reduced={reduced} paused={paused} />{/* ORBIT_UI_MOTION: Planet Earth view; "News weather" falls back to the layer below */}
-      <NewsWeatherLayer reduced={reduced} paused={paused} onActive={setWeatherOn} />{/* ORBIT_UI_MOTION: news weather over the paused globe */}
+      <EarthView reduced={reduced} paused={paused} onActive={setEarthOn} />{/* ORBIT_UI_MOTION: Planet Earth view; "News weather" falls back to the layer below */}
+      {!earthOn && <NewsWeatherLayer reduced={reduced} paused={paused} onActive={setWeatherOn} />}{/* ORBIT_UI_MOTION: news weather over the paused globe */}
       <button className="chip world-back absolute bottom-24 right-3 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
     </div>
   );
