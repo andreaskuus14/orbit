@@ -399,10 +399,15 @@ export function createWeatherDraw(canvas: HTMLCanvasElement, fonts: Fonts): Weat
         if (b < 1) { const [hx, hy] = at(b); g.fillStyle = hex("#ffffff", 0.9 * a); g.beginPath(); g.arc(hx, hy, bm.fetched ? 3 : 2, 0, 7); g.fill(); }
         const im = sc.impact[i];
         if (im > 0 && im < 1) { g.strokeStyle = hex(bm.fetched ? "#ffffff" : st.system.color, (1 - im) * 0.7 * a); g.lineWidth = bm.fetched ? 2 : 1.2; g.beginPath(); g.ellipse(sp.x, sp.y, 6 + im * 42, (6 + im * 42) * 0.62, 0, 0, 7); g.stroke(); }
+      });
+      chips.forEach((c, i) => { // chips after every beam, so no beam crosses over a chip
+        const b = sc.beams[i], bm = st.beams[i];
+        if (b <= 0) return;
         g.save(); g.globalAlpha = a * clamp01(b * 2.5); g.translate(0, (1 - clamp01(b * 2.5)) * -8);
         glass(g, c.x, c.y, c.w, c.h, c.h / 2);
+        g.fillStyle = "rgba(8,18,32,0.5)"; g.beginPath(); g.roundRect(c.x + 0.5, c.y + 0.5, c.w, c.h, c.h / 2); g.fill();
         g.fillStyle = bm.fetched ? C.cyan : C.mute; g.beginPath(); g.arc(c.x + 16, c.y + c.h / 2, 3, 0, 7); g.fill();
-        g.fillStyle = C.text; g.textAlign = "left"; g.fillText(st.beams[i].source, c.x + 26, c.y + c.h / 2 + 4);
+        g.fillStyle = C.text; g.textAlign = "left"; g.fillText(bm.source, c.x + 26, c.y + c.h / 2 + 4);
         g.restore();
       });
     }
