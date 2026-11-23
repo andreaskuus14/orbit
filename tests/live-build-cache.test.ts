@@ -28,3 +28,13 @@ test("Next still keys the webpack cache on the server-actions key and keeps that
   const cacheDir = readFileSync(req.resolve("next/dist/server/cache-dir.js"), "utf8");
   assert.match(cacheDir, /join\(distDir, 'cache'\)/);
 });
+
+test("the fast live build skips file tracing, and Next still turns a '*' exclude into a tracer-wide ignore", () => {
+  const config = readFileSync(path.join(root, "next.config.ts"), "utf8");
+  const fast = config.slice(config.indexOf('process.env.ORBIT_FAST_PROD_BUILD === "1"'), config.indexOf("async headers()"));
+  assert.match(fast, /outputFileTracingExcludes: \{ "\*": \["\*\*\/\*"\] \}/);
+  const traces = readFileSync(req.resolve("next/dist/build/collect-build-traces.js"), "utf8");
+  assert.match(traces, /\(0, _picomatch\.default\)\(glob\)\('next-server'\)/); // a "*" key reaches the shared ignores...
+  assert.match(traces, /\.\.\.additionalIgnores\s*\]/);
+  assert.match(traces, /ignore \(p\) \{\s*if \(sharedIgnoresFn\(p\)\)/); // ...which the tracer checks before reading a file
+});

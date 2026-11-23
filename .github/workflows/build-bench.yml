@@ -70,7 +70,8 @@ jobs:
           echo "largest server files:" >> phases.md; find .next-build/server -name '*.js' -printf '%s %p\n' | sort -rn | head -25 | awk '{printf "%7.0f KB %s\n",$1/1024,$2}' >> phases.md
           rm -rf .next .next-build
 
-          if run turbopack-cold --turbopack; then
+          run turbopack-cold --turbopack; tc=$?; echo "kernel OOM log after turbopack-cold: $(sudo dmesg | grep -iE 'oom|killed process' | tail -3 | tr '\n' ' ')" | tee -a phases.md
+          if [ $tc = 0 ]; then
             swap; edit 4; mkdir -p .next-build; mv .next/cache .next-build/cache 2>/dev/null; run turbopack-warm --turbopack || true
           fi
           { echo; echo '```'; cat phases.md; echo '```'; } >> $S
