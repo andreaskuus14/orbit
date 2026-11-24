@@ -20,7 +20,7 @@ export function validTile(kind: string, z: number, x: number, y: number): kind i
   const n = 2 ** z;
   return x >= 0 && y >= 0 && x < n && y < n;
 }
-export const ATTRIBUTION = "Sentinel-2 cloudless 2016 by EOX (Copernicus data) · NASA Black Marble · AWS Terrain Tiles · GeoNames";
+export const ATTRIBUTION = "Sentinel-2 cloudless 2016 by EOX (Copernicus data) · NASA Black Marble · AWS Terrain Tiles · GeoNames · Buildings © OpenStreetMap contributors";
 
 export const lon2x = (lon: number, z: number) => ((lon + 180) / 360) * 2 ** z;
 export function lat2y(lat: number, z: number): number {
@@ -139,7 +139,7 @@ export function band(alt: number, lo: number, hi: number, soft = 0.7): number {
 
 /* ---------- places (GeoNames, CC BY 4.0) and the local-news geocoder ---------- */
 
-export type Place = { name: string; lon: number; lat: number; kind: "city" | "town" | "village" | "district"; pop: number; stem?: string; strict?: boolean };
+export type Place = { name: string; lon: number; lat: number; kind: "city" | "town" | "village" | "district"; pop: number; stem?: string; alts?: string[]; strict?: boolean };
 /** Estonian places with coordinates from GeoNames. stem = the base the case endings attach to (Tallinn → Tallinna-s);
  *  strict = a name that is also a common word, matched only when capitalised mid-sentence. */
 export const EE_PLACES: Place[] = ([
@@ -207,23 +207,24 @@ const ENDINGS = "s|st|sse|l|lt|le|ga|ni|na|ta|ks|t|d|i|a";
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const LETTER = "\\p{L}";
 const RX = new Map<string, RegExp>();
-function placeRx(p: Place): RegExp {
-  let rx = RX.get(p.name);
+function placeRx(p: Place, endings = ENDINGS): RegExp {
+  const key = `${p.name}|${p.stem ?? ""}|${p.alts?.join(",") ?? ""}|${endings}`;
+  let rx = RX.get(key);
   if (!rx) {
-    const stems = [p.name, ...(p.stem ? [p.stem] : [])].map(esc).join("|");
-    rx = new RegExp(`(?<!${LETTER})(?:${stems})(?:${ENDINGS})?(?!${LETTER})`, p.strict ? "gu" : "giu");
-    RX.set(p.name, rx);
+    const stems = [p.name, ...(p.stem ? [p.stem] : []), ...(p.alts ?? [])].map(esc).join("|");
+    rx = new RegExp(`(?<!${LETTER})(?:${stems})(?:${endings})?(?!${LETTER})`, p.strict ? "gu" : "giu");
+    RX.set(key, rx);
   }
   rx.lastIndex = 0;
   return rx;
 }
 /** Places named in a story (most specific first: districts, villages, towns, then cities), at most `max`.
  *  A strict name (also a common word) counts only when capitalised and not the first word of the text. */
-export function placesIn(text: string, places: Place[] = EE_PLACES, max = 3): Place[] {
+export function placesIn(text: string, places: Place[] = EE_PLACES, max = 3, endings = ENDINGS): Place[] {
   const rank = { district: 0, village: 1, town: 2, city: 3 } as const;
   const hits: Place[] = [];
   for (const p of places) {
-    const rx = placeRx(p);
+    const rx = placeRx(p, endings);
     let m: RegExpExecArray | null, ok = false;
     while ((m = rx.exec(text))) {
       if (p.strict && (m.index === 0 || /[.!?:]\s*$/.test(text.slice(0, m.index)))) continue;
@@ -266,12 +267,12 @@ export function decodeEntities(s: string): string {
   const a = once(s);
   return /&amp;(#\w+|[a-z]+);/i.test(s) ? once(a) : a; // double-encoded ("&amp;#228;")
 }
-export function townNews(items: LocalStory[], places: Place[] = EE_PLACES, perPlace = 8): TownNews[] {
+export function townNews(items: LocalStory[], places: Place[] = EE_PLACES, perPlace = 8, endings = ENDINGS): TownNews[] {
   const by = new Map<string, TownNews>(), seen = new Set<string>();
   const get = (p: Place) => by.get(p.name) ?? by.set(p.name, { name: p.name, lon: p.lon, lat: p.lat, kind: p.kind, count: 0, stories: [] }).get(p.name)!;
   for (const raw of items) {
     const it = { ...raw, title: decodeEntities(raw.title), source: decodeEntities(raw.source ?? "") || raw.source, summary: raw.summary && decodeEntities(raw.summary) };
-    let hit = placesIn(`${it.title}. ${it.summary ?? ""}`, places);
+    let hit = placesIn(`${it.title}. ${it.summary ?? ""}`, places, 3, endings);
     let weak = false;
     if (!hit.length && it.feedHome) { const h = places.find((p) => p.name === it.feedHome); if (h) { hit = [h]; weak = true; } }
     for (const p of hit) {
