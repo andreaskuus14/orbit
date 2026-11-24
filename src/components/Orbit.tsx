@@ -109,7 +109,7 @@ const MemoryWorld = dynamic(() => import("./MemoryWorld"), { ssr: false, loading
 const LifePanel = dynamic(() => import("./LifePanel"), { ssr: false });
 const VaultPlanet = dynamic(() => import("./VaultPlanet").then((m) => m.VaultPlanet), { ssr: false });
 const LifeReminders = dynamic(() => import("./LifeReminders"), { ssr: false });
-const BusinessPanel = dynamic(() => import("./BusinessPanel"), { ssr: false });
+const BusinessShell = dynamic(() => import("./BusinessShell").then((m) => m.BusinessShell), { ssr: false });
 const CommandPalette = dynamic(() => import("./CommandPalette").then((m) => m.CommandPalette), { ssr: false });
 // Drawer panels load on first open (panels.tsx is preloaded at boot 3 so CORE still opens at once).
 const PanelLoading = () => <p className="text-xs opacity-60" role="status">{useT().t("common.loading")}</p>;
@@ -761,7 +761,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       : id === "agents" ? <AgentsPanel onOpenTask={openTask} />
       : id === "life" ? (lifeOpen ? <LifePanel open={lifeOpen} /> : <SimpleOr planet="life" onOpenTask={openTask} onOpenGoal={openGoal}><LifePanel open={lifeOpen} /></SimpleOr>) // a CORE/voice jump to a LIFE tab opens the tools
       : id === "vault" ? <VaultPlanet onClose={closeWorld} />
-      : id === "business" ? (focusClient ? <BusinessPanel focusId={focusClient} onFocus={setFocusClient} /> : <SimpleOr planet="business" onOpenTask={openTask} onOpenGoal={openGoal}><BusinessPanel focusId={focusClient} onFocus={setFocusClient} /></SimpleOr>)
+      : id === "business" ? <BusinessShell onClose={closeWorld} focusId={focusClient} onFocus={setFocusClient} />
               : null);
   const title = drawer === "core" ? "CORE" : drawer === "profile" ? t("hud.profile") : drawer && planetById(drawer) ? t(`planet.${planetById(drawer)!.id}`) : "";
 

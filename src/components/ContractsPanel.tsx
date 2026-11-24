@@ -1,4 +1,5 @@
 "use client";
+import { getDeals } from "./deals-client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "./i18n";
 import { COVER_LANGS, NOT_LEGAL_ADVICE, STATUS_LABEL, coverEmail, revision, signedHref, TEMPLATES, TEMPLATE_IDS, changed, contractSendContent, current, diffWords, missing, type Contract, type Fields, type Signature, type TemplateId, type VClause, type Version } from "@/lib/contracts-pure";
@@ -29,7 +30,7 @@ export default function ContractsPanel({ prospects }: { prospects: Prospect[] })
   const load = useCallback(() => call().then((j: State) => { setSt(j); setErr(""); }, (e: Error) => setErr(e.message)), []);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { // great deals the hunter found: "Draft a purchase agreement" from one
-    fetch("/api/markets/deals", { cache: "no-store" }).then((r) => r.json()).then((j: { offers?: Record<string, { id: string; title: string; great: boolean; seller: string; price: number; currency: string }[]> }) =>
+    getDeals<{ offers?: Record<string, { id: string; title: string; great: boolean; seller: string; price: number; currency: string }[]> }>().then((j) =>
       setDeals(Object.values(j.offers ?? {}).flat().filter((o) => o.great).map((o) => ({ id: o.id, label: `${o.title} · ${o.price} ${o.currency}${o.seller ? ` · ${o.seller}` : ""}` }))), () => {});
   }, []);
   const act = async (key: string, body: object) => {

@@ -31,7 +31,7 @@ export default function RegistryBox({ done }: { done: () => void }) {
   const { t, lang } = useT();
   const [st, setSt] = useState<{ state: RunState; running: boolean } | null>(null);
   const [err, setErr] = useState("");
-  const load = useCallback(() => fetch(API, { cache: "no-store" }).then((r) => r.json()).then((j) => { setSt(j); return j as { running: boolean }; }), []);
+  const load = useCallback(() => fetch(API, { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status))))).then((j) => { if (j?.state) setSt(j); return j as { running: boolean }; }), []); // an error reply has no state: keep the box closed, don't crash the sheet
   useEffect(() => { void load().catch(() => {}); }, [load]);
   useEffect(() => { // poll while it runs; reload the leads when it finishes
     if (!st?.running) return;
