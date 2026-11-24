@@ -32,7 +32,7 @@ await page.goto(`http://127.0.0.1:${srv.address().port}/`, { waitUntil: "domcont
 await page.waitForFunction(() => window.earthReady, null, { timeout: 0 });
 await page.evaluate(() => window.earthReady);
 const shots = {
-  "p2-tallinn-buildings.jpg": [{ lon: 24.7485, lat: 59.4436, alt: 2.5, tilt: 58, heading: 25 }, null],
+  "p2-tallinn-buildings.jpg": [{ lon: 24.7451, lat: 59.4375, alt: 1.15, tilt: 55, heading: 25 }, null],
   "p2-tallinn-buildings-high.jpg": [{ lon: 24.746, lat: 59.436, alt: 8, tilt: 50, heading: -10 }, null],
   "p2-latvia-region.jpg": [{ lon: 24.3, lat: 56.95, alt: 260, tilt: 40, heading: 0 }, "Latvia, local news"],
 };

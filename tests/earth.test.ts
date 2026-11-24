@@ -91,7 +91,7 @@ test("local headlines lose their HTML entities", () => {
 });
 
 test("camera floor and HUD text zones", () => {
-  assert.equal(clampAlt(2.2), MIN_ALT);
+  assert.equal(clampAlt(0.4), MIN_ALT);
   assert.equal(clampAlt(40), 40);
   const title: [number, number, number, number] = [24, 20, 320, 70];
   assert.equal(zoneFade([400, 300, 500, 400], [title]), 1, "clear of the text");

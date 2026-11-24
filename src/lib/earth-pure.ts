@@ -138,8 +138,8 @@ export function band(alt: number, lo: number, hi: number, soft = 0.7): number {
 }
 
 /** Lowest camera distance (km). Below ~8 km the 10 m Sentinel-2 ground is blur, so the scene swaps it for a dark map base
- *  there (earth-scene uStyl); this floor keeps the buildings from filling the screen with that base alone. */
-export const MIN_ALT = 2.5;
+ *  there (earth-scene uStyl); 1 km still frames a whole old town. */
+export const MIN_ALT = 1;
 export const clampAlt = (alt: number) => Math.max(MIN_ALT, alt);
 
 export type Rect = [number, number, number, number]; // left, top, right, bottom (px)
