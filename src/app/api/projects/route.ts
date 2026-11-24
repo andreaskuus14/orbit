@@ -1,7 +1,8 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { str } from "@/lib/pure";
 
-export async function GET() {
+async function GET_() {
   const { sb, res } = await requireUser();
   if (res) return res;
   const { data, error } = await sb.from("projects").select("id, name, description, status, created_at, updated_at").order("created_at", { ascending: false });
@@ -9,7 +10,7 @@ export async function GET() {
   return Response.json({ projects: data });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const body = await req.json().catch(() => ({}));
@@ -20,7 +21,7 @@ export async function POST(req: Request) {
   return Response.json({ project: data }, { status: 201 });
 }
 
-export async function PATCH(req: Request) {
+async function PATCH_(req: Request) {
   const { sb, res } = await requireUser();
   if (res) return res;
   const { id, status } = await req.json().catch(() => ({}));
@@ -30,3 +31,6 @@ export async function PATCH(req: Request) {
   if (!data?.length) return Response.json({ error: "Not found" }, { status: 404 });
   return Response.json({ ok: true });
 }
+export const GET = guard("projects", GET_);
+export const POST = guard("projects", POST_);
+export const PATCH = guard("projects", PATCH_);

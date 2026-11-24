@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { MEMORY_COLUMNS } from "@/lib/memory-search";
 import { vault, type Link, type Mem, type Project } from "@/lib/obsidian-pure";
@@ -26,6 +27,6 @@ export async function GET(req: Request) {
     const enc = new TextEncoder(), zip = zipStore(Object.entries(files).map(([path, text]) => ({ path: `ORBIT vault/${path}`, bytes: enc.encode(text) })));
     return new Response(new Uint8Array(zip), { headers: { "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="orbit-obsidian-${exportedAt.slice(0, 10)}.zip"` } });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Export failed" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Export failed") }, { status: 500 });
   }
 }

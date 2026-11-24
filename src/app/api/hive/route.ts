@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { runHive } from "@/lib/hive";
 import { MAX_PROBLEM, MIN_PROBLEM, cleanProblem } from "@/lib/hive-pure";
@@ -15,6 +16,6 @@ export async function POST(req: Request) {
   try {
     return Response.json(await runHive(sb, user.id, problem, req.signal));
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: req.signal.aborted ? 499 : 503 });
+    return Response.json({ error: safeMessage(e, "Failed") }, { status: req.signal.aborted ? 499 : 503 });
   }
 }

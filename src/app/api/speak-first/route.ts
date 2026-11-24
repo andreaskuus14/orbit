@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { stopAllOn } from "@/lib/stop-all";
 import { focusActive } from "@/lib/focus";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 /** "ORBIT speaks first": what the client decider needs when he comes back to the PC. Reads stored state only (no probes, no model);
  *  the calendar read uses gcal's 5-min cache. Every source fails soft to empty. */
-export async function GET() {
+async function GET_() {
   const { sb, res } = await requireUser();
   if (res) return res;
   const now = Date.now();
@@ -28,3 +29,4 @@ export async function GET() {
     events: (events ?? []).map((e) => ({ title: e.title, start: e.start, allDay: e.allDay })),
   });
 }
+export const GET = guard("speak-first", GET_);

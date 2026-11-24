@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude } from "@/lib/claude";
@@ -23,7 +24,7 @@ export async function GET(req: Request) {
     if (!id) return Response.json({ people: await listPeople(sb, user.id) });
     const t = await personTimeline(sb, user.id, id);
     return t ? Response.json(t) : fail("Not found", 404);
-  } catch (e) { return fail(e instanceof Error ? e.message : "Could not load people", 500); }
+  } catch (e) { return fail(safeMessage(e, "Could not load people"), 500); }
 }
 
 export async function POST(req: Request) {
@@ -73,6 +74,6 @@ export async function POST(req: Request) {
     }
   } catch (e) {
     if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
-    return fail(e instanceof Error ? e.message : "Something went wrong", 500);
+    return fail(safeMessage(e, "Something went wrong"), 500);
   }
 }

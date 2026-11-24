@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { youtubeQuotaView } from "@/lib/youtube-quota";
 import { requireUser } from "@/lib/supabase/server";
 import { setUsageSettings, usageView } from "@/lib/usage-meter";
@@ -5,13 +6,13 @@ import { setUsageSettings, usageView } from "@/lib/usage-meter";
 export const dynamic = "force-dynamic";
 
 // Max-plan usage meter: GET rolling 5 h / 7 day stats by purpose + settings; POST {calls5h?, tokens5h?, warnPct?, clearLimit?}.
-export async function GET() {
+async function GET_() {
   const { res } = await requireUser();
   if (res) return res;
   return Response.json({ ...usageView(), youtube: youtubeQuotaView() });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
@@ -19,3 +20,5 @@ export async function POST(req: Request) {
   const err = setUsageSettings(b);
   return err ? Response.json({ error: err }, { status: 400 }) : Response.json({ ...usageView(), youtube: youtubeQuotaView() });
 }
+export const GET = guard("usage-meter", GET_);
+export const POST = guard("usage-meter", POST_);

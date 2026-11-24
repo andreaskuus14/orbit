@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { BusyError } from "@/lib/claude";
 import { addTarget, checkTarget, listTargets, removeTarget } from "@/lib/visibility";
@@ -26,6 +27,6 @@ export async function POST(req: Request) {
   try { await checkTarget(b.name, req.signal); return Response.json(await listTargets()); }
   catch (e) {
     if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
-    return fail(e instanceof Error ? e.message : "Check failed", 502);
+    return fail(safeMessage(e, "Check failed"), 502);
   }
 }

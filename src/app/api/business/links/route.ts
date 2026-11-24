@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { LinkError, createLink, listLinks, revokeLink } from "@/lib/pitch-links";
@@ -12,7 +13,7 @@ export async function GET(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   try { return Response.json({ links: await listLinks(new URL(req.url).searchParams.get("contract")) }); }
-  catch (e) { return fail(e instanceof Error ? e.message : "Couldn't read links", 500); }
+  catch (e) { return fail(safeMessage(e, "Couldn't read links"), 500); }
 }
 
 export async function POST(req: Request) {

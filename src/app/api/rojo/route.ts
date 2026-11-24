@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/activity";
 import { stopAllOn } from "@/lib/stop-all";
@@ -73,6 +74,6 @@ export async function POST(req: Request) {
     const selene = await checkAfterExport(sb, user.id, r); // Selene on the fresh files; never fails the export
     return Response.json({ ...r, selene });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 502 });
+    return Response.json({ error: safeMessage(e, "Failed") }, { status: 502 });
   }
 }

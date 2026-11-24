@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { decidePostmortem, postmortemView } from "@/lib/clips/postmortem";
@@ -24,5 +25,5 @@ export async function POST(req: Request) {
   try {
     if (!(await decidePostmortem(b.videoId, b.action))) return Response.json({ error: "No open rule proposal for this video" }, { status: 404 });
     return Response.json(await postmortemView());
-  } catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Couldn't save" }, { status: 500 }); }
+  } catch (e) { return Response.json({ error: safeMessage(e, "Couldn't save") }, { status: 500 }); }
 }

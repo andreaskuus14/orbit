@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { getMorning, getSince } from "@/lib/morning";
 import { parseSince } from "@/lib/morning-pure";
@@ -15,7 +16,7 @@ export async function GET(req: Request) {
     if (q.get("recap") === "1") return from === null ? Response.json({ error: "since is required" }, { status: 400 }) : Response.json({ since: await getSince(sb, from, now) });
     return Response.json(await getMorning(sb, user.id, now, from));
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Briefing failed" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Briefing failed") }, { status: 500 });
   }
 }
 

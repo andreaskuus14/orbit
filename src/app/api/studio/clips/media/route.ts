@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
@@ -12,7 +13,7 @@ const TYPES: Record<string, string> = { ".mp4": "video/mp4", ".jpg": "image/jpeg
 
 // Streams a rendered clip or thumbnail. ?f= is a Clip.video/thumb path ("clips/<job>/<file>"); only files under clips/ are served.
 // Range support lets <video> seek.
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const f = new URL(req.url).searchParams.get("f") ?? "";
@@ -30,3 +31,4 @@ export async function GET(req: Request) {
   if (r) headers["Content-Range"] = `bytes ${start}-${end}/${s.size}`;
   return new Response(body, { status: r ? 206 : 200, headers });
 }
+export const GET = guard("studio/clips/media", GET_);

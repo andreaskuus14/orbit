@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { GET as tasksGET } from "../tasks/route";
 import { GET as proposalsGET } from "../proposals/route";
@@ -13,7 +14,7 @@ const part = (r: Promise<Response>) => r.then((x) => (x.ok ? x.json() : null), (
 /** Mission Control in one request (efficiency pass 2): the four API reads and the events query it used to make every 5 s.
  *  Each part is exactly what its own route returns (studio: only the fields bridgeStudio reads), null when that part failed.
  *  ORBIT_MISSION_COMBINED=0 → {off: true}: the client goes back to its separate requests. */
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { sb, res } = await requireUser();
   if (res) return res;
   if (process.env.ORBIT_MISSION_COMBINED === "0") return Response.json({ off: true });
@@ -24,3 +25,4 @@ export async function GET(req: Request) {
   ]);
   return Response.json({ tasks, proposals, usage, studio: s, events });
 }
+export const GET = guard("mission", GET_);

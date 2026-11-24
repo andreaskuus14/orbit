@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { addExp, experimentsView, removeExp } from "@/lib/clips/experiments";
 
@@ -6,7 +7,7 @@ export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
   try { return Response.json(await experimentsView()); }
-  catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Couldn't load experiments" }, { status: 502 }); }
+  catch (e) { return Response.json({ error: safeMessage(e, "Couldn't load experiments") }, { status: 502 }); }
 }
 
 export async function POST(req: Request) {

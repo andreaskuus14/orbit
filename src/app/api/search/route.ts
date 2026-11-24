@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { searchMemories } from "@/lib/memory";
 import { searchVault } from "@/lib/vault";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 // results go only to his browser, never into a model prompt. One failing source never fails the others.
 const PER = 10;
 
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const q = new URL(req.url).searchParams.get("q")?.trim().slice(0, 200) ?? "";
@@ -68,3 +69,4 @@ export async function GET(req: Request) {
   const lists = settled.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
   return Response.json({ results: rankHits(lists, q, Date.now()), failed: [...new Set(failed)] });
 }
+export const GET = guard("search", GET_);

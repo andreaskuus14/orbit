@@ -8,6 +8,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import * as pure from "../src/lib/ideas-pure.ts";
 import { translate } from "../src/lib/i18n-pure.ts";
+import * as apiErrorPure from "../src/lib/api-error-pure.ts";
+const apiRouteStub = { guard: (_name: string, fn: unknown) => fn }; // route tests call the raw handler
 
 const require = createRequire(import.meta.url), DAY = 86_400_000;
 const compile = (file: string) => ts.transpileModule(readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8"), {
@@ -23,7 +25,7 @@ function radar(options: { source?: string; advanceAfterCaptions?: boolean; stopp
   let stopped = options.stopped ?? false;
   const m = { exports: {} as any };
   runInNewContext(code, { module: m, exports: m.exports, Date: class extends Date { constructor(value?: string | number) { super(value ?? now); } static now() { return now; } },
-    require: (name: string) => {
+    require: (name: string) => { if (name.endsWith("api-route")) return apiRouteStub; if (name.endsWith("api-error-pure")) return apiErrorPure;
       if (name === "node:crypto" || name === "node:path" || name === "node:os") return require(name);
       if (name === "node:fs/promises") return { access: async () => {}, mkdtemp: async () => "/test-radar", rm: async () => {}, readdir: async () => ["cap.en.vtt"], readFile: async () => "WEBVTT\n" + "A useful new business idea for the owner. ".repeat(12) };
       if (name.endsWith("/ideas-pure")) return pure;
@@ -54,7 +56,7 @@ test("transcript API keeps authentication/CSRF checks and validates before start
   let signedIn = true, blocked = false, calls = 0;
   const m = { exports: {} as any };
   runInNewContext(compile("app/api/ideas/route.ts"), { module: m, exports: m.exports, Response,
-    require: (name: string) => {
+    require: (name: string) => { if (name.endsWith("api-route")) return apiRouteStub; if (name.endsWith("api-error-pure")) return apiErrorPure;
       if (name.endsWith("supabase/server")) return { requireUser: async () => ({ res: signedIn ? null : Response.json({}, { status: 401 }) }) };
       if (name.endsWith("/csrf")) return { crossSiteBlocked: () => blocked };
       if (name.endsWith("/claude")) return { BusyError: class extends Error {} };
@@ -148,7 +150,7 @@ function panel(hideStale: boolean, research = false, area: pure.Area | "all" = "
   const states = [{ shown: rows, hidden: 0, busy: null }, "", false, hideStale, null, area]; let index = 0;
   const m = { exports: {} as any };
   runInNewContext(compile("components/IdeasPanel.tsx"), { module: m, exports: m.exports, Date: class extends Date { static now() { return NOW; } },
-    require: (name: string) => name === "react" ? { ...require("react"), useState: () => [states[index++], () => {}], useEffect() {}, useCallback: (f: any) => f }
+    require: (name: string) => name.endsWith("api-route") ? apiRouteStub : name.endsWith("api-error-pure") ? apiErrorPure : name === "react" ? { ...require("react"), useState: () => [states[index++], () => {}], useEffect() {}, useCallback: (f: any) => f }
       : name === "./i18n" ? { useT: () => ({ t: (key: any, vars: any) => translate("en", key, vars) }) } : name.endsWith("ideas-pure") ? pure : require(name),
   });
   return renderToStaticMarkup(createElement(m.exports.default, {}));

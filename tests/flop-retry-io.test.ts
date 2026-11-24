@@ -12,6 +12,8 @@ import * as approvalPure from "../src/lib/approval-pure.ts";
 import * as analytics from "../src/lib/yt-analytics-pure.ts";
 import { crossSiteBlocked } from "../src/lib/csrf.ts";
 import type { Clip, ClipJob } from "../src/lib/clips/types.ts";
+import * as apiErrorPure from "../src/lib/api-error-pure.ts";
+const apiRouteStub = { guard: (_name: string, fn: unknown) => fn }; // route tests call the raw handler
 
 const require = createRequire(import.meta.url);
 const jobCache = await import("../src/lib/clips/job-cache-pure.ts");
@@ -24,7 +26,7 @@ function factory() {
   const m = { exports: {} as any }, writes: any[] = [];
   runInNewContext(compile("lib/clips/factory.ts"), { module: m, exports: m.exports, process: { env: {}, cwd: () => "/test", pid: 1 }, console, AbortController,
     __orbitClips: { write: Promise.resolve(), deleted: new Set(), verChain: new Promise(() => {}) }, // keep the renderer queued; it must not run in this test
-    require: (n: string) => {
+    require: (n: string) => { if (n.endsWith("api-route")) return apiRouteStub; if (n.endsWith("api-error-pure")) return apiErrorPure;
       if (n === "node:fs/promises") return { mkdir: async () => {}, open: async () => ({ writeFile: async (s: string) => writes.push(JSON.parse(s)), sync: async () => {}, close: async () => {} }), rename: async () => {}, rm: async () => {} };
       if (n.startsWith("node:")) return require(n);
       if (n === "./pure") return clipPure;
@@ -65,7 +67,7 @@ function retrySystem(options: { startFail?: boolean; privacyFail?: boolean; publ
   let j = makeJob([oldClip()]), state = structuredClone(j), chain: Promise<any> = Promise.resolve();
   const starts: any[] = [], writes: any[] = [], privacy: any[] = [];
   const m = { exports: {} as any };
-  runInNewContext(compile("lib/clips/flop-retry.ts"), { module: m, exports: m.exports, console, require: (n: string) => {
+  runInNewContext(compile("lib/clips/flop-retry.ts"), { module: m, exports: m.exports, console, require: (n: string) => { if (n.endsWith("api-route")) return apiRouteStub; if (n.endsWith("api-error-pure")) return apiErrorPure;
     if (n === "node:path") return require(n);
     if (n === "node:fs/promises") return { stat: async () => ({ isFile: () => true }) };
     if (n.endsWith("/stop-all")) return { stopAllOn: () => false };
@@ -136,7 +138,7 @@ function privacyApi(options: { granted?: boolean; replacementPrivacy?: string; p
       if (init.method === "PUT") return options.putFail ? new Response("bad", { status: 503 }) : Response.json({ id: "abcdefghijk", status: { privacyStatus: JSON.parse(init.body).status.privacyStatus } });
       return Response.json({ items: [{ id: "abcdefghijk", snippet: { channelId: options.wrongChannel ? "other" : "mine" }, status: { privacyStatus: "public", uploadStatus: "processed", license: "creativeCommon", embeddable: false, publicStatsViewable: false, selfDeclaredMadeForKids: false } },
         { id: "lmnopqrstuv", snippet: { channelId: "mine" }, status: { privacyStatus: options.replacementPrivacy ?? "public", uploadStatus: options.processing ?? "processed" } }] });
-    }, require: (n: string) => {
+    }, require: (n: string) => { if (n.endsWith("api-route")) return apiRouteStub; if (n.endsWith("api-error-pure")) return apiErrorPure;
       if (n.endsWith("yt-oauth")) return { readStored: async () => ({ scope: options.granted === false ? analytics.YT_UPLOAD_SCOPE : analytics.YT_MANAGE_SCOPE, channelId: "mine" }), getAccessToken: async () => "not-a-real-token", invalidateAccess() {} };
       if (n.endsWith("yt-analytics-pure")) return analytics;
       if (n.endsWith("flop-retry-pure")) return policy;
@@ -175,7 +177,7 @@ function routes(options: { authenticated?: boolean } = {}) {
   const j = makeJob([c]), updates: any[] = [], restores: any[] = [];
   const load = (path: string) => {
     const m = { exports: {} as any };
-    runInNewContext(compile(path), { module: m, exports: m.exports, Response, require: (n: string) => {
+    runInNewContext(compile(path), { module: m, exports: m.exports, Response, require: (n: string) => { if (n.endsWith("api-route")) return apiRouteStub; if (n.endsWith("api-error-pure")) return apiErrorPure;
       if (n.endsWith("supabase/server")) return { requireUser: async () => options.authenticated === false ? { res: new Response("Unauthorized", { status: 401 }) } : {} };
       if (n.endsWith("/csrf")) return { crossSiteBlocked };
       if (n.endsWith("clips/pure")) return clipPure;
@@ -206,7 +208,7 @@ test("approval and restore handlers require authentication and same-origin write
 test("Last Shorts shows 24h flop/retry/restore controls without inventing 48h views", async () => {
   const { createElement } = await import("react"); const { renderToStaticMarkup } = await import("react-dom/server");
   const m = { exports: {} as any };
-  runInNewContext(compile("components/LastShorts.tsx"), { module: m, exports: m.exports, require: (n: string) => (n === "./world-paused" ? { useWorldPaused: () => false } : n === "./i18n" ? { useT: () => ({ lang: "en", t: (k: never, v?: never) => translate("en", k, v) }) } : require(n)) });
+  runInNewContext(compile("components/LastShorts.tsx"), { module: m, exports: m.exports, require: (n: string) => n.endsWith("api-route") ? apiRouteStub : n.endsWith("api-error-pure") ? apiErrorPure : (n === "./world-paused" ? { useWorldPaused: () => false } : n === "./i18n" ? { useT: () => ({ lang: "en", t: (k: never, v?: never) => translate("en", k, v) }) } : require(n)) });
   const html = renderToStaticMarkup(createElement(m.exports.ShortsStrip, { shorts: [{ videoId: "abcdefghijk", title: "Old", hook: "", capturedAt: "", views24: 1, views48: null, medianViews: null, changePct: null, verdict: null, flopped24: true, retryState: "replaced by retry", canRestore: true }], onRestore() {} }));
   assert.match(html, /slow start/); assert.match(html, /replaced by retry/); assert.match(html, />Make the original public again</);
   assert.match(html, /48-hour result comes later/); assert.doesNotMatch(html, /0 views at 48 h/);
@@ -218,7 +220,7 @@ test("review queue names the original and sends its exact video id only with the
   const items = [{ job: "abcdef-123456", source: "source.mp4", base: clipPure.baseEdit(makeJob([c]).options), clip: c }];
   runInNewContext(compile("components/ReviewQueue.tsx"), { module: m, exports: m.exports,
     fetch: async (_url: string, init: any) => { sent.push(JSON.parse(init.body)); return Response.json({ clip: { ...c, status: "approved" } }); },
-    require: (n: string) => {
+    require: (n: string) => { if (n.endsWith("api-route")) return apiRouteStub; if (n.endsWith("api-error-pure")) return apiErrorPure;
       if (n === "react") return { ...require(n), useState: (x: any) => [stateIndex++ === 0 ? items : x, () => {}], useEffect() {}, useRef: (x: any) => ({ current: x }) };
       if (n.endsWith("clips/format")) return { CAPTION_STYLES: ["karaoke"], CAM_NAME: { left: "Left" }, LAYOUT_NAME: { fit: "Fit" }, REJECT_REASONS: [], mmss: () => "00:20" };
       if (n.endsWith("ClipPicks")) return { __esModule: true, default: () => null };

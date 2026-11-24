@@ -10,6 +10,8 @@ import * as pure from "../src/lib/project-desk-pure.ts";
 import { translate } from "../src/lib/i18n-pure.ts";
 import * as chats from "../src/lib/core-chats-pure.ts";
 import * as links from "../src/lib/deeplink-pure.ts";
+import * as apiErrorPure from "../src/lib/api-error-pure.ts";
+const apiRouteStub = { guard: (_name: string, fn: unknown) => fn }; // route tests call the raw handler
 
 const require = createRequire(import.meta.url), project = "11111111-1111-4111-8111-111111111111";
 const compile = (file: string) => ts.transpileModule(readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
@@ -27,7 +29,7 @@ test("ARCH scene and history routes scope every read/write to the authorized pro
   for (const kind of ["scene", "versions"]) {
     const code = compile(`app/api/arch/${kind}/route.ts`), m = { exports: {} as any };
     let reads = 0, allowed = false;
-    runInNewContext(code, { module: m, exports: m.exports, Response, JSON, require: (name: string) => {
+    runInNewContext(code, { module: m, exports: m.exports, Response, JSON, require: (name: string) => { if (name.endsWith("api-route")) return apiRouteStub; if (name.endsWith("api-error-pure")) return apiErrorPure;
       if (name === "node:fs/promises") return { readFile: async () => { reads++; return JSON.stringify({ users: { "owner": { rev: 9 }, [`owner:${project}`]: { rev: 3 } } }); } };
       if (name === "node:path") return require(name);
       if (name.endsWith("/supabase/server")) return { requireUser: async () => ({ user: { id: "owner" }, sb: {} }) };
@@ -50,7 +52,7 @@ test("project desk renders project selection, local notes, references and task l
   const m = { exports: {} as any };
   const desk = { rev: 2, notes: "Use timber", references: [{ title: "Reference", url: "https://example.com/" }], files: [{ id: project, label: "Old name.png" }], productions: [{ id: "job:clip", title: "Project film" }], palette: ["#aabbcc"] };
   const state: any[] = [[{ id: project, name: "My house", status: "active" }], "", desk, desk, project, false, "", [{ id: "task-1", title: "Study site", status: "done" }], "", "", "", [{ id: project, name: "Renamed.png", type: "image", version: 3 }], "#112233", []];
-  runInNewContext(compile("components/ProjectDesk.tsx"), { module: m, exports: m.exports, JSON, require: (name: string) => {
+  runInNewContext(compile("components/ProjectDesk.tsx"), { module: m, exports: m.exports, JSON, require: (name: string) => { if (name.endsWith("api-route")) return apiRouteStub; if (name.endsWith("api-error-pure")) return apiErrorPure;
     if (name === "react") return { ...require("react"), useState: () => [state.shift(), () => {}], useEffect: () => {} };
     if (name === "react/jsx-runtime") return require(name);
     if (name.endsWith("/project-desk-pure")) return pure;
@@ -73,7 +75,7 @@ test("project desk lists cloud-only VAULT files as unselectable and says to rest
   const m = { exports: {} as any };
   const desk = { rev: 1, notes: "", references: [], files: [], productions: [], palette: [] };
   const state: any[] = [[], "", desk, desk, project, false, "", [], "", "", "", [{ id: project, name: "Local.png", type: "image", version: 1 }], "#112233", [{ name: "Cloud plan.pdf" }, { name: "Site photo.jpg" }]];
-  runInNewContext(compile("components/ProjectDesk.tsx"), { module: m, exports: m.exports, JSON, require: (name: string) => {
+  runInNewContext(compile("components/ProjectDesk.tsx"), { module: m, exports: m.exports, JSON, require: (name: string) => { if (name.endsWith("api-route")) return apiRouteStub; if (name.endsWith("api-error-pure")) return apiErrorPure;
     if (name === "react") return { ...require("react"), useState: () => [state.shift(), () => {}], useEffect: () => {} };
     if (name === "react/jsx-runtime") return require(name);
     if (name.endsWith("/project-desk-pure")) return pure;
@@ -98,7 +100,7 @@ test("project chat requests are navigation data only and reject malformed IDs", 
 test("connecting CORE uses the existing project ID, preserves pins and never copies desk notes", async () => {
   const m = { exports: {} as any }, store = chats.emptyChats(), events: any[] = [];
   let allowed = true, writes = 0;
-  runInNewContext(compile("app/api/projects/core/route.ts"), { module: m, exports: m.exports, Response, Date, require: (name: string) => {
+  runInNewContext(compile("app/api/projects/core/route.ts"), { module: m, exports: m.exports, Response, Date, require: (name: string) => { if (name.endsWith("api-route")) return apiRouteStub; if (name.endsWith("api-error-pure")) return apiErrorPure;
     if (name.endsWith("/supabase/server")) return { requireUser: async () => ({ user: { id: "owner" }, sb: { from: () => ({ select() { return this; }, eq() { return this; }, maybeSingle: async () => ({ data: { name: "My house" }, error: null }) }) } }) };
     if (name.endsWith("/project-access")) return { projectScope: async () => allowed ? project : new Response(null, { status: 404 }) };
     if (name.endsWith("/core-chats")) return { updateChats: async (_user: string, fn: any) => { writes++; return fn(store); } };
@@ -118,7 +120,7 @@ test("connecting CORE uses the existing project ID, preserves pins and never cop
 test("connecting CORE returns not-found for a missing project, keeps the owner filter, and 503 only for a read error", async () => {
   const m = { exports: {} as any }, conditions: [string, string][] = [];
   let row: any = { data: null, error: null }, writes = 0;
-  runInNewContext(compile("app/api/projects/core/route.ts"), { module: m, exports: m.exports, Response, Date, require: (name: string) => {
+  runInNewContext(compile("app/api/projects/core/route.ts"), { module: m, exports: m.exports, Response, Date, require: (name: string) => { if (name.endsWith("api-route")) return apiRouteStub; if (name.endsWith("api-error-pure")) return apiErrorPure;
     if (name.endsWith("/supabase/server")) return { requireUser: async () => ({ user: { id: "owner" }, sb: { from: () => ({ select() { return this; }, eq(k: string, v: string) { conditions.push([k, v]); return this; }, maybeSingle: async () => row }) } }) };
     if (name.endsWith("/project-access")) return { projectScope: async () => project };
     if (name.endsWith("/core-chats")) return { updateChats: async () => { writes++; return { error: "unexpected" }; } };
@@ -147,7 +149,7 @@ test("task creation links only a project the signed-in user owns (two synthetic 
     return q;
   } };
   const m = { exports: {} as any };
-  runInNewContext(compile("app/api/tasks/route.ts"), { module: m, exports: m.exports, Response, require: (name: string) => {
+  runInNewContext(compile("app/api/tasks/route.ts"), { module: m, exports: m.exports, Response, require: (name: string) => { if (name.endsWith("api-route")) return apiRouteStub; if (name.endsWith("api-error-pure")) return apiErrorPure;
     if (name.endsWith("/supabase/server")) return { requireUser: async () => ({ user: { id: as }, sb }) };
     if (name.endsWith("/agents")) return { getAgent: async () => ({ slug: "nova" }), kickQueue: async () => {} };
     if (name.endsWith("/lib/pure")) return { str: (v: unknown, max: number, min = 0) => typeof v === "string" && v.trim().length >= min ? v.trim().slice(0, max) : "" };
@@ -190,7 +192,7 @@ test("sign-out and the login page clear desk drafts and the pending CORE project
 
   // The login page (reached on sign-out and when the server ends an expired session) clears the same keys on load.
   const login = tab(), m = { exports: {} as any };
-  runInNewContext(compile("app/login/page.tsx"), { module: m, exports: m.exports, URLSearchParams, location: { search: "" }, sessionStorage: login, require: (name: string) => {
+  runInNewContext(compile("app/login/page.tsx"), { module: m, exports: m.exports, URLSearchParams, location: { search: "" }, sessionStorage: login, require: (name: string) => { if (name.endsWith("api-route")) return apiRouteStub; if (name.endsWith("api-error-pure")) return apiErrorPure;
     if (name === "react") return { ...require("react"), useState: (v: unknown) => [v, () => {}], useEffect: (fn: () => void) => fn() };
     if (name === "react/jsx-runtime") return require(name);
     if (name.endsWith("/supabase/client")) return { createClient: () => ({ auth: {} }) };

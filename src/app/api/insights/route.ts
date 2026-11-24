@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { actOnInsight, refreshInsights } from "@/lib/insights";
 
@@ -8,7 +9,7 @@ export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
   try { return Response.json({ items: (await refreshInsights(60_000)).slice(0, 10) }); }
-  catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Insights failed" }, { status: 500 }); }
+  catch (e) { return Response.json({ error: safeMessage(e, "Insights failed") }, { status: 500 }); }
 }
 
 export async function POST(req: Request) {

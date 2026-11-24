@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { stopAllOn } from "@/lib/stop-all";
@@ -15,13 +16,13 @@ function csrfBlock(req: Request, method: string) {
   });
 }
 
-export async function GET() {
+async function GET_() {
   const { res } = await requireUser();
   if (res) return res;
   return Response.json({ perms: getPcPerms(), stopAll: stopAllOn() });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   if (csrfBlock(req, "POST")) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { res } = await requireUser();
   if (res) return res;
@@ -35,3 +36,5 @@ export async function POST(req: Request) {
         : await setPcPerms(body);
   return Response.json({ perms, stopAll: stopAllOn() });
 }
+export const GET = guard("pc-permissions", GET_);
+export const POST = guard("pc-permissions", POST_);

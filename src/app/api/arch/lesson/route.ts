@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude } from "@/lib/claude";
@@ -26,6 +27,6 @@ export async function POST(req: Request) {
     return lesson ? Response.json({ lesson }) : fail("CORE couldn't write that lesson; try another building", 502);
   } catch (e) {
     if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
-    return fail(`Couldn't write the lesson: ${e instanceof Error ? e.message : "unknown error"}`, 502);
+    return fail(`Couldn't write the lesson: ${safeMessage(e, "unknown error")}`, 502);
   }
 }

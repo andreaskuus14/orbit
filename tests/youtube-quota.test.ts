@@ -9,6 +9,8 @@ import ts from "typescript";
 import * as pure from "../src/lib/youtube-quota-pure.ts";
 import * as viral from "../src/lib/yt-viral-pure.ts";
 import * as youtubePure from "../src/lib/youtube-pure.ts";
+import * as apiErrorPure from "../src/lib/api-error-pure.ts";
+const apiRouteStub = { guard: (_name: string, fn: unknown) => fn }; // route tests call the raw handler
 
 const NOW = Date.parse("2026-10-20T12:00:00Z"), empty = (): pure.QuotaLedger => ({ v: 1, days: [] });
 const compile = (name: string) => ts.transpileModule(readFileSync(new URL(`../src/lib/${name}.ts`, import.meta.url), "utf8"), {
@@ -74,7 +76,7 @@ function quotaHarness(legacy?: number, corrupt = false) {
   runInNewContext(quotaCode, { module: m, exports: m.exports, process: { env: {}, cwd: () => "/orbit" },
     Date: class extends Date { static now() { return now; } }, console: { info() {}, error() {} },
     setTimeout: (fn: () => void) => { scheduled = fn; return { unref() {} }; },
-    require: (name: string) => {
+    require: (name: string) => { if (name.endsWith("api-route")) return apiRouteStub; if (name.endsWith("api-error-pure")) return apiErrorPure;
       if (name === "node:async_hooks") return { AsyncLocalStorage };
       if (name === "node:path") return path;
       if (name === "./data-dir") return { orbitDataDir: () => "/data" };
@@ -133,7 +135,7 @@ function youtubeHarness() {
   runInNewContext(youtubeCode, { module: m, exports: m.exports, Date: class extends Date { static now() { return now; } },
     URLSearchParams, AbortSignal, process: { env: {} },
     fetch: async (url: string) => { requests.push(new URL(url)); return { ok: !fail, status: 503, json: async () => fail ? { error: { message: "unavailable" } } : { items: [] } }; },
-    require: (name: string) => name === "node:crypto" ? { createHash } : name === "./youtube-quota-pure" ? pure : name === "./youtube-quota" ? { meterYoutube: () => { charged++; }, withYoutubeBudget: (_c: string, _g: string, fn: () => unknown) => fn() } : {},
+    require: (name: string) => name.endsWith("api-route") ? apiRouteStub : name.endsWith("api-error-pure") ? apiErrorPure : name === "node:crypto" ? { createHash } : name === "./youtube-quota-pure" ? pure : name === "./youtube-quota" ? { meterYoutube: () => { charged++; }, withYoutubeBudget: (_c: string, _g: string, fn: () => unknown) => fn() } : {},
   });
   return { yt: m.exports, requests, charges: () => charged, advance: (ms: number) => { now += ms; }, fail: (v: boolean) => { fail = v; } };
 }
@@ -205,7 +207,7 @@ test("eight Herald scans retain broad discovery with twelve searches plus cheap 
         : url.searchParams.get("id")!.split(",").map((id) => ({ id, snippet: { title: id, channelTitle: "Creator", publishedAt: new Date(NOW - 3_600_000).toISOString() }, statistics: { viewCount: "10000" }, contentDetails: { duration: "PT45S" } }));
       return { ok: true, status: 200, json: async () => ({ items }) };
     },
-    require: (name: string) => {
+    require: (name: string) => { if (name.endsWith("api-route")) return apiRouteStub; if (name.endsWith("api-error-pure")) return apiErrorPure;
       if (name === "./youtube") return h.yt;
       if (name === "./youtube-quota-pure") return pure;
       if (name === "./youtube-pure") return youtubePure;
@@ -243,7 +245,7 @@ test("usage endpoint exposes caller accounting only after authentication", async
   let allowed = false, reads = 0;
   const m = { exports: {} as any };
   runInNewContext(code, { module: m, exports: m.exports, Response,
-    require: (name: string) => name.endsWith("supabase/server") ? { requireUser: async () => allowed ? {} : { res: new Response("Unauthorized", { status: 401 }) } }
+    require: (name: string) => name.endsWith("api-route") ? apiRouteStub : name.endsWith("api-error-pure") ? apiErrorPure : name.endsWith("supabase/server") ? { requireUser: async () => allowed ? {} : { res: new Response("Unauthorized", { status: 401 }) } }
       : name.endsWith("youtube-quota") ? { youtubeQuotaView: () => { reads++; return { used: 301, callers: { herald: { units: 301 } } }; } }
       : { usageView: () => ({ ok: true }) },
   });

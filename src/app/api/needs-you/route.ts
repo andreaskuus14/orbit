@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { gatherDigest, gatherNeeds, NEED_SNOOZE } from "@/lib/needs-you";
 import { parseSince } from "@/lib/morning-pure";
@@ -17,7 +18,7 @@ export async function GET(req: Request) {
     const digest = await gatherDigest(sb, user.id, items, now, parseSince(q.get("since"), now), lang).catch(() => null);
     return Response.json({ items, digest }, { headers: { "Cache-Control": "private, no-store" } });
   }
-  catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Needs you failed" }, { status: 500 }); }
+  catch (e) { return Response.json({ error: safeMessage(e, "Needs you failed") }, { status: 500 }); }
 }
 
 /** { snooze: ref, reason } → hidden until tomorrow, with his reason (brief.json, ids only). */

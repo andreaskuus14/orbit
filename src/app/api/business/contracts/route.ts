@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError } from "@/lib/claude";
@@ -16,7 +17,7 @@ export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
   try { return Response.json({ contracts: await listContracts(), canSend: !!(process.env.RESEND_API_KEY && process.env.ORBIT_MAIL_FROM) }); }
-  catch (e) { return fail(e instanceof Error ? e.message : "Couldn't read contracts", 500); }
+  catch (e) { return fail(safeMessage(e, "Couldn't read contracts"), 500); }
 }
 
 export async function POST(req: Request) {
@@ -41,6 +42,6 @@ export async function POST(req: Request) {
     if (e instanceof ContractError) return fail(e.message, e.status);
     if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
     if (e instanceof VaultError) return fail(e.message, e.status); // saving the signed PDF: VAULT full, file too big
-    return fail(`Couldn't do that: ${e instanceof Error ? e.message : "unknown error"}`, 502);
+    return fail(`Couldn't do that: ${safeMessage(e, "unknown error")}`, 502);
   }
 }

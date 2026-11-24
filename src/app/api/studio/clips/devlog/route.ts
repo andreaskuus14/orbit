@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { ensureDirs } from "@/lib/clips/factory";
 import { devlogDir, devlogMoveProblem, readDevlog, updateDevlog } from "@/lib/clips/inbox-watch";
@@ -32,5 +33,5 @@ export async function POST(req: Request) {
       x.options = validOptions({ ...x.options, ...look }) as typeof x.options; // both halves already valid
     });
     return Response.json({ enabled: s.enabled, days: s.days, options: s.options, path: await devlogDir() });
-  } catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Couldn't save" }, { status: 503 }); }
+  } catch (e) { return Response.json({ error: safeMessage(e, "Couldn't save") }, { status: 503 }); }
 }

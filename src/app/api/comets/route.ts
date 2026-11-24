@@ -1,10 +1,11 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { cometItems } from "@/lib/comet-pure";
 
 export const dynamic = "force-dynamic";
 
 /** Deadline comets for the galaxy: allowlisted commitments, sent invoices and decision revisits. Read-only; a failing source is left out. */
-export async function GET() {
+async function GET_() {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const soft = <T,>(p: PromiseLike<T>, d: T) => Promise.resolve(p).catch(() => d);
@@ -16,3 +17,4 @@ export async function GET() {
   ]);
   return Response.json({ comets: cometItems({ commitments, invoices, decisions }, Date.now()) });
 }
+export const GET = guard("comets", GET_);

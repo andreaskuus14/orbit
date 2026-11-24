@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { actMission, createMission, listMissions, setBaseline } from "@/lib/missions";
 import { pilotMission, RESEARCH_PILOT } from "@/lib/research-pilot-pure";
@@ -11,7 +12,7 @@ export async function GET() {
   try {
     return Response.json({ missions: await listMissions(sb, user.id) });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Failed") }, { status: 500 });
   }
 }
 
@@ -41,6 +42,6 @@ export async function POST(req: Request) {
     const r = await createMission(sb, user.id, body);
     return "error" in r ? Response.json(r, { status: 400 }) : Response.json(r, { status: 201 });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Failed") }, { status: 500 });
   }
 }

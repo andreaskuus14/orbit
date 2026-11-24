@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { createMemory, type MemoryInput } from "@/lib/memory";
 import { emit } from "@/lib/claude";
@@ -25,6 +26,6 @@ export async function POST(req: Request) {
     await emit(sb, user.id, "journal.saved", "life", { memoryId: id });
     return Response.json({ ok: true, id });
   } catch (err) {
-    return Response.json({ error: err instanceof Error ? err.message : "Couldn't save today's entry" }, { status: 500 });
+    return Response.json({ error: safeMessage(err, "Couldn't save today's entry") }, { status: 500 });
   }
 }

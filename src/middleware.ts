@@ -4,6 +4,7 @@ import { isAllowedEmail } from "@/lib/allow";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { publicOrigin } from "@/lib/origin-pure";
 import { csp, cspApplies, newNonce } from "@/lib/csp-pure";
+import { authUnreachable, supabaseTimeoutMs, TEXT, timeoutSignal } from "@/lib/api-error-pure";
 import { allowHit, clientIp, isCloud, laptopOnlyApi, LAPTOP_ONLY_TEXT, rateRule, type Buckets } from "@/lib/role-pure";
 
 const buckets = ((globalThis as { __orbitRate?: Buckets }).__orbitRate ??= new Map());
@@ -43,6 +44,7 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      global: { fetch: (input, init) => fetch(input, { ...init, signal: timeoutSignal(supabaseTimeoutMs(String(input instanceof Request ? input.url : input), init?.method), init?.signal) }) },
       cookies: {
         getAll: () => request.cookies.getAll(),
         setAll(list) {
@@ -55,7 +57,7 @@ export async function middleware(request: NextRequest) {
   );
 
   // Refreshes the session cookie; must run on every request.
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
   const path = request.nextUrl.pathname;
   // Redirect while keeping any auth cookies Supabase just set (e.g. on sign-out).
   const redirectTo = (pathname: string, search = "") => {
@@ -74,6 +76,8 @@ export async function middleware(request: NextRequest) {
   }
 
   if (!user && !isPublic) {
+    // Supabase down is not "signed out": say so instead of a 401 the page reads as a sign-out.
+    if (path.startsWith("/api/") && authUnreachable(authError)) return NextResponse.json({ error: TEXT.supabase, kind: "offline" }, { status: 503 });
     if (path.startsWith("/api/")) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     return redirectTo("/login");
   }

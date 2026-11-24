@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { getAgent } from "@/lib/agents";
@@ -10,13 +11,13 @@ export const dynamic = "force-dynamic";
 // Running one is a normal POST /api/tasks with its agent + request (the client does that), so no new execution path.
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
-export async function GET() {
+async function GET_() {
   const { res } = await requireUser();
   if (res) return res;
   return Response.json({ recipes: await listRecipes() });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const h = req.headers;
   if (crossSiteBlocked("POST", "/api/recipes", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return fail("Cross-site request refused", 403);
   const { sb, res } = await requireUser();
@@ -31,3 +32,5 @@ export async function POST(req: Request) {
   const saved = await addRecipe(r);
   return typeof saved === "string" ? fail(saved, 409) : Response.json({ recipe: saved, recipes: await listRecipes() }, { status: 201 });
 }
+export const GET = guard("recipes", GET_);
+export const POST = guard("recipes", POST_);

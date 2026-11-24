@@ -1,9 +1,10 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { reconcilePublish, startClipQueue } from "@/lib/clips/factory";
 import { isClipId, isJobId } from "@/lib/clips/pure";
 
 // "Check YouTube": settles an upload whose outcome is unknown by looking for it among the channel's newest uploads. Never uploads.
-export async function POST(_req: Request, { params }: { params: Promise<{ job: string; clip: string }> }) {
+async function POST_(_req: Request, { params }: { params: Promise<{ job: string; clip: string }> }) {
   const { res } = await requireUser();
   if (res) return res;
   startClipQueue();
@@ -14,3 +15,4 @@ export async function POST(_req: Request, { params }: { params: Promise<{ job: s
   if (typeof clip === "string") return Response.json({ error: clip }, { status: 409 });
   return Response.json({ clip });
 }
+export const POST = guard("studio/clips/[job]/[clip]/publish/check", POST_);

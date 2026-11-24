@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { approveStory, editStory, redoStory, getStory, listStories, quoteStory, runningStory, writeStory } from "@/lib/clips/story";
 import { validStoryOpts } from "@/lib/clips/story-pure";
@@ -36,6 +37,6 @@ export async function POST(req: Request) {
       : "action must be write, edit, quote, approve or redo";
     return typeof out === "string" ? Response.json({ error: out }, { status: 409 }) : Response.json({ story: out });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Failed") }, { status: 500 });
   }
 }

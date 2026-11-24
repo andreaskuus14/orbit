@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { approveReminder, changeStatus, createFrom, deleteDraft, draftReminder, dropReminder, editDraft, invoicesView, makeStripeLink, refundInvoice, savePayLink, pdfOf, saveSeller } from "@/lib/invoices";
@@ -53,6 +54,6 @@ export async function POST(req: Request) {
       default: return fail("action must be seller, create, edit, status, refund, unrefund, delete, remind, drop, paylink, stripelink or approve");
     }
   } catch (e) {
-    return fail(`Couldn't do that: ${e instanceof Error ? e.message : "unknown error"}`, 500);
+    return fail(`Couldn't do that: ${safeMessage(e, "unknown error")}`, 500);
   }
 }

@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { OUTCOME_TEMPLATES, reviewDeskSummary, type OutcomeTemplateId, type StepStatus } from "@/lib/outcome-cockpit-pure";
@@ -39,7 +40,7 @@ function csrfBlock(req: Request, method: string) {
 const VALID_TEMPLATES = new Set<OutcomeTemplateId>(["roblox-update", "week-of-shorts", "client-shop", "custom"]);
 const VALID_STEP_STATUS = new Set<Exclude<StepStatus, "waiting_approval">>(["queued", "running", "verifying", "needs_fix", "verified", "blocked"]);
 
-export async function GET() {
+async function GET_() {
   const { user, res } = await requireUser();
   if (res) return res;
   const projects = await listOutcomes(user.id);
@@ -49,7 +50,7 @@ export async function GET() {
   });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   if (csrfBlock(req, "POST")) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { sb, user, res } = await requireUser();
   if (res) return res;
@@ -153,7 +154,7 @@ export async function POST(req: Request) {
   return Response.json({ project: { ...out.project, summary: reviewDeskSummary(out.project) }, ...meta });
 }
 
-export async function DELETE(req: Request) {
+async function DELETE_(req: Request) {
   if (csrfBlock(req, "DELETE")) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { user, res } = await requireUser();
   if (res) return res;
@@ -163,3 +164,6 @@ export async function DELETE(req: Request) {
   if (!ok) return Response.json({ error: "Not found" }, { status: 404 });
   return Response.json({ ok: true });
 }
+export const GET = guard("outcomes", GET_);
+export const POST = guard("outcomes", POST_);
+export const DELETE = guard("outcomes", DELETE_);

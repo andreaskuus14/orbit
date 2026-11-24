@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { readActivity } from "@/lib/activity";
 import { undoActivity } from "@/lib/activity-undo";
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 // Activity log (read-only): agent tasks (incl. team/goal steps, automation runs) with their tools + approvals, goal logs, clip uploads,
 // autopilot clips, and activity.jsonl (Stop-all, CORE writes, autopilot approvals, usage limits). ?area= one of ACT_AREAS.
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { sb, res } = await requireUser();
   if (res) return res;
   const area = new URL(req.url).searchParams.get("area") ?? "";
@@ -28,7 +29,7 @@ export async function GET(req: Request) {
 }
 
 // POST { undo: ActUndo, area? } → reverses one logged autonomous action (OPERATIONS → Activity / Time machine) and logs that it did.
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => null)) as { undo?: unknown; area?: unknown } | null;
@@ -37,3 +38,5 @@ export async function POST(req: Request) {
   const r = await undoActivity(sb, user.id, u, b?.area);
   return Response.json(r.body, { status: r.status });
 }
+export const GET = guard("activity", GET_);
+export const POST = guard("activity", POST_);

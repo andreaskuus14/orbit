@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { dismissSummary, endFocus, focusState, startFocus } from "@/lib/focus";
 import { isFocusActive } from "@/lib/dilation-pure";
@@ -6,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 // Time dilation. GET: the running block (or null) and the last "while you were focused" summary. A block that ran out is
 // ended here first. POST {action:"start", minutes, goal} | {action:"end"} (end now) | {action:"dismiss"} (summary read).
-export async function GET() {
+async function GET_() {
   const { sb, res } = await requireUser();
   if (res) return res;
   const f = focusState().focus;
@@ -15,7 +16,7 @@ export async function GET() {
   return Response.json({ focus: s.focus, summary: s.last, now: Date.now() });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
@@ -26,3 +27,5 @@ export async function POST(req: Request) {
     : "Unknown action";
   return typeof r === "string" ? Response.json({ error: r }, { status: 400 }) : GET();
 }
+export const GET = guard("focus", GET_);
+export const POST = guard("focus", POST_);

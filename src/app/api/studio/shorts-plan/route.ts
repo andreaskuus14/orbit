@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { approveBatch, prepShorts, setShortsTarget, shortsPlanView } from "@/lib/clips/shorts-plan";
 
@@ -23,6 +24,6 @@ export async function POST(req: Request) {
     const out = await approveBatch(b.ids, b.credits);
     return typeof out === "string" ? Response.json({ error: out }, { status: 409 }) : Response.json({ batch: out });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Failed") }, { status: 500 });
   }
 }

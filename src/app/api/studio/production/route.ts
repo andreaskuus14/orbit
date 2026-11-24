@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { checkClipMedia, getJob, listJobs, readState, saveJob, startClipQueue, studioRoot, withJobLock } from "@/lib/clips/factory";
@@ -13,7 +14,7 @@ import { cleanRights, productionRecords, recordId } from "@/lib/clips/production
 const blocked = (req: Request, m: string) => { const h = req.headers;
   return crossSiteBlocked(m, "/api/studio/production", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") }); };
 
-export async function GET() {
+async function GET_() {
   const { res } = await requireUser();
   if (res) return res;
   const [jobs, stories, learn, settings] = await Promise.all([listJobs(), import("@/lib/clips/story").then((m) => m.listStories(), () => []),
@@ -26,7 +27,7 @@ export async function GET() {
     bases: Object.fromEntries(jobs.map((j) => [j.id, baseEdit(j.options)])) });
 }
 
-export async function PATCH(req: Request) {
+async function PATCH_(req: Request) {
   if (blocked(req, "PATCH")) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { res } = await requireUser();
   if (res) return res;
@@ -44,7 +45,7 @@ export async function PATCH(req: Request) {
   });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   if (blocked(req, "POST")) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { res } = await requireUser();
   if (res) return res;
@@ -59,3 +60,6 @@ export async function POST(req: Request) {
     return Response.json({ qc });
   });
 }
+export const GET = guard("studio/production", GET_);
+export const PATCH = guard("studio/production", PATCH_);
+export const POST = guard("studio/production", POST_);

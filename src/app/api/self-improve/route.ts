@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { draftPatch, savedDrafts } from "@/lib/self-improve-patch";
@@ -9,7 +10,7 @@ export async function GET() {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   try { return Response.json({ drafts: await savedDrafts(sb, user.id) }); }
-  catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Drafts unreadable" }, { status: 500 }); }
+  catch (e) { return Response.json({ error: safeMessage(e, "Drafts unreadable") }, { status: 500 }); }
 }
 
 // POST {key}: the owner's click on a "Make ORBIT better" task → one model call drafts a reviewable patch, saved locally (never applied).

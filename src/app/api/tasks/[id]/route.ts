@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { seenProblem } from "@/lib/approval-bind-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
@@ -105,6 +106,6 @@ export async function POST(req: Request, { params }: Ctx) {
     }
     return Response.json({ error: "Unknown action" }, { status: 400 });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: e instanceof ConflictError ? 409 : 400 });
+    return Response.json({ error: safeMessage(e, "Failed") }, { status: e instanceof ConflictError ? 409 : 400 });
   }
 }

@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude, emit } from "@/lib/claude";
@@ -82,7 +83,7 @@ export async function POST(req: Request) {
     try { await updateCrm((s) => { for (const d of data) s[d.id] = newCrm(MAPS_SOURCE, d.name, ""); }); }
     catch (e) { // without a CRM record legacy() would read them as verified manual rows: undo the insert
       await sb.from("prospects").delete().in("id", data.map((d) => d.id));
-      return fail(`Couldn't save the leads: ${e instanceof Error ? e.message : "CRM store error"}`, 500);
+      return fail(`Couldn't save the leads: ${safeMessage(e, "CRM store error")}`, 500);
     }
     void matchIfIndexed(data.map((d) => ({ id: d.id, name: d.name, notes: rows.find((r) => r.name === d.name)?.notes ?? "" })));
     return Response.json({ saved: data.length, dupes, over: parsed.over, max: MAPS_MAX });
@@ -159,6 +160,6 @@ export async function POST(req: Request) {
     return fail("action must be parse, check, demo or pitch");
   } catch (e) {
     if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
-    return fail(`Lead loop failed: ${e instanceof Error ? e.message : "unknown error"}`, 502);
+    return fail(`Lead loop failed: ${safeMessage(e, "unknown error")}`, 502);
   }
 }

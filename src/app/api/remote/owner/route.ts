@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { listDevices, newPair, remoteProblem, S, updateDevices } from "@/lib/remote";
 import { createShortcut, listShortcuts, revokeShortcut } from "@/lib/remote-shortcut";
@@ -15,13 +16,13 @@ const view = async () => {
   return { problem: remoteProblem(), pair: pairView(S.pair, Date.now()), devices, shortcuts };
 };
 
-export async function GET() {
+async function GET_() {
   const { res } = await requireUser();
   if (res) return res;
   return Response.json(await view());
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { user, res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => null)) as { action?: unknown; id?: unknown; kind?: unknown; name?: unknown } | null;
@@ -44,3 +45,5 @@ export async function POST(req: Request) {
   } else return Response.json({ error: "action must be pair, revoke, shortcut or revokeShortcut" }, { status: 400 });
   return Response.json(await view());
 }
+export const GET = guard("remote/owner", GET_);
+export const POST = guard("remote/owner", POST_);

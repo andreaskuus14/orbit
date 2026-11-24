@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { requireUser } from "@/lib/supabase/server";
@@ -14,7 +15,7 @@ async function ids(ctx: Ctx) {
   return isJobId(job) && isClipId(clip) ? { job, clip } : null;
 }
 
-export async function GET(_req: Request, ctx: Ctx) {
+async function GET_(_req: Request, ctx: Ctx) {
   const { res } = await requireUser();
   if (res) return res;
   const p = await ids(ctx);
@@ -25,7 +26,7 @@ export async function GET(_req: Request, ctx: Ctx) {
   return Response.json(await hookLabView(job, p.clip, a));
 }
 
-export async function POST(_req: Request, ctx: Ctx) {
+async function POST_(_req: Request, ctx: Ctx) {
   const { res } = await requireUser();
   if (res) return res;
   startClipQueue();
@@ -44,3 +45,5 @@ export async function POST(_req: Request, ctx: Ctx) {
     return Response.json({ clips: out }, { status: 202 });
   });
 }
+export const GET = guard("studio/clips/[job]/[clip]/hooklab", GET_);
+export const POST = guard("studio/clips/[job]/[clip]/hooklab", POST_);
