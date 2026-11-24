@@ -16,6 +16,8 @@ $null = New-Item -ItemType Directory -Path $tmp
 $root = Join-Path $tmp "orbit"; $null = New-Item -ItemType Directory -Path $root
 $launcherLog = Join-Path $root "orbit-launcher.log"; $updateLog = Join-Path $root "orbit-update.log"; $buildLog = Join-Path $root "orbit-build.log"
 $distLive = Join-Path $root ".next"; $distNew = Join-Path $root ".next-build"; $distPrev = Join-Path $root ".next-prev"
+$depsLive = Join-Path $root "node_modules"; $depsPrev = Join-Path $root "node_modules-prev"; $stampName = "orbit-release.txt"
+$rolledBackMark = Join-Path $root "orbit-rolled-back.txt"
 $failMark = Join-Path $distNew "BUILD_FAILED"; $busyUrl = "http://127.0.0.1:1/api/studio/busy"
 function Write-Host { } # quiet Write-Log
 function Start-Sleep { } # no real waits
@@ -106,6 +108,25 @@ Check ((Wait-NewRelease (FakeProc 0) "NEW" 1) -eq "timeout") "Wait-NewRelease: o
 $script:health = $null
 Check ((Wait-NewRelease (FakeProc 0) "NEW" 1) -eq "timeout") "Wait-NewRelease: no answer -> timeout"
 
+# --- Get-RollbackPlan (same cases as tests/rollback.test.ts)
+$pv = @{ Commit = "aaa"; Lock = "L1" }
+function PlanIs($p, [string]$reset, [string]$deps) { $p.ResetTo -eq $reset -and $p.Deps -eq $deps }
+Check (PlanIs (Get-RollbackPlan $null "bbb" "L2" "L1") "" "keep") "plan: no stamp -> only the .next swap"
+Check (PlanIs (Get-RollbackPlan $pv "bbb" "L1" "") "aaa" "keep") "plan: code-only update -> reset, keep node_modules"
+Check (PlanIs (Get-RollbackPlan $pv "bbb" "L2" "L1") "aaa" "restore") "plan: lock changed, node_modules-prev fits -> restore"
+Check (PlanIs (Get-RollbackPlan $pv "bbb" "L2" "") "aaa" "reinstall") "plan: lock changed, no node_modules-prev -> npm ci"
+Check (PlanIs (Get-RollbackPlan $pv "bbb" "L2" "L0") "aaa" "reinstall") "plan: node_modules-prev from another lock -> npm ci"
+Check (PlanIs (Get-RollbackPlan $pv "aaa" "L1" "") "" "keep") "plan: same commit -> no reset"
+
+# --- Save-PrevDeps / Restore-PrevDeps
+$null = New-Item -ItemType Directory -Force (Join-Path $depsLive "old-pkg")
+Save-PrevDeps "L1"
+Check (-not (Test-Path $depsLive) -and (Test-Path (Join-Path $depsPrev "old-pkg")) -and (Get-SavedLock) -eq "L1") "Save-PrevDeps: node_modules -> node_modules-prev with its lock hash"
+$null = New-Item -ItemType Directory -Force (Join-Path $depsLive "new-pkg")
+Check ((Restore-PrevDeps) -and (Test-Path (Join-Path $depsLive "old-pkg")) -and -not (Test-Path (Join-Path $depsLive "new-pkg")) -and -not (Test-Path $depsPrev)) "Restore-PrevDeps: old node_modules back, new one gone"
+Check (-not (Restore-PrevDeps)) "Restore-PrevDeps: nothing saved -> false"
+Remove-Item $depsLive -Recurse -Force
+
 # --- Restore-PrevRelease
 foreach ($d in $distLive, $distPrev) { $null = New-Item -ItemType Directory -Force $d }
 Set-Content (Join-Path $distLive "BUILD_ID") "NEW"; Set-Content (Join-Path $distPrev "BUILD_ID") "OLD"
@@ -114,6 +135,31 @@ Check ((Get-Content (Join-Path $distLive "BUILD_ID")).Trim() -eq "OLD" -and -not
 Check ((Test-Path $failMark) -and (Get-Content $failMark -Raw) -match "01234567 rolled back" -and (Get-Content $buildLog -Raw) -match "rolled back") "BUILD_FAILED written (commit + reason) and noted in orbit-build.log"
 Check (LogHas "UPDATE ROLLED BACK") "rollback logged"
 Check (-not (Restore-PrevRelease "x" "y") -and (LogHas "no previous version")) "Restore-PrevRelease without .next-prev -> false, logged"
+Check ((Get-Content $rolledBackMark -Raw).Trim() -eq "0123456789abcdef") "Restore-PrevRelease records the rolled-back commit"
+
+# --- Restore-PrevRelease after an update that changed package-lock.json: git and node_modules go back too
+foreach ($d in $distLive, $distPrev, $distNew, $depsPrev) { if (Test-Path $d) { Remove-Item $d -Recurse -Force } }
+git -C $root checkout -q main
+$oldSha = Get-Head; $oldLock = Get-LockHash
+foreach ($d in $distLive, $distPrev, (Join-Path $depsLive "old-pkg")) { $null = New-Item -ItemType Directory -Force $d }
+Set-Content (Join-Path $distPrev "BUILD_ID") "OLD"; Set-Content (Join-Path $distPrev $stampName) @($oldSha, $oldLock)
+Save-PrevDeps $oldLock
+$null = New-Item -ItemType Directory -Force (Join-Path $depsLive "new-pkg")
+Set-Content (Join-Path $root "package-lock.json") '{"v":3}'; git -C $root -c user.email=t@t -c user.name=t commit -qam bad
+$badSha = Get-Head; Set-Content (Join-Path $distLive "BUILD_ID") "NEW"
+function Invoke-Hidden([string]$cmdLine, [int]$timeoutSec) { throw "must not npm ci when node_modules-prev fits" }
+Check (Restore-PrevRelease "the new version stopped" $badSha) "lock rollback: returns true"
+Check ((Get-Head) -eq $oldSha -and (Get-LockHash) -eq $oldLock) "lock rollback: git reset to the previous release's commit"
+Check ((Test-Path (Join-Path $depsLive "old-pkg")) -and -not (Test-Path (Join-Path $depsLive "new-pkg")) -and -not (Test-Path $depsPrev)) "lock rollback: node_modules-prev restored"
+# no node_modules-prev -> npm ci after the reset
+foreach ($d in $distLive, $distPrev, $distNew) { if (Test-Path $d) { Remove-Item $d -Recurse -Force } }
+foreach ($d in $distLive, $distPrev) { $null = New-Item -ItemType Directory -Force $d }
+Set-Content (Join-Path $distPrev "BUILD_ID") "OLD"; Set-Content (Join-Path $distPrev $stampName) @($oldSha, $oldLock)
+git -C $root reset -q --hard $badSha; Set-Content (Join-Path $distLive "BUILD_ID") "NEW"
+$script:ciRan = $null
+function Invoke-Hidden([string]$cmdLine, [int]$timeoutSec) { $script:ciRan = $cmdLine; return 0 }
+Check ((Restore-PrevRelease "x" $badSha) -and (Get-Head) -eq $oldSha -and $ciRan -eq "npm.cmd ci") "lock rollback without node_modules-prev: reset, then npm ci"
+Remove-Item $depsLive -Recurse -Force
 
 # --- Copy-PrevStatic: the previous build's own chunks join the new build; inherited ones and existing files don't
 foreach ($d in $distLive, $distPrev) { if (Test-Path $d) { Remove-Item $d -Recurse -Force } }

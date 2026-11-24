@@ -30,6 +30,10 @@ $stoppedFlag = Join-Path $root "orbit-stopped.flag" # stop.ps1: stopped on purpo
 $updateFlag = Join-Path $root "orbit-update.request" # written by ORBIT (POST /api/system/update, owner only): pull main + rebuild while running
 $verifyMark = Join-Path $root "orbit-verify.pending" # written at every swap: the supervisor checks the new release, whoever built it
 $updateLog = Join-Path $root "orbit-update.log"      # output of the self-update's git pull and npm ci
+$depsLive = Join-Path $root "node_modules"
+$depsPrev = Join-Path $root "node_modules-prev"   # node_modules before an update's npm ci, for rollback (same disk: a rename)
+$stampName = "orbit-release.txt"                  # in every build: its commit and package-lock.json hash
+$rolledBackMark = Join-Path $root "orbit-rolled-back.txt" # the commit the last rollback undid, so a plain update doesn't redo it
 $busyUrl = "http://127.0.0.1:3000/api/studio/busy"  # auth-free, localhost only: is a clip render, download, scout run or publish going?
 $buildFailedMsg = "Build failed $([char]0x2014) still running the previous version. Fix the errors, then npm run app:rebuild"
 $noReleaseMsg = "Build failed and there is NO previous working version, so ORBIT runs in DEVELOPMENT mode (pages compile when first opened and requests can fail while compiling). Fix the errors, then npm run app:rebuild"
@@ -164,6 +168,7 @@ function Update-Release([bool]$force, [bool]$stopFirst, [scriptblock]$stopServer
       return "failed"
     }
     Remove-Item -LiteralPath $failMark -Force -ErrorAction SilentlyContinue
+    try { Set-Content -LiteralPath (Join-Path $distNew $stampName) -Value @((Get-Head), (Get-LockHash)) } catch { }
     Write-Log "Build finished; installing it."
     # Delete the oldest release before stopping the server, so it's down only for the two renames.
     if (Test-Path $distPrev) { Invoke-Retry { Remove-Item -LiteralPath $distPrev -Recurse -Force } "Deleting .next-prev" }
@@ -324,6 +329,68 @@ function Wait-NewRelease($proc, [string]$expectId, [int]$timeoutSec = 120) {
   return "ok"
 }
 
+function Get-LockHash {
+  $f = Join-Path $root "package-lock.json"
+  if (Test-Path $f) { return (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash } else { return "" }
+}
+
+# Same rules as src/lib/rollback-pure.ts rollbackPlan (keep the two in step). $prev: @{ Commit; Lock } or $null.
+# Returns @{ ResetTo (commit or ""); Deps = "keep" | "restore" | "reinstall" }.
+function Get-RollbackPlan($prev, [string]$head, [string]$lockNow, [string]$savedLock) {
+  if (-not $prev) { return @{ ResetTo = ""; Deps = "keep" } }
+  $reset = if ($prev.Commit -ne $head) { $prev.Commit } else { "" }
+  if ($prev.Lock -eq $lockNow) { return @{ ResetTo = $reset; Deps = "keep" } }
+  if ($savedLock -eq $prev.Lock) { return @{ ResetTo = $reset; Deps = "restore" } }
+  return @{ ResetTo = $reset; Deps = "reinstall" }
+}
+
+# Reads orbit-release.txt (commit, lock hash) from a build folder; $null when it's missing (older builds).
+function Read-Stamp([string]$dir) {
+  $lines = @(Get-Content -LiteralPath (Join-Path $dir $stampName) -ErrorAction SilentlyContinue | ForEach-Object { "$_".Trim() })
+  if ($lines.Count -ge 2 -and $lines[0] -and $lines[1]) { return @{ Commit = $lines[0]; Lock = $lines[1] } }
+  return $null
+}
+
+# Before npm ci: node_modules -> node_modules-prev (replacing an older one), with the lock hash it was installed from.
+function Save-PrevDeps([string]$lock) {
+  if (-not (Test-Path $depsLive)) { return }
+  try {
+    if (Test-Path $depsPrev) { Invoke-Retry { Remove-Item -LiteralPath $depsPrev -Recurse -Force } "Deleting node_modules-prev" }
+    Invoke-Retry { Rename-Item -LiteralPath $depsLive -NewName "node_modules-prev" } "Renaming node_modules to node_modules-prev"
+    Set-Content -LiteralPath (Join-Path $depsPrev ".orbit-lock") -Value $lock
+    Write-Log "Kept the current dependencies in node_modules-prev, for a rollback."
+  } catch { Write-Log "!!!!! Couldn't keep node_modules-prev (a rollback will run npm ci instead): $($_.Exception.Message)" }
+}
+
+# node_modules-prev -> node_modules (the new one is deleted). Returns $false when that didn't work.
+function Restore-PrevDeps {
+  if (-not (Test-Path $depsPrev)) { return $false }
+  try {
+    if (Test-Path $depsLive) { Invoke-Retry { Remove-Item -LiteralPath $depsLive -Recurse -Force } "Deleting node_modules" }
+    Invoke-Retry { Rename-Item -LiteralPath $depsPrev -NewName "node_modules" } "Renaming node_modules-prev to node_modules"
+    Write-Log "Previous dependencies are back in node_modules."
+    return $true
+  } catch { Write-Log "!!!!! Couldn't put node_modules-prev back: $($_.Exception.Message)"; return $false }
+}
+
+function Get-SavedLock { "$(Get-Content -LiteralPath (Join-Path $depsPrev ".orbit-lock") -Raw -ErrorAction SilentlyContinue)".Trim() }
+
+# After .next-prev is back: put git and node_modules back to what that release was built with.
+function Restore-PrevCode {
+  $plan = Get-RollbackPlan (Read-Stamp $distLive) (Get-Head) (Get-LockHash) $(if (Test-Path $depsPrev) { Get-SavedLock } else { "" })
+  if ($plan.ResetTo) {
+    $back = Invoke-Native "git" @("-C", $root, "reset", "--keep", $plan.ResetTo)
+    if ($back.Code -ne 0) { Write-Log "!!!!! git reset --keep $(Get-Short $plan.ResetTo) failed: $($back.Out -replace '\s+', ' '). Code and release don't match; run: git reset --keep $($plan.ResetTo)"; return }
+    Write-Log "Code is back at $(Get-Short $plan.ResetTo)."
+  }
+  if ($plan.Deps -eq "restore" -and -not (Restore-PrevDeps)) { $plan.Deps = "reinstall" }
+  if ($plan.Deps -eq "reinstall") {
+    Write-Log "Dependencies differ from the previous version's: running npm ci (output in $updateLog)."
+    $ci = Invoke-Hidden "npm.cmd ci" 900
+    if ($ci -ne 0) { Write-Log "!!!!! npm ci for the previous version failed (exit $ci); ORBIT may not start. Run npm ci by hand." }
+  }
+}
+
 # Undoes an update swap (the server must be stopped): the bad .next becomes .next-build (keeps its build cache for
 # the next try), .next-prev becomes .next again, and BUILD_FAILED stops the same commit from being rebuilt on its
 # own (a new commit, an edit or a forced rebuild retries). Returns $false when there's nothing to go back to.
@@ -341,6 +408,8 @@ function Restore-PrevRelease([string]$reason, [string]$commit) {
   $null = New-Item -ItemType Directory -Force -Path $distNew
   $note = "Update to $(Get-Short $commit) rolled back: $reason. Server output: orbit-server.log"
   Set-Content -LiteralPath $failMark -Value "$(Get-Date -Format o) $note"
+  try { Set-Content -LiteralPath $rolledBackMark -Value $commit } catch { }
+  Restore-PrevCode
   try { Add-Content -LiteralPath $buildLog -Value $note } catch { } # the doctor shows the build log's first error line
   Write-Log "!!!!! UPDATE ROLLED BACK: $reason. The previous version is back in .next; commit $(Get-Short $commit) won't be rebuilt until it changes (or a forced rebuild)."
   return $true
@@ -384,6 +453,8 @@ if ($Supervise) {
       if ($v -eq "ok") {
         Write-Log "Update verified: $(Get-Short $verify.Commit) answers, shows its pages and kept running for 2 minutes."
         foreach ($w in $script:releaseWarn) { Write-Log "!!!!! ORBIT runs, but: $w" }
+        Remove-Item -LiteralPath $rolledBackMark -Force -ErrorAction SilentlyContinue
+        if (Test-Path $depsPrev) { try { Invoke-Retry { Remove-Item -LiteralPath $depsPrev -Recurse -Force } "Deleting node_modules-prev" } catch { Write-Log "Couldn't delete node_modules-prev (tried again after the next verified update): $($_.Exception.Message)" } }
       }
       else {
         $why = switch ($v) {
@@ -415,8 +486,16 @@ if ($Supervise) {
       Remove-Item -LiteralPath $updateFlag -Force -ErrorAction SilentlyContinue
       $handled = Get-Date
       Write-Log ("Update requested from ORBIT{0}: pulling main." -f $(if ($forced) { " (forced rebuild)" } else { "" }))
+      $lockBefore = Get-LockHash
       $sync = Sync-Main
       if (-not $sync.Ok) { Write-Log "!!!!! Update skipped: nothing was built, ORBIT keeps running the current version."; continue }
+      $undone = "$(Get-Content -LiteralPath $rolledBackMark -Raw -ErrorAction SilentlyContinue)".Trim()
+      if (-not $forced -and $undone -and $sync.New -ne $sync.Old -and $sync.New -eq $undone) {
+        # Same rule as rollback-pure.ts skipPulledCommit.
+        $null = Invoke-Native "git" @("-C", $root, "reset", "--keep", $sync.Old)
+        Write-Log "Main is still at $(Get-Short $undone), which was rolled back; not installing it again. Push a fix, or request a forced rebuild."
+        continue
+      }
       $changed = $sync.New -ne $sync.Old
       if ($sync.LockChanged) {
         # npm ci replaces node_modules, which the running server loads from (and Windows keeps its native modules
@@ -424,12 +503,13 @@ if ($Supervise) {
         Write-Log "Dependencies changed: stopping ORBIT for npm ci (output in $updateLog)."
         $null = Wait-StudioIdle
         Stop-Server $p
+        Save-PrevDeps $lockBefore
         $ci = Invoke-Hidden "npm.cmd ci" 900
         if ($ci -ne 0) {
           Write-Log ("!!!!! npm ci {0}; not building. Going back to {1} and its dependencies. Details: {2}" -f $(if ($ci -eq -1) { "timed out after 15 min" } else { "failed (exit $ci)" }), (Get-Short $sync.Old), $updateLog)
           $back = Invoke-Native "git" @("-C", $root, "reset", "--keep", $sync.Old)
           if ($back.Code -ne 0) { Write-Log "!!!!! git reset --keep $(Get-Short $sync.Old) failed: $($back.Out -replace '\s+', ' ')" }
-          else {
+          elseif (-not (Restore-PrevDeps)) {
             $ci = Invoke-Hidden "npm.cmd ci" 900
             if ($ci -ne 0) { Write-Log "!!!!! npm ci for the previous commit failed too (exit $ci); starting the current release anyway. Run npm ci by hand." }
           }
