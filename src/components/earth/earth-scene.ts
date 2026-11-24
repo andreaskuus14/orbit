@@ -194,8 +194,11 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
 
   // whole-world day/night maps (z3 = 2048² mercator)
   const world: Box = { w: -180, e: 180, n: 85.05, s: -85.05 };
+  // a 16-tile z2 picture first, so the whole Earth is there at once; the sharp 4096² Sentinel-2 mosaic replaces it
+  let sharp = false;
+  void mosaic(o, "day", world, 2).then((m) => { if (!sharp) U.uDay.value = tex(m.canvas); host.classList.add("earth-seen"); });
   const ready = Promise.all([
-    mosaic(o, "day", world, 4).then((m) => { U.uDay.value = tex(m.canvas); }), // 4096² Sentinel-2 mosaic
+    mosaic(o, "day", world, 4).then((m) => { sharp = true; U.uDay.value = tex(m.canvas); host.classList.add("earth-seen"); }),
     mosaic(o, "night", world, 4).then((m) => { U.uNight.value = tex(m.canvas); }),
     mosaic(o, "elev", world, 3).then((m) => { const t = new THREE.CanvasTexture(m.canvas); t.colorSpace = THREE.NoColorSpace; t.minFilter = THREE.NearestFilter; t.magFilter = THREE.NearestFilter; t.generateMipmaps = false; U.uElev.value = t; }),
   ]);
@@ -264,14 +267,14 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const p = new THREE.Vector3(...toXYZ(lon, lat, h)), nrm = p.clone().normalize();
     return new THREE.Matrix4().lookAt(nrm, new THREE.Vector3(), new THREE.Vector3(0, 1, 0)).setPosition(p);
   }
-  const labels: { el: HTMLDivElement; p: THREE.Vector3; lo: number; hi: number; town?: TownNews; pri: number; w: number; h: number }[] = [];
+  const labels: { el: HTMLDivElement; p: THREE.Vector3; lo: number; hi: number; town?: TownNews; pri: number; w: number; h: number; ox: number; oy: number }[] = [];
   const hud = document.createElement("div"); hud.className = "earth-hud"; host.appendChild(hud);
   const scrim = document.createElement("div"); scrim.className = "earth-scrim"; hud.appendChild(scrim);
   const labelLayer = document.createElement("div"); labelLayer.className = "earth-labels"; hud.appendChild(labelLayer);
   function label(html: string, lon: number, lat: number, h: number, lo: number, hi: number, cls: string, town?: TownNews) {
     const el = document.createElement("div"); el.className = `earth-label ${cls}`; el.innerHTML = html; labelLayer.appendChild(el);
     if (town && o.onTown) { el.style.pointerEvents = "auto"; el.onclick = () => o.onTown!(town); }
-    labels.push({ el, p: new THREE.Vector3(...toXYZ(lon, lat, h)), lo, hi, town, pri: labels.length, w: 0, h: 0 });
+    labels.push({ el, p: new THREE.Vector3(...toXYZ(lon, lat, h)), lo, hi, town, pri: labels.length, w: 0, h: 0, ox: 0, oy: 0 });
   }
   const decode = (s: string) => s.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(+d)).replace(/&quot;/g, '"').replace(/&amp;/g, "&");
   const esc = (raw: string) => { const s = decode(raw); return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!); };
@@ -391,8 +394,8 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       let on = a > 0.02 && facing && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
       const x = ((v.x + 1) / 2) * w, y = ((1 - v.y) / 2) * h;
       if (on) {
-        if (!l.w) { l.w = l.el.offsetWidth || 120; l.h = l.el.offsetHeight || 20; }
-        const r: [number, number, number, number] = [x - 8, y - 12, x + l.w + 8, y + l.h];
+        if (!l.w) { l.w = l.el.offsetWidth || 120; l.h = l.el.offsetHeight || 20; l.ox = l.el.offsetLeft; l.oy = l.el.offsetTop; } // margins shift the box off its pin
+        const r: [number, number, number, number] = [x + l.ox - 8, y + l.oy - 4, x + l.ox + l.w + 8, y + l.oy + l.h + 4];
         if (r[2] > w - 8 || r[1] < 70) on = false;
         else if (taken.some((q) => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1])) on = false; else taken.push(r);
       }
@@ -471,8 +474,11 @@ export const EARTH_CSS = `
 .earth-label.pin{margin:-8px 0 0 9px;display:flex;gap:6px;align-items:baseline;cursor:pointer}
 .earth-label.pin:before{content:"";position:absolute;left:-9px;top:5px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
 .earth-label.pin b{font-size:12px;font-weight:500}.earth-label.pin.city b{font-size:14px;font-weight:600}
-.earth-label.district{margin:-40px 0 0 0;padding:2px 10px 0 8px;background:linear-gradient(90deg,rgba(1,3,8,.62),rgba(1,3,8,.3) 75%,rgba(1,3,8,0));border-left:1px solid var(--accent);cursor:pointer;height:40px}
-.earth-label.district b{font-size:12px}.earth-label.district span{width:190px;font-size:11px}.earth-label.district i{display:none}
+.earth-label.district{margin:-58px 0 0 16px;padding:3px 12px 2px 10px;background:linear-gradient(90deg,rgba(1,3,8,.62),rgba(1,3,8,.3) 75%,rgba(1,3,8,0));border-left:1px solid var(--accent);cursor:pointer;min-height:44px}
+.earth-label.district:before{content:"";position:absolute;left:-16px;top:100%;width:16px;border-top:1px solid var(--accent);transform:rotate(-38deg);transform-origin:100% 0}
+.earth-label.district b{font-size:16px;font-weight:600}.earth-label.district span{width:250px;font-size:13.5px;line-height:1.35}.earth-label.district i{display:none}
+.earth-host:after{content:"Loading Earth…";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;color:rgba(238,242,247,.6);pointer-events:none;transition:opacity .6s}
+.earth-host.earth-seen:after{opacity:0}
 .earth-place{position:absolute;left:var(--g);top:28px;font-size:15px;font-weight:600}
 .earth-readout{position:absolute;left:var(--g);top:50px;font:400 11px/1 var(--font-jetbrains,ui-monospace,monospace);color:rgba(238,242,247,.6)}
 .earth-timeline{position:absolute;left:var(--g);right:calc(var(--pr) + var(--g));bottom:24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));grid-auto-rows:0;grid-template-rows:auto;overflow:hidden;gap:16px;border-top:1px solid rgba(238,242,247,.18);padding-top:10px}

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { band, distKm, introPath, lat2y, levelAt, lon2x, nearYou, pathMs, placesIn, poseAt, SHOTS, terrarium, tilesFor, townNews, upstreamTile, validTile, y2lat, x2lon, lerpPose, arcPoints } from "../src/lib/earth-pure.ts";
+import { band, decodeEntities, distKm, introPath, lat2y, levelAt, lon2x, nearYou, pathMs, placesIn, poseAt, SHOTS, terrarium, tilesFor, townNews, upstreamTile, validTile, y2lat, x2lon, lerpPose, arcPoints } from "../src/lib/earth-pure.ts";
 
 test("tile maths round-trips and covers a box", () => {
   assert.ok(Math.abs(y2lat(lat2y(59.437, 12), 12) - 59.437) < 1e-9);
@@ -79,4 +79,13 @@ test("earth data: rings by outlets, arcs only between known countries, timeline 
   assert.ok(d.rings.length >= 1);
   assert.ok(d.timeline.length >= 1);
   for (let i = 1; i < d.timeline.length; i++) assert.ok(d.timeline[i - 1].time <= d.timeline[i].time);
+});
+
+test("local headlines lose their HTML entities", () => {
+  assert.equal(decodeEntities("P&#228;rnu &amp; Tartu: &quot;uus&quot; &#x161;oss &otilde;htu&hellip;"), 'Pärnu & Tartu: "uus" šoss õhtu…');
+  assert.equal(decodeEntities("S&amp;#228;re"), "Säre"); // double-encoded
+  assert.equal(decodeEntities("A &bogus; &#0; B"), "A &bogus; &#0; B");
+  const [t] = townNews([{ title: "T&#228;na Tallinnas: uus tramm", url: "https://x.ee/1", source: "ERR &amp; co", published_at: null }]);
+  assert.equal(t.stories[0].title, "Täna Tallinnas: uus tramm");
+  assert.equal(t.stories[0].source, "ERR & co");
 });

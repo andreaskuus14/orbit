@@ -3,7 +3,7 @@
 // local news. Behind ORBIT_UI_MOTION; "News weather" switches back to the previous view per device (and WebGL trouble does too).
 // Scene: earth-scene.ts · data: earth-data-pure.ts · places/camera: earth-pure.ts · tiles: /api/earth/tile · local news: /api/earth/local.
 import { useEffect, useRef, useState } from "react";
-import { useUiMotion } from "../motion/motion";
+import { motionActive, useUiMotion } from "../motion/motion";
 import type { Hotspot } from "@/lib/geo";
 import { earthData } from "@/lib/earth-data-pure";
 import { introPath, SHOTS, type Pose, type TownNews } from "@/lib/earth-pure";
@@ -11,10 +11,13 @@ import { createEarth, EARTH_CSS, type Earth } from "./earth-scene";
 
 const VIEW_KEY = "orbit.earth.view";
 
+const weatherPicked = () => { try { return localStorage.getItem(VIEW_KEY) === "weather"; } catch { return false; } };
+/** Will the Earth view show? Read at first render (this is client-only), so the old globe UI never flashes up first. */
+export const earthWanted = () => typeof window !== "undefined" && motionActive() && !weatherPicked();
+
 export default function EarthView({ reduced, paused, onActive }: { reduced: boolean; paused: boolean; onActive?: (on: boolean) => void }) {
-  const motion = useUiMotion();
-  const [off, setOff] = useState(true);
-  useEffect(() => { try { setOff(localStorage.getItem(VIEW_KEY) === "weather"); } catch { setOff(false); } }, []);
+  const motion = useUiMotion() || motionActive();
+  const [off, setOff] = useState(() => typeof window === "undefined" || weatherPicked());
   const active = motion && !off;
   useEffect(() => { onActive?.(active); }, [active, onActive]);
   const pick = (weather: boolean) => { setOff(weather); try { localStorage.setItem(VIEW_KEY, weather ? "weather" : "earth"); } catch { /* this tab only */ } };
