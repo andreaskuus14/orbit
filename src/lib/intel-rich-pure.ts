@@ -136,3 +136,10 @@ export function miniMap(topo: Topo, lat: number, lon: number, w: number, h: numb
   }
   return { d: out.join(""), x: w / 2, y: h / 2 };
 }
+
+/** Width (px) an article picture is served at: the small card is 76 css px (152 at 2x), the lead card at most ~480 css px wide.
+ *  Unknown asks get the lead size; the server never enlarges. */
+export const THUMB_W = { sm: 160, lead: 960 } as const;
+export const thumbWidth = (w: string | null): number => (w === "sm" ? THUMB_W.sm : THUMB_W.lead);
+/** Only raster types sharp re-encodes safely are resized (an animated GIF stays as it is). */
+export const resizable = (type: string) => /^image\/(jpeg|png|webp|avif)$/.test(type);

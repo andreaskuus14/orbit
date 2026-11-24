@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  compactSchema, gates, outsideIn, parsePending, parsePlugins, parseToolId, pluginDecision, pluginPrompt, publicPlugin, resultText, toolGate, toolId, toolTier, validatePlugin, SUGGESTED, type Plugin,
+  compactSchema, gates, outsideIn, parsePending, parseToolId, pluginDecision, pluginPrompt, publicPlugin, resultText, toolGate, toolId, toolTier, SUGGESTED, type Plugin,
 } from "../src/lib/plugins-pure.ts";
+import { parsePlugins, validatePlugin } from "../src/lib/plugins-check-pure.ts";
 import { carriesPrivate, decide, localPluginReads, UNTRUSTED, type PolicyCtx } from "../src/lib/policy-pure.ts";
 import { privateResults } from "../src/lib/outbound-pure.ts";
 import { authorize, parseAuthority } from "../src/lib/authority-pure.ts";
@@ -223,7 +224,8 @@ test("resultText keeps structuredContent once, even when the server repeats it a
 });
 
 test("checkArgs fails closed: unusable schemas refuse, bad args refuse, legacy cache entries pass; regex keywords never run", async () => {
-  const { checkArgs, cleanTool, checkState, toolGate } = await import("../src/lib/plugins-pure.ts");
+  const { checkState, toolGate } = await import("../src/lib/plugins-pure.ts");
+  const { checkArgs, cleanTool } = await import("../src/lib/plugins-check-pure.ts");
   const num = { inputSchema: { type: "object", properties: { n: { type: "number" } } } };
   assert.equal(checkArgs(num, { n: 2 }), null);
   assert.match(checkArgs(num, { n: "two" })!, /arguments don't match its schema: \/n must be number/);
@@ -272,7 +274,8 @@ test("checkArgs fails closed: unusable schemas refuse, bad args refuse, legacy c
 });
 
 test("headers: http only, no protocol headers, masked for the panel; sign-in errors point at the token", async () => {
-  const { validatePlugin, publicPlugin, connectError } = await import("../src/lib/plugins-pure.ts");
+  const { publicPlugin, connectError } = await import("../src/lib/plugins-pure.ts");
+  const { validatePlugin } = await import("../src/lib/plugins-check-pure.ts");
   const ok = validatePlugin({ name: "vid", url: "https://example.com/mcp", headers: { Authorization: "Bearer abcdefgh123" } });
   assert.equal(typeof ok, "object");
   assert.deepEqual(publicPlugin(ok as never).headers, { Authorization: "•••" });
@@ -286,7 +289,8 @@ test("headers: http only, no protocol headers, masked for the panel; sign-in err
 });
 
 test("oauth sign-in: config, 127.0.0.1-only redirect, state, expiry, PKCE vector", async () => {
-  const { validatePlugin, oauthRedirect, makeState, stateName, stateFresh, expiresAt, needsRefresh, connectError, SIGN_IN_FIRST } = await import("../src/lib/plugins-pure.ts");
+  const { validatePlugin } = await import("../src/lib/plugins-check-pure.ts");
+  const { oauthRedirect, makeState, stateName, stateFresh, expiresAt, needsRefresh, connectError, SIGN_IN_FIRST } = await import("../src/lib/plugins-pure.ts");
   const { pkceChallenge } = await import("../src/lib/yt-analytics-pure.ts");
   assert.equal((validatePlugin({ name: "vid", url: "https://x.test/mcp", oauth: true }) as { oauth?: true }).oauth, true);
   assert.match(validatePlugin({ name: "vid", command: "x", oauth: true }) as string, /http plugins/);

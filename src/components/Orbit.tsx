@@ -90,7 +90,7 @@ import { orbitTitle } from "@/lib/jarvis-pure";
 import { HomeDesk } from "./HomeDesk";
 import type { Progress } from "@/lib/progress-pure";
 import { AMBER, countBadge, galaxyStatus, ROSE, sentenceRest, type CheckLike, type GalaxyStatus, type NeedLike, type StatusWorld } from "@/lib/galaxy-status-pure";
-import { sharedJson } from "./use-poll";
+import { freshJson } from "./use-poll";
 import { Tour, TOUR_EVENT } from "./Tour";
 import { corePhase, useUiMotion } from "./motion/motion";
 import { CorePresence } from "./motion/CorePresence";
@@ -190,8 +190,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   useEffect(() => {
     let alive = true;
     const pull = () => {
-      void sharedJson<{ items?: NeedLike[] }>(`/api/needs-you?lang=${lang}`).then((j) => { if (alive && Array.isArray(j?.items)) setGalaxyNeeds(j.items); });
-      void sharedJson<{ checks?: CheckLike[] }>("/api/doctor?boot=1").then((j) => { if (alive && Array.isArray(j?.checks)) setBootChecks(j.checks); });
+      void freshJson<{ items?: NeedLike[] }>(`/api/needs-you?lang=${lang}`).then((j) => { if (alive && Array.isArray(j?.items)) setGalaxyNeeds(j.items); });
+      void freshJson<{ checks?: CheckLike[] }>("/api/doctor?boot=1").then((j) => { if (alive && Array.isArray(j?.checks)) setBootChecks(j.checks); });
     };
     pull();
     const id = window.setInterval(() => { if (!document.hidden) pull(); }, 45_000);

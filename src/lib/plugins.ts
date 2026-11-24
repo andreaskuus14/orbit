@@ -13,7 +13,8 @@ import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { CLIP } from "./clip-store-pure.ts";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { randomToken, sameSecret } from "./yt-analytics-pure.ts";
-import { checkArgs, expiresAt, makeState, needsRefresh, SIGN_IN_FIRST, stateFresh, stateName, claimPending, cleanTool, connectError, gates, toolId, outsideIn, parsePending, parsePlugins, parseToolId, pluginAct, pluginPrompt, pluginSchemas, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
+import { checkArgs, cleanTool, parsePlugins, validatePlugin } from "./plugins-check-pure.ts";
+import { expiresAt, makeState, needsRefresh, SIGN_IN_FIRST, stateFresh, stateName, claimPending, connectError, gates, toolId, outsideIn, parsePending, parseToolId, pluginAct, pluginPrompt, pluginSchemas, resultText, PENDING_MAX, type Pending, type Plugin } from "./plugins-pure.ts";
 
 // MCP plugins: <ORBIT data dir>/plugins.json (his servers + trust settings + the tool list from the last Test connection) and
 // plugin-pending.json (calls CORE queued for his Run click). CORE calls tools in-process through @modelcontextprotocol/sdk's client,

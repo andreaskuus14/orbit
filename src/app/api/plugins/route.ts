@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/supabase/server";
 import { discardPending, oauthSignedIn, signOutOAuth, isRunning, listPending, loadPlugins, runPending, testPlugin, updatePlugins } from "@/lib/plugins";
-import { checkState, publicPlugin, toolGate, toolId, validatePlugin, SUGGESTED } from "@/lib/plugins-pure";
+import { checkState, publicPlugin, toolGate, toolId, SUGGESTED } from "@/lib/plugins-pure";
+import { validatePlugin } from "@/lib/plugins-check-pure";
 import { vaultDir } from "@/lib/vault";
 import { stopAllOn } from "@/lib/stop-all";
 import { logActivity } from "@/lib/activity";

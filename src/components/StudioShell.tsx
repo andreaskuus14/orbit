@@ -11,7 +11,7 @@ import { useT } from "./i18n";
 import { VOICE_ASK } from "./voice/bus";
 import { openTarget } from "./NeedsYou";
 import { openProgress } from "./ProgressCard";
-import { sharedJson, usePoll } from "./use-poll";
+import { freshJson, sharedJson, usePoll } from "./use-poll";
 import { planetNeeds, type Need } from "@/lib/needs-you-pure";
 import { studioWork, type ClipJobLike, type DownloadLike } from "@/lib/planet-page-pure";
 import { isShort, viewsPerDay, type Channel, type Video } from "@/lib/youtube-pure";
@@ -39,8 +39,7 @@ export function StudioShell({ channel, videos, configured, fetchedAt, loading, e
   /* ---- Needs you: this planet's items from the shared list ---- */
   const [needs, setNeeds] = useState<Need[] | null>(null);
   const loadNeeds = useCallback(() => {
-    fetch(`/api/needs-you?lang=${lang}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : { items: [] }))
-      .then((j: { items?: Need[] }) => setNeeds(planetNeeds("studio", j.items ?? []).own), () => setNeeds([]));
+    void freshJson<{ items?: Need[] }>(`/api/needs-you?lang=${lang}`).then((j) => setNeeds(planetNeeds("studio", j?.items ?? []).own));
   }, [lang]);
   usePoll(loadNeeds, 30_000, !paused);
 
