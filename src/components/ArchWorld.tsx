@@ -1,10 +1,8 @@
 "use client";
 // ARCH planet: a study workspace for small buildings. Blocks in metres on a plot; edit by typing to CORE or directly with the numbers.
 // Quantities and euros are computed in arch-pure.ts from the geometry, never by the AI. Learning tool, not certification.
-import { WorldEmblem } from "./WorldEmblem";
-import { WorldHeaderArt } from "./WorldHeaderArt";
 import { WarmCompile } from "./WarmCompile";
-import { memo, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
+import { memo, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import * as THREE from "three";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
@@ -12,7 +10,11 @@ import { Canvas, useFrame, useThree, type RootState } from "@react-three/fiber";
 import { ContactShadows, Edges, Line, OrbitControls, PerformanceMonitor } from "@react-three/drei";
 import { useGlRecovery } from "./useGlRecovery";
 import { useT } from "./i18n";
-import { BackToSimple, PlanetHome, useManual } from "./PlanetHome";
+import { BackToSimple, useManual } from "./PlanetHome";
+import { Button, Card, Empty, PlanetShell, Section, Sheet, type MenuItem } from "./ui";
+import "@/app/arch-planet.css";
+import { buildMs, clock, locale, money, needsLoop, num, SAVE_WAIT_MS, shadowMap, shadowsOn, sunFact } from "@/lib/arch-shell-pure";
+import type { Key } from "@/lib/i18n-pure";
 import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
 import { domeArcs, hourSegments, type Vec } from "@/lib/arch-sunpath-pure";
 import { concepts as makeConcepts, type Brief } from "@/lib/arch-concepts-pure";
@@ -102,7 +104,6 @@ void main() {
   transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
 });
 const load = (key: string): { rev?: number; scene: Scene; prices: PriceItem[]; site?: unknown } | null => { try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : null; } catch { return null; } };
-const eur = (n: number) => n.toLocaleString("et-EE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 const download = (name: string, text: string, type: string) => {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([text], { type }));
@@ -123,7 +124,7 @@ function Block({ p, selected, onPick, reduced, appearAt, hidden, bp, holo, insid
   const m = useRef<THREE.Mesh>(null);
   const target = useMemo(() => ({ pos: new THREE.Vector3(p.x, p.y + p.h / 2, p.z), scale: new THREE.Vector3(p.w, p.h, p.d) }), [p.x, p.y, p.z, p.w, p.d, p.h]);
   const [start] = useState(() => ({ pos: target.pos.clone(), scale: target.scale.clone() })); // set once: later changes glide in useFrame
-  useFrame(({ clock }, dt) => {
+  useFrame(({ clock, invalidate }, dt) => {
     if (!m.current) return;
     const k = reduced ? 1 : 1 - Math.exp(-dt * 10);
     // before its turn in the build animation a part waits flat on its base; then it rises into place
@@ -131,6 +132,8 @@ function Block({ p, selected, onPick, reduced, appearAt, hidden, bp, holo, insid
     m.current.visible = !hidden && !wait;
     m.current.position.lerp(wait ? TP.set(p.x, p.y, p.z) : target.pos, k);
     m.current.scale.lerp(wait ? TS.set(p.w, 0.001, p.d) : target.scale, k);
+    // frameloop "demand": keep drawing only while the block is still gliding to its new size
+    if (!wait && (m.current.position.distanceToSquared(target.pos) > 1e-6 || m.current.scale.distanceToSquared(target.scale) > 1e-6)) invalidate();
   });
   return (
     <mesh ref={m} position={start.pos} scale={start.scale} castShadow receiveShadow onClick={(e) => { if (!e.object.visible) return; e.stopPropagation(); onPick(); }}>
@@ -172,6 +175,19 @@ const Blueprint = memo(function Blueprint({ parts }: { parts: Part[] }) {
     return <Line key={p.id} points={[[x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], [x0, y, z0]]} color={GOLD} lineWidth={1.5} />;
   })}</>;
 });
+
+/** frameloop "demand": while `on`, ask for a frame every display frame (build animation, hologram, walk, turntable, scans). */
+function Live({ on }: { on: boolean }) {
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    if (!on) return;
+    let id = 0;
+    const tick = () => { invalidate(); id = requestAnimationFrame(tick); };
+    id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, [on, invalidate]);
+  return null;
+}
 
 /** Restart point for the build animation, in canvas clock seconds. */
 function BuildClock({ run, onStart }: { run: number; onStart: (t: number) => void }) {
@@ -276,7 +292,8 @@ export default function ArchWorld(props: ArchWorldProps) {
 function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false, project, onProject }: ArchWorldProps & { project: string; onProject: (id: string) => void }) {
   const key = archBrowserKey(project || null), sceneUrl = archUrl("scene", project || null);
   const qualityPreset = useLeanQuality(quality);
-  const { t: tr, tn } = useT();
+  const { t: tr, tn, lang } = useT();
+  const eur = (n: number) => money(n, lang);
   const glr = useGlRecovery();
   const r3f = useRef<RootState | null>(null);
   // crit screenshot: render once and read the canvas in the same task (no preserveDrawingBuffer needed); stays on this PC until he clicks
@@ -311,7 +328,8 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
     } catch { return null; }
   }, [sunAt, sun.date, at.lat, at.lon, north]);
   const [dome, setDome] = useState(false); // sun-path dome, off by default
-  const [viewOpen, setViewOpen] = useState(false); // the "View ▾" fold of the show-me toggles
+  const [viewOpen, setViewOpen] = useState(false);
+  const [sheet, setSheet] = useState(false); // "Draw from a sketch" sheet // the "View ▾" fold of the show-me toggles
   const viewsOn = [noRoof, spin, bp, holo, sun.on, dome, dayOn, site.on, sc.on].filter(Boolean).length;
   const domeLines = useMemo(() => {
     if (!dome) return null;
@@ -336,7 +354,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const [cmd, setCmd] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  // 📚 Teach me: a precedent lesson; ch === chapters.length is the quiz. The user's own scene is kept aside and comes back at the end.
+  // Teach me: a precedent lesson; ch === chapters.length is the quiz. The user's own scene is kept aside and comes back at the end.
   const [lesson, setLesson] = useState<Lesson | null>(null), [ch, setCh] = useState(0), [answers, setAnswers] = useState<(number | null)[]>([]);
   const [topic, setTopic] = useState(""), [lessonBusy, setLessonBusy] = useState(false), [lessonMsg, setLessonMsg] = useState("");
   const ownScene = useRef<Scene | null>(null);
@@ -344,6 +362,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const [ready, setReady] = useState(false); // state, not a ref: the save effect must not run with the starter scene before the load lands
   const revRef = useRef(0), lastSaved = useRef<Scene | null>(null), inSync = useRef(false); // ARC01: every scene/prices/site change bumps the revision
   const [save, dispatchSave] = useReducer(saveStep, { status: "idle", rev: 0 });
+  const pendingSave = useRef<(() => Promise<void>) | null>(null);
   const [retry, setRetry] = useState(0);
   const [variants, setVariants] = useState<Variant[]>([]); // ARC06: saved with the model
   const [snapStep, setSnapStep] = useState(0.1); // ARC03: 0 = free; otherwise grid step (m) + edge snapping
@@ -385,19 +404,32 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
     else if (inSync.current) { inSync.current = false; lastSaved.current = scene; return; } // opening ARCH writes nothing
     lastSaved.current = scene;
     const rev = revRef.current, data = { rev, scene, prices, site: { ...site, draft: null }, variants };
-    let localOk = true;
-    try { localStorage.setItem(key, JSON.stringify(data)); } catch { localOk = false; } // local backup first, always
     dispatchSave({ type: "start", rev });
-    const t = setTimeout(async () => {
-      const r = await fetch(sceneUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }).catch(() => null);
+    // One stringify per burst of edits, when the browser is idle: the local copy and the server get the same text.
+    // A pending save is flushed when ARCH closes or the tab hides, so the local copy is never lost.
+    const flush = async () => {
+      if (pendingSave.current === flush) pendingSave.current = null;
+      const body = JSON.stringify(data);
+      let localOk = true;
+      try { localStorage.setItem(key, body); } catch { localOk = false; } // local backup first, always
+      const r = await fetch(sceneUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: body.length < 60_000 }).catch(() => null);
       const j = await r?.json().catch(() => ({}));
       if (r?.ok) dispatchSave({ type: "ok", rev });
       else if (r?.status === 409) dispatchSave({ type: "conflict", rev, serverRev: j?.rev ?? 0, error: j?.error }); // newer copy elsewhere: he chooses, never a silent overwrite
       else if (localOk && (!r || r.status === 401 || r.status === 403)) dispatchSave({ type: "local", rev });
       else dispatchSave({ type: "fail", rev, error: j?.error ?? (localOk ? undefined : "localStorage") });
-    }, 800);
-    return () => clearTimeout(t);
+    };
+    pendingSave.current = flush;
+    let idle = 0;
+    const t = setTimeout(() => { idle = typeof requestIdleCallback === "function" ? requestIdleCallback(() => void flush(), { timeout: 1500 }) : window.setTimeout(() => void flush(), 0); }, SAVE_WAIT_MS);
+    return () => { clearTimeout(t); if (idle) (typeof cancelIdleCallback === "function" ? cancelIdleCallback : clearTimeout)(idle); };
   }, [scene, prices, site, variants, ready, lesson, retry]);
+  useEffect(() => {
+    const now = () => { const f = pendingSave.current; if (f) void f(); };
+    const hide = () => { if (document.visibilityState === "hidden") now(); };
+    addEventListener("pagehide", now); document.addEventListener("visibilitychange", hide);
+    return () => { removeEventListener("pagehide", now); document.removeEventListener("visibilitychange", hide); now(); };
+  }, []);
 
   const sceneRef = useRef(scene);
   sceneRef.current = scene; // an AI reply applies to the scene as it is when it lands, not when it was asked
@@ -415,6 +447,10 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const addInterior = () => { if (shell) { apply([{ op: "add", kind: "wall", name: "Interior wall", x: shell.x, z: shell.z, w: Math.max(0.5, shell.w - 2 * RULES.wallThick), d: 0.2, h: shell.h, y: shell.y }]); } };
   const host = part?.kind === "wall" ? part : undefined;
   const solid = useMemo(() => [...view.parts].filter((p) => !isOpening(p.kind) && !hideGroups.has(groupOf(p))).sort((a, b) => a.y - b.y), [view.parts, hideGroups]);
+  const [building, setBuilding] = useState(true); // the build animation runs on open and on every ▶ Build / new house
+  const nSolid = solid.length;
+  useEffect(() => { setBuilding(true); const id = setTimeout(() => setBuilding(false), buildMs(nSolid, STEP_S)); return () => clearTimeout(id); }, [run]); // eslint-disable-line react-hooks/exhaustive-deps
+  const loop = needsLoop({ building, holo, reduced, walk, spin, scan: !!scan });
   const realScene = useMemo(() => ({ ...view, parts: view.parts.filter((p) => !hideGroups.has(groupOf(p))) }), [view, hideGroups]);
   // the sun's shadow box: the whole plot (trees cast too), but not wider than 45 m so the shadow map keeps its detail
   const lookReach = useMemo(() => Math.min(45, Math.max(14, Math.hypot(view.plot.w, view.plot.d) / 2, ...view.parts.filter((p) => p.kind === "roof").map((p) => roofTop(p, view.parts) * 2))), [view]);
@@ -436,10 +472,10 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
     try {
       const r = await fetch("/api/arch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scene: base, rev: baseRev, command: text }) });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || `Failed (${r.status})`);
+      if (!r.ok) throw new Error(j.error || tr("arch.failed"));
       if (staleCheck(base, baseRev, sceneRef.current, revRef.current, j.ops as Op[]) === "conflict") { setConflict({ ops: j.ops, say: j.say || "" }); setCmd(""); return; }
       const moved = apply(j.ops as Op[]);
-      setMsg(`${j.say || "Done."}${moved.length ? ` Moved ${moved.length} part${moved.length === 1 ? "" : "s"} above to keep it stacked.` : ""}`);
+      setMsg(`${j.say || tr("arch.done")}${moved.length ? " " + tr("arch.moved", { n: moved.length }) : ""}`);
       setCmd("");
     } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   }
@@ -457,7 +493,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
     try {
       const r = await fetch("/api/arch/lesson", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ topic: t }) });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || `Failed (${r.status})`);
+      if (!r.ok) throw new Error(j.error || tr("arch.failed"));
       const l = j.lesson as Lesson;
       if (!lesson) ownScene.current = sceneRef.current;
       setLesson(l); setAnswers(l.quiz.map(() => null)); setMode("holo"); setTopic(""); setScan(null); setIfc(null);
@@ -472,13 +508,13 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
     if (!lesson) return;
     const n = lessonNote(lesson, answers);
     const r = await fetch("/api/memories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "note", ...n, tags: ["arch", "lesson", lessonTag(lesson.building)].filter(Boolean) }) }).catch(() => null);
-    setLessonMsg(r?.ok ? "Saved to MEMORY." : "Couldn't save the lesson.");
+    setLessonMsg(tr(r?.ok ? "arch.lessonSaved" : "arch.lessonSaveFail"));
     if (r?.ok) setBump((b) => b + 1);
   }
   async function studyQuiz() { // the quiz becomes study cards in MEMORY (spaced repetition)
     if (!lesson) return;
     const r = await fetch("/api/study", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "add", source: "arch", ref: lesson.building, cards: quizCards(lesson.quiz) }) }).catch(() => null);
-    setLessonMsg(r?.ok ? "Quiz added to your study cards in MEMORY." : "Couldn't add the study cards.");
+    setLessonMsg(tr(r?.ok ? "arch.cardsAdded" : "arch.cardsFail"));
   }
   const focus = new Set(lesson && ch < lesson.chapters.length ? lesson.chapters[ch].focus : []);
 
@@ -494,41 +530,33 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const badOpenings = scene.parts.filter((o) => isOpening(o.kind) && openingIssue(o, scene.parts.find((w) => w.id === o.host)));
 
   if (!ready && project) return <div className="absolute inset-0 overflow-auto p-6 pt-20"><p role="status">{loadError ? tr("desk.modelError") : tr("desk.modelLoading")}</p><button className="chip" onClick={() => onProject("")}>{tr("desk.back")}</button>{loadError && <button className="chip" onClick={() => { setLoadError(""); setLoadAttempt((n) => n + 1); }}>{tr("state.retry")}</button>}</div>;
-  const cmdBlock = (<div className="space-y-2">
-        <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void send(); }}>
-          <input className="field flex-1" placeholder={tr("arch.cmdPh")} value={cmd} maxLength={500} onChange={(e) => setCmd(e.target.value)} aria-label={tr("arch.cmd")} />
-          <button className="btn" disabled={busy || !cmd.trim()}>{tr(busy ? "arch.working" : "arch.doIt")}</button>
-          {simple && past.length > 0 && <button type="button" className="chip" onClick={undo}>↶ {tr("arch.undo")}</button>}{/* the toolbar's Undo is in Manual tools */}
-        </form>
-        {msg && <p aria-live="polite">{msg}</p>}
-        {conflict && (
-          <div role="alert" className="flex flex-wrap items-center gap-2">
-            <span>{tr("arch.conflict")}</span>
-            <button className="chip" onClick={() => { apply(conflict.ops); setMsg(conflict.say); setConflict(null); }}>{tr("arch.conflictApply")}</button>
-            <button className="chip" onClick={() => setConflict(null)}>{tr("arch.conflictDrop")}</button>
-          </div>
-        )}
-        {/* ARCH studio: sketch / picture / words → editable plan → 3D, walk with the sun, files (the planet's main action) */}
-        {!lesson && !scan && !ifc && <ArchDraw storeKey={project || "unassigned"} onWalk={() => { setSun((v) => ({ ...v, on: true })); if (!flat) setWalk(true); }}
-          onBuild={(raw, words) => { const s = designed(raw, words); setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setPreview(null); setRun((n) => n + 1); }} />}
-        {notes && <details className="card arch-notes text-xs" open aria-label={tr("arch.designNotes")}>
-          <summary className="cursor-pointer select-none font-semibold">📐 {tr("arch.designNotes")}</summary>
-          {notes.length ? <ul className="mt-1 list-disc space-y-0.5 pl-4">{notes.map((n) => <li key={n}>{n}</li>)}</ul> : <p className="mt-1">{tr("arch.designOk")}</p>}
-          <p className="muted mt-1 text-[11px]">{tr("arch.designWhy")}</p>
-        </details>}
-  </div>);
+  // The calm panel (design-language.md § Shell): the ask box first, then Needs you → Working on it → Results; all tools behind "…".
+  const topM = Math.round(solid.reduce((m, p) => Math.max(m, p.y + p.h), 0) * 10) / 10;
+  const saveNote = save.status !== "idle" && !lesson ? ` · ${tr(`arch.save.${save.status}` as Key)}` : "";
+  const status = <span className="pu-num">{tr("arch.status", { area: num(q.slabM2, lang, 1), cost: eur(cost.total) })}{saveNote}</span>;
+  const canDraw = !lesson && !scan && !ifc;
+  const menu: MenuItem[] = [
+    { label: tr("arch.menu.draw"), onSelect: () => setSheet(true), disabled: !canDraw },
+    { label: tr(simple ? "arch.menu.tools" : "arch.menu.simple"), onSelect: () => setManual(simple) },
+    { label: tr("arch.undo"), onSelect: undo, disabled: !past.length },
+  ];
+  const saveNeeds = !lesson && (save.status === "failed" || save.status === "conflict");
+  const needs = (conflict ? 1 : 0) + (saveNeeds ? 1 : 0) + (badOpenings.length ? 1 : 0);
+  const working = busy || lessonBusy;
+  const hasResults = !!msg || !!notes || !!lessonMsg;
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label={tr("arch.region")} style={{ background: bg }}>
       {!flat && (
-        <Canvas key={glr.key} onCreated={(st) => { glr.onCreated(st); r3f.current = st; }} frameloop={paused ? "never" : "always"} shadows dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
-        <WarmCompile world="arch" />
+        <Canvas key={glr.key} onCreated={(st) => { glr.onCreated(st); r3f.current = st; }} frameloop={paused ? "never" : "demand"} shadows={shadowsOn({ real, sun: sun.on, holo, scan: !!scan })} dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
+        <WarmCompile world="arch" cap={4000} /* a slow driver shows the house after 4 s at most, not a blank grey plot for 20 s */ />
         <Grab to={grab} />
-        {quality === "auto" && <PerformanceMonitor onDecline={qualityPreset.onDecline} />}
+        <Live on={!paused && loop} />
+        {quality === "auto" && loop && <PerformanceMonitor onDecline={qualityPreset.onDecline} /> /* fps only means something while it loops */}
           <color attach="background" args={[bg]} />
           <fog attach="fog" args={[bg, real ? 90 : 60, real ? 260 : 140]} />
           {real ? <ArchLook sun={lightPos} night={night} reach={lookReach} effects={{ ao: qualityPreset.bloomScale > 0, bloom: qualityPreset.bloomScale, msaa: qualityPreset.msaa }} /> : <>
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />
-          <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-SR} shadow-camera-right={SR} shadow-camera-top={SR} shadow-camera-bottom={-SR} shadow-camera-far={SR * 3} /></>}
+          <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={shadowMap(qualityPreset.bloomScale)} shadow-bias={-0.0004} shadow-camera-left={-SR} shadow-camera-right={SR} shadow-camera-top={SR} shadow-camera-bottom={-SR} shadow-camera-far={SR * 3} /></>}
           {scan ? <SplatCloud scan={scan} worker={worker} cap={budget.cap} maxPx={budget.maxPx} flip={flip}>
             {meas && <MeasureLayer m={meas} set={setMeas} worker={worker} ext={Math.max(...scan.bounds.hi.map((h, i) => h - scan.bounds.lo[i]))} />}
           </SplatCloud> : <>
@@ -565,17 +593,44 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         </Canvas>
       )}
 
-      <section style={{ "--planet": "#94a3b8" } as CSSProperties} className="ws glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] max-h-[45dvh] space-y-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label={tr("arch.controls")}>
-        <h2 className="brand world-header flex items-center gap-2 text-base"><WorldEmblem id="arch" size={28} />{"ARCH"}<WorldHeaderArt id="arch" /></h2>
-        {simple ? <PlanetHome planet="arch" onManual={() => setManual(true)} onExample={(q) => void send(q)} noInput action={cmdBlock} />
-          : <BackToSimple onClick={() => setManual(false)} />}
-        {/* Manual tools stay mounted while hidden (autosave, history and exports keep working exactly as before) */}
-        <div hidden={simple}><ProjectDesk key={project || "unassigned"} project={project} onSelect={onProject} active={!paused} disabled={!ready || busy || lessonBusy || !!lesson || ["saving", "failed", "conflict"].includes(save.status)} /></div>
-        {!simple && cmdBlock}
-        <div hidden={simple} className="space-y-3">
+      <div className="arch-wrap absolute inset-x-3 bottom-32 z-[14] flex max-h-[40dvh] min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[440px]">
+      <PlanetShell planet="arch" className="arch" title={tr("arch.title")} status={status} menu={menu} menuLabel={tr("arch.menu.label")}
+        onClose={onClose} closeLabel={tr("arch.close")} closeClassName="world-back"
+        ask={{ label: tr("arch.cmd"), placeholder: tr("arch.askPh"), sendLabel: tr("arch.doIt"), busy, onSubmit: (v) => send(v),
+          suggestions: [tr("arch.ex1"), tr("arch.ex2"), tr("arch.ex3")] }}
+        sheet={<Sheet open={sheet && canDraw} title={tr("arch.menu.draw")} onClose={() => setSheet(false)} closeLabel={tr("arch.sheetClose")}>
+          {canDraw && <ArchDraw storeKey={project || "unassigned"} onWalk={() => { setSheet(false); setSun((v) => ({ ...v, on: true })); if (!flat) setWalk(true); }}
+            onBuild={(raw, words) => { const s = designed(raw, words); setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setPreview(null); setRun((n) => n + 1); setSheet(false); }} />}
+        </Sheet>}>
+        <Section title={tr("arch.needs")} count={needs} id="arch-needs">
+          {!needs && <Empty title={tr("arch.needsNone")} />}
+          {conflict && <Card tone="needs" title={tr("arch.conflict")} actions={<>
+            <Button variant="secondary" size="sm" onClick={() => setConflict(null)}>{tr("arch.conflictDrop")}</Button>
+            <Button variant="primary" size="sm" onClick={() => { apply(conflict.ops); setMsg(conflict.say); setConflict(null); }}>{tr("arch.conflictApply")}</Button></>} />}
+          {saveNeeds && <Card tone={save.status === "failed" ? "error" : "needs"} title={tr(`arch.save.${save.status}` as Key)} sub={tr("arch.safeLocal")} actions={save.status === "conflict" ? <>
+            <Button variant="secondary" size="sm" onClick={() => void resolveConflict(true)}>{tr("arch.save.keepMine")}</Button>
+            <Button variant="primary" size="sm" onClick={() => void resolveConflict(false)}>{tr("arch.save.loadNewer")}</Button></>
+            : canRetry(save) ? <Button variant="primary" size="sm" onClick={() => setRetry((n) => n + 1)}>{tr("arch.save.retry")}</Button> : undefined} />}
+          {badOpenings.length > 0 && <Card tone="needs" title={tr("arch.openingsOutside", { names: badOpenings.map((o) => o.name).join(", ") })} />}
+        </Section>
+        <Section title={tr("arch.workingOn")} count={working ? 1 : 0} id="arch-work">
+          {working ? <Card tone="accent" title={tr(busy ? "arch.changing" : "arch.lessonWriting")} sub={tr("arch.workingSub")} /> : <Empty title={tr("arch.workingNone")} />}
+        </Section>
+        <Section title={tr("arch.results")} id="arch-results">
+          {!hasResults && <Empty title={tr("arch.resultsNone")} />}
+          {msg && <p className="arch-msg" aria-live="polite">{msg}</p>}
+          {lessonMsg && <p className="arch-msg" aria-live="polite">{lessonMsg}</p>}
+          {notes && <Card title={tr("arch.designNotes")} sub={tr("arch.designWhy")}>
+            {notes.length ? <ul className="arch-list">{notes.map((n) => <li key={n}>{n}</li>)}</ul> : <p>{tr("arch.designOk")}</p>}
+          </Card>}
+        </Section>
+        {!simple && <>
+        <BackToSimple onClick={() => setManual(false)} />
+        <ProjectDesk key={project || "unassigned"} project={project} onSelect={onProject} active={!paused} disabled={!ready || busy || lessonBusy || !!lesson || ["saving", "failed", "conflict"].includes(save.status)} />
+        <div className="space-y-3">
         {/* Learning is its own job, not the house: folded so the "Do it" box is the one place to type (open while a lesson runs). */}
         <details className="arch-learn" open={!!lesson || lessonBusy || undefined}>
-          <summary className="chip inline-flex cursor-pointer select-none list-none">📚 {tr("arch.teach")}</summary>
+          <summary className="chip inline-flex cursor-pointer select-none list-none">{tr("arch.teach")}</summary>
           <form className="mt-1.5 flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void teach(); }}>
             <input className="field flex-1" placeholder={tr("arch.topicPh")} value={topic} maxLength={200} onChange={(e) => setTopic(e.target.value)} aria-label={tr("arch.topic")} />
             <button className="btn" disabled={lessonBusy || !topic.trim()}>{lessonBusy ? tr("cf.writing") : tr("arch.teach")}</button>
@@ -584,7 +639,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         {lessonMsg && <p aria-live="polite">{lessonMsg}</p>}
         {lesson && (
           <div className="card space-y-2" aria-label={tr("arch.lessonAria", { name: lesson.building })}>
-            <div className="muted text-[10px] uppercase tracking-widest">{lesson.building}{[lesson.architect, lesson.year, lesson.place].filter(Boolean).map((x) => ` · ${x}`).join("")}</div>
+            <div className="arch-cap">{lesson.building}{[lesson.architect, lesson.year, lesson.place].filter(Boolean).map((x) => ` · ${x}`).join("")}</div>
             {ch < lesson.chapters.length ? <div aria-live="polite">
               <div className="font-semibold">{ch + 1}/{lesson.chapters.length} · {lesson.chapters[ch].title}</div>
               <p className="text-xs">{lesson.chapters[ch].text}</p>
@@ -610,8 +665,8 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         )}
         {scan && (
           <div className="card space-y-1.5" aria-label={tr("arch.openScan")}>
-            <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.scan")} · {scan.name}</div>
-            <p className="text-xs">{tr("arch.splats", { n: Math.min(scan.count, budget.cap).toLocaleString("en"), total: scan.count.toLocaleString("en") })}{scan.count < scan.total ? tr("arch.fileHad", { n: scan.total.toLocaleString("en") }) : ""}{tr("arch.scanHint")}</p>
+            <div className="arch-cap">{tr("arch.scan")} · {scan.name}</div>
+            <p className="text-xs">{tr("arch.splats", { n: Math.min(scan.count, budget.cap).toLocaleString(locale(lang)), total: scan.count.toLocaleString(locale(lang)) })}{scan.count < scan.total ? tr("arch.fileHad", { n: scan.total.toLocaleString(locale(lang)) }) : ""}{tr("arch.scanHint")}</p>
             <div className="flex flex-wrap gap-1.5">
               <button className="chip" aria-pressed={flip} onClick={() => setFlip((v) => !v)} title={tr("arch.flipTitle")}>↕ {tr("arch.flip")}</button>
               <button className="chip" onClick={() => { setScan(null); setMeas(null); setWalk(false); }}>{tr("arch.closeScan")}</button>
@@ -622,22 +677,23 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         {walk && <p className="muted text-xs" aria-live="polite">{tr("arch.walking")}</p>}
         {sun.on && (
           <div className="card space-y-1.5" aria-label={tr("arch.sun")}>
-            <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.sun")}</div>
+            <div className="arch-cap">{tr("arch.sun")}</div>
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <input className="field" type="date" value={sun.date} aria-label={tr("arch.date")} onChange={(e) => e.target.value && setSun((v) => ({ ...v, date: e.target.value }))} />
-              {[["Jun 21", "-06-21"], ["Dec 21", "-12-21"]].map(([l, md]) => <button key={l} className="chip" onClick={() => setSun((v) => ({ ...v, date: v.date.slice(0, 4) + md }))}>{l}</button>)}
+              {([["arch.midsummer", "-06-21"], ["arch.midwinter", "-12-21"]] as const).map(([l, md]) => <button key={l} className="chip" onClick={() => setSun((v) => ({ ...v, date: v.date.slice(0, 4) + md }))}>{tr(l)}</button>)}
             </div>
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              {(["lat", "lon"] as const).map((k) => <label key={k} className="flex items-center gap-1">{k === "lat" ? "Lat" : "Long"}
-                <input key={`${k}:${ifc?.name ?? ""}`} className="field w-20" type="number" step={0.001} min={k === "lat" ? -90 : -180} max={k === "lat" ? 90 : 180} defaultValue={at[k]} readOnly={at !== sun} title={at !== sun ? tr("arch.ifc3dSiteLocked") : undefined} aria-label={k === "lat" ? "Latitude" : "Longitude (east positive)"}
+              {(["lat", "lon"] as const).map((k) => <label key={k} className="flex items-center gap-1">{tr(k === "lat" ? "arch.lat" : "arch.lon")}
+                <input key={`${k}:${ifc?.name ?? ""}`} className="field w-20" type="number" step={0.001} min={k === "lat" ? -90 : -180} max={k === "lat" ? 90 : 180} defaultValue={at[k]} readOnly={at !== sun} title={at !== sun ? tr("arch.ifc3dSiteLocked") : undefined} aria-label={tr(k === "lat" ? "arch.latAria" : "arch.lonAria")}
                   onChange={(e) => { const v = Number(e.target.value); if (e.target.value && Math.abs(v) <= (k === "lat" ? 90 : 180)) setSun((s) => ({ ...s, [k]: v })); }} /></label>)}
             </div>
             <label className="flex items-center gap-2 text-xs"><span className="num w-12">{String(Math.floor(sun.hour)).padStart(2, "0")}:{String(Math.round((sun.hour % 1) * 60)).padStart(2, "0")}</span>
               <input className="flex-1" type="range" min={0} max={24} step={0.25} value={sun.hour} aria-label={tr("arch.timeOfDay")} onChange={(e) => setSun((v) => ({ ...v, hour: Number(e.target.value) }))} /></label>
             {sunInfo && <p className="muted text-xs">
-              {sunInfo.pos.elevationDeg < 0 ? "Sun below the horizon" : `Sun ${Math.round(sunInfo.pos.elevationDeg)}° high, from ${Math.round(sunInfo.pos.azimuthDeg)}° (0° = north)`}
-              {" · "}{tr("arch.sunrise")} {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunrise)}, {tr("arch.sunset")} {((d: Date | null) => (d ? d.toLocaleTimeString("et-EE", { hour: "2-digit", minute: "2-digit" }) : "—"))(sunInfo.arc.sunset)}. {north ? `True north is ${Math.round(north)}° clockwise from the plot's −Z side.` : "The plot's −Z side faces north."}
-              {!ifc && ((s) => s && ` Shadow of the ${Math.round(solid.reduce((m, p) => Math.max(m, p.y + p.h), 0) * 10) / 10} m top: ${s.length.toFixed(1)} m toward ${Math.round(s.towardDeg)}° (orange line).`)(shadowOf(sunInfo.pos, solid.reduce((m, p) => Math.max(m, p.y + p.h), 0), 120))}</p>}
+              {((f) => tr(f.key, f.vars))(sunFact(sunInfo.pos.elevationDeg, sunInfo.pos.azimuthDeg))}
+              {" · "}{tr("arch.sunTimes", { rise: clock(sunInfo.arc.sunrise, lang), set: clock(sunInfo.arc.sunset, lang) })}{" "}
+              {north ? tr("arch.northTurned", { deg: Math.round(north) }) : tr("arch.northPlain")}
+              {!ifc && ((sh) => sh && " " + tr("arch.shadowLine", { top: num(topM, lang, 1), len: num(sh.length, lang, 1), deg: Math.round(sh.towardDeg) }))(shadowOf(sunInfo.pos, topM, 120))}</p>}
           </div>
         )}
         {dayOn && !ifc && <DaylightPanel parts={scene.parts} site={{ lat: sun.lat, lon: sun.lon, name: `${sun.lat.toFixed(2)}°, ${sun.lon.toFixed(2)}°` }} d={daylight} onChange={setDaylight} />}
@@ -645,13 +701,13 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         {site.on && !lesson && !scan && <SitePanel site={site} set={setSite} parts={scene.parts} sun={sun.on && sunInfo ? sunInfo.dir : null} />}
         {sc.on && (
           <div className="card space-y-1.5" aria-label={tr("arch.coach")}>
-            <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.coachHead")}</div>
+            <div className="arch-cap">{tr("arch.coachHead")}</div>
             <p className="text-xs font-semibold">{tr("arch.coachWarn")}</p>
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <select className="field" value={sc.type} aria-label={tr("arch.floorType")} onChange={(e) => setSc((v) => ({ ...v, type: e.target.value as FloorType }))}>
                 <option value="timber">{tr("arch.timber")}</option><option value="concrete">{tr("arch.concrete")}</option></select>
               {sc.type === "timber" && <select className="field" value={sc.s} aria-label={tr("arch.spacing")} onChange={(e) => setSc((v) => ({ ...v, s: Number(e.target.value) }))}>
-                {[0.3, 0.4, 0.6, 1.2, 2.4].map((s) => <option key={s} value={s}>{s < 1 ? `joists @ ${s * 1000} mm` : `beam carrying ${s} m`}</option>)}</select>}
+                {[0.3, 0.4, 0.6, 1.2, 2.4].map((s) => <option key={s} value={s}>{s < 1 ? tr("arch.joists", { mm: s * 1000 }) : tr("arch.beam", { m: s })}</option>)}</select>}
               <span className="muted">{tr("arch.load")}</span>
             </div>
             {!coachRows.length && <p className="muted text-xs">{tr("arch.noUpper")}</p>}
@@ -668,21 +724,21 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         <div className="flex flex-wrap gap-1.5">
           {/* Main row (tools pass, 21 Nov): what he uses while shaping the house. Everything else folds under More tools. */}
           <button className="chip" disabled={!past.length} onClick={undo}>↶ {tr("arch.undo")}</button>
-          <button className="chip" aria-pressed={walk} disabled={flat} onClick={() => setWalk((v) => !v)} title={tr("arch.walkTitle")}>🚶 {tr("arch.walk")}</button>
-          <button className="chip" disabled={!!lesson || !!ifc} onClick={checkDesign} title={tr("arch.designTitle")}>📐 {tr("arch.design")}</button>
+          <button className="chip" aria-pressed={walk} disabled={flat} onClick={() => setWalk((v) => !v)} title={tr("arch.walkTitle")}>{tr("arch.walk")}</button>
+          <button className="chip" disabled={!!lesson || !!ifc} onClick={checkDesign} title={tr("arch.designTitle")}>{tr("arch.design")}</button>
           {/* "show me X" toggles, folded (UI audit PR 3); a count shows how many are on. The "Do it" box can ask for these too. */}
           <details className="arch-view" open={viewOpen} onToggle={(e) => setViewOpen((e.currentTarget as HTMLDetailsElement).open)}>
-            <summary className="chip inline-flex cursor-pointer select-none list-none">👁 {tr("arch.viewMenu")} {viewOpen ? "▴" : "▾"}{viewsOn ? <span className="num ml-1">· {viewsOn}</span> : null}</summary>
+            <summary className="chip inline-flex cursor-pointer select-none list-none">{tr("arch.viewMenu")} {viewOpen ? "▴" : "▾"}{viewsOn ? <span className="num ml-1">· {viewsOn}</span> : null}</summary>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
           <button className="chip" aria-pressed={noRoof} onClick={() => setNoRoof((v) => !v)}>{tr("arch.hideRoof")}</button>
           <button className="chip" aria-pressed={spin} onClick={() => setSpin((v) => !v)}>{tr("arch.turntable")}</button>
           <button className="chip" aria-pressed={bp} onClick={() => setMode((m) => (m === "bp" ? "model" : "bp"))}>{tr("arch.blueprint")}</button>
           <button className="chip" aria-pressed={holo} onClick={() => setMode((m) => (m === "holo" ? "model" : "holo"))} title={tr("arch.holoTitle")}>{tr("arch.holo")}</button>
-          <button className="chip" aria-pressed={sun.on} onClick={() => setSun((v) => ({ ...v, on: !v.on }))}>☀ {tr("arch.sun")}</button>
+          <button className="chip" aria-pressed={sun.on} onClick={() => setSun((v) => ({ ...v, on: !v.on }))}>{tr("arch.sun")}</button>
           <button className="chip" aria-pressed={dome} disabled={!!scan} onClick={() => setDome((v) => !v)} title={tr("arch.sunDomeTitle")}>◠ {tr("arch.sunDome")}</button>
-          <button className="chip" aria-pressed={dayOn} onClick={() => { setDayOn((v) => !v); setDaylight(null); }} title={tr("arch.dayTitle")}>🌤 {tr("arch.daylight")}</button>
-          <button className="chip" aria-pressed={site.on} onClick={() => setSite((v) => ({ ...v, on: !v.on, draft: null }))} title={tr("arch.siteTitle")}>🏘 {tr("arch.site")}</button>
-          <button className="chip" aria-pressed={sc.on} onClick={() => setSc((v) => ({ ...v, on: !v.on }))} title={tr("arch.structTitle")}>📐 {tr("arch.structure")}</button>
+          <button className="chip" aria-pressed={dayOn} onClick={() => { setDayOn((v) => !v); setDaylight(null); }} title={tr("arch.dayTitle")}>{tr("arch.daylight")}</button>
+          <button className="chip" aria-pressed={site.on} onClick={() => setSite((v) => ({ ...v, on: !v.on, draft: null }))} title={tr("arch.siteTitle")}>{tr("arch.site")}</button>
+          <button className="chip" aria-pressed={sc.on} onClick={() => setSc((v) => ({ ...v, on: !v.on }))} title={tr("arch.structTitle")}>{tr("arch.structure")}</button>
             </div>
           </details>
           {save.status !== "idle" && !lesson && (
@@ -726,12 +782,12 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         {/* Owner 22 Nov: "always use Blender, it's free" — the realistic picture of the saved house, rendered on this PC. */}
         <ArchRender project={project} lat={sun.lat} lon={sun.lon} at={renderAt(sun.date, sun.hour)} />
         <details className="card arch-exports space-y-1.5" aria-label={tr("arch.exports")}>
-          <summary className="cursor-pointer select-none text-xs font-semibold">⬇ {tr("arch.exports")} <span className="muted font-normal">· {tr("arch.exportsReady", { n: exportsList.filter((x) => x.ok).length, m: exportsList.length })}</span></summary>
+          <summary className="cursor-pointer select-none text-xs font-semibold">{tr("arch.exports")} <span className="muted font-normal">· {tr("arch.exportsReady", { n: exportsList.filter((x) => x.ok).length, m: exportsList.length })}</span></summary>
           {exportsList.map((x) => {
             const label = tr(x.format === "csv" ? "arch.boqCsv" : x.format === "json" ? "arch.sceneJson" : "arch.ifc");
             return <div key={x.format} className="text-xs">
               <div className="flex flex-wrap items-center gap-2">
-                <button className="chip" disabled={!x.ok} onClick={() => download(x.file, x.text, x.type)} title={x.format === "ifc" ? tr("arch.ifcTitle") : undefined}>⬇ {label}</button>
+                <button className="chip" disabled={!x.ok} onClick={() => download(x.file, x.text, x.type)} title={x.format === "ifc" ? tr("arch.ifcTitle") : undefined}>{label}</button>
                 <span className={x.ok ? "muted" : "error"} role="status">{x.ok ? tr("arch.exportReady") : tr("arch.exportFailed", { n: x.checks.filter((c) => !c.ok).length })}</span>
               </div>
               <details><summary className="cursor-pointer muted">{tr("arch.exportChecks")}</summary>
@@ -753,7 +809,6 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         <ArchKit scene={scene} sel={sel} onSelect={setSel} hidden={hideGroups} onHidden={setHideGroups} newId={newId}
           onScene={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); }} />
         <ArchPlans plot={scene.plot} onPick={(raw) => { const s = designed(raw); setPast((p) => [...p.slice(-30), sceneRef.current]); sceneRef.current = s; setScene(s); setSel(null); setRun((n) => n + 1); }} />
-        {ready && <ArchTimeMachine project={project || null} scene={scene} save={!lesson} onPreview={setPreview} onRestore={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); setScene(s); setSel(null); }} />}
 
         <ArchStudio worker={worker} bump={bump} onScan={(s) => { setScan(s); setIfc(null); setMeas(measureFrom(s)); setWalk(false); }}
           onScanNote={(id, note) => setMeas((m) => m && { ...m, noteId: id, note })} onTeach={(t) => void teach(t)}
@@ -761,12 +816,12 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
 
         <ArchCrit scene={scene} prices={prices} shoot={shoot} />
         <PortfolioPanel grab={() => grab.current?.() ?? null}
-          caption={scan ? `Scan ${scan.name}` : lesson ? `Study model after ${lesson.building}` : archCaption({ parts: scene.parts, mode, sun: sun.on ? sun : null })} />
+          caption={scan ? tr("arch.capScan", { name: scan.name }) : lesson ? tr("arch.capLesson", { name: lesson.building }) : archCaption({ parts: scene.parts, mode, sun: sun.on ? sun : null })} />
         <ArchStudy />
         {ready && <ArchPortfolio grab={() => grab.current?.() ?? null} onPreview={setPreview} />}
 
         <div className="card space-y-1.5">
-          <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.parts")}</div>
+          <div className="arch-cap">{tr("arch.parts")}</div>
           <ul className="space-y-0.5">{scene.parts.map((p) => (
             <li key={p.id}><button className="chip w-full justify-between text-left" aria-pressed={p.id === sel} onClick={() => setSel(p.id)}>
               <span>{p.name}</span><span className="muted num">{p.w}×{p.d}×{p.h} m</span></button></li>))}</ul>
@@ -787,7 +842,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         </div>
 
         <div className="card space-y-1">
-          <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.boq")}</div>
+          <div className="arch-cap">{tr("arch.boq")}</div>
           <table className="w-full text-xs"><tbody>
             {cost.lines.map((l) => (
               <tr key={l.key} title={`${l.how}\n${tr("arch.costFrom")}: ${l.from.join(", ") || "—"}\n${l.source}${l.date ? ` · ${l.date}` : ""}`}>
@@ -809,15 +864,29 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
 
         <ArchMaterials q={q} />
 
-        {tips.length > 0 && <div className="card space-y-1"><div className="muted text-[10px] uppercase tracking-widest">{tr("arch.bulk")}</div>{tips.map((t) => <p key={t} className="text-xs">• {t}</p>)}</div>}
+        {tips.length > 0 && <div className="card space-y-1"><div className="arch-cap">{tr("arch.bulk")}</div>{tips.map((t) => <p key={t} className="text-xs">• {t}</p>)}</div>}
         <p className="muted text-[11px]">{tr("arch.studyTool")}</p>
         </div>
-      </section>
+        </>}
+        {/* History records every version, so it stays mounted (hidden) on the simple page; every other tool mounts only when open. */}
+        <div hidden={simple}>
+        {ready && <ArchTimeMachine project={project || null} scene={scene} save={!lesson} onPreview={setPreview} onRestore={(s) => { setPast((p) => [...p.slice(-30), sceneRef.current]); setScene(s); setSel(null); }} />}
+        </div>
+      </PlanetShell>
+      </div>
+      {!flat && <Telemetry items={[
+        [tr("arch.tArea"), `${num(q.slabM2, lang, 1)} m²`], [tr("arch.tCost"), eur(cost.total)], [tr("arch.tHeight"), `${num(topM, lang, 1)} m`],
+        ...(sun.on && sunInfo ? [[tr("arch.tSun"), sunInfo.pos.elevationDeg < 0 ? "—" : `${Math.round(sunInfo.pos.elevationDeg)}° · ${Math.round(sunInfo.pos.azimuthDeg)}°`] as [string, string]] : []),
+      ]} label={tr("arch.tLabel")} />}
 
       {walk && !flat && <WalkPad />}
-      <button className="chip world-back absolute bottom-28 right-3 z-[15] min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>{tr("arch.backGalaxy")}</button>
     </div>
   );
+}
+
+/** Real numbers on the model, small and tabular (the "advanced where it shows real data" half of the MIX look). */
+function Telemetry({ items, label }: { items: [string, string][]; label: string }) {
+  return <dl className="arch-tele" aria-label={label}>{items.map(([k, v]) => <div key={k}><dt>{k}</dt><dd className="pu-num">{v}</dd></div>)}</dl>;
 }
 
 /** Touch walking: hold an arrow to move (it presses the same keys Walker listens to); drag the view to look. */
@@ -825,7 +894,7 @@ function WalkPad() {
   const { t: tr } = useT();
   const key = (k: string, type: "keydown" | "keyup") => dispatchEvent(new KeyboardEvent(type, { key: k }));
   const pad = (k: string, label: string, cls: string) => (
-    <button className={`chip ${cls}`} aria-label={`Walk ${k.replace("Arrow", "").toLowerCase()}`} style={{ touchAction: "none" }}
+    <button className={`chip ${cls}`} aria-label={tr(`arch.walk.${k.replace("Arrow", "").toLowerCase()}` as Key)} style={{ touchAction: "none" }}
       onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); key(k, "keydown"); }} onPointerUp={() => key(k, "keyup")} onPointerCancel={() => key(k, "keyup")}
       onContextMenu={(e) => e.preventDefault()}>{label}</button>
   );
@@ -857,7 +926,8 @@ const vid = () => `v${Date.now().toString(36)}${Math.random().toString(36).slice
 /** ARC06: named variants from a saved revision, compared with shared inputs; choosing one keeps the current model as a variant (and undo). */
 function ArchVariants({ variants, setVariants, scene, rev, prices, site, north, onChoose }: { variants: Variant[]; setVariants: (f: (v: Variant[]) => Variant[]) => void; scene: Scene; rev: number;
   prices: PriceItem[]; site: { lat: number; lon: number }; north: number; onChoose: (s: Scene) => void }) {
-  const { t: tr } = useT();
+  const { t: tr, lang } = useT();
+  const eur = (n: number) => money(n, lang);
   const [name, setName] = useState(""), [a, setA] = useState("current"), [b, setB] = useState(""), [energy, setEnergy] = useState(true);
   const [res, setRes] = useState<Comparison | null>(null), [busy, setBusy] = useState(false);
   useEffect(() => setRes(null), [a, b, scene, prices, energy]);
@@ -877,7 +947,7 @@ function ArchVariants({ variants, setVariants, scene, rev, prices, site, north, 
     [tr("arch.varKwh"), (m) => (m.kWh === null ? "—" : `${m.kWh}`), res.total.kWh], [tr("arch.varSun"), (m) => (m.sunDec === null ? "—" : `${m.sunDec} h`), res.b.sunDec !== null && res.a.sunDec !== null ? res.b.sunDec - res.a.sunDec : null]] : [];
   return (
     <div className="card space-y-1.5" aria-label={tr("arch.var")}>
-      <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.var")}</div>
+      <div className="arch-cap">{tr("arch.var")}</div>
       <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); setVariants((l) => addVariant(l, name, rev, scene, vid())); setName(""); }}>
         <input className="field flex-1" value={name} maxLength={60} placeholder={tr("arch.varNamePh")} aria-label={tr("arch.varName")} onChange={(e) => setName(e.target.value)} />
         <button className="chip">{tr("arch.varSave", { rev })}</button>

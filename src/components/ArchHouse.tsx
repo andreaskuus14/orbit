@@ -6,6 +6,7 @@
 // (auto steps down when frames drop), so the RTX 5060 laptop stays at 60 fps and a weak GPU still gets the house.
 import { memo, useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
+import { shadowMap } from "@/lib/arch-shell-pure";
 import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Edges, Environment, Sky } from "@react-three/drei";
 import { EffectComposer, Bloom, N8AO, SMAA, ToneMapping } from "@react-three/postprocessing";
@@ -127,7 +128,7 @@ export function ArchLook({ sun, night, reach, effects }: LookProps) {
     <Environment frames={1} resolution={128} environmentIntensity={night ? 0.08 : 0.45}>{!night && <Sky {...sky} />}</Environment>
     <hemisphereLight args={["#dfe9f5", "#6b7a52", night ? 0.04 : 0.15]} />
     <directionalLight position={pos} intensity={night ? 0.05 : 3.4} color={low ? "#ffd7a8" : "#fff5e6"} castShadow
-      shadow-mapSize={effects.bloom > 0.8 ? [4096, 4096] : [2048, 2048]} shadow-bias={-0.0002} shadow-normalBias={0.03} shadow-radius={3}
+      shadow-mapSize={shadowMap(effects.bloom)} shadow-bias={-0.0002} shadow-normalBias={0.03} shadow-radius={3}
       shadow-camera-left={-reach} shadow-camera-right={reach} shadow-camera-top={reach} shadow-camera-bottom={-reach} shadow-camera-near={1} shadow-camera-far={reach * 4} />
     {fx && <EffectComposer multisampling={0} enableNormalPass={false}>
       {effects.ao ? <N8AO halfRes={effects.bloom < 0.8} aoRadius={1.6} distanceFalloff={0.8} intensity={2.2} quality={effects.bloom < 0.8 ? "performance" : "medium"} /> : <></>}
