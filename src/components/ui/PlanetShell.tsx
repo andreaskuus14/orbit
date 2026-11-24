@@ -20,10 +20,10 @@ export type AskProps = {
   suggestions?: string[]; busy?: boolean;
 };
 
-export function PlanetShell({ planet, title, status, menu, menuLabel, onClose, closeLabel, ask, children, sheet, className }: {
+export function PlanetShell({ planet, title, status, menu, menuLabel, onClose, closeLabel, closeClassName, ask, children, sheet, className }: {
   planet: ShellId; title: string; status?: ReactNode;
   menu?: MenuItem[]; menuLabel?: string;
-  onClose?: () => void; closeLabel?: string;
+  onClose?: () => void; closeLabel?: string; closeClassName?: string /* e.g. "world-back": Orbit focuses it after a dive */;
   ask?: AskProps; children?: ReactNode; sheet?: ReactNode; className?: string;
 }) {
   return (
@@ -36,7 +36,7 @@ export function PlanetShell({ planet, title, status, menu, menuLabel, onClose, c
         </div>
         <div className="pu-head-actions">
           {menu && menu.length > 0 && menuLabel && <MoreMenu items={menu} label={menuLabel} />}
-          {onClose && closeLabel && <Button variant="ghost" icon={<IconClose />} label={closeLabel} onClick={onClose} />}
+          {onClose && closeLabel && <Button variant="ghost" icon={<IconClose />} label={closeLabel} onClick={onClose} className={closeClassName} />}
         </div>
       </header>
       <div className="pu-body">

@@ -1041,3 +1041,5 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .drawer:has([data-intel-surface]) .world-header { font-family: "Iowan Old Style", Charter, "Source Serif Pro", Georgia, "Times New Roman", serif; font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; text-transform: none; color: #f2f0eb; text-shadow: none; }
 .drawer:has([data-intel-surface]) .world-header :is(svg, canvas, img) { display: none; }
 .drawer:has([data-intel-surface]) .drag-handle > .chip { font-family: var(--font-inter), system-ui, sans-serif; text-transform: none; letter-spacing: normal; background: transparent; border-color: rgba(255, 255, 255, 0.14); box-shadow: none; }
+/* Planet toasts sit above the command bar (it owns the bottom centre) */
+.orbit-shell .pu-toasts { bottom: calc(var(--bar) + 2.5rem); }

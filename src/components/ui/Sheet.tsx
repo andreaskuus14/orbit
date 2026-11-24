@@ -23,7 +23,7 @@ export function Sheet({ open, title, onClose, closeLabel, children, footer }: {
     return () => clearTimeout(t);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   useDialogFocus(ref, open, onClose);
-  if (!shown) return null;
+  if (!shown && !open) return null; // open renders in the same commit as the click (instant feedback); the effect only adds the sound
   const c = closing ? "" : undefined;
   return <>
     <div className="pu-sheet-scrim" data-closing={c} onClick={onClose} aria-hidden="true" />

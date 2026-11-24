@@ -145,7 +145,7 @@ const control = (id: string, body: object) => call(`/api/memories/${id}/control`
 const fact = (body: object) => call("/api/facts", { method: "POST", body: JSON.stringify(body) });
 
 /** Runs the owner's decision on the record it belongs to; history is never lost (Correct keeps the original as history). */
-async function apply(it: RItem, d: Decision, text: string) {
+export async function applyReview(it: RItem, d: Decision, text: string) {
   const [a, b] = it.items, k = it.kind;
   if (it.target === "entity" && d !== "snoozed") // recorded by the entity check itself; it drops the item from its list
     return void await call("/api/memories/entities", { method: "POST", body: JSON.stringify({ key: it.key, choice: text || (d === "accepted" ? "same" : k === "entity-same" ? "different" : "skip") }) });
@@ -207,7 +207,7 @@ export function MemoryReview({ onChanged }: { onChanged: () => void }) {
 
   async function act(it: RItem, d: Decision, text = "") {
     setBusy(it.key); setErr("");
-    try { await apply(it, d, text); setFix(null); if (d !== "snoozed") onChanged(); await load(); }
+    try { await applyReview(it, d, text); setFix(null); if (d !== "snoozed") onChanged(); await load(); }
     catch (e) { setErr(e instanceof Error ? e.message : "Failed"); }
     finally { setBusy(""); }
   }

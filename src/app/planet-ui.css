@@ -52,6 +52,7 @@
 
 .pu *, .pu *::before, .pu *::after { box-sizing: border-box; }
 .pu :focus { outline: none; }
+.pu.pu.pu :focus-visible { outline: none; } /* (0,4,0) beats observatory.css's cyan outline on every control in the shell (.orbit-shell :is(...):focus-visible, 0,3,0): the kit draws its own ring */
 .pu :focus-visible { box-shadow: var(--pu-focus); border-radius: var(--pu-r-sm); }
 .pu ::selection { background: var(--pu-accent-line); }
 .pu .pu-num { font-variant-numeric: tabular-nums; }

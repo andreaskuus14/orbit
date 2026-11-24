@@ -6,6 +6,7 @@ import { MEMORY_COLUMNS } from "@/lib/memory";
 import { cleanTags, str } from "@/lib/pure";
 import { isMissingColumn, PROVENANCE_COLUMNS } from "@/lib/provenance-pure";
 import { redactJournalRow } from "@/lib/journal-crypt-pure";
+import { bustMapCache } from "@/lib/memory-map-cache";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -50,7 +51,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (error) return Response.json({ error: error.message }, { status: 400 });
   if (!data) return Response.json({ error: "Not found" }, { status: 404 });
   await emit(sb, user.id, "memory.updated", "memory", { id });
-  return Response.json({ memory: data });
+  bustMapCache(user.id); // the map shows the new title/tags now, not after the 5-minute TTL
+  return Response.json({ memory: redactJournalRow(data as unknown as Parameters<typeof redactJournalRow>[0]) }); // a tags-only edit of a journal row must not echo its sealed text
 }
 
 export async function DELETE(req: Request, { params }: Ctx) {
@@ -67,5 +69,6 @@ export async function DELETE(req: Request, { params }: Ctx) {
     if (rmErr) console.error("[orbit] memory deleted but its file was not", rmErr);
   }
   await emit(sb, user.id, "memory.deleted", "memory", { id });
+  bustMapCache(user.id);
   return Response.json({ ok: true });
 }
