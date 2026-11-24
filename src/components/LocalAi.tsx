@@ -9,6 +9,8 @@ import type { LocalStatus } from "@/lib/local-model-pure";
 import { useT } from "./i18n";
 import RobloxBuild, { PINK } from "./RobloxBuild";
 import { KaggleBurst } from "./KaggleBurst";
+import { ProgressCard } from "./ProgressCard";
+import type { Progress } from "@/lib/progress-pure";
 
 // Local AI tools (tools/local-ai on his PC): Picture to 3D and Text to 3D (GAME DEV → Assets), Voiceover (STUDIO → Produce),
 // Captions (STUDIO → Produce), Read document (VAULT), Open IFC model (ARCH) and the tool list (OPERATIONS → Local AI). Every result is saved in VAULT; nothing is uploaded. Data: /api/local-ai.
@@ -359,6 +361,7 @@ export function LocalAiTools() {
     <section className="grid gap-3 text-sm" aria-label="Local AI tools">
       <ThisPc />
       <KaggleBurst />
+      <GpuJobs />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs">{h?.running ? <>Service running{h.gpu ? ` on ${h.gpu.name} (${h.gpu.vramGb} GB)` : " on the CPU only (no GPU found)"}.</> : <>Service not running. Start it: <code>{START_CMD}</code></>}</p>
         <button className="chip" onClick={check}>Check again</button>
@@ -382,5 +385,25 @@ export function LocalAiTools() {
         );
       })}
     </section>
+  );
+}
+
+/** Queued GPU jobs (only with ORBIT_GPU_QUEUE=1): the shared progress card per job, with Cancel while it isn't finished. */
+function GpuJobs() {
+  const { lang } = useT();
+  const [jobs, setJobs] = useState<Progress[]>([]);
+  const load = useCallback(() => { void fetch(`/api/gpu-jobs?lang=${lang}`, { cache: "no-store" }).then((r) => r.json()).then((j: { jobs?: Progress[] }) => setJobs(j.jobs ?? []), () => {}); }, [lang]);
+  useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, [load]);
+  if (!jobs.length) return null;
+  const cancel = (id: string) => void fetch("/api/gpu-jobs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: id.replace(/^gpu:/, ""), action: "cancel" }) }).then(load);
+  return (
+    <div className="grid gap-2" aria-label="GPU jobs">
+      <b className="text-xs">{lang === "et" ? "GPU järjekord" : "GPU queue"}</b>
+      {jobs.slice(0, 6).map((p) => (
+        <ProgressCard key={p.id} p={p} compact>
+          {p.phase === "working" || p.phase === "waiting" ? <button className="chip" onClick={() => cancel(p.id)}>{lang === "et" ? "Tühista" : "Cancel"}</button> : null}
+        </ProgressCard>
+      ))}
+    </div>
   );
 }
