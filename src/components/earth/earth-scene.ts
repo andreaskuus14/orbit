@@ -9,10 +9,11 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, tilesFor, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, lerpPose, moveMs, clampAlt, zoneFade, type Rect } from "@/lib/earth-pure";
+import { x2lon, y2lat, arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, tilesFor, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, lerpPose, moveMs, clampAlt, zoneFade, type Rect } from "@/lib/earth-pure";
 
 import type { EarthData } from "@/lib/earth-data-pure";
-import { BUILDINGS_MAX_ALT, TOTAL as MAX_BUILDINGS, extrude, tilesAround, type Building } from "@/lib/earth-buildings-pure";
+import { BUILDINGS_MAX_ALT, BZ, TOTAL as MAX_BUILDINGS, extrude, tilesAround, type Building } from "@/lib/earth-buildings-pure";
+import { GROUND_PX, GROUND_TILES, drawGround, groundFade, withOpenSea, type Ctx, type Ground } from "@/lib/earth-ground-pure";
 export type { EarthData };
 export type EarthOpts = { tileUrl: (k: TileKind, z: number, x: number, y: number) => string; sunMs?: number; dpr?: number; onTown?: (t: TownNews) => void; rightInset?: () => number; buildingsUrl?: (x: number, y: number) => string; home?: { lon: number; lat: number; name: string } };
 
@@ -174,6 +175,17 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   float dist = length(uCam - vW) * 6371.; c = mix(c, vec3(.05,.07,.1), (1. - exp(-dist * .05)) * .5);
   gl_FragColor = vec4(c, uOp); }`;
 
+// the vector ground (OSM map drawn per z14 tile): a touch of sun shading, the major roads keep their glow at night, distance haze
+const gndVS = `${LOG} varying vec2 vUv; varying vec3 vW; void main(){ vUv = uv; vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
+const gndFS = `${LOGF} uniform sampler2D uMap; uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; varying vec2 vUv; varying vec3 vW;
+void main(){ \n#include <logdepthbuf_fragment>\n
+  vec3 c = texture2D(uMap, vUv).rgb; c = c * c; // the canvas is sRGB: to linear
+  float sun = dot(normalize(vW), uSun), lit = smoothstep(-.1, .2, sun);
+  float bright = max(c.r, max(c.g, c.b));
+  c *= mix(.8, 1.15, lit) + smoothstep(.15, .5, bright) * (1. - lit) * .6; // lit roads read as lights after dark
+  float dist = length(uCam - vW) * 6371.; c = mix(c, vec3(.012,.018,.028), (1. - exp(-dist * .06)) * .55);
+  gl_FragColor = vec4(c, uOp); }`;
+
 /* ---------- the scene ---------- */
 
 export function createEarth(host: HTMLElement, o: EarthOpts) {
@@ -243,16 +255,17 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   ]);
 
   /* terrain patches */
-  type Patch = { mesh: THREE.Mesh; u: { uOp: { value: number }; uNightK: { value: number }; uStyl: { value: number } }; lo: number; hi: number; box: Box; ground: (lon: number, lat: number) => number };
+  type Patch = { mesh: THREE.Mesh; u: { uOp: { value: number }; uNightK: { value: number }; uStyl: { value: number } }; lo: number; hi: number; box: Box; ground: (lon: number, lat: number) => number; sea: (lon: number, lat: number) => boolean };
   const patches: Patch[] = [];
   async function patch(box: Box, zi: number, ze: number, exag: number, lift: number, seg: number, lo: number, hi: number, haze: number, lakes = 0) {
     const [day, night, elev] = await Promise.all([mosaic(o, "day", box, zi), mosaic(o, "night", box, Math.min(zi, 8)), mosaic(o, "elev", box, ze)]);
     const eg = elev.canvas.getContext("2d")!, ed = eg.getImageData(0, 0, elev.canvas.width, elev.canvas.height).data, ew = elev.canvas.width, eh = elev.canvas.height;
-    const hAt = (lon: number, lat: number) => {
+    const rawAt = (lon: number, lat: number) => {
       const px = (((lon + 180) / 360) * 2 ** ze - elev.x0) * 256, py = (lat2y(lat, ze) - elev.y0) * 256;
       const x = Math.max(0, Math.min(ew - 1, Math.round(px))), y = Math.max(0, Math.min(eh - 1, Math.round(py))), i = (y * ew + x) * 4;
-      return Math.max(0, terrarium(ed[i], ed[i + 1], ed[i + 2]));
+      return terrarium(ed[i], ed[i + 1], ed[i + 2]);
     };
+    const hAt = (lon: number, lat: number) => Math.max(0, rawAt(lon, lat));
     const land = document.createElement("canvas"); land.width = ew; land.height = eh;
     { const lg = land.getContext("2d")!, img = lg.createImageData(ew, eh);
       for (let i = 0; i < ew * eh; i++) { const v = terrarium(ed[i * 4], ed[i * 4 + 1], ed[i * 4 + 2]) > -1.5 ? 255 : 0; /* sea = below -1.5 m: flat coastal land near 0 m stays land */ img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255; }
@@ -277,7 +290,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ vertexShader: terrVS, fragmentShader: terrFS, uniforms: u, transparent: true }));
     mesh.renderOrder = 2 + patches.length;
     scene.add(mesh);
-    patches.push({ mesh, u, lo, hi, box, ground: (lon, lat) => hAt(lon, lat) * exag + lift });
+    patches.push({ mesh, u, lo, hi, box, ground: (lon, lat) => hAt(lon, lat) * exag + lift, sea: (lon, lat) => rawAt(lon, lat) < -1.5 });
   }
   // Estonia (z8 imagery ≈ 600 m/px, z8 elevation) and central Tallinn (z14 imagery ≈ 5 m/px drawn, z12 elevation)
   const terrainReady = ready.then(() => Promise.all([
@@ -300,25 +313,52 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
 
   /* OSM buildings (city close-ups, below BUILDINGS_MAX_ALT): one merged mesh per z14 tile, standing on the finest terrain patch */
   const bU = { uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 } };
-  const bMat = new THREE.ShaderMaterial({ vertexShader: bldVS, fragmentShader: bldFS, uniforms: bU, transparent: true });
-  const bTiles = new Map<string, { mesh?: THREE.Mesh; n: number; retry?: number }>();
+  const bMat = new THREE.ShaderMaterial({ vertexShader: bldVS, fragmentShader: bldFS, uniforms: bU, transparent: true }); // always in the transparent pass: the ground (renderOrder 7, no depth test) must draw before them
+  const bTiles = new Map<string, { mesh?: THREE.Mesh; ground?: THREE.Mesh; n: number; retry?: number }>();
+  const gU = { uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 } };
+  /** The OSM ground for one tile: a canvas map on a small grid that follows the terrain, drawn after it and before the buildings. */
+  function makeGround(x: number, y: number, gr: Ground): THREE.Mesh | undefined {
+    if ([...bTiles.values()].filter((t) => t.ground).length >= GROUND_TILES) return;
+    const cv = document.createElement("canvas"); cv.width = cv.height = GROUND_PX;
+    const lat = y2lat(y + 0.5, BZ);
+    if (gr.open) gr = withOpenSea(gr, [[0.5, 0.5], [0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8]].filter(([a, b]) => seaAt(x2lon(x + a, BZ), y2lat(y + b, BZ))).length >= 3);
+    drawGround(cv.getContext("2d")! as unknown as Ctx, gr, GROUND_PX, lat);
+    const seg = 16, n = seg + 1, o0 = toXYZ(x2lon(x + 0.5, BZ), lat), pos = new Float32Array(n * n * 3), uv = new Float32Array(n * n * 2), idx: number[] = [];
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const lo = x2lon(x + i / seg, BZ), la = y2lat(y + j / seg, BZ), p = toXYZ(lo, la, (groundAt(lo, la) + 2) / (EARTH_KM * 1000)), k = j * n + i;
+      pos.set([p[0] - o0[0], p[1] - o0[1], p[2] - o0[2]], k * 3); uv.set([i / seg, 1 - j / seg], k * 2);
+    }
+    for (let j = 0; j < seg; j++) for (let i = 0; i < seg; i++) { const a = j * n + i; idx.push(a, a + n, a + 1, a + 1, a + n, a + n + 1); }
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.BufferAttribute(uv, 2)); g.setIndex(idx); g.computeBoundingSphere();
+    const t = tex(cv, false); t.onUpdate = () => { cv.width = cv.height = 1; }; // once on the GPU, free the 4 MB canvas
+    const m = new THREE.Mesh(g, new THREE.ShaderMaterial({ vertexShader: gndVS, fragmentShader: gndFS, uniforms: { ...gU, uMap: { value: t } }, transparent: true, depthTest: false, depthWrite: false }));
+    m.position.set(...o0); m.renderOrder = 7; scene.add(m);
+    return m;
+  }
+  const dropTile = (t: { mesh?: THREE.Mesh; ground?: THREE.Mesh }) => {
+    if (t.mesh) { scene.remove(t.mesh); t.mesh.geometry.dispose(); }
+    if (t.ground) { scene.remove(t.ground); t.ground.geometry.dispose(); const mt = t.ground.material as THREE.ShaderMaterial; (mt.uniforms.uMap.value as THREE.Texture).dispose(); mt.dispose(); }
+  };
   let bBusy = 0, bLast = 0;
-  const groundAt = (lon: number, lat: number) => {
+  const finest = (lon: number, lat: number) => {
     let best: Patch | null = null;
     for (const q of patches) if (lon >= q.box.w && lon <= q.box.e && lat >= q.box.s && lat <= q.box.n && (!best || q.box.e - q.box.w < best.box.e - best.box.w)) best = q;
-    return best ? best.ground(lon, lat) : 0;
+    return best;
   };
-  function addBuildings(key: string, x: number, y: number, bs: Building[]) {
+  const groundAt = (lon: number, lat: number) => finest(lon, lat)?.ground(lon, lat) ?? 0;
+  const seaAt = (lon: number, lat: number) => finest(lon, lat)?.sea(lon, lat) ?? false;
+  function addBuildings(key: string, x: number, y: number, bs: Building[], gr?: Ground) {
     const used = [...bTiles.values()].reduce((s, t) => s + (t.mesh ? t.n : 0), 0);
+    const ground = gr ? makeGround(x, y, gr) : undefined;
     bs = bs.slice(0, Math.max(0, MAX_BUILDINGS - used));
-    if (!bs.length) { bTiles.set(key, { n: 0 }); return; }
+    if (!bs.length) { bTiles.set(key, { n: 0, ground }); return; }
     const c = { lon: bs[0].r[0][0], lat: bs[0].r[0][1] };
     const ex = extrude(bs, c, groundAt, 1.6); // a little taller than life, like the terrain's exaggeration, so the city reads from above
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(ex.positions, 3)); g.setAttribute("normal", new THREE.BufferAttribute(ex.normals, 3));
     g.setAttribute("shade", new THREE.BufferAttribute(ex.shade, 1)); g.setAttribute("wall", new THREE.BufferAttribute(ex.wall, 3)); g.setIndex(new THREE.BufferAttribute(ex.index, 1));
     const mesh = new THREE.Mesh(g, bMat); mesh.position.set(...ex.origin); mesh.renderOrder = 8; mesh.frustumCulled = true; g.computeBoundingSphere();
-    scene.add(mesh); bTiles.set(key, { mesh, n: ex.count });
+    scene.add(mesh); bTiles.set(key, { mesh, ground, n: ex.count });
   }
   const loadBuildings = async (x: number, y: number, key: string) => {
     bBusy++; bTiles.set(key, { n: 0, retry: Infinity });
@@ -326,7 +366,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       const r = await fetch(o.buildingsUrl!(x, y)); const j = r.ok ? await r.json() : null;
       await terrainReady;
       if (!bTiles.has(key)) return; // dropped meanwhile
-      if (!j || j.offline) bTiles.set(key, { n: 0, retry: performance.now() + 10 * 60_000 }); else addBuildings(key, x, y, j.buildings ?? []);
+      if (!j || j.offline) bTiles.set(key, { n: 0, retry: performance.now() + 10 * 60_000 }); else addBuildings(key, x, y, j.buildings ?? [], j.ground);
     } catch { bTiles.set(key, { n: 0, retry: performance.now() + 10 * 60_000 }); } finally { bBusy--; }
   };
   function updateBuildings(p: Pose) {
@@ -339,10 +379,10 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       if (bBusy >= 2) break;
       if (!have || (have.retry !== undefined && have.retry < now)) void loadBuildings(t.x, t.y, k);
     }
-    if (bTiles.size > keys.size + 12) for (const [k, t] of bTiles) if (!keys.has(k) && t.retry !== Infinity) { if (t.mesh) { scene.remove(t.mesh); t.mesh.geometry.dispose(); } bTiles.delete(k); if (bTiles.size <= keys.size + 6) break; }
+    if (bTiles.size > keys.size + 12) for (const [k, t] of bTiles) if (!keys.has(k) && t.retry !== Infinity) { dropTile(t); bTiles.delete(k); if (bTiles.size <= keys.size + 6) break; }
   }
   /** For the fixture stills: put a tile's buildings in directly. */
-  const putBuildings = async (x: number, y: number, bs: Building[]) => { await terrainReady; addBuildings(`${x}/${y}`, x, y, bs); };
+  const putBuildings = async (x: number, y: number, bs: Building[], gr?: Ground) => { await terrainReady; addBuildings(`${x}/${y}`, x, y, bs, gr); };
 
   /* story layers */
   const glow: { m: THREE.ShaderMaterial; lo: number; hi: number; base: number; pts?: THREE.Vector3[]; ring?: THREE.Mesh }[] = [];
@@ -435,7 +475,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   const card = document.createElement("div"); card.className = "earth-card"; hud.appendChild(card);
   const lower = document.createElement("div"); lower.className = "earth-lower"; hud.appendChild(lower);
   const place = document.createElement("div"); place.className = "earth-place"; hud.appendChild(place);
-  const credit = document.createElement("div"); credit.className = "earth-credit"; credit.textContent = "Imagery: Sentinel-2 cloudless 2016 by EOX (Copernicus) · NASA Black Marble · AWS Terrain Tiles · GeoNames · Buildings © OpenStreetMap contributors"; hud.appendChild(credit);
+  const credit = document.createElement("div"); credit.className = "earth-credit"; credit.textContent = "Imagery: Sentinel-2 cloudless 2016 by EOX (Copernicus) · NASA Black Marble · AWS Terrain Tiles · GeoNames · Map and buildings © OpenStreetMap contributors"; hud.appendChild(credit);
   let cardAt: THREE.Vector3 | null = null;
   const ret = document.createElement("div"); ret.className = "earth-reticle"; ret.innerHTML = "<i></i><i></i><i></i><i></i><b></b>"; hud.appendChild(ret);
   const readout = document.createElement("div"); readout.className = "earth-readout"; hud.appendChild(readout);
@@ -487,8 +527,9 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     cloudU.uT.value = t; U.uT.value = t; cloudU.uFade.value = band(alt, 3000, 1e9, 1.0); // gone before the country shot: half-faded clouds read as grey blobs
     for (const q of patches) { q.u.uOp.value = band(alt, q.lo, q.hi, 0.9); q.u.uNightK.value = band(alt, 120, 1e9, 1.5); q.u.uStyl.value = 1 - band(alt, 9, 1e9, 1.4); } // coarse city lights only from high up
     dof.uniforms.uAmt.value = 0.3 * band(alt, 4, 60, 1.2); // no tilt-shift blur on city close-ups: the ground is soft enough
-    bU.uOp.value = band(alt, 0.05, BUILDINGS_MAX_ALT, 0.6); bMat.transparent = bU.uOp.value < 0.99; bMat.depthWrite = !bMat.transparent || bU.uOp.value > 0.5;
-    for (const t of bTiles.values()) if (t.mesh) t.mesh.visible = bU.uOp.value > 0.01;
+    bU.uOp.value = band(alt, 0.05, BUILDINGS_MAX_ALT, 0.6); bMat.depthWrite = bU.uOp.value > 0.5;
+    gU.uOp.value = groundFade(alt);
+    for (const t of bTiles.values()) { if (t.mesh) t.mesh.visible = bU.uOp.value > 0.01; if (t.ground) t.ground.visible = gU.uOp.value > 0.01; }
     updateBuildings(p);
     bloom.strength = 0.45;
     const w = W(), h = H();
@@ -568,6 +609,8 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   return {
     ready: ready.then(() => terrainReady),
     setData, frame, flyTo, playPath, focusPlace, putBuildings,
+    /** Tiles still loading (for the stills script). */
+    loading: () => bBusy,
     /** Where the camera is now (EarthView asks for the region's news once it settles). */
     view: () => ({ ...pose }),
     setPlaceName(s: string | null) { regionName = s; },
