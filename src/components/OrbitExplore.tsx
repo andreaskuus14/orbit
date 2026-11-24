@@ -23,7 +23,7 @@ export function WorldLoading() {
 export function OrbitExplore({ selected, onSelect }: { selected: PanelId | null; onSelect: (id: PanelId) => void }) {
   const { t } = useT();
   return <>
-    <button className="chip explore-trigger" popoverTarget="orbit-explore">{t("explore.open")} <span aria-hidden="true">↗</span></button>
+    <button className="chip explore-trigger" popoverTarget="orbit-explore">{t("explore.open")}</button>
     <nav id="orbit-explore" popover="auto" className="orbit-explore" aria-label={t("explore.label")}>
       <div className="explore-heading"><span>{t("explore.heading")}</span><button className="chip" popoverTarget="orbit-explore" popoverTargetAction="hide" aria-label={t("explore.close")}>{t("common.close")}</button></div>
       <button className="explore-core" popoverTarget="orbit-explore" popoverTargetAction="hide" onClick={() => onSelect("core")} aria-current={selected === "core" ? "page" : undefined}>

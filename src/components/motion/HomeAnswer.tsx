@@ -9,22 +9,29 @@ import { takeLines } from "@/lib/streamjson";
 import { homeText, startAnswer, statusLine, step, type HomeAnswer as State, type StreamEvent } from "@/lib/home-answer-pure";
 import type { DeepLink } from "@/lib/deeplink-pure";
 import { ChatAnswer } from "../ChatAnswer";
-import { getLang } from "../i18n";
+import { CitedAnswer } from "../CitedAnswer";
+import { getLang, useT } from "../i18n";
+import { numberCitations } from "@/lib/pure";
+import type { Cite } from "@/lib/core-cite-pure";
 import { corePhase } from "./motion";
 import { createPacer } from "./stream";
+import { uiSound } from "../ui/sound";
 
 export type HomeAsk = { id: number; text: string; here?: DeepLink | null; conversationId?: string | null };
 
-export function HomeAnswer({ ask, onContinue, onClose, onConversation }: {
-  ask: HomeAsk; onContinue: () => void; onClose: () => void; onConversation: (id: string) => void;
+export function HomeAnswer({ ask, onContinue, onClose, onConversation, onOpenMemory }: {
+  ask: HomeAsk; onContinue: () => void; onClose: () => void; onConversation: (id: string) => void; onOpenMemory: (id: string) => void;
 }) {
+  const { t } = useT();
   const [s, setS] = useState<State>(() => startAnswer(ask.text, ask.conversationId ?? null));
+  const [cites, setCites] = useState<{ citations?: Cite[]; trace?: { step: string; cite?: unknown }[] } | null>(null); // the final answer's sources (numbered like in CORE)
+  const [attempt, setAttempt] = useState(0); // Try again after an error re-asks the same question
   const [shown, setShown] = useState(""); // paced copy of s.text while it streams
   const abort = useRef<AbortController | null>(null);
 
   useEffect(() => {
     let state = startAnswer(ask.text, ask.conversationId ?? null);
-    setS(state); setShown("");
+    setS(state); setShown(""); setCites(null);
     const ac = new AbortController();
     abort.current = ac;
     const pacer = createPacer(setShown);
@@ -41,7 +48,11 @@ export function HomeAnswer({ ask, onContinue, onClose, onConversation }: {
       else if (ev.type === "step") corePhase({ type: "tool", tool: ev.label || ev.tool || "" });
       else if (ev.type === "step_done") corePhase({ type: "tool_end" });
       else if (ev.type === "navigate" && ev.to) navTo = ev.to;
-      else if (ev.type === "done" || ev.type === "bg_done") { pacer.stop(); setShown(state.text); corePhase({ type: "done" }); }
+      else if (ev.type === "done" || ev.type === "bg_done") {
+        pacer.stop(); setShown(state.text); corePhase({ type: "done" }); uiSound("done");
+        const d = ev as StreamEvent & { citations?: Cite[]; trace?: { step: string; cite?: unknown }[] };
+        setCites({ citations: d.citations, trace: d.trace });
+      }
       setS(state);
     };
     corePhase({ type: "submit" });
@@ -70,7 +81,7 @@ export function HomeAnswer({ ask, onContinue, onClose, onConversation }: {
       } finally { pacer.stop(); }
     })();
     return () => ac.abort();
-  }, [ask.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ask.id, attempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Esc stops a streaming answer, then closes the card.
   useEffect(() => {
@@ -86,15 +97,20 @@ export function HomeAnswer({ ask, onContinue, onClose, onConversation }: {
   const body = s.phase === "done" ? s.text : shown;
   const { text, cut } = homeText(body);
   const live = s.phase === "thinking" || s.phase === "tool" || s.phase === "writing";
+  // Plain words for every state (EN/ET); a failure never shows raw error text: what happened, the question is kept, Try again.
+  const status = s.phase === "thinking" ? t("homeAns.thinking") : s.phase === "handed" ? t("homeAns.handed") : s.phase === "error" ? t("homeAns.failed") : statusLine(s);
   return (
-    <section className="home-answer glass" aria-live="polite" aria-label="CORE's answer">
+    <section className="home-answer glass" aria-live="polite" aria-label={t("homeAns.aria")} aria-busy={live}>
       <p className="home-answer-q">{s.q}</p>
-      {text ? <div className="home-answer-a"><ChatAnswer text={text} streaming={live} /></div>
-        : <p className="home-answer-status" data-phase={s.phase}>{statusLine(s)}</p>}
+      {text && s.phase !== "error"
+        ? <div className="home-answer-a">{s.phase === "done" && !cut ? <CitedAnswer content={text} citations={cites?.citations} trace={cites?.trace} openMemory={onOpenMemory} />
+          : <ChatAnswer text={numberCitations(text, [])} streaming={live} />}</div>
+        : <p className="home-answer-status" data-phase={s.phase} role={s.phase === "error" ? "alert" : undefined}>{status}</p>}
       <div className="home-answer-actions">
-        {live ? <button type="button" className="chip" onClick={() => abort.current?.abort()}>Stop</button>
-          : <button type="button" className="chip" onClick={onContinue}>{cut ? "Read all in chat" : "Continue in chat"}</button>}
-        {!live && <button type="button" className="chip" onClick={onClose} aria-label="Close the answer">Close</button>}
+        {live ? <button type="button" className="chip" onClick={() => abort.current?.abort()}>{t("homeAns.stop")}</button>
+          : s.phase === "error" ? <button type="button" className="chip" onClick={() => setAttempt((n) => n + 1)}>{t("homeAns.retry")}</button>
+          : <button type="button" className="chip" onClick={onContinue}>{t(cut ? "homeAns.readAll" : "homeAns.continue")}</button>}
+        {!live && <button type="button" className="chip" onClick={onClose} aria-label={t("homeAns.closeAria")}>{t("common.close")}</button>}
       </div>
     </section>
   );

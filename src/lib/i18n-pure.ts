@@ -163,7 +163,7 @@ const BASE = {
   "cmd.workAria": "Jobs", "cmd.closeWork": "Close jobs", "cmd.tapToTalk": "Tap to talk",
   "cmd.modeTitle": "Ask: CORE answers or starts the job. Background job: a helper does it while you do something else.", "cmd.modeAria": "Mode: {mode}. Click to switch.",
   "cmd.modeAsk": "ask CORE", "cmd.modeTask": "agent task", "cmd.ask": "Ask", "cmd.task": "Background job",
-  "cmd.listening": "Listening… speak your question", "cmd.askPh": "What do you need? Type it or tap the mic", "cmd.taskPh": "Give ORBIT a job to do in the background, e.g. research X and save a report",
+  "cmd.listening": "Listening… speak your question", "cmd.askPh": "What do you need?", "cmd.taskPh": "Give ORBIT a job to do in the background, e.g. research X and save a report",
   "cmd.liveAria": "Live voice transcript", "cmd.askAria": "What do you need? Ask ORBIT", "cmd.taskAria": "Command bar: give the agents a task",
 
   "brief.plan": "Plan my day",
@@ -596,7 +596,7 @@ const BASE = {
   "core.projectFor": "Project for this chat", "core.newTitle": "Start a new chat", "core.new": "New",
   "core.intro": "Tell me what you need. I answer, or start the job and show its progress on the home screen. Nothing is sent, posted or bought without your click.",
   "core.attach": "Attach files", "core.attachTitle": "Attach images or documents (or drop / paste them)",
-  "core.ph": "What do you need?  (↑ last question · Esc stops)", "core.message": "Message CORE", "core.send": "Send", "core.suggests": "CORE suggests",
+  "core.ph": "What do you need?", "core.phTitle": "↑ brings back your last question · Esc stops an answer", "core.message": "Message CORE", "core.send": "Send", "core.suggests": "CORE suggests",
   "core.important": "Important", "core.plan": "CORE plan", "core.okSchedule": "OK, schedule",
   "mem.deleteConfirm": "Delete \"{title}\"? This can't be undone.", "mem.back": "← Back", "mem.content": "Content",
   "mem.tagsPh": "tags, comma separated", "mem.tags": "Tags", "mem.source": "source: {s}", "mem.openLink": "open link", "mem.openFile": "open file",
@@ -869,7 +869,7 @@ const BASE = {
   "intro.progress.title": "Watch it work", "intro.progress.body": "Each request becomes a card: ✓ done, ● doing now, ○ next, and about how long is left. The result shows up on the card.",
   "intro.needs.title": "Needs you", "intro.needs.body": "When ORBIT needs your OK (to post, send or spend) it waits here. Nothing goes out without your click.",
   "intro.stop.title": "Stop all", "intro.stop.body": "Pauses every helper and routine at once. Press Resume to start them again. Chat keeps working.",
-  "intro.help.title": "Need this again?", "intro.help.body": "Press ? for this tour. Planets, search and settings are under Planets and ⋯.",
+  "intro.help.title": "Need this again?", "intro.help.body": "This tour, search, the system check and settings are under ⋯. All planets are under Planets.",
   "story.lede": "Your AI that does the work for you.", "story.hintOpen": "Click to open · scroll to see the next planet", "story.hint": "Scroll to look around",
   "ops.workingNone": "Nothing running. Ask ORBIT for something in the box below and it shows up here.", "ops.loadFailed": "Couldn't load your jobs. Check that ORBIT is running on the PC, then press Refresh in Manual tools.",
   "chat.code": "Code", "chat.copyCode": "Copy code", "chat.less": "Show less", "chat.allLines": "Show all {n} lines", "chat.showAll": "Show all",
@@ -1454,6 +1454,8 @@ const BASE = {
   "bz.sendSelf": "Check it, then send it yourself.",
   "bz.honest": "Only say you tested their reply time if you really did.",
   "bz.watchFail": "Couldn't watch that site",
+  // home + CORE overhaul (MIX look)
+  "cmd.failed": "That didn't work. Try again.", "cmd.taskFailed": "Couldn't start the job. Your words are still in the box.", "galaxy.coreFailed": "Last request failed", "focus.startAria": "Focus mode: start a focus block", "focus.startTitle": "Focus mode: work on one thing; ORBIT holds everything that isn't urgent", "notify.title": "Notifications", "notify.ariaUnread": "Notifications, {n} unread", "notify.markRead": "Mark all read", "notify.clear": "Clear history", "notify.clearTitle": "Clear history; keep unresolved red alerts", "notify.settings": "Interruption settings", "notify.empty": "Nothing yet. Clips, reminders and agent results show up here.", "notify.enable": "Turn on desktop alerts", "notify.enableTitle": "Desktop alerts when clips are ready, a job fails or a Short goes live", "voice.micNone": "Voice input isn't supported in this browser", "voice.micStop": "Stop listening (Esc cancels)", "voice.micAsk": "Ask by voice (Ctrl+M)", "voice.muteAria": "Mute ORBIT's voice", "voice.unmuteAria": "Unmute ORBIT's voice", "voice.speakOnTitle": "ORBIT speaks answers. Click to mute.", "voice.speakOffTitle": "ORBIT is muted (it starts muted each time). Click to hear answers.", "voice.settings": "Voice settings", "voice.heard": "Heard:", "voice.pausedWhy": "Hey ORBIT is paused: {why}", "voice.wakePaused": "Hey ORBIT paused", "voice.wakeListening": "Listening…", "voice.wakeOn": "Hey ORBIT on", "voice.wakePausedTitle": "{why} Click to open voice settings and fix it.", "voice.wakeOnTitle": "Hands-free: ORBIT listens for “Hey ORBIT”. Click to turn it off (voice settings turns it back on).", "homeAns.thinking": "Thinking…", "homeAns.handed": "Working on it in the background. It will show up in Jobs.", "homeAns.failed": "CORE couldn't answer this time. Your question is kept: try again.", "homeAns.aria": "CORE's answer", "homeAns.stop": "Stop", "homeAns.retry": "Try again", "homeAns.readAll": "Read all in chat", "homeAns.continue": "Continue in chat", "homeAns.closeAria": "Close the answer", "level.used": "Thinking: {level}", "ws.aria": "CORE workspace", "ws.draft": "Draft", "ws.draftEmpty": "Drafts, previews, tables and code from CORE show up here.", "ws.previewTitle": "Workspace preview", "ws.openPreview": "Open preview", "ws.undo": "Undo edits", "ws.changePh": "Select a part, then say what to change", "ws.changeSel": "Change the selected {n} characters…", "ws.change": "Change this", "ws.editable": "{title}, editable", "ws.progress": "Progress", "ws.prepared": "Ready: drafted, nothing has run yet", "ws.executed": "Done: the steps ran, not checked separately", "ws.verified": "Checked: the result was checked or saved", "ws.now": "Now:", "ws.waiting": "Waiting:", "ws.doneSteps.one": "{n} step done", "ws.doneSteps.other": "{n} steps done", "ws.noWork": "Nothing has run in this chat yet.", "ws.voice": "Voice", "ws.listening": "Listening", "ws.busyVoice": "A job is running: talking won't stop it. Say “stop” to cancel.", "ws.heard": "Heard: “{text}”",
 } as const;
 
 type PlanetKey = `planet.${PlanetId}` | `planet.${PlanetId}.blurb`;
@@ -1689,7 +1691,7 @@ export const ET: Partial<Record<Key, string>> = {
   "cmd.workAria": "Tööd", "cmd.closeWork": "Sulge tööd", "cmd.tapToTalk": "Puuduta ja räägi",
   "cmd.modeTitle": "Küsi: CORE vastab või alustab tööd. Taustatöö: abiline teeb selle, kuni sa teed muud.", "cmd.modeAria": "Režiim: {mode}. Klõpsa, et vahetada.",
   "cmd.modeAsk": "küsi CORE'ilt", "cmd.modeTask": "agendi ülesanne", "cmd.ask": "Küsi", "cmd.task": "Taustatöö",
-  "cmd.listening": "Kuulan… ütle oma küsimus", "cmd.askPh": "Mida sa vajad? Kirjuta või puuduta mikrofoni", "cmd.taskPh": "Anna ORBITile taustatöö, nt uuri X ja salvesta raport",
+  "cmd.listening": "Kuulan… ütle oma küsimus", "cmd.askPh": "Mida sa vajad?", "cmd.taskPh": "Anna ORBITile taustatöö, nt uuri X ja salvesta raport",
   "cmd.liveAria": "Kõne tekstina reaalajas", "cmd.askAria": "Mida sa vajad? Küsi ORBITilt", "cmd.taskAria": "Käsurida: anna agentidele ülesanne",
 
   "brief.plan": "Planeeri mu päev",
@@ -2027,7 +2029,7 @@ export const ET: Partial<Record<Key, string>> = {
   "core.newTitle": "Alusta uut vestlust", "core.new": "Uus",
   "core.intro": "Ütle, mida vajad. Ma vastan või alustan tööd ja näitan selle käiku avalehel. Midagi ei saadeta, postitata ega osteta ilma sinu klõpsuta.",
   "core.attach": "Lisa failid", "core.attachTitle": "Lisa pilte või dokumente (või lohista / kleebi need)",
-  "core.ph": "Mida sa vajad?  (↑ viimane küsimus · Esc peatab)", "core.message": "Sõnum CORE'ile", "core.send": "Saada",
+  "core.ph": "Mida sa vajad?", "core.phTitle": "↑ toob tagasi viimase küsimuse · Esc peatab vastuse", "core.message": "Sõnum CORE'ile", "core.send": "Saada",
   "core.suggests": "CORE soovitab", "core.important": "Oluline", "core.plan": "CORE'i plaan", "core.okSchedule": "OK, ajasta",
   "mem.deleteConfirm": "Kas kustutada „{title}“? Seda ei saa tagasi võtta.", "mem.back": "← Tagasi", "mem.content": "Sisu",
   "mem.tagsPh": "sildid, komaga eraldatud", "mem.tags": "Sildid", "mem.source": "allikas: {s}", "mem.openLink": "ava link",
@@ -2296,7 +2298,7 @@ export const ET: Partial<Record<Key, string>> = {
   "intro.progress.title": "Vaata, kuidas töö käib", "intro.progress.body": "Iga soov saab kaardi: ✓ tehtud, ● praegu, ○ järgmine ja umbes kui kaua veel. Tulemus tuleb kaardile.",
   "intro.needs.title": "Vajab sind", "intro.needs.body": "Kui ORBIT vajab sinu nõusolekut (postitada, saata või kulutada), ootab see siin. Midagi ei lähe välja ilma sinu klõpsuta.",
   "intro.stop.title": "Peata kõik", "intro.stop.body": "Peatab korraga kõik abilised ja rutiinid. „Jätka” paneb need uuesti käima. Vestlus töötab edasi.",
-  "intro.help.title": "Vaja uuesti?", "intro.help.body": "Vajuta ? selle tutvustuse jaoks. Planeedid, otsing ja seaded on menüüdes „Planeedid” ja ⋯.",
+  "intro.help.title": "Vaja uuesti?", "intro.help.body": "See tutvustus, otsing, süsteemi kontroll ja seaded on menüüs ⋯. Kõik planeedid on menüüs „Planeedid”.",
   "story.lede": "Sinu tehisaru, kes teeb töö sinu eest ära.", "story.hintOpen": "Klõpsa avamiseks · keri järgmise planeedini", "story.hint": "Keri, et ringi vaadata",
   "ops.workingNone": "Midagi ei käi. Küsi ORBITilt allolevas kastis ja see ilmub siia.", "ops.loadFailed": "Töid ei saanud laadida. Kontrolli, et ORBIT arvutis töötab, ja vajuta tööriistades „Värskenda”.",
   "chat.code": "Kood", "chat.copyCode": "Kopeeri kood", "chat.less": "Näita vähem", "chat.allLines": "Näita kõiki {n} rida", "chat.showAll": "Näita kõike",
@@ -2951,6 +2953,8 @@ export const ET: Partial<Record<Key, string>> = {
   "bz.sendSelf": "Kontrolli ja saada ise.",
   "bz.honest": "Ütle, et testisid nende vastamisaega, ainult siis, kui päriselt testisid.",
   "bz.watchFail": "Seda lehte ei saanud jälgida",
+  // home + CORE overhaul (MIX look)
+  "cmd.failed": "See ei õnnestunud. Proovi uuesti.", "cmd.taskFailed": "Tööd ei saanud alustada. Su sõnad on kastis alles.", "galaxy.coreFailed": "Viimane päring ebaõnnestus", "focus.startAria": "Fookusrežiim: alusta fookusplokki", "focus.startTitle": "Fookusrežiim: tööta ühe asja kallal; ORBIT hoiab kinni kõik, mis pole kiire", "notify.title": "Teavitused", "notify.ariaUnread": "Teavitused, {n} lugemata", "notify.markRead": "Märgi kõik loetuks", "notify.clear": "Tühjenda ajalugu", "notify.clearTitle": "Tühjenda ajalugu; lahendamata punased hoiatused jäävad alles", "notify.settings": "Segamise seaded", "notify.empty": "Veel pole midagi. Klipid, meeldetuletused ja agentide tulemused ilmuvad siia.", "notify.enable": "Lülita töölaua teavitused sisse", "notify.enableTitle": "Töölaua teavitused, kui klipid on valmis, töö ebaõnnestub või Short läheb avalikuks", "voice.micNone": "See brauser ei toeta häälsisendit", "voice.micStop": "Lõpeta kuulamine (Esc tühistab)", "voice.micAsk": "Küsi häälega (Ctrl+M)", "voice.muteAria": "Vaigista ORBITi hääl", "voice.unmuteAria": "Lülita ORBITi hääl sisse", "voice.speakOnTitle": "ORBIT loeb vastused ette. Klõpsa vaigistamiseks.", "voice.speakOffTitle": "ORBIT on vaigistatud (alustab alati vaigistatult). Klõpsa, et vastuseid kuulda.", "voice.settings": "Hääle seaded", "voice.heard": "Kuulsin:", "voice.pausedWhy": "Hei ORBIT on peatatud: {why}", "voice.wakePaused": "Hei ORBIT peatatud", "voice.wakeListening": "Kuulan…", "voice.wakeOn": "Hei ORBIT sees", "voice.wakePausedTitle": "{why} Klõpsa, et avada hääle seaded ja see korda teha.", "voice.wakeOnTitle": "Käed-vabad: ORBIT kuulab, kas ütled „Hei ORBIT”. Klõpsa väljalülitamiseks (hääle seadetes saad selle tagasi sisse lülitada).", "homeAns.thinking": "Mõtlen…", "homeAns.handed": "Teen seda taustal. See ilmub jaotisse Tööd.", "homeAns.failed": "CORE ei saanud seekord vastata. Su küsimus on alles: proovi uuesti.", "homeAns.aria": "CORE vastus", "homeAns.stop": "Peata", "homeAns.retry": "Proovi uuesti", "homeAns.readAll": "Loe kõike vestluses", "homeAns.continue": "Jätka vestluses", "homeAns.closeAria": "Sulge vastus", "level.used": "Mõtlemine: {level}", "ws.aria": "CORE tööala", "ws.draft": "Mustand", "ws.draftEmpty": "CORE mustandid, eelvaated, tabelid ja kood ilmuvad siia.", "ws.previewTitle": "Tööala eelvaade", "ws.openPreview": "Ava eelvaade", "ws.undo": "Võta muudatused tagasi", "ws.changePh": "Vali osa ja ütle, mida muuta", "ws.changeSel": "Muuda valitud {n} märki…", "ws.change": "Muuda seda", "ws.editable": "{title}, muudetav", "ws.progress": "Edenemine", "ws.prepared": "Valmis: mustand on tehtud, midagi pole veel käivitatud", "ws.executed": "Tehtud: sammud käisid, eraldi kontrollimata", "ws.verified": "Kontrollitud: tulemus on kontrollitud või salvestatud", "ws.now": "Praegu:", "ws.waiting": "Ootab:", "ws.doneSteps.one": "{n} samm tehtud", "ws.doneSteps.other": "{n} sammu tehtud", "ws.noWork": "Selles vestluses pole veel midagi käivitatud.", "ws.voice": "Hääl", "ws.listening": "Kuulan", "ws.busyVoice": "Töö käib: rääkimine seda ei peata. Tühistamiseks ütle „stopp”.", "ws.heard": "Kuulsin: „{text}”",
 };
 
 type Vars = Record<string, string | number>;

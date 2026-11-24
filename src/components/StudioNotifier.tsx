@@ -3,6 +3,7 @@
 // YouTube-blocked downloads and scheduled Shorts going live. Logic: src/lib/studio-notify.ts. Renders only the permission chip.
 import { useEffect, useState } from "react";
 import { sharedJson } from "./use-poll";
+import { useT } from "./i18n";
 import { parseState, step, type NotifyState } from "@/lib/studio-notify";
 import { notify } from "@/lib/notify-pure";
 import { clipProblemNotices, RESOLVE_ALERT } from "@/lib/interruption-pure";
@@ -30,7 +31,8 @@ async function insightNotes() {
   }
 }
 
-export function StudioNotifier() {
+export function StudioNotifier({ inMenu = false }: { inMenu?: boolean } = {}) {
+  const { t } = useT();
   const [ask, setAsk] = useState(false);
   useEffect(() => { setAsk("Notification" in window && Notification.permission === "default"); }, []);
 
@@ -68,6 +70,7 @@ export function StudioNotifier() {
   }, []);
 
   if (!ask) return null;
-  return <button className="chip hidden sm:inline-flex" title="Desktop alerts when clips are ready, a job fails or a Short goes live"
-    onClick={() => void Notification.requestPermission().finally(() => setAsk(Notification.permission === "default"))}>🔔 Enable notifications</button>;
+  // In the bell's menu (home top bar): one plain row instead of a second bell-looking button beside the bell.
+  return <button className={inMenu ? "hud-menu-item w-full" : "chip hidden sm:inline-flex"} title={t("notify.enableTitle")}
+    onClick={() => void Notification.requestPermission().finally(() => setAsk(Notification.permission === "default"))}>{t("notify.enable")}</button>;
 }

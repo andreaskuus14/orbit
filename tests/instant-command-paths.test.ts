@@ -127,9 +127,8 @@ test("the command bar runs commands directly in both Ask and Task modes", async 
       find(tree, (e) => e.type === "button" && String(e.props.children).startsWith("Box sends to:"))!.props.onClick(); // the mode lives in ⋯ (simple home)
       tree = h.render();
     }
-    find(tree, (e) => e.type === "input" && /^(Command bar:|What do you need)/.test(String(e.props["aria-label"])))!.props.onChange({ target: { value: text } });
-    tree = h.render();
-    await find(tree, (e) => e.type === "form")!.props.onSubmit({ preventDefault() {} });
+    // The typed text lives in CommandBar (home/CommandBar.tsx); Orbit gets the finished text through onRun.
+    await find(tree, (e) => typeof e.props?.onRun === "function" && "onSwitchMode" in e.props)!.props.onRun(text);
     assert.deepEqual(h.calls, [nav.parseNavCommand(text, { current: null })], text);
     assert.equal(h.requests.length, 0, "no CORE or agent task request");
     assert.ok(h.state.includes(nav.navReply(h.calls[0])), "visible confirmation");

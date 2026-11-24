@@ -6,6 +6,7 @@
 // tests/progress.test.ts. An action never approves by itself: it opens where the exact item and its own Approve live (AGENTS.md rule 6).
 import type { Lang } from "./i18n-pure.ts";
 import { opsStatus } from "./ops-status-pure.ts";
+import { joinDetail } from "./home-ui-pure.ts";
 
 export type StepState = "done" | "now" | "next" | "failed";
 export type ProgressStep = { label: string; state: StepState };
@@ -139,6 +140,6 @@ export const doneShare = (p: Progress) => (p.phase === "done" ? 1 : p.steps.leng
  *  open stays "": the inbox opens the item through its own BriefOpen (openTarget), never a one-tap approve. */
 export function fromNeed(n: { ref: string; kind: "decide" | "unblock" | "review"; cause: string; title: string; detail?: string; at?: string }, ask: string, label: string): Progress {
   const phase: ProgressPhase = n.kind === "review" ? "done" : n.kind === "unblock" && n.cause === "failed" ? "failed" : "needs";
-  return { id: n.ref, title: n.title, phase, steps: [], now: null, leftMin: null, result: { text: n.detail ? `${n.detail}. ${ask}` : ask },
+  return { id: n.ref, title: n.title, phase, steps: [], now: null, leftMin: null, result: { text: joinDetail(n.detail, ask) },
     action: { kind: n.kind === "decide" ? "approve" : n.kind === "unblock" ? "retry" : "open", label, open: "" }, at: n.at ?? "" };
 }

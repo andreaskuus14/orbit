@@ -66,8 +66,10 @@ export function StopAll() {
   const on = !!s?.stop.on;
   return (
     <>
-      <button className="chip" onClick={() => toggle(!on)} disabled={busy || !s} aria-pressed={on} style={on ? { borderColor: "var(--rose)" } : undefined}
-        aria-label={t(on ? "stop.aria.on" : "stop.aria")} title={t(on ? "stop.title.on" : "stop.title")}>🛑<span className="hidden sm:inline"> {t("stop.label")}</span></button>
+      <button className="chip stop-all" onClick={() => toggle(!on)} disabled={busy || !s} aria-pressed={on} style={on ? { borderColor: "var(--rose)" } : undefined}
+        aria-label={t(on ? "stop.aria.on" : "stop.aria")} title={t(on ? "stop.title.on" : "stop.title")}>
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><rect x="3.5" y="3.5" width="9" height="9" rx="2" fill="currentColor" /></svg>
+        <span className="hidden sm:inline">{t(on ? "stop.resume" : "stop.label")}</span></button>
       {(on || err) && (
         <div role="alert" className="fixed left-1/2 top-16 z-50 flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-1.5 text-sm"
           style={{ background: "rgba(127, 29, 29, 0.92)", border: "1px solid var(--rose)", color: "#fff", boxShadow: "0 0 18px rgba(251, 113, 133, 0.45)" }}>

@@ -25,7 +25,6 @@ import { linkFromHash, linkToHash, shouldPush, type DeepLink } from "@/lib/deepl
 import { askHere } from "@/lib/voice-target-pure";
 import { viewKey } from "@/lib/planet-view-pure";
 import { NAV_EVENT, parseNavCommand, type LifeView, type NavTarget } from "@/lib/nav-pure";
-import { StudioNotifier } from "./StudioNotifier";
 import { NotificationCenter } from "./NotificationCenter";
 import { StopAll } from "./StopAll";
 import { PresenceBeat } from "./PresenceBeat";
@@ -76,6 +75,11 @@ import { ASK_FOCUS } from "./PlanetHome";
 import { SimpleOr } from "./SimpleOr";
 import { PlanetBoundary } from "./PlanetBoundary";
 import { StaleBuildWatch } from "./StaleBuildWatch";
+import { CommandBar, type CommandBarHandle } from "./home/CommandBar";
+import { displayName } from "@/lib/home-ui-pure";
+import { IconMore } from "./ui/icons";
+import { uiSound } from "./ui/sound";
+import "@/app/home.css";
 import { useDialogFocus } from "./useDialogFocus";
 import { TimeDilation } from "./TimeDilation";
 import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
@@ -95,7 +99,6 @@ import { FocusWork, JumpPill, useFocusProgress } from "./motion/FocusWork";
 import { HomeDepth } from "./motion/HomeDepth";
 import { useFollowWork } from "./motion/useFollowWork";
 import { followHome, followPlanet } from "@/lib/follow-pure";
-import { Toaster } from "./ui"; // the one toast stack (design language); brings planet-ui.css (all scoped under .pu)
 
 const Galaxy = dynamic(() => import("./Galaxy"), { ssr: false, loading: () => <GalaxyLoader /> });
 const PerfRun = dynamic(() => import("./PerfRun"), { ssr: false }); // only with ?perfrun=1
@@ -214,10 +217,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   // while the card is open continue the same conversation. "Continue in chat" opens it in CORE.
   const [homeAsk, setHomeAsk] = useState<HomeAsk | null>(null);
   const homeConvo = useRef<string | null>(null);
-  const [cmd, setCmd] = useState("");
   const [live, setLive] = useState<"connecting" | "live" | "offline">("connecting");
   const pulses = useRef<Record<string, number>>({});
-  const cmdRef = useRef<HTMLInputElement>(null);
+  const cmdRef = useRef<CommandBarHandle>(null);
   useEffect(() => { // a planet home's "Ask ORBIT about …": the one place to type, in Ask mode
     const focus = () => { setCmdMode("ask"); cmdRef.current?.focus(); };
     addEventListener(ASK_FOCUS, focus);
@@ -710,41 +712,39 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   useEffect(() => { if (shown === "life") void import("./LifePanel"); }, [shown]); // LIFE's simple home: loading the module still resumes a running focus timer, as opening LIFE always did
   const clearGreeting = useCallback(() => setWakeGreeting(null), []);
 
-  async function runCommand(e: React.FormEvent) {
-    e.preventDefault();
-    if (voice.listening) { voice.stop(); return; } // Enter while talking = done talking
-    const text = cmd.trim();
-    if (!text) return;
+  /** The command bar's finished text. Returns true when the box should clear (a failed task keeps his words). */
+  async function runCommand(text: string): Promise<boolean> {
     voice.clearError();
     setCmdErr("");
     setCmdReply("");
     let nav = parseNavCommand(text, { current: shown }); // direct commands work in Ask and Task mode
     if (nav?.zoom && !scene3d) nav = null;
     if (nav) {
-      setCmd(""); stopSpeech();
+      stopSpeech();
       try { setCmdReply(await runNavCommand(nav)); }
-      catch (e) { setCmdErr(e instanceof Error ? e.message : "Command failed. Try again."); }
-      return;
+      catch (e) { setCmdErr(e instanceof Error ? e.message : t("cmd.failed")); }
+      return true;
     }
-    if (runRecipeCommand(text, (msg, ok) => { if (ok) setCmdReply(msg); else setCmdErr(msg); })) { setCmd(""); return; } // "run recipe daily ideas": no CORE call
-    if (runFollowCommand(text, (msg, ok) => { if (!ok) setCmdErr(msg); })) { setCmd(""); return; } // "follow Estonia" / "unfollow AI"
+    if (runRecipeCommand(text, (msg, ok) => { if (ok) setCmdReply(msg); else setCmdErr(msg); })) return true; // "run recipe daily ideas": no CORE call
+    if (runFollowCommand(text, (msg, ok) => { if (!ok) setCmdErr(msg); })) return true; // "follow Estonia" / "unfollow AI"
     if (cmdMode === "ask" && motion && activityHome && !fw.job) { // answered on home, under the orb
-      fw.markRequest(); setCmd("");
+      fw.markRequest(); uiSound("send");
       setHomeAsk((prev) => ({ id: Date.now(), text, here: askHere(hereLink(), shown), conversationId: prev ? homeConvo.current : null }));
       if (!homeAsk) homeConvo.current = null;
-      return;
+      return true;
     }
-    if (cmdMode === "ask") { fw.markRequest(); setCmd(""); setPending({ text, here: askHere(hereLink(), shown) }); openCore(); return; } // CORE is told which planet he is on
+    if (cmdMode === "ask") { fw.markRequest(); uiSound("send"); setPending({ text, here: askHere(hereLink(), shown) }); openCore(); return true; } // CORE is told which planet he is on
     // Task mode: Nova interprets the request, delegates to the right agents and reports back.
     try {
       if (motion) { fw.markRequest(); corePhase({ type: "submit" }); }
       const res = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ request: text }) });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Could not create the task");
-      setCmd("");
+      if (!res.ok) throw new Error(json.error || t("cmd.taskFailed"));
+      uiSound("send");
       if (motion) { corePhase({ type: "done" }); offerTask({ ...json.task, request: json.task.request ?? text }, true); } // he watches it in the focused view
       else openTask(json.task.id);
-    } catch (err) { if (motion) corePhase({ type: "error" }); setCmdErr(err instanceof Error ? err.message : "Could not create the task"); }
+      return true;
+    } catch (err) { if (motion) corePhase({ type: "error" }); setCmdErr(err instanceof Error ? err.message : t("cmd.taskFailed")); return false; }
   }
 
   async function signOut() { try { clearProjectSession(sessionStorage); } catch { /* storage off */ } await sb.auth.signOut(); location.href = "/login"; }
@@ -810,7 +810,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
                 : p.id === "memory" ? tn("overview.memories", memoryShown) : p.id === "intelligence" && pulseBusy ? t("overview.pulseBusy") : p.id === "intelligence" && pulseFailed ? t("overview.pulseFailed") : p.id === "operations" && automationFailing ? t("overview.autoFailed") : p.id === "life" && lifeLine ? lifeLine : p.id === "agents" && runningTasks.length ? tn("overview.running", runningTasks.length) : t(`planet.${p.id}.blurb`);
               return (
                 <li key={p.id}><button className={`planet-card${st?.state === "broke" ? " warn" : ""}`} onPointerEnter={() => warmWorld(p.id)} onFocus={() => warmWorld(p.id)} data-overview-planet={p.id} onClick={() => galaxySelect(p.id)} style={{ borderColor: border }}>
-                  <b style={{ color: p.color }}><WorldEmblem id={p.id} size={26} className="planet-card-emblem" />{t(`planet.${p.id}`)}{badge ? ` · ${badge}` : ""}</b>
+                  <b style={{ color: p.color }}><WorldEmblem id={p.id} size={26} className="planet-card-emblem" />{displayName(t(`planet.${p.id}`))}{badge ? ` · ${badge}` : ""}</b>
                   <span className="muted text-sm">{sub}</span></button></li>
               );
             })}
@@ -818,25 +818,22 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </nav>
       )}
 
-      <header className="absolute inset-x-0 top-0 flex items-center justify-between gap-3 px-4 py-3">
+      <header className="hud-top absolute inset-x-0 top-0 flex items-center justify-between gap-3 px-4 py-3">
         <button className="logo" onClick={closeWorld} aria-label={t("hud.home")}>
-          <BrandMark size={40} />
-          <span><span className="brand block">Orbital</span><span className="muted block text-[10px] tracking-[0.2em]">{t("hud.tagline")}</span></span>
+          <BrandMark size={28} />
+          <span className="brand">Orbital</span>
         </button>
         <div className="hud-bar-top">
           {(live === "offline" || details) && <span className={"pill hidden sm:inline-flex " + (live === "live" ? "ok" : live === "offline" ? "bad" : "")} title={t("hud.liveTitle")}>{t(live === "live" ? "hud.live" : live === "offline" ? "hud.offline" : "hud.connecting")}</span>}
           {process.env.NODE_ENV === "development" && <span className="pill hidden lg:inline-flex" title="Running the development server (slower). Start Orbital from the desktop shortcut for the production server.">DEV</span>}
-          <span data-tour="stop" className="contents"><StopAll /></span>
           <PresenceBeat />
-          <TimeDilation onSpan={setDilation} />
           <NotificationCenter home={!shown && !approach} />
-          <StudioNotifier />
+          <TimeDilation onSpan={setDilation} />
+          <span className="hud-sep" aria-hidden="true" />
           <OrbitExplore selected={shown} onSelect={(id) => galaxySelect(id, true)} />
-          <button className="chip hud-search hud-phone-menu" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))} aria-label={t("hud.search")} title={t("hud.searchTitle")}>⌕</button>
           <button className="chip hud-phone-menu" onClick={() => setWorkOpen("work")} aria-keyshortcuts="Alt+W" title={t("hud.workTitle")}>{t("hud.work")}</button>
-          <button className="chip hud-phone-menu" onClick={() => setDoctor("click")} aria-label={t("sys.check")} title={t("sys.check")}>🩺</button>
-          <button className="chip" data-tour="help" onClick={() => dispatchEvent(new Event(TOUR_EVENT))} aria-label={t("hud.help")} title={t("hud.helpTitle")}>?</button>
-          <button className="chip hud-more" popoverTarget="hud-menu" aria-label={t("hud.more")} title={t("hud.moreTitle")}>⋯</button>
+          <span data-tour="stop" className="contents"><StopAll /></span>
+          <button className="chip hud-more hud-icon" data-tour="help" popoverTarget="hud-menu" aria-label={t("hud.more")} title={t("hud.moreTitle")}><IconMore width={20} height={20} /></button>
         </div>
       </header>
       {/* Native popover: light-dismiss and Esc for free, drawn in the top layer above every panel. */}
@@ -861,6 +858,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => living.setOpen(true)}>{t("menu.timeTravel")}</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: null, mission: true } }))}>{t("menu.mission")}</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(SHORTCUTS_EVENT))}>{t("menu.shortcuts")} <kbd>?</kbd></button>
+        <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(TOUR_EVENT))} title={t("hud.helpTitle")}>{t("hud.help")}</button>
         <RealSkyToggle />
         <HoloToggle />
         <button className="hud-menu-item" aria-pressed={sfxOn} onClick={() => { sfx.set(!sfxOn); setSfxOn(!sfxOn); if (!sfxOn) sfx.tick(); }}>{t("menu.sounds", { state: t(sfxOn ? "common.on" : "common.off") })}</button>
@@ -875,7 +873,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><RemoteCall compact /><PcConfirm /></>}
 
       {drawer && !WORLDS.includes(drawer) && (
-        <aside ref={drawerDrag.ref} tabIndex={-1} className={`glass drawer${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
+        <aside ref={drawerDrag.ref} tabIndex={-1} className={`glass drawer${drawer === "core" ? " drawer-core" : ""}${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
           aria-hidden={!panel || undefined} inert={!panel || undefined}>
           <div className="drag-handle mb-3 flex items-center justify-between" {...(docked ? {} : drawerDrag.handle)}><h2 className="brand world-header flex items-center gap-2 text-base">{drawer && drawer !== "profile" && <WorldEmblem id={drawer} size={28} />}<MaskText key={title} text={title} />{drawer && <WorldHeaderArt id={drawer} />}</h2><button className="chip" onClick={() => setPanel(null)} aria-label={t("hud.closePanel")} title={t("hud.closeEsc")}>{t("common.close")}</button></div>
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -928,25 +926,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
 
       {motion && activityHome && !fw.job && <CorePresence size="lg" hideIdle={!homeAsk} className="home-presence" />}
       {motion && activityHome && !fw.job && homeAsk && <HomeAnswer ask={homeAsk} onConversation={(id) => { homeConvo.current = id; }}
-        onClose={() => setHomeAsk(null)} onContinue={() => { setHomeAsk(null); openCore(); }} />}
+        onOpenMemory={openMemory} onClose={() => setHomeAsk(null)} onContinue={() => { setHomeAsk(null); openCore(); }} />}
       {motion && fw.job && fw.sheet && <FocusWork p={focusLive.p} planet={fw.job.planet} at={focusLive.at} onBack={fw.back} follow={fw.follow} onFollow={fw.setFollow} leaving={fw.leaving} />}
       {motion && fw.pill && !fw.job && <JumpPill title={fw.pill.title} planet={fw.pill.planet} onJump={fw.jump} onDismiss={fw.dismissPill} />}
-      <form onSubmit={runCommand} className="glass cmdbar" data-tour="ask" data-home={activityHome || undefined} hidden={panel === "core" || undefined /* CORE has its own box: one place to type */}>
-        <div className="flex gap-2">
-          {cmdMode === "task" && <button type="button" className="chip shrink-0" onClick={switchMode} title={t("cmd.modeTitle")}
-            aria-label={t("cmd.modeAria", { mode: t("cmd.modeTask") })}>
-            {t("cmd.task")}
-          </button>}
-          <input ref={cmdRef} className={"field w-full" + (voice.listening ? " voice-live" : "")} value={voice.listening ? voice.interim : cmd} onChange={(e) => setCmd(e.target.value)} maxLength={8000}
-            readOnly={voice.listening}
-            placeholder={t(voice.listening ? "cmd.listening" : cmdMode === "ask" ? "cmd.askPh" : "cmd.taskPh")}
-            aria-label={t(voice.listening ? "cmd.liveAria" : cmdMode === "ask" ? "cmd.askAria" : "cmd.taskAria")} />
-          <VoiceControls voice={voice} />
-        </div>
-        {(cmdErr || voice.error) && <p className="error mt-1 px-1" role="alert">{cmdErr || voice.error}</p>}
-        {cmdReply && <p className="muted mt-1 px-1" role="status">{cmdReply}</p>}
-      </form>
-      <Toaster dismissLabel={t("sx.dismiss")} />{/* STUDIO "3 Shorts are ready to check · Check", "Channel data is up to date" */}
+      <CommandBar ref={cmdRef} voice={voice} mode={cmdMode} onSwitchMode={switchMode} onRun={runCommand} err={cmdErr} reply={cmdReply} reduced={reduced}
+        home={activityHome} hidden={panel === "core" || undefined /* CORE has its own box: one place to type */} />
     </main>
   );
 }
