@@ -3,6 +3,7 @@ import { useState } from "react";
 import { StatusPill, api } from "./AgentMission";
 import type { ChainView } from "@/lib/chains-pure";
 import { checkTeam, move } from "@/lib/mission-pure";
+import { askConfirm } from "./ui/Dialog";
 
 // AGENT TEAMS: build a 2-5 step chain (each step gets the previous result as data) and watch recent chains.
 // The station owns the /api/chains polling (it also draws the hand-off beams); this panel only renders + acts.
@@ -38,7 +39,7 @@ export default function TeamBuilder({ agents, chains, error, onChanged, onOpenTa
     finally { setBusy(false); }
   }
   async function cancel(c: ChainView) {
-    if (!window.confirm(`Cancel the team "${c.goal}"? The running step stops and later steps won't start.`)) return;
+    if (!(await askConfirm(`Cancel the team "${c.goal}"? The running step stops and later steps won't start.`))) return;
     setErr(""); setBusy(true);
     try { await api("/api/chains", { method: "POST", body: JSON.stringify({ action: "cancel", chainId: c.chainId }) }); onChanged(); }
     catch (e) { setErr(e instanceof Error ? e.message : "Could not cancel"); }

@@ -4,6 +4,7 @@ import { pollMs } from "@/lib/poll-pure";
 import { usePoll } from "./use-poll";
 import { MODES, MODE_TEXT, grantLive, type AuthorityState, type Grant, type Mode } from "@/lib/authority-pure";
 import { changeStopAll } from "./nav-command";
+import { askConfirm } from "./ui/Dialog";
 
 type View = AuthorityState & { policyVersion: string; stopAll: boolean };
 
@@ -30,7 +31,7 @@ export function AuthoritySection() {
   usePoll(poll, pollMs(30_000));
 
   async function stopAll() {
-    if (!confirm("Stop everything? Running work stops and nothing runs on its own until you resume on the PC.")) return;
+    if (!(await askConfirm("Stop everything? Running work stops and nothing runs on its own until you resume on the PC."))) return;
     try { await changeStopAll(true); await call(); } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't stop"); }
   }
   function addGrant() {
@@ -51,7 +52,7 @@ export function AuthoritySection() {
             <div className="muted text-xs">{g.actions.join(", ")} · {limitText(g)}{g.destinations.length ? ` · to ${g.destinations.join(", ")}` : ""}{g.expiresAt ? ` · until ${g.expiresAt.slice(0, 10)}` : ""}</div>
             {!g.revoked && <div className="mt-1 flex gap-2">
               <button className="chip" onClick={() => void call({ action: "pause", id: g.id, on: !g.paused })}>{g.paused ? "Resume" : "Pause"}</button>
-              <button className="chip" onClick={() => confirm(`Revoke the grant for ${g.workflow}?`) && void call({ action: "revoke", id: g.id })}>Revoke</button>
+              <button className="chip" onClick={async () => (await askConfirm(`Revoke the grant for ${g.workflow}?`)) && void call({ action: "revoke", id: g.id })}>Revoke</button>
             </div>}
           </li>
         ))}

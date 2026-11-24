@@ -10,6 +10,7 @@ import { WarmCompile } from "./WarmCompile";
 import { useGlRecovery } from "./useGlRecovery";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { AFFINITIES, AFFINITY_COLOR, daysSince, moonSize, recency, ringLayout, type Affinity, type Person, type Touch } from "@/lib/people-pure";
+import { askConfirm } from "./ui/Dialog";
 
 type View = Person & { local: boolean; last: string | null; overdue: boolean };
 const API = "/api/people";
@@ -211,7 +212,7 @@ export function PeoplePanel({ st }: { st: PeopleState }) {
           </div>
         </>}
       </div>}
-      {p.local && <button className="chip text-xs" disabled={!!busy} onClick={() => { if (confirm(`Remove ${p.name} from People? Your notes about them go too.`)) void act("delete", { action: "delete", id: p.id }, () => setSel(null)); }}>Remove</button>}
+      {p.local && <button className="chip text-xs" disabled={!!busy} onClick={async () => { if ((await askConfirm(`Remove ${p.name} from People? Your notes about them go too.`))) void act("delete", { action: "delete", id: p.id }, () => setSel(null)); }}>Remove</button>}
     </div>}
 
     {!!sorted.length && <ul className="space-y-0.5" aria-label="People">{sorted.map((x) =>

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { itemLine, knowRequest, type EditCtx, type Group, type KnowItem } from "@/lib/knows-pure";
 import type { Key } from "@/lib/i18n-pure";
 import { useT } from "./i18n";
+import { askConfirm } from "./ui/Dialog";
 
 type View = { groups: { group: Group; items: KnowItem[] }[]; ctx: EditCtx; missing: string[] };
 const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString([], { dateStyle: "medium" }) : "");
@@ -29,7 +30,7 @@ export function KnowsPanel({ onBack, onBeliefs }: { onBack: () => void; onBelief
 
   const run = async (i: KnowItem, value: string | null) => {
     if (!view || busy) return;
-    if (value === null && !confirm(t("knows.confirmDelete"))) return;
+    if (value === null && !(await askConfirm(t("knows.confirmDelete")))) return;
     const req = knowRequest(i, value, view.ctx);
     if (typeof req === "string") { setErr(req); return; }
     setBusy(i.key); setErr("");

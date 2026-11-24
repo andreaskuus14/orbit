@@ -6,6 +6,7 @@ import { usePoll } from "./use-poll";
 import { pollMs } from "@/lib/poll-pure";
 import type { PlanJob } from "@/lib/plan-jobs-pure";
 import { useT } from "./i18n";
+import { askConfirm } from "./ui/Dialog";
 
 const call = async <T,>(method: string, body?: unknown): Promise<T> => {
   const r = await fetch("/api/plan-jobs", { method, cache: "no-store", ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}) });
@@ -29,8 +30,8 @@ export function PlanJobsView({ agents, onOpenTask }: { agents: { slug: string; n
     setBusy(true); setErr("");
     try { await fn(); load(); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
-  const act = (j: PlanJob, action: "pause" | "resume" | "retry" | "delete") => {
-    if (action === "delete" && !confirm(t("plans.deleteConfirm", { name: j.title }))) return;
+  const act = async (j: PlanJob, action: "pause" | "resume" | "retry" | "delete") => {
+    if (action === "delete" && !(await askConfirm(t("plans.deleteConfirm", { name: j.title })))) return;
     void run(() => call("PATCH", { id: j.id, action }));
   };
   const create = (e: React.FormEvent) => { e.preventDefault(); void run(async () => { await call("POST", draft); setDraft({ ...draft, title: "", goal: "", steps: "" }); }); };

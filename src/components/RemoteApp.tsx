@@ -8,6 +8,7 @@ import { VoiceMemo } from "./VoiceMemo";
 import { getLang, LangSwitch, useT } from "./i18n";
 import type { PhoneNight } from "@/lib/remote-web-pure";
 import { syncedAt } from "@/lib/remote-offline-pure";
+import { askConfirm } from "./ui/Dialog";
 
 // /remote: the paired phone's page (roadmap 6.2). Light on purpose: no three.js, polls every 20 s while visible.
 // Every call is one remote-pure command with a fresh nonce; the device token rides in an HttpOnly cookie the page can't read.
@@ -71,14 +72,14 @@ export function RemoteApp() {
     void load();
   }
 
-  const decide = (it: Item, approve: boolean) => {
+  const decide = async (it: Item, approve: boolean) => {
     const what = it.kind === "spend" ? t("remote.confirmSpend", { n: it.credits ?? 0, title: it.title }) : it.kind === "send" || ((it.kind === "nego" || it.kind === "invoice") && it.to) ? t("remote.confirmSend", { to: it.to ?? "" }) : it.kind === "nego" || it.kind === "invoice" ? t("remote.confirmNego", { title: (it.kind === "invoice" ? it.buyer : it.title) ?? "" }) : t(approve ? "remote.confirmApprove" : "remote.confirmReject", { title: it.title });
-    if (!confirm(what)) return;
+    if (!(await askConfirm(what))) return;
     void act(it.id, () => send(approve ? "approve" : "reject", { id: it.id }, { kind: it.kind, seen: it.seen, ...(it.credits !== undefined ? { credits: it.credits } : {}) }), (j) => j.message ?? t("remote.done"));
   };
 
-  const stopAll = () => { // ON only: resuming is done on the PC
-    if (!status || status.stop.on || !confirm(t("remote.stopConfirm"))) return;
+  const stopAll = async () => { // ON only: resuming is done on the PC
+    if (!status || status.stop.on || !(await askConfirm(t("remote.stopConfirm")))) return;
     void act("stop", () => send("stopAll", {}, { on: false }), () => t("remote.stopped"));
   };
 

@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { KIND_LABEL, PMAX, PROJECT_KINDS, draftInput, emptyPortfolio, portfolioHtml, portfolioPdf, type Portfolio, type Project, type ProjectKind, type Shot } from "@/lib/portfolio-pure";
 import { localDay } from "@/lib/morning-pure";
+import { askConfirm } from "./ui/Dialog";
 
 const MAX_PX = 1800; // long side: sharp in print at A4, small enough to keep the saved file sane
 /** Any drawable (the WebGL canvas, an uploaded picture) → a JPEG data URL no bigger than MAX_PX. */
@@ -121,7 +122,7 @@ export function PortfolioPanel({ grab, caption }: { grab: () => HTMLCanvasElemen
           <div className="flex flex-wrap items-center gap-1.5">
             <button className="chip" disabled={drafting} onClick={() => void askDraft()} title="One quick-model call; uses the title, captions and your notes">{drafting ? "Drafting…" : "✎ Draft text"}</button>
             <span className="muted num text-[10px]">{project.text.length}/{PMAX.text}</span>
-            <button className="chip error ml-auto" onClick={() => { if (confirm(`Delete “${project.title}” and its pictures?`)) { edit((x) => ({ ...x, projects: x.projects.filter((y) => y.id !== project.id) })); setSel(""); } }}>Delete project</button>
+            <button className="chip error ml-auto" onClick={async () => { if ((await askConfirm(`Delete “${project.title}” and its pictures?`))) { edit((x) => ({ ...x, projects: x.projects.filter((y) => y.id !== project.id) })); setSel(""); } }}>Delete project</button>
           </div>
           {draft && <div className="card space-y-1 text-xs">
             <p className="whitespace-pre-line">{draft}</p>

@@ -7,6 +7,7 @@ import { SESSION, type Card, type Draft, type Review } from "@/lib/study-pure";
 import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import { useT } from "./i18n";
 import { api } from "./AgentMission";
+import { askConfirm } from "./ui/Dialog";
 
 // The brief's "3 minutes of cards" may fire before MEMORY mounts: remember it until StudyCards takes it.
 let requested = false;
@@ -179,7 +180,7 @@ export function StudyCards() {
                 <SourceLink c={c} />
                 <span className="muted num shrink-0">{c.source} · due {c.due}</span>
                 <button className="link" onClick={() => setEdit(c)}>Edit</button>
-                <button className="link" onClick={() => { if (confirm("Delete this card?")) void act({ action: "delete", id: c.id }); }}>Delete</button>
+                <button className="link" onClick={async () => { if ((await askConfirm("Delete this card?"))) void act({ action: "delete", id: c.id }); }}>Delete</button>
               </div><CardHistory c={c} log={v.log ?? []} /></li>
             ))}
           </ul>

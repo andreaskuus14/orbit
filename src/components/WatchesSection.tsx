@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "./i18n";
 import type { Change, Watch } from "@/lib/pagewatch-pure";
+import { askText } from "./ui/Dialog";
 
 type Row = Omit<Watch, "snaps"> & { versions: number };
 type Board = { watches: Row[]; changes: (Change & { purpose: string; url: string })[]; week?: { useful: number; noise: number; unmarked: number; missed: number; checks: number; failedChecks: number } };
@@ -69,7 +70,7 @@ export function WatchesSection() {
                   <label className="chip"><input type="checkbox" checked={w.important} onChange={(e) => void act(`imp:${w.id}`, { action: "important", id: w.id, on: e.target.checked })} /> {t("pw.important")}</label>
                   <button className="chip" disabled={!!busy} onClick={() => void act(`chk:${w.id}`, { action: "check", id: w.id })}>{busy === `chk:${w.id}` ? "…" : t("pw.check")}</button>
                   {unseen && <button className="chip" disabled={!!busy} onClick={() => void act(`seen:${w.id}`, { action: "seen", id: w.id })}>{t("pw.seen")}</button>}
-                  <button className="chip" disabled={!!busy} onClick={() => { const note = window.prompt(t("pw.missedAsk")); if (note?.trim()) void act(`miss:${w.id}`, { action: "missed", id: w.id, note }); }}>{t("pw.missed")}</button>
+                  <button className="chip" disabled={!!busy} onClick={async () => { const note = (await askText(t("pw.missedAsk"))); if (note?.trim()) void act(`miss:${w.id}`, { action: "missed", id: w.id, note }); }}>{t("pw.missed")}</button>
                   <button className="chip" disabled={!!busy} onClick={() => void act(`rm:${w.id}`, { action: "remove", id: w.id })}>{t("pw.remove")}</button>
                 </span>
               </div>

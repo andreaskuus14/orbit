@@ -1,6 +1,7 @@
 "use client";
 // Why? / Remember / Correct / Forget on a memory (POST /api/memories/[id]/control; logic in provenance-pure.ts).
 import { useState } from "react";
+import { askConfirm } from "./ui/Dialog";
 
 type Source = { id: string; title: string; source: string; when: string; confirmation: string; link: string };
 type Props = { id: string; content: string; confirmation?: string | null; recheckAt?: string | null; onDone: (gone: boolean) => void; onOpen: (id: string) => void };
@@ -23,7 +24,7 @@ export default function MemoryControls({ id, content, confirmation, recheckAt, o
         <button className="chip" onClick={() => run(async () => { setWhy((await post<{ sources: Source[] }>(id, { action: "why" })).sources); return ""; })}>Why?</button>
         {confirmation === "suggested" && <button className="chip" onClick={() => run(async () => { await post(id, { action: "confirm" }); onDone(false); return "Remembered as confirmed."; })}>Remember</button>}
         <button className="chip" onClick={() => run(async () => { const r = await post<{ summariesUpdated: number }>(id, { action: "correct", content }); onDone(false); return `Corrected${r.summariesUpdated ? `; ${r.summariesUpdated} summaries updated` : ""}.`; })}>Correct</button>
-        <button className="chip" onClick={() => { if (confirm("Forget this memory? Summaries that quote it are updated too. Only its id stays in the activity log.")) run(async () => { await post(id, { action: "forget" }); onDone(true); return "Forgotten."; }); }}>Forget</button>
+        <button className="chip" onClick={async () => { if ((await askConfirm("Forget this memory? Summaries that quote it are updated too. Only its id stays in the activity log."))) run(async () => { await post(id, { action: "forget" }); onDone(true); return "Forgotten."; }); }}>Forget</button>
       </div>
       {why && (
         <ul className="text-xs space-y-1">

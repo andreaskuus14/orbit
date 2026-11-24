@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useT } from "./i18n";
 import type { Key } from "@/lib/i18n-pure";
 import type { repairView } from "@/lib/night-repair";
+import { askConfirm } from "./ui/Dialog";
 
 type View = Awaited<ReturnType<typeof repairView>>;
 const COLOR: Record<string, string> = { waiting: "var(--amber)", merged: "var(--mint)", rejected: "var(--muted, #999)", failed: "var(--rose)", discarded: "var(--muted, #999)" };
@@ -16,7 +17,7 @@ export function NightRepairCard() {
   const load = useCallback(() => { void fetch("/api/night-repair").then((r) => (r.ok ? r.json() : null)).then((j) => j && setV(j as View)).catch(() => {}); }, []);
   useEffect(load, [load]);
   const decide = async (id: string, seen: string, action: "approve" | "reject") => {
-    if (action === "approve" && !window.confirm(t("repair.confirm"))) return;
+    if (action === "approve" && !(await askConfirm(t("repair.confirm")))) return;
     setBusy(id); setNote("");
     const r = await fetch("/api/night-repair", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, id, seen }) })
       .then((x) => x.json() as Promise<{ message?: string; error?: string; view?: View }>).catch(() => ({ error: "Network error" }) as { error: string; view?: View });

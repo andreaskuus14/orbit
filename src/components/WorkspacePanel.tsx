@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "./i18n";
 import { fmtSize } from "@/lib/vault-pure";
+import { askConfirm } from "./ui/Dialog";
 
 // WORKSPACES: the real files CORE built (ask CORE "build me a website"). Browse, read, move to trash, open the live preview.
 type Ws = { slug: string; files: number; bytes: number; mtime: number; preview: string };
@@ -42,7 +43,7 @@ export function WorkspacePanel() {
   };
 
   const trash = async (path: string) => {
-    if (!confirm(`Move ${path} to this workspace's trash?`)) return;
+    if (!(await askConfirm(`Move ${path} to this workspace's trash?`))) return;
     try {
       await call("/api/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "delete", ws, path }) });
       setView(null); void openWs(ws!); void load();
@@ -52,7 +53,7 @@ export function WorkspacePanel() {
   const { t } = useT();
   const [trusted, setTrusted] = useState("");
   const trust = async () => {
-    if (!confirm(t("ws.trustAsk", { ws: ws ?? "" }))) return;
+    if (!(await askConfirm(t("ws.trustAsk", { ws: ws ?? "" })))) return;
     try { const r = await call<{ marked: number }>("/api/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "trust", ws }) }); setTrusted(t("ws.trusted", { n: r.marked })); setErr(""); }
     catch (e) { setErr((e as Error).message); }
   };

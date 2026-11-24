@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import type { Stored } from "@/lib/lessons-pure";
 import { useT } from "./i18n";
+import { askConfirm } from "./ui/Dialog";
 
 // "What I learned about you" (Profile) and the one-tap chip CORE shows after a correction. Data: /api/lessons (lessons.ts).
 
@@ -59,7 +60,7 @@ export function LessonsSection() {
             <ul className="mt-2 space-y-1">{v.kept.map((l) => (
               <li key={l.id} className="flex items-start justify-between gap-2 text-sm">
                 <div><div>{l.text}</div><Evidence l={l} /></div>
-                <button type="button" className="chip shrink-0" disabled={busy} onClick={() => confirm("Forget this lesson? It won't be suggested again.") && act({ id: l.id, decision: "reject" }, "Forgotten.")}>Forget</button>
+                <button type="button" className="chip shrink-0" disabled={busy} onClick={async () => (await askConfirm("Forget this lesson? It won't be suggested again.")) && act({ id: l.id, decision: "reject" }, "Forgotten.")}>Forget</button>
               </li>))}</ul>
           </details>
         )}

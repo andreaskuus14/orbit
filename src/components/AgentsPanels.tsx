@@ -9,6 +9,7 @@ import { useT } from "./i18n";
 import { Markdown } from "./Markdown";
 import { OpsStatus } from "./OpsStatus";
 import { lastProgress } from "@/lib/ops-status-pure";
+import { askConfirm } from "./ui/Dialog";
 
 type Step = { step: string; detail: string; ms: number; ok: boolean };
 type Pending = { tool: string; input: Record<string, unknown>; status: string; note?: string; evidence?: WriteEvidence[] };
@@ -81,7 +82,7 @@ export function AgentsPanel({ onOpenTask }: { onOpenTask: (id: string) => void }
     catch (e2) { setErr(e2 instanceof Error ? e2.message : "Could not create"); }
   }
   async function removeAgent(slug: string) {
-    if (!confirm(tr("agents.removeConfirm"))) return;
+    if (!(await askConfirm(tr("agents.removeConfirm")))) return;
     try { await api(`/api/agents?slug=${slug}`, { method: "DELETE" }); setSel(null); void load(); }
     catch (e) { setErr(e instanceof Error ? e.message : "Could not remove"); }
   }

@@ -95,3 +95,24 @@ test("ui kit: every component passes the static a11y lint and has no hard-coded 
     assert.equal(/>\s*[A-Za-z][A-Za-z ]{2,}\s*</.test(code), false, `${f} has literal UI text`);
   }
 });
+
+test("ARCH has its own clear accent (#a3e635 lime): ≥ 4.5:1 on raised, not close to any planet", () => {
+  assert.equal(accent("arch"), "#a3e635");
+  assert.ok(contrast(accent("arch"), NEUTRAL.raised) >= 4.5);
+  assert.ok(!closeAccents().some((p) => p.includes("arch")), closeAccents().join(", "));
+  assert.equal(new Set(PLANETS.map((p) => p.color)).size, PLANETS.length, "every planet colour is unique");
+});
+
+test("no browser alert/confirm/prompt in src/components (kit askConfirm/askText instead)", () => {
+  const dir = new URL("../src/components/", import.meta.url), bad: string[] = [];
+  const walk = (u: URL) => {
+    for (const e of readdirSync(u, { withFileTypes: true })) {
+      if (e.isDirectory()) { walk(new URL(`${e.name}/`, u)); continue; }
+      if (!/\.tsx?$/.test(e.name) || e.name === "RefBoard.tsx") continue; // RefBoard has its own prompt() helper (an AI prompt builder)
+      const code = readFileSync(new URL(e.name, u), "utf8").replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+      if (/(?<![\w.])(window\.)?(alert|confirm|prompt)\(/.test(code)) bad.push(e.name);
+    }
+  };
+  walk(dir);
+  assert.deepEqual(bad, []);
+});

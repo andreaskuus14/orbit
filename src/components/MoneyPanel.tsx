@@ -4,6 +4,7 @@ import { euro } from "@/lib/invoices-pure";
 import { CATEGORIES, FORMS, SOURCES, VAT_RATES, type Deadline, type Expense, type Pnl, type Settings } from "@/lib/money-pure";
 import { localDay } from "@/lib/morning-pure";
 import ReconcilePanel from "./ReconcilePanel";
+import { askConfirm } from "./ui/Dialog";
 
 // Money view (roadmap 3) inside BUSINESS: profit & loss by month/quarter/year from paid invoices, his expenses (receipts kept on
 // this PC) and ORBIT's own spend; VAT owed vs paid per month; Estonian deadlines; CSV for the accountant. Nothing is filed or paid.
@@ -91,7 +92,7 @@ export default function MoneyPanel() {
           <table className="w-full"><tbody>{st.expenses.slice(0, 200).map((e) => <tr key={e.id}>
             <td className="num">{e.day}</td><td>{e.category}</td><td>{e.note}</td><td className="num text-right">{euro(e.gross)}</td><td className="num text-right muted">VAT {euro(e.vat)}</td>
             <td className="text-right">{e.receipt && <a className="chip" href={`${API}?receipt=${e.id}`}>Receipt</a>}
-              <button className="chip" disabled={busy} onClick={() => { if (confirm("Delete this expense and its receipt?")) void act(() => post({ action: "delete", id: e.id })); }}>Delete</button></td></tr>)}</tbody></table>
+              <button className="chip" disabled={busy} onClick={async () => { if ((await askConfirm("Delete this expense and its receipt?"))) void act(() => post({ action: "delete", id: e.id })); }}>Delete</button></td></tr>)}</tbody></table>
         </details>
       )}
 

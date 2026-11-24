@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "./i18n";
 import { pairRefetch } from "@/lib/pair-poll-pure";
+import { askConfirm } from "./ui/Dialog";
 
 type View = { problem: string; pair: { code?: string; locked?: true; expiresAt: number } | null; devices: { id: string; name: string; createdAt: string; lastSeen: string | null }[];
   shortcuts?: { id: string; name: string; action: string; createdAt: string; lastSeen: string | null }[]; token?: string };
@@ -51,7 +52,7 @@ export function PhonePairing() {
           {v.devices.map((d) => (
             <li key={d.id} className="flex items-center justify-between gap-2 text-sm">
               <span>{d.name} <span className="muted text-xs">paired {d.createdAt.slice(0, 10)}{d.lastSeen ? `, last used ${new Date(d.lastSeen).toLocaleString()}` : ""}</span></span>
-              <button className="chip" onClick={() => confirm(`Revoke ${d.name}? It stops working at once.`) && void call({ action: "revoke", id: d.id })}>Revoke</button>
+              <button className="chip" onClick={async () => (await askConfirm(`Revoke ${d.name}? It stops working at once.`)) && void call({ action: "revoke", id: d.id })}>Revoke</button>
             </li>
           ))}
         </ul>
@@ -80,7 +81,7 @@ export function PhonePairing() {
               {v.shortcuts.map((s) => (
                 <li key={s.id} className="flex items-center justify-between gap-2 text-sm">
                   <span>{s.name} <span className="muted text-xs">made {s.createdAt.slice(0, 10)}{s.lastSeen ? `, last used ${new Date(s.lastSeen).toLocaleString()}` : ""}</span></span>
-                  <button className="chip" onClick={() => confirm(`Revoke the ${s.name} token? That Shortcut stops working at once.`) && void call({ action: "revokeShortcut", id: s.id })}>Revoke</button>
+                  <button className="chip" onClick={async () => (await askConfirm(`Revoke the ${s.name} token? That Shortcut stops working at once.`)) && void call({ action: "revokeShortcut", id: s.id })}>Revoke</button>
                 </li>
               ))}
             </ul>

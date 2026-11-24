@@ -10,6 +10,7 @@ import { TERMINAL_EVENT } from "@/lib/terminal-pure";
 import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT } from "@/lib/core-chats-pure";
 import { changeStopAll } from "./nav-command";
 import { TOUR_EVENT } from "@/lib/tour-pure";
+import { askConfirm } from "./ui/Dialog";
 
 export type Command = { id: string; group: "Go to" | "Actions"; label: string; hint?: string; keywords?: string; run: () => void };
 
@@ -46,9 +47,9 @@ export const COMMANDS: Command[] = [
   act("focus", "Start focus timer", () => nav({ panel: "life", life: "focus", start: true }), "LIFE", "pomodoro focus mode"),
   // Opens where approvals are decided; the palette never approves.
   act("approvals", "Open approvals", () => nav({ panel: null, mission: true }), "Mission control: what waits for you", "approve pending waiting proposals"),
-  act("stopall", "Stop all (pause agents and automations)", () => {
+  act("stopall", "Stop all (pause agents and automations)", async () => {
     // Same confirm as the HUD button (StopAll.tsx).
-    if (!confirm("Stop everything?\n\nRunning agent tasks, agent teams and goal steps are cancelled, and no automation, scout, autopilot, briefing or suggestion starts until you press Resume. Clip renders already running finish. CORE chat keeps answering.")) return;
+    if (!(await askConfirm("Stop everything?\n\nRunning agent tasks, agent teams and goal steps are cancelled, and no automation, scout, autopilot, briefing or suggestion starts until you press Resume. Clip renders already running finish. CORE chat keeps answering."))) return;
     changeStopAll(true).catch((e) => notify({ kind: "system", title: "Stop-all failed", body: e instanceof Error ? e.message : String(e) }));
   }, "Kill switch ON. Resume from the HUD", "kill switch pause halt emergency"),
   act("doctor", "Check ORBIT health", () => nav({ panel: null, doctor: true }), "Run the ORBIT doctor", "doctor diagnostics"),
