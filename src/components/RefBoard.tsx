@@ -37,7 +37,7 @@ export default function RefBoard() {
   const seq = useRef(0);
   const buildRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { api<{ board: BoardItem[]; style: Style }>().then((r) => { setBoard(r.board); setStyle(r.style); setSummary(r.style.summary); }).catch((e) => setErr(msg(e))); }, []);
+  useEffect(() => { api<{ board: BoardItem[]; style: Style }>().then((r) => { const st = r.style ?? EMPTY_STYLE; setBoard(r.board ?? []); setStyle(st); setSummary(st.summary); }).catch((e) => setErr(msg(e))); }, []);
   const styled = matchStyle && style.keywords.length > 0;
   useEffect(() => { if (build) buildRef.current?.scrollIntoView({ block: "nearest" }); }, [build]);
 
