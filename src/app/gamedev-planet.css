@@ -1,0 +1,65 @@
+/* GAME DEV in the planet look (design language + MIX): the shell on the left, the forge world on the right.
+   Tool panels inside .gd-tool are calmed to the kit (no spaced capitals, no gradient borders); scoped so other planets keep theirs. */
+.gd-wrap { position: absolute; z-index: 15; left: 16px; top: 4.5rem; bottom: 7rem; width: min(440px, calc(100vw - 32px)); display: flex; flex-direction: column; pointer-events: none; }
+.gd-wrap > * { pointer-events: auto; }
+.gamedev.globe-in > .gd-wrap, .gamedev.globe-in > .gd-caption { zoom: 1; }
+.gd-shell { max-height: 100%; }
+@media (max-width: 640px) { .gd-wrap { top: calc(var(--hdr, 3.5rem) + 0.5rem); bottom: var(--bar, 6rem); left: 8px; width: calc(100vw - 16px); } .gd-caption { display: none; } }
+@media (max-height: 800px) { .gd-shell .pu-ask .pu-chips { display: none; } }
+
+/* the calm caption under the world: real counts, tabular numbers, no glow */
+.gd-caption { position: absolute; z-index: 14; right: 24px; bottom: 7.25rem; margin: 0; font: var(--pu-meta); color: var(--pu-ink-2); letter-spacing: 0; pointer-events: none; }
+
+.gd-note { margin: 0; font: var(--pu-meta); color: var(--pu-ink-3); }
+.gd-ok { color: var(--pu-good); }
+.gd-error { margin: 0; font: var(--pu-meta); color: var(--pu-bad); }
+.gd-pre { white-space: pre-wrap; }
+.gd-text { margin: 0; font: var(--pu-body); color: var(--pu-ink); }
+.gd-plat { display: block; width: 10px; height: 10px; border-radius: 50%; margin: auto; }
+
+.gd-bar { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.gd-bar-title { flex: 1; min-width: 0; margin: 0; font: var(--pu-lead); font-weight: 600; color: var(--pu-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gd-pick, .gd-field { font: var(--pu-meta); color: var(--pu-ink); background: var(--pu-raised); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: var(--pu-r-md); padding: 6px 10px; min-height: 32px; }
+.gd-field { font: var(--pu-body); width: 100%; }
+.gd-pick:focus-visible, .gd-field:focus-visible { outline: none; box-shadow: var(--pu-focus); }
+.gd-mono { font-family: var(--font-jetbrains), ui-monospace, monospace; font-size: 12px; }
+.gd-label { display: flex; flex-direction: column; gap: 4px; font: var(--pu-caption); color: var(--pu-ink-2); min-width: 0; }
+.gd-inline { display: flex; align-items: center; gap: 8px; font: var(--pu-meta); color: var(--pu-ink-2); }
+.gd-form { display: flex; flex-direction: column; gap: 10px; }
+.gd-row3 { display: flex; gap: 8px; flex-wrap: wrap; } .gd-row3 > * { flex: 1 1 0; } .gd-grow { flex: 2 1 0; }
+.gd-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.gd-detail { display: flex; flex-direction: column; gap: 12px; }
+.gd-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.gd-art { display: block; width: 100%; height: 112px; border-radius: var(--pu-r-lg); object-fit: cover; }
+
+.gd-bug { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: var(--pu-r-lg); background: var(--pu-raised); box-shadow: inset 3px 0 0 var(--sev), var(--pu-e1, 0 1px 2px rgba(0,0,0,.3)); }
+.gd-bug + .gd-bug { margin-top: 6px; }
+.gd-bug-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.gd-bug-title { margin: 0; font: var(--pu-body); font-weight: 500; color: var(--pu-ink); min-width: 0; }
+.gd-sev { flex: none; font: var(--pu-meta); color: var(--sev); }
+.gd-bug-meta, .gd-bug-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.gd-push { margin-left: auto; }
+
+.gd-needs .pu-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; padding: 12px 14px; }
+.gd-needs .pu-card > .pu-card-actions { grid-column: 2; grid-row: 1; }
+.gd-needs .pu-card > :not(.pu-card-actions) { grid-column: 1; min-width: 0; }
+.gd-needs .pu-card .pu-card-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* tool panels, calmed (same recipe as STUDIO's .st-tool) */
+.gd-tool :is(.glass, .card) { border: 0; border-image: none; border-radius: 14px; background-image: none; background-color: #121621; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+.gd-tool :is(.hud-title, .h3) { font-family: var(--font-inter), Inter, system-ui, sans-serif; font-size: 13px !important; line-height: 18px; font-weight: 600; letter-spacing: 0; text-transform: none; color: #a9b2c3; text-shadow: none; }
+.gd-tool .hud-title::before { content: none; }
+.gd-tool .chip { border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.12); background: transparent; box-shadow: none; font-family: var(--font-inter), Inter, system-ui, sans-serif; font-size: 13px; letter-spacing: 0; text-transform: none; color: #ecf0f7; min-height: 28px; }
+.gd-tool .chip:hover { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.2); box-shadow: none; }
+.gd-tool .chip:is([aria-pressed="true"], [aria-selected="true"]) { background: color-mix(in srgb, #f472b6 14%, transparent); border-color: color-mix(in srgb, #f472b6 38%, transparent); color: #ecf0f7; }
+.gd-tool .btn { border: 0; border-image: none; border-radius: 10px; background: #f472b6; color: #05070c; font-family: var(--font-inter), Inter, system-ui, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; box-shadow: none; }
+.gd-tool .field { border-radius: 10px; background: #121621; border-color: rgba(255, 255, 255, 0.1); }
+.gd-tool :is(button, a, select, input, textarea, summary):focus-visible { outline: 2px solid #f9a8d4; outline-offset: 2px; }
+.gd-tool .uppercase { text-transform: none; }
+.gd-tool :is(.tracking-widest, .tracking-wider, [class*="tracking-[0."]) { letter-spacing: 0; }
+.gd-tool:empty { display: none; }
+
+.gd-wrap { animation: gd-in var(--dur-slow, 320ms) var(--ease-out, ease-out) both; }
+@keyframes gd-in { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .gd-wrap { animation-name: pu-fade; } }
+html[data-motion="off"] .gd-wrap { animation: none !important; }

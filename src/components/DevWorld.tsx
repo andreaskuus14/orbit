@@ -1,8 +1,10 @@
 "use client";
-import { BackToSimple, PlanetHome, useManual } from "./PlanetHome";
+// CREATION → GAME DEV in the planet look (design language + MIX): one calm shell on the left (ask box, Needs you, Working on it,
+// your games), the forge world on the right with real data (island size = stage, swarm = open bugs). Every tool loads on demand
+// (React.lazy) from the "All tools" sheet and is mounted only while open (the playtest bot and the code helper stay once opened,
+// so a run or a fix draft isn't lost). Deletes happen at once with Undo in a toast. Nothing here publishes anything.
 import { WarmCompile } from "./WarmCompile";
-import StateNote from "./StateNote";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
@@ -13,37 +15,45 @@ import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
 import { FrameMark } from "./dev-timing";
 import { ZoomRig } from "./ZoomRig";
-import RefBoard from "./RefBoard";
-import SoundFinder from "./SoundFinder";
-import ThumbMaker from "./ThumbMaker";
-import TrendRadar from "./TrendRadar";
 import { DEV_TAB_EVENT, DEV_TAB_KEY } from "@/lib/herald-pure";
 import { LUAU_FIX_EVENT } from "@/lib/screen-look-pure";
-import CodeHelper from "./CodeHelper";
-import RojoPanel from "./RojoPanel";
-import ScenePlanner from "./ScenePlanner";
-import TextureStudio from "./TextureStudio";
-import { PictureTo3D, TextTo3D } from "./LocalAi";
-import { MakeInBlender } from "./BlenderEntry";
-import PlaytestBot from "./PlaytestBot";
-import PersonaPlaytest from "./PersonaPlaytest";
-import AiPlaytesters from "./AiPlaytesters";
-import GameCopilot from "./GameCopilot";
 import DevTrail from "./DevTrail";
-import GridCity from "./GridCity";
-import HivePanel from "./HivePanel";
-import DevSessions from "./DevSessions";
-import CoreConfigPanel from "./CoreConfigPanel";
-import WorkspaceFrame from "./WorkspaceFrame";
 import { useT } from "./i18n";
-import { pickState, type PickState } from "@/lib/panel-states-pure";
-import { AssetRegister, ContractCard, EconomySim, EvidenceLog, ReleasePanel, RetentionPanel, UiKitCard, WorkStepsLine } from "./GameDevViews";
+import { ContractCard, WorkStepsLine } from "./GameDevViews";
 import { contractBrief } from "@/lib/gamedev-pure";
 import { backlogGoal, fixContext, importDrafts, parseBacklog, sortBacklog } from "@/lib/backlog-pure";
 import {
   ART_KEYS, KINDS, PLATFORMS, PRIORITIES, SEVERITIES, STAGES, STATUSES, bugStats, isActive, qaPrompt, slugify, validateDevWorld,
   type Bug, type DevWorld as World, type Game, type Kind, type Platform, type Priority, type Severity, type Stage, type Status,
 } from "@/lib/devworld-pure";
+import { KEEP_TOOLS, TOOL_GROUPS, counts, isGameTask, needsGame as toolNeedsGame, removeBug, removeGame, restore, urgentBugs, type Removed, type ToolId } from "@/lib/gamedev-shell-pure";
+import { planetNeeds, type Need } from "@/lib/needs-you-pure";
+import { fromTask, type Progress } from "@/lib/progress-pure";
+import type { Key } from "@/lib/i18n-pure";
+import { Button, Card, Chip, Empty, ErrorState, Loading, PlanetShell, Row, Section, Sheet, Toaster, WorkCard, IconBack, IconChevron, IconPlus, toast, type MenuItem } from "./ui";
+import { VOICE_ASK } from "./voice/bus";
+import { openTarget } from "./NeedsYou";
+import { openProgress } from "./ProgressCard";
+import { usePoll } from "./use-poll";
+import { PlanetBoundary } from "./PlanetBoundary";
+import "@/app/gamedev-planet.css";
+
+// Tools load on demand: each is its own chunk, fetched the first time he opens it.
+type Any = ComponentType<Record<string, unknown>>;
+const named = <M,>(load: () => Promise<M>, pick: (m: M) => unknown) => lazy(async () => ({ default: pick(await load()) as Any }));
+const TOOLS = {
+  RefBoard: lazy(() => import("./RefBoard")), SoundFinder: lazy(() => import("./SoundFinder")), ThumbMaker: lazy(() => import("./ThumbMaker")),
+  TrendRadar: lazy(() => import("./TrendRadar")), CodeHelper: lazy(() => import("./CodeHelper")), RojoPanel: lazy(() => import("./RojoPanel")),
+  ScenePlanner: lazy(() => import("./ScenePlanner")), TextureStudio: lazy(() => import("./TextureStudio")),
+  PictureTo3D: named(() => import("./LocalAi"), (m) => m.PictureTo3D), TextTo3D: named(() => import("./LocalAi"), (m) => m.TextTo3D),
+  MakeInBlender: named(() => import("./BlenderEntry"), (m) => m.MakeInBlender),
+  PlaytestBot: lazy(() => import("./PlaytestBot")), PersonaPlaytest: lazy(() => import("./PersonaPlaytest")), AiPlaytesters: lazy(() => import("./AiPlaytesters")),
+  GameCopilot: lazy(() => import("./GameCopilot")), GridCity: lazy(() => import("./GridCity")), HivePanel: lazy(() => import("./HivePanel")),
+  DevSessions: lazy(() => import("./DevSessions")), CoreConfigPanel: lazy(() => import("./CoreConfigPanel")),
+  EvidenceLog: named(() => import("./GameDevViews"), (m) => m.EvidenceLog), AssetRegister: named(() => import("./GameDevViews"), (m) => m.AssetRegister),
+  ReleasePanel: named(() => import("./GameDevViews"), (m) => m.ReleasePanel), UiKitCard: named(() => import("./GameDevViews"), (m) => m.UiKitCard),
+  EconomySim: named(() => import("./GameDevViews"), (m) => m.EconomySim), RetentionPanel: named(() => import("./GameDevViews"), (m) => m.RetentionPanel),
+};
 
 // CREATION → Game-dev world: a small "studio system" where each of the owner's games is a little world circling a forge star,
 // with its open bugs swarming it. Data: /api/devworld (one game_saves row). No custom shaders: built-in materials only,
@@ -53,19 +63,6 @@ const PLATFORM_COLOR: Record<Platform, string> = { roblox: "#60a5fa", web: "#c08
 const STAGE_SIZE: Record<Stage, number> = { idea: 0.18, prototype: 0.24, alpha: 0.3, beta: 0.36, live: 0.42 };
 const SEVERITY_COLOR: Record<Severity, string> = { crash: "#ff4d6d", major: "#ef4444", minor: "#f59e0b", polish: "#94a3b8" };
 const MAX_PARTICLES = 300;
-// Projects → one game's Overview / Build / Test / Assets / Release. Each specialist tool lives in one view; per-game views need a selected game.
-const VIEWS = {
-  projects: [["games", "🎮 Games"], ["trends", "📈 Trends"], ["hive", "🐝 Hive"], ["sessions", "🕒 Sessions"], ["core", "⚙ CORE"]],
-  overview: [["detail", "🎯 Game"], ["economy", "🪙 Economy"], ["sim", "🧮 Simulator"]],
-  build: [["scene", "🏗 Scene"], ["code", "📝 Code"], ["files", "🗂 Files"], ["grid", "🟦 Grid"]],
-  test: [["evidence", "🧾 Results"], ["playtest", "🤖 Playtest"], ["aitesters", "🧪 AI testers"], ["personas", "👥 Personas"]],
-  assets: [["register", "📦 Register"], ["uikit", "🧩 UI kit"], ["refs", "🎨 References"], ["textures", "🧱 Textures"], ["sounds", "🔊 Sounds"], ["thumbs", "🖼 Thumbnails"], ["model3d", "🧊 Picture to 3D"], ["text3d", "✨ Text to 3D"]],
-  release: [["release", "🚀 Package"], ["retention", "📊 Retention"]],
-} as const;
-type ViewId = keyof typeof VIEWS;
-type Tool = (typeof VIEWS)[ViewId][number][0];
-const VIEW_IDS = Object.keys(VIEWS) as ViewId[];
-const viewOf = (tool: Tool) => VIEW_IDS.find((v) => VIEWS[v].some(([k]) => k === tool))!;
 const orbitR = (i: number) => 2.3 + i * 0.75;
 
 /** Where game i is at time t (written into `out`). */
@@ -166,12 +163,12 @@ function BugSwarm({ games, bugs, reduced }: { games: Game[]; bugs: Bug[]; reduce
   );
 }
 
-/** Keeps the system clear of the right-hand panel on wide screens. */
+/** Keeps the system clear of the left-hand shell on wide screens. */
 function Rig() {
   const camera = useThree((s) => s.camera);
   const size = useThree((s) => s.size);
   useEffect(() => {
-    if (size.width >= 900) camera.setViewOffset(size.width, size.height, 240, 0, size.width, size.height);
+    if (size.width >= 900) camera.setViewOffset(size.width, size.height, -220, 0, size.width, size.height); // the shell sits on the left
     else camera.clearViewOffset();
     (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
   }, [camera, size]);
@@ -181,55 +178,82 @@ function Rig() {
 /* ---------- data + UI ---------- */
 
 type Props = { paused?: boolean /* kept mounted but hidden */; flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void };
+type K = (key: string, vars?: Record<string, string | number>) => string;
 
 // A screen-look "Fix with docs" fires before GAME DEV mounts: hold the error until the panel takes it.
 let pendingFix = "";
 if (typeof window !== "undefined") addEventListener(LUAU_FIX_EVENT, (e) => { pendingFix = String((e as CustomEvent<string>).detail ?? ""); });
 
+type TipHandle = { move: (id: string | null, x: number, y: number) => void };
+/** The island tooltip keeps its own state, so hovering re-renders only this span, not the Canvas or the shell. */
+const HoverTip = forwardRef<TipHandle, { label: (id: string) => string | null }>(function HoverTip({ label }, ref) {
+  const [h, setH] = useState<{ id: string | null; x: number; y: number }>({ id: null, x: 0, y: 0 });
+  useImperativeHandle(ref, () => ({ move: (id, x, y) => setH((p) => (p.id === id && Math.abs(p.x - x) < 2 && Math.abs(p.y - y) < 2 ? p : { id, x, y })) }), []);
+  const text = h.id ? label(h.id) : null;
+  if (!text) return null;
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+      <span className="globe-tip" style={{ transform: `translate(${h.x + 14}px, ${h.y + 12}px)` }}>{text}</span>
+    </div>
+  );
+});
+
+type GameTask = { id: string; agent: string; title: string; status: string; created_at: string; started_at?: string | null; finished_at?: string | null };
+
 export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality = "auto", paused = false }: Props) {
   const q = useLeanQuality(quality);
   const glr = useGlRecovery();
+  const { t, lang } = useT();
+  const k: K = useCallback((key, vars) => t(key as Key, vars), [t]);
+  const openTask = useMemo(() => onOpenTask ?? ((id: string) => openProgress(`#o=operations&k=task&id=${encodeURIComponent(id)}`)), [onOpenTask]);
   const [world, setWorld] = useState<World | null>(null);
   const [seeded, setSeeded] = useState(false);
-  const [loadErr, setLoadErr] = useState("");
+  const [loadErr, setLoadErr] = useState(false);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
-  const [hover, setHover] = useState<{ id: string | null; x: number; y: number }>({ id: null, x: 0, y: 0 });
   const [adding, setAdding] = useState(false);
-  const { t } = useT();
-  const [tab, setTab] = useState<Tool>("games");
-  const [manual, setManual] = useManual("creation");
-  const [sites, setSites] = useState<{ slug: string; mtime: number; preview: string }[] | null>(null); // CORE's built sites, shown as results
-  useEffect(() => { if (!paused) fetch("/api/workspace", { cache: "no-store" }).then((r) => r.json()).then((j) => setSites(j.workspaces ?? []), () => setSites([])); }, [paused]);
+  const [tool, setTool] = useState<ToolId | null>(null);
+  const [opened, setOpened] = useState<ReadonlySet<ToolId>>(new Set()); // keep-tools mounted once opened
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const tip = useRef<TipHandle>(null);
+  const open = useCallback((id: ToolId | null) => { setTool(id); setToolsOpen(false); if (id && KEEP_TOOLS.includes(id)) setOpened((s) => (s.has(id) ? s : new Set(s).add(id))); }, []);
+
+  const [sites, setSites] = useState<{ slug: string; mtime: number; preview: string }[] | null | "err">(null); // CORE's built sites, shown as results
+  const loadSites = useCallback(() => { fetch("/api/workspace", { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject(r.status))).then((j) => setSites(j.workspaces ?? []), () => setSites("err")); }, []);
+  useEffect(() => { if (!paused) loadSites(); }, [paused, loadSites]);
+
   const [fix, setFix] = useState<{ key: number; error: string } | undefined>(); // backlog → Code helper (Fix mode)
   const [rising, setRising] = useState(0); // bumped by a Herald trend card: Trend Radar opens on Rising
-  useEffect(() => { if (tab !== "trends") setRising(0); }, [tab]); // leaving the radar ends the jump, so coming back opens it normally (runs before the mount check below, which may bump it)
+  useEffect(() => { if (tool !== "trends") setRising(0); }, [tool]);
   useEffect(() => {
-    const go = () => { setTab("trends"); setRising((n) => n + 1); };
+    const go = () => { open("trends"); setRising((n) => n + 1); };
     try { if (sessionStorage.getItem(DEV_TAB_KEY) === "trends") { sessionStorage.removeItem(DEV_TAB_KEY); go(); } } catch { /* no storage: the event still works */ }
     addEventListener(DEV_TAB_EVENT, go);
     return () => removeEventListener(DEV_TAB_EVENT, go);
-  }, []);
+  }, [open]);
   useEffect(() => {
-    const take = () => { if (pendingFix) { setFix({ key: Date.now(), error: pendingFix }); setTab("code"); pendingFix = ""; } };
+    const take = () => { if (pendingFix) { setFix({ key: Date.now(), error: pendingFix }); open("code"); pendingFix = ""; } };
     take();
     addEventListener(LUAU_FIX_EVENT, take);
     return () => removeEventListener(LUAU_FIX_EVENT, take);
-  }, []);
+  }, [open]);
+
   const saved = useRef<World | null>(null); // last world the server accepted: the rollback target
+  const latest = useRef<World | null>(null); // what's on screen now: Undo restores into this, so later edits stay
+  latest.current = world;
   const queue = useRef(Promise.resolve());
   const seq = useRef(0);
   const epoch = useRef(0);
   const base = useRef<string | null>(null); // server updatedAt this tab last saw: sent with each save to detect other tabs
 
   const load = useCallback(async () => {
-    setLoadErr("");
+    setLoadErr(false);
     try {
       const res = await fetch("/api/devworld", { cache: "no-store" });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || `Couldn't load (${res.status})`);
+      if (!res.ok) throw new Error(String(res.status));
       saved.current = json.world; base.current = json.updatedAt ?? null; setWorld(json.world); setSeeded(!!json.seeded);
-    } catch (e) { setLoadErr(e instanceof Error ? e.message : "Couldn't load"); }
+    } catch { setLoadErr(true); }
   }, []);
   useEffect(() => { if (!paused) queue.current = queue.current.then(load); }, [load, paused]); // each visit refreshes, after any queued save
 
@@ -237,188 +261,261 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
   const commit = useCallback((next: World) => {
     const v = validateDevWorld(next);
     if (!v.ok) { setErr(v.error); return false; }
-    setErr(""); setWorld(v.world);
+    setErr(""); setWorld(v.world); latest.current = v.world;
     const n = ++seq.current, ep = epoch.current;
     queue.current = queue.current.then(async () => {
       if (ep !== epoch.current) return; // queued before a reload: built on a stale world
       try {
         const res = await fetch("/api/devworld", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ world: v.world, base: base.current }) });
         const json = await res.json().catch(() => ({}));
-        if (res.status === 409) { epoch.current++; await load(); setErr(json.error || "Changed elsewhere — reloaded."); return; } // drop this tab's stale edit
-        if (!res.ok) throw new Error(json.error || `Couldn't save (${res.status})`);
+        if (res.status === 409) { epoch.current++; await load(); setErr(k("gx.conflict")); return; } // drop this tab's stale edit
+        if (!res.ok) throw new Error(String(res.status));
         saved.current = json.world ?? v.world; base.current = json.updatedAt ?? base.current; setSeeded(false);
         if (n === seq.current) setErr("");
-      } catch (e) {
-        const last = n === seq.current; // otherwise a later queued save carries this change anyway
-        setErr(`${e instanceof Error ? e.message : "Couldn't save"}${last ? " — change undone." : ""}`);
-        if (last && saved.current) setWorld(saved.current);
+      } catch {
+        if (n === seq.current) { setErr(k("gx.saveErr")); if (saved.current) setWorld(saved.current); } // otherwise a later queued save carries this change anyway
       }
     });
     return true;
-  }, [load]);
+  }, [load, k]);
 
-  const onHover = useCallback((id: string | null, x: number, y: number) => {
-    setHover((h) => (h.id === id && Math.abs(h.x - x) < 2 && Math.abs(h.y - y) < 2 ? h : { id, x, y }));
-    document.body.style.cursor = id ? "pointer" : "";
-  }, []);
+  /** Delete at once; Undo in the toast puts it back into the world as it is then (not a stale copy). */
+  const undoable = useCallback((r: { world: World; removed: Removed }, text: string, id: string) => {
+    if (!commit(r.world)) return false;
+    toast({ id, text, action: { label: k("gx.undo"), onClick: () => { const w = latest.current; if (w && commit(restore(w, r.removed))) toast({ id, text: k("gx.restored"), tone: "done" }); } } });
+    return true;
+  }, [commit, k]);
+  const deleteGame = useCallback((g: Game) => { const w = latest.current; if (w && undoable(removeGame(w, g.id), k("gx.deleted", { name: g.name }), `gd-del-${g.id}`)) { setSelected(null); open(null); } }, [undoable, k, open]);
+  const deleteBug = useCallback((b: Bug) => { const w = latest.current; if (w) undoable(removeBug(w, b.id), k("gx.bugDeleted"), `gd-del-${b.id}`); }, [undoable, k]);
+
+  const onHover = useCallback((id: string | null, x: number, y: number) => { tip.current?.move(id, x, y); document.body.style.cursor = id ? "pointer" : ""; }, []);
   useEffect(() => () => { document.body.style.cursor = ""; }, [paused]); // leaving mid-hover must not keep the hand cursor
+
+  /* ---- Needs you (shared list for this planet) + Working on it (QA playtests started here) ---- */
+  const [needs, setNeeds] = useState<Need[] | null>(null);
+  const loadNeeds = useCallback(() => {
+    fetch(`/api/needs-you?lang=${lang}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((j: { items?: Need[] }) => setNeeds(planetNeeds("creation", j.items ?? []).own), () => setNeeds([]));
+  }, [lang]);
+  usePoll(loadNeeds, 30_000, !paused);
+  const [tasks, setTasks] = useState<GameTask[] | null>(null);
+  const loadTasks = useCallback(() => {
+    fetch("/api/tasks?fields=status", { cache: "no-store" }).then((r) => (r.ok ? r.json() : { tasks: [] }))
+      .then((j: { tasks?: GameTask[] }) => setTasks((j.tasks ?? []).filter(isGameTask)), () => setTasks([]));
+  }, []);
+  const anyRunning = !!tasks?.some((x) => x.status === "running" || x.status === "queued");
+  usePoll(loadTasks, anyRunning ? 5000 : 20_000, !paused);
+  const work = useMemo(() => (tasks ?? []).map((x) => fromTask(x, lang, { nowMs: Date.now() })), [tasks, lang]);
+  const active = work.filter((p) => p.phase !== "done" && p.phase !== "failed"), failed = work.filter((p) => p.phase === "failed").slice(0, 2), finished = work.filter((p) => p.phase === "done").slice(0, 2);
 
   const games = useMemo(() => world?.games ?? [], [world]);
   const bugs = useMemo(() => world?.bugs ?? [], [world]);
   const game = games.find((g) => g.id === selected) ?? null;
-  const view = viewOf(tab);
-  const needsGame = view !== "projects" && !game && tab !== "code"; // the Luau helper also takes screen-look errors with no game picked
+  const c = counts(world);
+  const urgent = useMemo(() => urgentBugs(world, 2), [world]); // the worst two; the rest are one click away in the game
   const gk = game?.id ?? ""; // game-scoped tools remount on a game switch, so no tool keeps the previous game's context
   const lastGk = useRef(gk);
   useEffect(() => { if (lastGk.current !== gk) { lastGk.current = gk; setFix(undefined); } }, [gk]); // a fix prompt never follows you to another game
-  const hovered = games.find((g) => g.id === hover.id);
   const far = Math.max(9, orbitR(games.length) * 1.5);
+  const pickGame = useCallback((id: string) => { setSelected(id); open(null); setAdding(false); }, [open]);
+  const tipLabel = useCallback((id: string) => { const g = games.find((x) => x.id === id); return g && world ? k("gx.tip", { name: g.name, n: bugStats(world, g.id).active }) : null; }, [games, world, k]);
+
+  const status = !world ? (loadErr ? k("gx.errTitle") : k("gx.loading")) : c.games ? k("gx.status", { g: c.games, b: c.open }) : k("gx.statusNone");
+  const menu: MenuItem[] = [
+    { label: k("gx.allTools"), onSelect: () => setToolsOpen(true) },
+    { label: k("gx.addGame"), onSelect: () => { setSelected(null); open(null); setAdding(true); }, disabled: !world || games.length >= 30 },
+  ];
+  const needCount = Math.min(needs?.length ?? 0, 3) + urgent.length + failed.length;
+  const toolLabel = tool ? k(`gx.t.${tool}`) : "";
+  const home = !tool && !game && !adding;
 
   return (
-    <div className="absolute inset-0 globe-in" aria-label="Game-dev world">
+    <div className="gamedev absolute inset-0 globe-in" aria-label={k("gx.title")}>
       {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, far * 0.45, far], fov: 42 }}
         dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         <WarmCompile world="creation" />
         {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
         <color attach="background" args={["#02030a"]} />
-        <Stars radius={70} depth={40} count={reduced ? 1500 : 4000} factor={2.4} fade speed={reduced ? 0 : 0.35} />
+        <Stars radius={70} depth={40} count={reduced ? Math.min(1500, q.stars) : q.stars} factor={2.4} fade speed={reduced ? 0 : 0.35} />
         <ambientLight intensity={0.35} />
         <ForgeStar reduced={reduced} />
         {games.map((g, i) => <OrbitPath key={`p-${g.id}`} r={orbitR(i)} />)}
-        {games.map((g, i) => <Island key={g.id} game={g} i={i} selected={g.id === selected} reduced={reduced} onPick={(id) => { setSelected(id); setTab("detail"); setManual(true); }} onHover={onHover} />)}
+        {games.map((g, i) => <Island key={g.id} game={g} i={i} selected={g.id === selected} reduced={reduced} onPick={pickGame} onHover={onHover} />)}
         <BugSwarm games={games} bugs={bugs} reduced={reduced} />
         <OrbitControls makeDefault enablePan={false} minDistance={3} maxDistance={far * 2} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
         <Rig />
         {!paused && <ZoomRig home={far * Math.hypot(1, 0.45)} reduced={reduced} />}
-        <EffectComposer multisampling={q.msaa}>
-          <Bloom intensity={(reduced ? 0.3 : 0.5) * q.bloomScale} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
-          <Vignette offset={0.25} darkness={0.75} />
-          <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-        </EffectComposer>
+        {q.bloomScale > 0 && (
+          <EffectComposer multisampling={q.msaa}>
+            <Bloom intensity={(reduced ? 0.3 : 0.5) * q.bloomScale} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
+            <Vignette offset={0.25} darkness={0.75} />
+            <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+          </EffectComposer>
+        )}
         {process.env.NODE_ENV === "development" && <FrameMark name="creation" />}
       </Canvas>}
 
-      {hovered && world && (
-        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-          <span className="globe-tip" style={{ transform: `translate(${hover.x + 14}px, ${hover.y + 12}px)` }}>
-            {hovered.name} · {bugStats(world, hovered.id).active} open bugs
-          </span>
-        </div>
-      )}
+      <HoverTip ref={tip} label={tipLabel} />
+      {world && c.games > 0 && <p className="pu gd-caption pu-num" data-planet="creation" aria-hidden="true">{(() => { const n = bugs.filter((b) => isActive(b) && b.severity === "crash").length; return n ? k("gx.caption", { g: c.games, b: c.open, c: n }) : k("gx.status", { g: c.games, b: c.open }); })()}</p>}
 
-      <section className="glass hud-panel world-panel panel-in absolute z-[14] inset-x-3 bottom-32 max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:w-[30rem] min-[900px]:max-h-[calc(100dvh-11rem)]"
-        aria-label="Game studio">
-        {!manual && !game ? ( // AI-first home; the studio tools below are one click away ("Manual tools")
-          <PlanetHome planet="creation" onManual={() => setManual(true)} onOpenTask={onOpenTask ?? (() => {})}
-            results={!world || !sites ? null : [
-              ...games.map((g) => ({ id: `g-${g.id}`, title: `🎮 ${g.name}`, sub: `${g.stage} · ${t("ph.bugs", { n: bugStats(world, g.id).active })}`, open: () => { setSelected(g.id); setTab("detail"); setManual(true); } })),
-              ...sites.map((w) => ({ id: `w-${w.slug}`, title: `🌐 ${w.slug}`, sub: new Date(w.mtime).toLocaleDateString(), open: () => window.open(w.preview, "_blank", "noopener,noreferrer") })),
-            ]} />
-        ) : <>
-        <BackToSimple onClick={() => { setManual(false); setSelected(null); setTab("games"); }} />
-        <WorkspaceFrame planet="creation" title={`${t("gd.title")} · ${game?.name ?? t("gd.noGame")}`} view={view} onView={(v) => setTab(VIEWS[v][0][0])}
-          views={VIEW_IDS.map((v) => ({ id: v, label: t(`gd.v.${v}`), secondary: v !== "projects" && !game }))}
-          context={game ? contractBrief(game) : t("gd.ctxNone", { n: games.length, b: bugs.filter(isActive).length })}>
-        {VIEWS[view].length > 1 && (
-          <div className="flex flex-wrap gap-1" role="group" aria-label={t(`gd.v.${view}`)}>
-            {VIEWS[view].map(([k, label]) => (
-              <button key={k} className="chip" aria-pressed={tab === k} onClick={() => setTab(k)} style={tab === k ? { borderColor: "#f472b6", color: "#f472b6" } : undefined}>{label}</button>
-            ))}
+      <div className="gd-wrap">
+      <PlanetShell planet="creation" className="gd-shell" title={k("gx.title")} status={status}
+        menu={menu} menuLabel={k("gx.more")} onClose={onClose} closeLabel={k("gx.close")} closeClassName="world-back"
+        ask={home ? { label: k("gx.askLabel"), placeholder: k("gx.askPh"), sendLabel: k("gx.send"), suggestions: [k("ph.creation.ex1"), k("ph.creation.ex2"), k("ph.creation.ex3")],
+          onSubmit: (text) => { dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text } })); } } : undefined}
+        sheet={<ToolsSheet open={toolsOpen} k={k} hasGame={!!game} onClose={() => setToolsOpen(false)} onPick={open} />}>
+
+        {err && <p className="gd-error" role="alert">{err}</p>}
+
+        {!home && (
+          <div className="gd-bar">
+            <Button size="sm" variant="ghost" icon={<IconBack />} label={k("gx.backLabel")} onClick={() => { if (tool && game) open(null); else { open(null); setSelected(null); setAdding(false); } }} />
+            <h3 className="gd-bar-title">{tool ? toolLabel : adding ? k("gx.addGame") : game?.name}</h3>
+            {(tool ? toolNeedsGame(tool) : !!game) && games.length > 1 && (
+              <select className="gd-pick" aria-label={k("gd.pickLabel")} value={selected ?? ""} onChange={(e) => e.target.value && setSelected(e.target.value)}>
+                {!selected && <option value="">{k("gd.pickChoose")}</option>}
+                {games.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            )}
           </div>
         )}
-        {needsGame && <GamePicker state={pickState({ loaded: !!world, loadErr, games, selected })} games={games} retry={() => void load()} onPick={setSelected} />}
-        {tab === "games" && <LocalBrainLine />}
-        <div hidden={tab !== "refs" || needsGame}><RefBoard /></div>
-        {tab === "sounds" && !needsGame && <SoundFinder />}
-        <div hidden={tab !== "thumbs" || needsGame}><ThumbMaker /></div>
-        {tab === "trends" && <TrendRadar openRising={rising} />}
-        {tab === "grid" && !needsGame && <GridCity key={gk} />}
-        <div hidden={tab !== "hive"}><HivePanel /></div>
-        {tab === "scene" && !needsGame && <ScenePlanner key={gk} />}
-        {tab === "textures" && !needsGame && <TextureStudio />}
-        {tab === "model3d" && !needsGame && <PictureTo3D />}
-        {tab === "text3d" && !needsGame && <><TextTo3D /><MakeInBlender /></>}
-        <div hidden={tab !== "playtest" || needsGame}>
-          <p className="muted mb-1 text-xs">{t("gd.k.runtime")}: {t("gd.runtimeNote")}</p>
-          <PlaytestBot key={gk} world={world} commit={commit} gameId={selected} />
-        </div>
-        {tab === "aitesters" && !needsGame && <AiPlaytesters />}
-        {tab === "personas" && !needsGame && <><p className="muted text-xs">{t("gd.k.simulated")}: {t("gd.simNote")}</p><PersonaPlaytest key={gk} world={world} commit={commit} gameId={selected} /></>}
-        {tab === "economy" && !needsGame && <GameCopilot key={gk} world={world} gameId={selected} />}
-        <div hidden={tab !== "code" || needsGame}><CodeHelper key={gk} prefill={fix} /></div>
-        {tab === "files" && !needsGame && <RojoPanel />}
-        {tab === "sessions" && <DevSessions />}
-        {tab === "core" && <CoreConfigPanel />}
-        {world && game && tab === "evidence" && <EvidenceLog key={gk} game={game} world={world} commit={commit} />}
-        {world && game && tab === "register" && <AssetRegister key={gk} game={game} world={world} commit={commit} />}
-        {world && game && tab === "release" && <ReleasePanel key={gk} game={game} world={world} commit={commit} />}
-        {world && game && tab === "uikit" && <UiKitCard key={gk} game={game} world={world} commit={commit} />}
-        {world && game && tab === "sim" && <EconomySim key={gk} game={game} world={world} commit={commit} />}
-        {world && game && tab === "retention" && <RetentionPanel key={gk} game={game} world={world} commit={commit} />}
-        {tab !== "games" && tab !== "detail" ? null : !world ? (
-          <StateNote state={loadErr ? "failed" : "loading"} what={loadErr || undefined} action={{ label: t("state.retry"), run: () => void load() }} />
-        ) : game && tab === "detail" ? (
-          <GameDetail key={game.id} game={game} world={world} commit={commit} onBack={() => { setSelected(null); setTab("games"); }}
-            onDeleted={() => { setSelected(null); setTab("games"); }} onOpenTask={onOpenTask} onFix={(error) => { setFix({ key: Date.now(), error: `${contractBrief(game)}\n\n${error}`.slice(0, 2000) }); setTab("code"); }} />
-        ) : tab === "games" ? (
-          <>
-            {seeded && <p className="muted text-xs">starter data, saved to your account on your first change</p>}
-            <ul className="mt-3 space-y-1">
-              {games.map((g) => {
-                const s = bugStats(world, g.id);
-                return (
-                  <li key={g.id}>
-                    <button className="hud-row" style={{ ["--accent" as string]: PLATFORM_COLOR[g.platform] }} onClick={() => { setSelected(g.id); setTab("detail"); }}
-                      aria-current={g.id === selected || undefined}
-                      aria-label={`${g.name}, ${g.platform}, ${g.stage}, ${s.active} open bugs`}>
-                      <span className="truncate">{g.name}</span><span className="muted text-xs">{g.stage}</span><span className="num">{s.active}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            {!games.length && <p className="mt-3 text-sm">No games yet. Add your first one.</p>}
-            {adding
-              ? <GameForm taken={games.map((g) => g.id)} onCancel={() => setAdding(false)}
-                  onSave={(g) => { if (commit({ ...world, games: [...games, g] })) { setAdding(false); setSelected(g.id); setTab("detail"); } }} />
-              : <button className="chip mt-3" onClick={() => setAdding(true)} disabled={games.length >= 30}>+ Add game</button>}
-          </>
-        ) : null}
-        </WorkspaceFrame>
-        </>}
-        {err && <p className="error mt-2" role="alert">{err}</p>}
-      </section>
 
-      <button className="chip world-back absolute z-[15] left-3 top-[4.5rem] min-[900px]:left-auto min-[900px]:top-auto min-[900px]:bottom-24 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
+        {home && <>
+          {seeded && <p className="gd-note">{k("gx.starter")}</p>}
+          <LocalBrainLine paused={paused} k={k} />
+          <Section id="gd-needs" title={k("gx.needs")} count={needCount}>
+            {!world && needs === null ? <Loading rows={1} label={k("gx.loading")} />
+              : needCount === 0 ? <Empty title={k("gx.needsNone")} text={k("gx.needsNoneText")} />
+              : <ul className="pu-list gd-needs">
+                {(needs ?? []).slice(0, 3).map((n) => (
+                  <Card key={n.ref} as="li" tone={n.cause === "failed" || n.cause === "blocked" ? "error" : "needs"} title={n.title} sub={n.detail ?? k(`needs.ask.${n.cause}`)}
+                    actions={<Button size="sm" variant={n.kind === "decide" ? "primary" : "secondary"} onClick={() => openTarget(n.act.open, openTask, openTask)}>{k(n.kind === "decide" ? "gx.check" : "gx.open")}</Button>} />
+                ))}
+                {failed.map((p) => (
+                  <Card key={p.id} as="li" tone="error" title={p.title} sub={p.result?.text}
+                    actions={<Button size="sm" onClick={() => openTask(p.id)}>{k("gx.open")}</Button>} />
+                ))}
+                {urgent.map(({ bug, game: g }) => (
+                  <Card key={bug.id} as="li" tone={bug.severity === "crash" ? "error" : "needs"} title={bug.title} sub={`${g.name} · ${k(`gx.sev.${bug.severity}`)}`}
+                    actions={<Button size="sm" onClick={() => pickGame(g.id)}>{k("gx.openGame")}</Button>} />
+                ))}
+              </ul>}
+          </Section>
+
+          <Section id="gd-work" title={k("gx.working")} count={active.length}>
+            {tasks === null ? <Loading rows={1} label={k("gx.loading")} />
+              : active.length === 0 ? <Empty title={k("gx.workingNone")} text={k("gx.workingNoneText")} />
+              : <ul className="pu-list">{active.slice(0, 3).map((p: Progress) => <WorkCard key={p.id} p={p} onAction={(a) => openProgress(a.open)} />)}</ul>}
+          </Section>
+
+          <Section id="gd-games" title={k("gx.results")} count={c.games || undefined}
+            action={world && games.length < 30 ? <Button size="sm" variant="ghost" icon={<IconPlus />} onClick={() => setAdding(true)}>{k("gx.addGame")}</Button> : undefined}>
+            {!world ? (loadErr ? <ErrorState title={k("gx.errTitle")} text={k("gx.errText")} retryLabel={k("gx.retry")} onRetry={() => void load()} /> : <Loading rows={3} label={k("gx.loading")} />)
+              : !games.length ? <Empty title={k("gx.gamesNone")} text={k("gx.gamesNoneText")} action={<Button size="sm" variant="primary" onClick={() => setAdding(true)}>{k("gx.addGame")}</Button>} />
+              : <ul className="pu-list">
+                {finished.map((p) => <li key={p.id}><Row title={p.title} sub={p.result?.text ?? k("gx.done")} lead={<span className="pu-dot" data-tone="good" />} trail={<IconChevron />} onClick={() => openTask(p.id)} /></li>)}
+                {games.map((g) => (
+                  <li key={g.id}><Row title={g.name} sub={k("gx.gameSub", { stage: k(`gx.stage.${g.stage}`), n: bugStats(world, g.id).active })}
+                    lead={<span className="gd-plat" style={{ background: PLATFORM_COLOR[g.platform] }} />} trail={<IconChevron />} onClick={() => pickGame(g.id)} /></li>
+                ))}
+              </ul>}
+          </Section>
+
+          {sites === "err" ? <Section id="gd-sites" title={k("gx.sites")}><ErrorState title={k("gx.sitesErr")} text={k("gx.sitesErrText")} retryLabel={k("gx.retry")} onRetry={loadSites} /></Section>
+            : sites && sites.length > 0 && (
+              <Section id="gd-sites" title={k("gx.sites")} count={sites.length}>
+                <ul className="pu-list">{sites.slice(0, 5).map((w) => (
+                  <li key={w.slug}><Row title={w.slug} sub={new Date(w.mtime).toLocaleDateString(lang === "et" ? "et-EE" : "en-GB")} lead={<span className="pu-dot" data-tone="accent" />} trail={<IconChevron />}
+                    onClick={() => window.open(w.preview, "_blank", "noopener,noreferrer")} /></li>))}</ul>
+              </Section>)}
+        </>}
+
+        {adding && !tool && world && (
+          <GameForm k={k} taken={games.map((g) => g.id)} onCancel={() => setAdding(false)}
+            onSave={(g) => { if (commit({ ...world, games: [...games, g] })) { setAdding(false); setSelected(g.id); } }} />
+        )}
+
+        {!tool && game && world && (
+          <GameDetail key={game.id} k={k} game={game} world={world} commit={commit} onDelete={deleteGame} onDeleteBug={deleteBug} onOpenTask={openTask}
+            onFix={(error) => { setFix({ key: Date.now(), error: `${contractBrief(game)}\n\n${error}`.slice(0, 2000) }); open("code"); }} onTasks={loadTasks} />
+        )}
+
+        {/* Tools: only the open one is mounted; the playtest bot and code helper stay once opened. */}
+        <div className="gd-tool"><PlanetBoundary name="gamedev-tool">
+          <Suspense fallback={<Loading rows={3} label={k("gx.toolLoading")} />}>
+            {tool && toolNeedsGame(tool) && !game ? (
+              !world ? <Loading rows={2} label={k("gx.loading")} />
+                : !games.length ? <Empty title={k("gx.pickFirst")} text={k("gd.pickNone")} />
+                : <Empty title={k("gx.pickFirst")} text={k("gd.pickHere")} />
+            ) : tool && <ToolBody id={tool} k={k} game={game} world={world} commit={commit} gk={gk} rising={rising} />}
+            {opened.has("playtest") && <div hidden={tool !== "playtest" || !game}><p className="gd-note">{k("gd.k.runtime")}: {k("gd.runtimeNote")}</p><TOOLS.PlaytestBot key={gk} world={world} commit={commit} gameId={selected} /></div>}
+            {opened.has("code") && <div hidden={tool !== "code"}><TOOLS.CodeHelper key={gk} prefill={fix} /></div>}
+          </Suspense>
+        </PlanetBoundary></div>
+      </PlanetShell>
+      </div>
+      <Toaster dismissLabel={k("gx.dismiss")} />
     </div>
   );
 }
 
-/** V08: pick the game right where a per-game view needs one; the current view stays open. Switching remounts game-keyed drafts. */
-function GamePicker({ state, games, retry, onPick }: { state: PickState; games: Game[]; retry: () => void; onPick: (id: string) => void }) {
-  const { t } = useT();
-  if (state === "loading" || state === "failed") return <StateNote state={state} action={{ label: t("state.retry"), run: retry }} />;
-  if (state === "empty") return <p className="muted">{t("gd.pickNone")}</p>;
+/** The one open tool (the keep-tools render above, outside this). */
+function ToolBody({ id, k, game, world, commit, gk, rising }: { id: ToolId; k: K; game: Game | null; world: World | null; commit: (w: World) => boolean; gk: string; rising: number }) {
+  const T = TOOLS, gameId = game?.id ?? null;
+  const per = world && game ? { key: gk, game, world, commit } : null;
+  switch (id) {
+    case "refs": return <T.RefBoard />;
+    case "sounds": return <T.SoundFinder />;
+    case "thumbs": return <T.ThumbMaker />;
+    case "trends": return <T.TrendRadar openRising={rising} />;
+    case "grid": return <T.GridCity key={gk} />;
+    case "hive": return <T.HivePanel />;
+    case "scene": return <T.ScenePlanner key={gk} />;
+    case "textures": return <T.TextureStudio />;
+    case "model3d": return <T.PictureTo3D />;
+    case "text3d": return <><T.TextTo3D /><T.MakeInBlender /></>;
+    case "aitesters": return <T.AiPlaytesters />;
+    case "personas": return <><p className="gd-note">{k("gd.k.simulated")}: {k("gd.simNote")}</p><T.PersonaPlaytest key={gk} world={world} commit={commit} gameId={gameId} /></>;
+    case "economy": return <T.GameCopilot key={gk} world={world} gameId={gameId} />;
+    case "files": return <T.RojoPanel />;
+    case "sessions": return <T.DevSessions />;
+    case "core": return <T.CoreConfigPanel />;
+    case "evidence": return per && <T.EvidenceLog {...per} />;
+    case "register": return per && <T.AssetRegister {...per} />;
+    case "release": return per && <T.ReleasePanel {...per} />;
+    case "uikit": return per && <T.UiKitCard {...per} />;
+    case "sim": return per && <T.EconomySim {...per} />;
+    case "retention": return per && <T.RetentionPanel {...per} />;
+    default: return null; // playtest, code: kept, rendered by the parent
+  }
+}
+
+/** "All tools": the 24 tools in six groups, plain names with one line on what each does. */
+function ToolsSheet({ open, k, hasGame, onClose, onPick }: { open: boolean; k: K; hasGame: boolean; onClose: () => void; onPick: (id: ToolId) => void }) {
   return (
-    <label className="block text-sm">{t(state === "unavailable" ? "gd.pickGone" : "gd.pickHere")}
-      <select className="field mt-1 w-full" aria-label={t("gd.pickLabel")} value="" onChange={(e) => e.target.value && onPick(e.target.value)}>
-        <option value="">{t("gd.pickChoose")}</option>
-        {games.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-      </select>
-    </label>
+    <Sheet open={open} title={k("gx.allTools")} onClose={onClose} closeLabel={k("gx.close")}>
+      {TOOL_GROUPS.map((g) => (
+        <Section key={g.id} id={`gd-tg-${g.id}`} title={k(`gx.g.${g.id}`)}>
+          <ul className="pu-list">{g.tools.map(([id, need]) => (
+            <li key={id}><Row title={k(`gx.t.${id}`)} sub={need && !hasGame ? `${k(`gx.h.${id}`)} · ${k("gx.pickFirst")}` : k(`gx.h.${id}`)} trail={<IconChevron />} onClick={() => onPick(id as ToolId)} /></li>
+          ))}</ul>
+        </Section>
+      ))}
+    </Sheet>
   );
 }
 
-function Art({ game }: { game: Game }) {
+function Art({ game, k }: { game: Game; k: K }) {
   const [broken, setBroken] = useState(false);
   const c = PLATFORM_COLOR[game.platform];
-  if (!game.art || broken) return <div aria-hidden className="h-32 w-full rounded-xl" style={{ background: `linear-gradient(135deg, ${c}55, #0b1226 60%, ${c}22)` }} />;
+  if (!game.art || broken) return <div aria-hidden className="gd-art" style={{ background: `linear-gradient(135deg, ${c}55, #0b1226 60%, ${c}22)` }} />;
   // eslint-disable-next-line @next/next/no-img-element -- small bundled art; next/image adds nothing here
-  return <img src={`/devworld/${game.art}.webp`} alt={`${game.name} art`} className="h-32 w-full rounded-xl object-cover" onError={() => setBroken(true)} />;
+  return <img src={`/devworld/${game.art}.webp`} alt={k("gx.d.art", { name: game.name })} className="gd-art" onError={() => setBroken(true)} />;
 }
 
-function GameDetail({ game, world, commit, onBack, onDeleted, onOpenTask, onFix }: {
-  game: Game; world: World; commit: (w: World) => boolean; onBack: () => void; onDeleted: () => void; onOpenTask?: (id: string) => void; onFix: (error: string) => void;
+function GameDetail({ k, game, world, commit, onDelete, onDeleteBug, onOpenTask, onFix, onTasks }: {
+  k: K; game: Game; world: World; commit: (w: World) => boolean; onDelete: (g: Game) => void; onDeleteBug: (b: Bug) => void;
+  onOpenTask: (id: string) => void; onFix: (error: string) => void; onTasks: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [qa, setQa] = useState<{ busy: boolean; msg: string; ok: boolean }>({ busy: false, msg: "", ok: true });
@@ -431,75 +528,69 @@ function GameDetail({ game, world, commit, onBack, onDeleted, onOpenTask, onFix 
       const res = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ agent: "qa", title: `Playtest plan: ${JSON.stringify(game.name)}`, request: qaPrompt(game, world.bugs) }) });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Couldn't start the QA task");
-      setQa({ busy: false, msg: "QA is on it.", ok: true });
-      if (json.task?.id) onOpenTask?.(json.task.id);
-    } catch (e) { setQa({ busy: false, msg: e instanceof Error ? e.message : "Couldn't start the QA task", ok: false }); }
+      if (!res.ok) throw new Error();
+      setQa({ busy: false, msg: k("gx.d.qaOn"), ok: true }); onTasks();
+      if (json.task?.id) onOpenTask(json.task.id);
+    } catch { setQa({ busy: false, msg: k("gx.d.qaErr"), ok: false }); }
   }
 
-  if (editing) return <GameForm initial={game} taken={[]} onCancel={() => setEditing(false)} onSave={(g) => { if (setGame(g)) setEditing(false); }} />;
+  if (editing) return <GameForm k={k} initial={game} taken={[]} onCancel={() => setEditing(false)} onSave={(g) => { if (setGame(g)) setEditing(false); }} />;
   return (
-    <div className="space-y-3">
-      <button className="chip" onClick={onBack}>← All games</button>
-      <Art key={game.art} game={game} />
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-semibold" style={{ color: PLATFORM_COLOR[game.platform] }}>{game.name}</h2>
-          <p className="muted text-xs">{game.platform} · {stats.active} open of {stats.total} bugs</p>
-        </div>
-        <label className="text-xs">Stage{" "}
-          <select className="field py-1" value={game.stage} onChange={(e) => setGame({ ...game, stage: e.target.value as Stage })}>
-            {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+    <div className="gd-detail">
+      <Art key={game.art} game={game} k={k} />
+      <div className="gd-detail-head">
+        <p className="pu-status">{k("gx.d.sub", { platform: k(`gx.plat.${game.platform}`), open: stats.active, total: stats.total })}</p>
+        <label className="gd-inline">{k("gx.f.stage")}
+          <select className="gd-pick" value={game.stage} onChange={(e) => setGame({ ...game, stage: e.target.value as Stage })}>
+            {STAGES.map((s) => <option key={s} value={s}>{k(`gx.stage.${s}`)}</option>)}
           </select>
         </label>
       </div>
-      {game.pitch && <p className="text-sm">{game.pitch}</p>}
-      {game.notes && <p className="muted whitespace-pre-wrap text-xs">{game.notes}</p>}
-      <div className="flex flex-wrap gap-2">
-        <button className="btn" onClick={() => void playtest()} disabled={qa.busy}>{qa.busy ? "Starting…" : "Playtest with QA"}</button>
-        <button className="chip" onClick={() => setEditing(true)}>Edit game</button>
-        <button className="chip" onClick={() => {
-          if (!confirm(`Delete ${game.name} and its ${stats.total} bugs?`)) return;
-          if (commit({ ...world, games: world.games.filter((g) => g.id !== game.id), bugs: world.bugs.filter((b) => b.game !== game.id) })) onDeleted();
-        }}>Delete game</button>
+      {game.pitch && <p className="gd-text">{game.pitch}</p>}
+      {game.notes && <p className="gd-note gd-pre">{game.notes}</p>}
+      <div className="gd-actions">
+        <Button variant="primary" busy={qa.busy} onClick={() => void playtest()}>{qa.busy ? k("gx.d.starting") : k("gx.d.playtest")}</Button>
+        <Button onClick={() => setEditing(true)}>{k("gx.d.edit")}</Button>
+        <Button variant="danger" onClick={() => onDelete(game)}>{k("gx.d.delete")}</Button>
       </div>
-      {qa.msg && <p role="status" className={qa.ok ? "ok" : "error"}>{qa.msg}</p>}
-      <ContractCard key={game.id} game={game} world={world} commit={commit} />
-      <BugTracker game={game} world={world} commit={commit} onFix={onFix} />
+      {qa.msg && <p role="status" className={qa.ok ? "gd-note gd-ok" : "gd-error"}>{qa.msg}</p>}
+      <div className="gd-tool"><ContractCard key={game.id} game={game} world={world} commit={commit} /></div>
+      <BugTracker k={k} game={game} world={world} commit={commit} onFix={onFix} onDelete={onDeleteBug} />
     </div>
   );
 }
 
-function GameForm({ initial, taken, onSave, onCancel }: { initial?: Game; taken: string[]; onSave: (g: Game) => void; onCancel: () => void }) {
+function GameForm({ k, initial, taken, onSave, onCancel }: { k: K; initial?: Game; taken: string[]; onSave: (g: Game) => void; onCancel: () => void }) {
   const [f, setF] = useState({
     name: initial?.name ?? "", platform: initial?.platform ?? ("roblox" as Platform), stage: initial?.stage ?? ("idea" as Stage),
     pitch: initial?.pitch ?? "", notes: initial?.notes ?? "", art: initial?.art ?? "",
   });
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
+  const set = (key: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF({ ...f, [key]: e.target.value });
   return (
-    <form className="mt-3 space-y-2" aria-label={initial ? "Edit game" : "Add game"} onSubmit={(e) => {
+    <form className="gd-form" aria-label={initial ? k("gx.f.edit") : k("gx.f.add")} onSubmit={(e) => {
       e.preventDefault();
       if (!f.name.trim()) return;
       const g: Game = { id: initial?.id ?? slugify(f.name, taken), name: f.name, platform: f.platform, stage: f.stage, pitch: f.pitch, notes: f.notes };
       if (f.art) g.art = f.art as Game["art"];
       onSave(g);
     }}>
-      <label className="block text-xs">Name<input className="field mt-1 w-full" required maxLength={60} value={f.name} onChange={set("name")} /></label>
-      <div className="flex flex-wrap gap-2">
-        <label className="text-xs">Platform <select className="field py-1" value={f.platform} onChange={set("platform")}>{PLATFORMS.map((p) => <option key={p}>{p}</option>)}</select></label>
-        <label className="text-xs">Stage <select className="field py-1" value={f.stage} onChange={set("stage")}>{STAGES.map((s) => <option key={s}>{s}</option>)}</select></label>
-        <label className="text-xs">Art <select className="field py-1" value={f.art} onChange={set("art")}><option value="">none</option>{ART_KEYS.map((a) => <option key={a}>{a}</option>)}</select></label>
+      <label className="gd-label">{k("gx.f.name")}<input className="gd-field" required maxLength={60} value={f.name} onChange={set("name")} /></label>
+      <div className="gd-row3">
+        <label className="gd-label">{k("gx.f.platform")}<select className="gd-field" value={f.platform} onChange={set("platform")}>{PLATFORMS.map((p) => <option key={p} value={p}>{k(`gx.plat.${p}`)}</option>)}</select></label>
+        <label className="gd-label">{k("gx.f.stage")}<select className="gd-field" value={f.stage} onChange={set("stage")}>{STAGES.map((s) => <option key={s} value={s}>{k(`gx.stage.${s}`)}</option>)}</select></label>
+        <label className="gd-label">{k("gx.f.art")}<select className="gd-field" value={f.art} onChange={set("art")}><option value="">{k("gx.f.none")}</option>{ART_KEYS.map((a) => <option key={a} value={a}>{a}</option>)}</select></label>
       </div>
-      <label className="block text-xs">Pitch<textarea className="field mt-1 w-full" rows={2} maxLength={300} value={f.pitch} onChange={set("pitch")} /></label>
-      <label className="block text-xs">Notes<textarea className="field mt-1 w-full" rows={4} maxLength={4000} value={f.notes} onChange={set("notes")} /></label>
-      <div className="flex gap-2"><button className="btn">{initial ? "Save game" : "Add game"}</button><button type="button" className="chip" onClick={onCancel}>Cancel</button></div>
+      <label className="gd-label">{k("gx.f.pitch")}<textarea className="gd-field" rows={2} maxLength={300} value={f.pitch} onChange={set("pitch")} /></label>
+      <label className="gd-label">{k("gx.f.notes")}<textarea className="gd-field" rows={4} maxLength={4000} value={f.notes} onChange={set("notes")} /></label>
+      <div className="gd-actions"><Button type="submit" variant="primary">{initial ? k("gx.f.save") : k("gx.f.add")}</Button><Button onClick={onCancel}>{k("gx.f.cancel")}</Button></div>
     </form>
   );
 }
 
 /** The game's backlog (roadmap 4.4): bugs, features and polish with priority and status; import a pasted list or GitHub issues text;
  *  any item → a Goal (the planner drafts its steps) or → the Luau helper's Fix mode, whose suggestion is checked against Roblox's docs. */
-function BugTracker({ game, world, commit, onFix }: { game: Game; world: World; commit: (w: World) => boolean; onFix: (error: string) => void }) {
+function BugTracker({ k, game, world, commit, onFix, onDelete }: { k: K; game: Game; world: World; commit: (w: World) => boolean; onFix: (error: string) => void; onDelete: (b: Bug) => void }) {
+  const { lang } = useT();
   const [all, setAll] = useState(false);
   const [draft, setDraft] = useState({ title: "", severity: "major" as Severity, detail: "", kind: "bug" as Kind, priority: "medium" as Priority });
   const [paste, setPaste] = useState<string | null>(null);
@@ -507,6 +598,7 @@ function BugTracker({ game, world, commit, onFix }: { game: Game; world: World; 
   const [goalBusy, setGoalBusy] = useState("");
   const mine = sortBacklog(world.bugs.filter((b) => b.game === game.id && (all || isActive(b))));
   const setBug = (id: string, patch: Partial<Bug>) => commit({ ...world, bugs: world.bugs.map((b) => (b.id === id ? { ...b, ...patch } : b)) });
+  const day = (iso: string) => new Date(iso).toLocaleDateString(lang === "et" ? "et-EE" : "en-GB");
 
   function add(e: React.FormEvent) {
     e.preventDefault();
@@ -517,9 +609,9 @@ function BugTracker({ game, world, commit, onFix }: { game: Game; world: World; 
 
   function doImport() {
     const drafts = parseBacklog(paste ?? "");
-    if (!drafts.length) { setNote({ ok: false, text: "Found no items. Paste one per line, or the output of gh issue list." }); return; }
+    if (!drafts.length) { setNote({ ok: false, text: k("gx.b.importNone") }); return; }
     const r = importDrafts(world, game.id, drafts, new Date().toISOString(), () => crypto.randomUUID());
-    if (commit(r.world)) { setPaste(null); setNote({ ok: true, text: `Imported ${r.added}${r.skipped ? `, skipped ${r.skipped} already there` : ""}.` }); }
+    if (commit(r.world)) { setPaste(null); setNote({ ok: true, text: r.skipped ? k("gx.b.importedSkip", { n: r.added, s: r.skipped }) : k("gx.b.imported", { n: r.added }) }); }
   }
 
   async function toGoal(b: Bug) {
@@ -527,83 +619,75 @@ function BugTracker({ game, world, commit, onFix }: { game: Game; world: World; 
     try {
       const r = await fetch("/api/goals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(backlogGoal(game, b)) });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || `Couldn't create the goal (${r.status})`);
+      if (!r.ok) throw new Error();
       setBug(b.id, { goalId: j.id });
-      setNote({ ok: true, text: "Goal created: its steps are being drafted in AGENTS → Goals. Nothing runs until you approve the plan." });
-    } catch (e) { setNote({ ok: false, text: e instanceof Error ? e.message : "Couldn't create the goal" }); } finally { setGoalBusy(""); }
+      setNote({ ok: true, text: k("gx.b.goalOk") });
+    } catch { setNote({ ok: false, text: k("gx.b.goalErr") }); } finally { setGoalBusy(""); }
   }
 
   return (
-    <section aria-label={`Bugs for ${game.name}`} className="space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="hud-title">BACKLOG</div>
-        <div className="flex gap-1" role="group" aria-label="Bug filter">
-          <button className="chip" aria-pressed={!all} onClick={() => setAll(false)}>Open</button>
-          <button className="chip" aria-pressed={all} onClick={() => setAll(true)}>All</button>
-        </div>
-      </div>
-      <ul className="space-y-2">
+    <Section id="gd-bugs" title={k("gx.b.title")} count={mine.length}
+      action={<span className="pu-chips" role="group" aria-label={k("gx.b.filter")}><Chip pressed={!all} onClick={() => setAll(false)}>{k("gx.b.open")}</Chip><Chip pressed={all} onClick={() => setAll(true)}>{k("gx.b.all")}</Chip></span>}>
+      <ul className="pu-list gd-tool" aria-label={k("gx.b.label", { name: game.name })}>
         {mine.map((b) => (
-          <li key={b.id} className="card space-y-1" style={{ boxShadow: `inset 3px 0 0 ${SEVERITY_COLOR[b.severity]}` }}>
-            <div className="flex items-start justify-between gap-2">
-              <p className="text-sm">{b.title}{b.ref && <span className="muted text-xs"> {b.ref}</span>}</p>
-              <span className="shrink-0 text-xs" style={{ color: SEVERITY_COLOR[b.severity] }}>{b.kind ?? "bug"} · {b.severity}</span>
+          <li key={b.id} className="gd-bug" style={{ ["--sev" as string]: SEVERITY_COLOR[b.severity] }}>
+            <div className="gd-bug-head">
+              <p className="gd-bug-title">{b.title}{b.ref && <span className="gd-note"> {b.ref}</span>}</p>
+              <span className="gd-sev">{k(`gx.kind.${b.kind ?? "bug"}`)} · {k(`gx.sev.${b.severity}`)}</span>
             </div>
-            {b.detail && <p className="muted whitespace-pre-wrap text-xs">{b.detail}</p>}
+            {b.detail && <p className="gd-note gd-pre">{b.detail}</p>}
             <WorkStepsLine bug={b} world={world} />
-            <div className="flex items-center gap-2 text-xs">
-              <select className="field py-1" aria-label={`Status of ${b.title}`} value={b.status}
+            <div className="gd-bug-meta">
+              <select className="gd-pick" aria-label={k("gx.b.statusOf", { t: b.title })} value={b.status}
                 onChange={(e) => { const status = e.target.value as Status; setBug(b.id, { status, fixed: status === "fixed" ? new Date().toISOString() : undefined }); }}>
-                {STATUSES.map((s) => <option key={s}>{s}</option>)}
+                {STATUSES.map((s) => <option key={s} value={s}>{k(`gx.st.${s}`)}</option>)}
               </select>
-              <select className="field py-1" aria-label={`Priority of ${b.title}`} value={b.priority ?? "medium"} onChange={(e) => setBug(b.id, { priority: e.target.value as Priority })}>
-                {PRIORITIES.map((p) => <option key={p}>{p}</option>)}
+              <select className="gd-pick" aria-label={k("gx.b.priorityOf", { t: b.title })} value={b.priority ?? "medium"} onChange={(e) => setBug(b.id, { priority: e.target.value as Priority })}>
+                {PRIORITIES.map((p) => <option key={p} value={p}>{k(`gx.pri.${p}`)}</option>)}
               </select>
-              <span className="muted">{b.fixed ? `fixed ${new Date(b.fixed).toLocaleDateString()}` : `logged ${new Date(b.created).toLocaleDateString()}`}</span>
+              <span className="gd-note">{b.fixed ? k("gx.b.fixedOn", { d: day(b.fixed) }) : k("gx.b.loggedOn", { d: day(b.created) })}</span>
             </div>
-            <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              {b.goalId ? <span className="muted">🎯 Goal made</span>
-                : <button className="chip" disabled={!!goalBusy} onClick={() => void toGoal(b)}>{goalBusy === b.id ? "Creating…" : "→ Goal"}</button>}
-              {game.platform === "roblox" && <button className="chip" onClick={() => onFix(fixContext(b))}>🩹 Suggest fix</button>}
+            <div className="gd-bug-actions">
+              {b.goalId ? <span className="gd-note">{k("gx.b.goalMade")}</span>
+                : <Button size="sm" busy={goalBusy === b.id} disabled={!!goalBusy && goalBusy !== b.id} onClick={() => void toGoal(b)}>{goalBusy === b.id ? k("gx.b.creating") : k("gx.b.toGoal")}</Button>}
+              {game.platform === "roblox" && <Button size="sm" onClick={() => onFix(fixContext(b))}>{k("gx.b.fix")}</Button>}
               <DevTrail bug={b} world={world} commit={commit} />
-              <button className="chip ml-auto" aria-label={`Delete bug ${b.title}`}
-                onClick={() => { if (confirm(`Delete bug "${b.title}"?`)) commit({ ...world, bugs: world.bugs.filter((x) => x.id !== b.id) }); }}>Delete</button>
+              <span className="gd-push"><Button size="sm" variant="ghost" onClick={() => onDelete(b)} aria-label={k("gx.b.deleteLabel", { t: b.title })}>{k("gx.b.delete")}</Button></span>
             </div>
           </li>
         ))}
       </ul>
-      {!mine.length && <p className="muted text-sm">{all ? "Nothing logged." : "Nothing open. Nice."}</p>}
-      {note && <p role="status" className={note.ok ? "ok text-sm" : "error text-sm"}>{note.text}</p>}
-      {paste === null ? <button className="chip" onClick={() => { setPaste(""); setNote(null); }}>📋 Import list or GitHub issues</button> : (
-        <div className="space-y-2">
-          <textarea className="field w-full font-mono text-xs" rows={5} maxLength={50_000} aria-label="Paste backlog items" value={paste} onChange={(e) => setPaste(e.target.value)}
-            placeholder={"- [bug][P1] Coins awarded twice — both servers award\n- feature: Rebirth (low)\nor paste: gh issue list --limit 100"} />
-          <div className="flex gap-2"><button className="btn" disabled={!paste.trim()} onClick={doImport}>Import</button><button className="chip" onClick={() => setPaste(null)}>Cancel</button></div>
+      {!mine.length && <Empty title={all ? k("gx.b.nothing") : k("gx.b.nothingOpen")} />}
+      {note && <p role="status" className={note.ok ? "gd-note gd-ok" : "gd-error"}>{note.text}</p>}
+      {paste === null ? <Button size="sm" variant="ghost" onClick={() => { setPaste(""); setNote(null); }}>{k("gx.b.import")}</Button> : (
+        <div className="gd-form">
+          <textarea className="gd-field gd-mono" rows={5} maxLength={50_000} aria-label={k("gx.b.pasteLabel")} value={paste} onChange={(e) => setPaste(e.target.value)} placeholder={k("gx.b.pastePh")} />
+          <div className="gd-actions"><Button variant="primary" disabled={!paste.trim()} onClick={doImport}>{k("gx.b.doImport")}</Button><Button onClick={() => setPaste(null)}>{k("gx.b.cancel")}</Button></div>
         </div>
       )}
-      <form className="space-y-2" onSubmit={add} aria-label="Add bug">
-        <div className="flex gap-2">
-          <input className="field min-w-0 flex-1" required maxLength={140} placeholder="New item title" aria-label="Item title" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
-          <select className="field py-1" aria-label="Severity" value={draft.severity} onChange={(e) => setDraft({ ...draft, severity: e.target.value as Severity })}>
-            {SEVERITIES.map((s) => <option key={s}>{s}</option>)}
+      <form className="gd-form" onSubmit={add} aria-label={k("gx.b.addLabel")}>
+        <div className="gd-row3">
+          <input className="gd-field gd-grow" required maxLength={140} placeholder={k("gx.b.titlePh")} aria-label={k("gx.b.titleLabel")} value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+          <select className="gd-field" aria-label={k("gx.b.severity")} value={draft.severity} onChange={(e) => setDraft({ ...draft, severity: e.target.value as Severity })}>
+            {SEVERITIES.map((s) => <option key={s} value={s}>{k(`gx.sev.${s}`)}</option>)}
           </select>
         </div>
-        <div className="flex gap-2">
-          <select className="field flex-1 py-1" aria-label="Kind" value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as Kind })}>{KINDS.map((k) => <option key={k}>{k}</option>)}</select>
-          <select className="field flex-1 py-1" aria-label="Priority" value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value as Priority })}>{PRIORITIES.map((p) => <option key={p}>{p}</option>)}</select>
+        <div className="gd-row3">
+          <select className="gd-field gd-grow" aria-label={k("gx.b.kind")} value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as Kind })}>{KINDS.map((x) => <option key={x} value={x}>{k(`gx.kind.${x}`)}</option>)}</select>
+          <select className="gd-field gd-grow" aria-label={k("gx.b.priority")} value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value as Priority })}>{PRIORITIES.map((p) => <option key={p} value={p}>{k(`gx.pri.${p}`)}</option>)}</select>
         </div>
-        <textarea className="field w-full" rows={2} maxLength={2000} placeholder="Steps to reproduce, what you expected (optional)" aria-label="Bug detail"
+        <textarea className="gd-field" rows={2} maxLength={2000} placeholder={k("gx.b.detailPh")} aria-label={k("gx.b.detailLabel")}
           value={draft.detail} onChange={(e) => setDraft({ ...draft, detail: e.target.value })} />
-        <button className="btn" disabled={!draft.title.trim() || world.bugs.length >= 500}>Add item</button>
+        <div><Button type="submit" variant="primary" disabled={!draft.title.trim() || world.bugs.length >= 500}>{k("gx.b.add")}</Button></div>
       </form>
-    </section>
+    </Section>
   );
 }
 
-/** Health line: is the offline brain (Ollama, used when Claude is unreachable) reachable? Hidden while it's off. */
-function LocalBrainLine() {
+/** Health line: is the offline brain (Ollama, used when Claude is unreachable) reachable? Hidden while it's off or unknown. */
+function LocalBrainLine({ paused, k }: { paused: boolean; k: K }) {
   const [st, setSt] = useState<{ state: string; text: string } | null>(null);
-  useEffect(() => { void fetch("/api/devworld/local", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null), () => null).then(setSt); }, []);
-  if (!st || st.state === "off") return null;
-  return <p role="status" className={`mb-2 text-xs ${st.state === "ok" ? "ok" : "muted"}`}>🧠 {st.text}</p>;
+  useEffect(() => { if (!paused) void fetch("/api/devworld/local", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null), () => null).then(setSt, () => setSt(null)); }, [paused]);
+  if (!st || st.state === "off" || !st.text) return null;
+  return <p role="status" className={`gd-note${st.state === "ok" ? " gd-ok" : ""}`}>{k("gx.brain", { text: st.text })}</p>;
 }
