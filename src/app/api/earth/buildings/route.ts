@@ -1,4 +1,6 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
+import { earthCacheDir } from "@/lib/data-dir";
+import { writeStore } from "@/lib/safe-file";
 import path from "node:path";
 import { requireUser } from "@/lib/supabase/server";
 import { safeFetch } from "@/lib/memory";
@@ -7,9 +9,9 @@ import { OVERPASS_URL } from "@/lib/overpass-pure";
 import { BZ, capBuildings, overpassQuery, parseOverpass, tileBox, validBTile, type Building } from "@/lib/earth-buildings-pure";
 
 // OSM buildings (© OpenStreetMap contributors, ODbL) for the Earth view's city close-ups, one z14 tile at a time from Overpass,
-// cached on disk under .cache/earth/buildings for 30 days. Overpass calls go through the shared polite queue (their usage policy); when Overpass
+// cached on disk under <data dir>/cache/earth/buildings for 30 days. Overpass calls go through the shared polite queue (their usage policy); when Overpass
 // can't be reached the answer is an empty tile marked offline, and the view simply shows the flat imagery.
-const DIR = path.join(process.cwd(), ".cache", "earth", "buildings", String(BZ));
+const DIR = earthCacheDir("buildings", String(BZ));
 const TTL = 30 * 24 * 3600_000;
 const OVERPASS = process.env.ORBIT_OVERPASS_URL || OVERPASS_URL;
 
@@ -32,7 +34,7 @@ export async function GET(req: Request) {
   try { const s = await stat(file); if (Date.now() - s.mtimeMs < TTL) return send(JSON.parse(await readFile(file, "utf8"))); } catch { /* not cached */ }
   try {
     const body = { x, y, buildings: await overpass(x, y) };
-    await mkdir(DIR, { recursive: true }).then(() => writeFile(file, JSON.stringify(body))).catch(() => {});
+    await writeStore(file, JSON.stringify(body)).catch(() => {});
     return send(body);
   } catch {
     try { return send(JSON.parse(await readFile(file, "utf8"))); } catch { return send({ x, y, buildings: [], offline: true }, false); }

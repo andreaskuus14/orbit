@@ -1,14 +1,14 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { requireUser } from "@/lib/supabase/server";
-import { orbitDataDir } from "@/lib/data-dir";
+import { earthCacheDir } from "@/lib/data-dir";
 import { writeStore } from "@/lib/safe-file";
 import { upstreamTile, validTile } from "@/lib/earth-pure";
 
 // Free map tiles for the Intelligence "Planet Earth" view (day imagery, night lights, elevation), fetched once and kept on disk
 // under <data dir>/cache/earth (%LOCALAPPDATA%\orbit on Windows, outside the repo) so the laptop works from its own copy afterwards (30-day refresh). Only the three known public sources;
 // nothing about the owner goes out (the URL is just z/x/y).
-const DIR = path.join(orbitDataDir(), "cache", "earth");
+const DIR = earthCacheDir();
 const TTL = 30 * 24 * 3600_000;
 const TYPE = { day: "image/jpeg", night: "image/png", elev: "image/png" } as const;
 

@@ -15,7 +15,7 @@ export function parseGeoLine(line: string): City | null {
 }
 export function parseGeoNames(text: string): City[] {
   const out: City[] = [];
-  for (const l of text.split("\n")) { const c = parseGeoLine(l); if (c) out.push(c); }
+  for (const l of text.split(/\r?\n/)) { const c = parseGeoLine(l); if (c) out.push(c); }
   return out;
 }
 export function byCountry(cs: City[]): Map<string, City[]> {
