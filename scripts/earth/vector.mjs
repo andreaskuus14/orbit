@@ -36,7 +36,11 @@ await page.goto(`http://127.0.0.1:${srv.address().port}/`, { waitUntil: "domcont
 await page.waitForFunction(() => window.earthReady, null, { timeout: 0 });
 await page.evaluate(() => window.earthReady);
 const only = process.env.SHOTS?.split(",");
-const shots = {
+// NIGHT=1: the 1.2 km and 4 km views by day, at dusk (sun -3°) and at night (sun -30°), 23 Nov in Tallinn
+const T = (h, m) => Date.UTC(2026, 10, 23, h, m);
+const v12 = { lon: 24.7451, lat: 59.4375, alt: 1.2, tilt: 55, heading: 25 }, v4 = { lon: 24.748, lat: 59.436, alt: 4, tilt: 50, heading: -10 };
+const night = process.env.NIGHT ? Object.fromEntries(Object.entries({ day: T(10, 30), dusk: T(14, 15), night: T(18, 0) }).flatMap(([w, sun]) => [[`${w}-1.2km.jpg`, { ...v12, sun }], [`${w}-4km.jpg`, { ...v4, sun }]])) : null;
+const shots = night ?? {
   "v-tallinn-1.2km.jpg": { lon: 24.7451, lat: 59.4375, alt: 1.2, tilt: 55, heading: 25 },
   "v-tallinn-4km.jpg": { lon: 24.748, lat: 59.436, alt: 4, tilt: 50, heading: -10 },
   "v-tallinn-9km.jpg": { lon: 24.75, lat: 59.435, alt: 9, tilt: 45, heading: 0 },
