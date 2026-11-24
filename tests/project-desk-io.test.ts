@@ -154,6 +154,7 @@ test("task creation links only a project the signed-in user owns (two synthetic 
     if (name.endsWith("/capability")) return { capabilityStart: async () => ({ block: null, headsUp: [] }) };
     if (name.endsWith("/capability-pure")) return { withHeadsUp: (title: string, request: string) => ({ title, request }) };
     if (name.endsWith("/project-desk-pure")) return pure;
+    if (name.endsWith("/operations-planet-pure")) return { listTag: () => "x", slimTask: (t: unknown) => t }; // GET ?lite=1 only
     throw new Error(name);
   } });
   const post = (project_id?: unknown) => m.exports.POST(new Request("http://orbit/api/tasks", { method: "POST", body: JSON.stringify({ request: "Study the site", ...(project_id !== undefined && { project_id }) }) }));

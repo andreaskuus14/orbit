@@ -85,7 +85,7 @@ test("scheduler: gates have the kill switch and approvals still expire (every 10
 });
 
 test("pollers skip ticks while the tab is hidden", () => {
-  for (const f of ["src/components/AgentsPanels.tsx", "src/components/RulesView.tsx", "src/components/ActivityView.tsx", "src/components/Orbit.tsx", "src/components/NewsGlobe.tsx", "src/components/FollowingSection.tsx", "src/components/alien/Comets.tsx"]) {
+  for (const f of ["src/components/AgentsPanels.tsx", "src/components/OperationsShell.tsx", "src/components/RulesView.tsx", "src/components/ActivityView.tsx", "src/components/Orbit.tsx", "src/components/NewsGlobe.tsx", "src/components/FollowingSection.tsx", "src/components/alien/Comets.tsx"]) {
     const s = src(f);
     assert.doesNotMatch(s, /setInterval\(\(\) => void load\(\), (5000|10_000|45_000)\)/, f);
     assert.doesNotMatch(s, /setInterval\((load|get), (20_000|REFRESH_MS|5 \* 60_000|10 \* 60_000)\)/, f);

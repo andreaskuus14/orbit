@@ -17,6 +17,7 @@ import type { QualityMode } from "@/lib/quality-pure";
 import { planetById } from "@/lib/planets";
 import { placeAt, worldScene, WORLD_SOURCE, type Place, type PlanetWorldId, type Shape } from "@/lib/planet-worlds-pure";
 import { useT } from "./i18n";
+import { SHELL_WORLDS, WorldShellContext, ZONE_WORDS } from "./world-shell";
 
 const BG = "#020308";
 const FRESH = new THREE.Color("#ffe6b0"); // the galaxy's "work" white-gold: new in the last 24 h
@@ -94,7 +95,7 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
   const glr = useGlRecovery();
   const later = useMountLater();
   const q = useLeanQuality(quality);
-  const { t } = useT();
+  const { t, lang } = useT();
   const planet = planetById(id)!;
   const [json, setJson] = useState<unknown>(null);
   const [err, setErr] = useState("");
@@ -104,7 +105,7 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
   useEffect(() => { // the panel edits the same data: refresh the scene every 30 s while visible
     if (paused) return;
     let live = true;
-    const load = () => fetch(WORLD_SOURCE[id], { cache: "no-store" }).then(async (r) => {
+    const load = () => fetch(id === "operations" ? `${WORLD_SOURCE[id]}?lite=1` /* the slim list */ : WORLD_SOURCE[id], { cache: "no-store" }).then(async (r) => {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `Could not load ${planet.name} (${r.status})`);
       if (live) { setJson(j); setErr(""); }
@@ -127,6 +128,8 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
   useEffect(() => { setSel(null); setHover(null); }, [scene]);
   const shown = hover ?? sel;
   const fresh = flatPlaces.filter((p) => p.fresh).length;
+  const shell = SHELL_WORLDS.includes(id);
+  const shellCtx = useMemo(() => ({ onClose, summary: scene?.summary ?? null }), [onClose, scene?.summary]);
 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label={`${planet.name}: ${t(`planet.${id}.blurb`)}`} style={{ background: BG }}>
@@ -145,7 +148,7 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
           {groups.map((g) => <Group key={g.shape} {...g} reduced={reduced} onHover={setHover} onPick={setSel} />)}
           {scene?.zones.map((z) => (
             <Html key={z.label} position={z.at} center zIndexRange={[11, 0]} style={{ pointerEvents: "none" }}>
-              <span className="planet-world-zone" style={{ color: planet.color }}>{z.label}</span>
+              <span className="planet-world-zone" style={{ color: planet.color }}>{(id === "operations" && ZONE_WORDS[lang][z.label]) || z.label}</span>
             </Html>
           ))}
           {shown !== null && flatPlaces[shown] && <Label p={flatPlaces[shown]} reduced={reduced} />}
@@ -162,6 +165,10 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
 
       {bare ? (
         <div className="world-shell absolute inset-x-3 bottom-32 z-[14] flex max-h-[45dvh] min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[27.5rem]">{children}</div>
+      ) : shell ? ( // the panel brings its own PlanetShell (header, close, status): no second header, no back chip
+        <WorldShellContext.Provider value={shellCtx}>
+          <div className="world-shell-slot panel-in absolute inset-x-3 bottom-32 z-[14] flex h-[55dvh] flex-col min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:top-[4.5rem] min-[900px]:right-3 min-[900px]:h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]">{children}</div>
+        </WorldShellContext.Provider>
       ) : <>
         <section className="glass hud-panel world-panel panel-in absolute inset-x-3 bottom-32 z-[14] flex max-h-[45dvh] flex-col gap-3 overflow-y-auto p-3 text-sm min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]" aria-label={`${planet.name} workspace`}>
           <h2 className="brand world-header flex items-center gap-2 text-base"><WorldEmblem id={id} size={28} />{t(`planet.${id}`)}<WorldHeaderArt id={id} /></h2>
