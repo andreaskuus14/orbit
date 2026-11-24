@@ -130,3 +130,5 @@ html[data-motion="on"] .studio .st-tool.studio-sheet { animation: st-rise var(--
 @media (max-height: 800px) { .st-shell .pu-ask .pu-chips { display: none; } } /* short windows: the box first, the examples rotate in CORE */
 .st-shell .pu-sheet footer { flex-wrap: wrap; row-gap: 8px; }
 .orbit-shell .studio .st-tool :is(.font-mono, .num, code):not(pre code) { font-family: var(--font-inter), Inter, system-ui, sans-serif; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+/* Phones: number above the stage name so "Check" is not cut to "Che…". */
+@media (max-width: 480px) { .st-stage { grid-template-columns: minmax(0, 1fr); row-gap: 2px; padding-inline: 8px; } }

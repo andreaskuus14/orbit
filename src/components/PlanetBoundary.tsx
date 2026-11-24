@@ -6,19 +6,21 @@ import { Component, Fragment, type ErrorInfo, type ReactNode } from "react";
 import { useT } from "./i18n";
 import { isChunkError } from "@/lib/stale-build-pure";
 import { reloadOnce } from "./StaleBuildWatch";
+import { Button } from "./ui";
 
 type Props = { name: string; onBack?: () => void; children: ReactNode };
 
 function Fallback({ name, onRetry, onBack }: { name: string; onRetry: () => void; onBack?: () => void }) {
   const { t } = useT();
   return (
-    <div className="planet-boundary card" role="alert" data-boundary={name}>
+    // Kit look (design-language.md): neutral card, Inter, the planet's own accent on Try again; no gradient or mono capitals.
+    <div className="planet-boundary card pu" data-planet={name} role="alert" data-boundary={name}>
       <span className="planet-boundary-mark" aria-hidden="true" />
       <b>{t("boundary.title")}</b>
       <p className="muted text-sm">{t("boundary.body")}</p>
       <div className="flex flex-wrap gap-2">
-        <button type="button" className="btn" onClick={onRetry}>{t("boundary.retry")}</button>
-        {onBack && <button type="button" className="chip" onClick={onBack}>{t("arch.backGalaxy")}</button>}
+        <Button variant="primary" size="sm" onClick={onRetry}>{t("boundary.retry")}</Button>
+        {onBack && <Button variant="ghost" size="sm" onClick={onBack}>{t("arch.backGalaxy")}</Button>}
       </div>
     </div>
   );
