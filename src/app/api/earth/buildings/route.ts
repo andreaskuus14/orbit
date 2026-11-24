@@ -1,25 +1,25 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { requireUser } from "@/lib/supabase/server";
+import { safeFetch } from "@/lib/memory";
+import { polite, UA } from "@/lib/reach/net";
+import { OVERPASS_URL } from "@/lib/overpass-pure";
 import { BZ, capBuildings, overpassQuery, parseOverpass, tileBox, validBTile, type Building } from "@/lib/earth-buildings-pure";
 
 // OSM buildings (© OpenStreetMap contributors, ODbL) for the Earth view's city close-ups, one z14 tile at a time from Overpass,
-// cached on disk under .cache/earth/buildings for 30 days. One Overpass request at a time (their usage policy); when Overpass
+// cached on disk under .cache/earth/buildings for 30 days. Overpass calls go through the shared polite queue (their usage policy); when Overpass
 // can't be reached the answer is an empty tile marked offline, and the view simply shows the flat imagery.
 const DIR = path.join(process.cwd(), ".cache", "earth", "buildings", String(BZ));
 const TTL = 30 * 24 * 3600_000;
-const OVERPASS = process.env.ORBIT_OVERPASS_URL || "https://overpass-api.de/api/interpreter";
-const g = globalThis as unknown as { __orbitOverpass?: Promise<unknown> };
+const OVERPASS = process.env.ORBIT_OVERPASS_URL || OVERPASS_URL;
 
+// the same polite per-host queue and User-Agent as the lead finder's Overpass calls (src/lib/overpass.ts)
 async function overpass(x: number, y: number): Promise<Building[]> {
-  const run = async () => {
-    const r = await fetch(OVERPASS, { method: "POST", body: new URLSearchParams({ data: overpassQuery(tileBox(x, y)) }), headers: { "User-Agent": "ORBIT/0.2 (personal map view)" }, signal: AbortSignal.timeout(30_000) });
-    if (!r.ok) throw new Error(String(r.status));
-    return capBuildings(parseOverpass(await r.json()));
-  };
-  const p = (g.__orbitOverpass ?? Promise.resolve()).catch(() => {}).then(run);
-  g.__orbitOverpass = p.catch(() => {});
-  return p;
+  const url = `${OVERPASS}?data=${encodeURIComponent(overpassQuery(tileBox(x, y)))}`;
+  return polite(url, async () => {
+    const { res } = await safeFetch(url, "application/json", `${UA} earth-buildings`, 12_000_000, 30_000);
+    return capBuildings(parseOverpass(JSON.parse(await res.text())));
+  });
 }
 
 export async function GET(req: Request) {
