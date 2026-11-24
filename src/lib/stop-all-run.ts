@@ -35,11 +35,12 @@ export async function switchStopAll(sb: SupabaseClient, userId: string, on: bool
     await import("@/lib/sandbox").then((m) => m.stopAllSandboxes()).catch(() => 0); // CORE code sandbox runs (killed)
     await import("@/lib/research").then((m) => m.abortResearch()).catch(() => false); // a deep research run
     await import("@/lib/kaggle").then((m) => m.cancelKaggle("Stopped: Stop-all is on")).catch(() => false); // a running KAGGLE BURST job
+    await import("@/lib/gpu-queue").then((m) => m.abortGpuWorker()).catch(() => {}); // GPU queue job: back to the queue, no new claims
     pushNotify("stop");
   }
   const stop = await saving;
   if (!on) {
-    resumeClipQueue(); void kickQueue(sb, userId); void resumeChains(sb, userId).catch(() => {}); void resumeGoals(sb, userId).catch(() => {}); // don't wait for the next tick
+    resumeClipQueue(); void import("@/lib/gpu-queue").then((m) => m.startGpuWorker()).catch(() => {}); void kickQueue(sb, userId); void resumeChains(sb, userId).catch(() => {}); void resumeGoals(sb, userId).catch(() => {}); // don't wait for the next tick
   }
   logActivity({ area: "system", title: (on ? "Stop-all turned ON: ORBIT paused" : "Stop-all turned off: ORBIT resumed") + via, detail: on ? `${cancelled} running task(s)/team(s) cancelled, ${goals} goal driver(s) stopped` : undefined });
   return { stop, cancelled, goals, ...(saveError ? { warning: `Active now, but not saved to disk (${saveError}): it resets on restart` } : {}) };
