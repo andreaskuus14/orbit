@@ -58,10 +58,12 @@ export default function DemoOrbit({ data, memoryCount }: { data: DemoData; memor
         <Galaxy selected={world} onSelect={select} memoryCount={memoryCount} pulses={pulses} busy={false} warning={false} pulseBusy={false}
           pulseFailed={false} agentsWorking={0} automationFailing={false} reduced={reduced} panelOpen={core} quality="auto" paused={!!world} />
       </div>
-      {world === "intelligence" && <NewsGlobe reduced={reduced} quality="auto" onClose={close} />}
-      {world === "studio" && <StudioWorld reduced={reduced} quality="auto" onClose={close} />}
-      {world === "memory" && <MemoryWorld reduced={reduced} quality="auto" onClose={close} focusId={null} onChanged={noop} />}
-      {world === "arch" && <ArchWorld reduced={reduced} quality="auto" onClose={close} />}
+      {world && <div className="absolute inset-0 z-[20]">{/* above the Galaxy's story card, so its ORBITAL title never shows beside "Opening world…" */}
+        {world === "intelligence" && <NewsGlobe reduced={reduced} quality="auto" onClose={close} />}
+        {world === "studio" && <StudioWorld reduced={reduced} quality="auto" onClose={close} />}
+        {world === "memory" && <MemoryWorld reduced={reduced} quality="auto" onClose={close} focusId={null} onChanged={noop} />}
+        {world === "arch" && <ArchWorld reduced={reduced} quality="auto" onClose={close} />}
+      </div>}
 
       <p className="glass muted absolute left-1/2 top-3 z-[40] -translate-x-1/2 rounded-full px-4 py-1.5 text-center text-xs max-sm:top-auto max-sm:bottom-[4.1rem] max-sm:whitespace-nowrap max-sm:py-1 max-sm:text-[10px]" role="note">{DEMO_NOTE}</p>
 

@@ -254,10 +254,23 @@ export type TownNews = { name: string; lon: number; lat: number; kind: Place["ki
 
 /** Pins stories to places: named places first; a regional feed's home town when the story names none. Newest first per place,
  *  places ranked by count. A story counts once per place even if two feeds carry it. */
+const NAMED: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", ndash: "–", mdash: "—", hellip: "…", laquo: "«", raquo: "»", bdquo: "„", ldquo: "“", rdquo: "”", lsquo: "‘", rsquo: "’",
+  auml: "ä", ouml: "ö", uuml: "ü", otilde: "õ", Auml: "Ä", Ouml: "Ö", Uuml: "Ü", Otilde: "Õ", scaron: "š", Scaron: "Š", zcaron: "ž", Zcaron: "Ž", euro: "€" };
+/** Feed titles often keep HTML entities ("P&#228;rnu", "&amp;"): turn them into plain text. Unknown names stay as written. */
+export function decodeEntities(s: string): string {
+  if (!s.includes("&")) return s;
+  const once = (t: string) => t.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
+    if (e[0] === "#") { const n = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10); return n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : m; }
+    return NAMED[e] ?? m;
+  });
+  const a = once(s);
+  return /&amp;(#\w+|[a-z]+);/i.test(s) ? once(a) : a; // double-encoded ("&amp;#228;")
+}
 export function townNews(items: LocalStory[], places: Place[] = EE_PLACES, perPlace = 8): TownNews[] {
   const by = new Map<string, TownNews>(), seen = new Set<string>();
   const get = (p: Place) => by.get(p.name) ?? by.set(p.name, { name: p.name, lon: p.lon, lat: p.lat, kind: p.kind, count: 0, stories: [] }).get(p.name)!;
-  for (const it of items) {
+  for (const raw of items) {
+    const it = { ...raw, title: decodeEntities(raw.title), source: decodeEntities(raw.source ?? "") || raw.source, summary: raw.summary && decodeEntities(raw.summary) };
     let hit = placesIn(`${it.title}. ${it.summary ?? ""}`, places);
     let weak = false;
     if (!hit.length && it.feedHome) { const h = places.find((p) => p.name === it.feedHome); if (h) { hit = [h]; weak = true; } }

@@ -25,7 +25,7 @@ import { REFRESH_MS } from "@/lib/follows-pure";
 import { useAlienEnv } from "./alien/env";
 import { useManual } from "./planet-manual";
 import NewsWeatherLayer from "./news-weather/NewsWeatherLayer";
-import EarthView from "./earth/EarthView";
+import EarthView, { earthWanted } from "./earth/EarthView";
 
 // INTELLIGENCE → World Pulse: a holographic Earth where the news happens.
 // Country shapes come from world-atlas; each country in the news gets a cluster of twinkling city-light dots
@@ -969,7 +969,7 @@ function MapLegend({ d }: { d: Data }) {
 
 export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string; search?: string } | null; quality?: QualityMode; paused?: boolean }) {
   const q = worldQuality(quality);
-  const [earthOn, setEarthOn] = useState(false); // Planet Earth view showing: the old globe, pulse list and region chips step aside
+  const [earthOn, setEarthOn] = useState(earthWanted); // Planet Earth view showing: the old globe, pulse list and region chips step aside
   const [weatherOn, setWeatherOn] = useState(false); // news weather showing: the 3D globe underneath stops drawing
   const glr = useGlRecovery();
   const later = useMountLater();
