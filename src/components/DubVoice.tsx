@@ -1,13 +1,14 @@
 "use client";
 // Settings → More → Your voice for dubbing: his own 10-60 s sample + his consent, for the STUDIO bilingual dub (lib/clips/dub-pure.ts).
 // Stored on this PC only (<studio>/dub); API: /api/studio/dub. The consent sent is the server's exact statement (CONSENT_TEXT).
+import { plainError } from "@/lib/api-error-pure";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { encodeWav } from "@/lib/local-ai-pure";
 import { useT } from "./i18n";
 
 type State = { voice: { consent: boolean; sample: boolean; consentAt?: string; seconds?: number }; consentText: string; tool: { running: boolean; installed: boolean } };
 const API = "/api/studio/dub";
-const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const msg = (e: unknown) => (plainError(e, "That didn\u2019t work. Try again."));
 
 async function toWav(blob: Blob): Promise<Blob> {
   const ctx = new AudioContext();

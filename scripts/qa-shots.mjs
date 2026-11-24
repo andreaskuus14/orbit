@@ -77,6 +77,13 @@ const galaxyStub = { name: "galaxy-stub", setup(b) {
   b.onResolve({ filter: /^\.\/Galaxy$/ }, (a) => (a.importer.endsWith("Orbit.tsx") ? { path: "galaxy", namespace: "gstub" } : undefined));
   b.onLoad({ filter: /.*/, namespace: "gstub" }, () => ({ contents: "export default function Galaxy(){ return null; }", loader: "js" }));
 } };
+// QA_THROW=NewsGlobe,PlanetWorld: those modules (imported from Orbit.tsx) are swapped for one that throws on render, to check the
+// planet's error boundary keeps the top bar and home usable. QA_NOGL=1: every WebGL context fails (like a laptop with no GPU).
+const THROW = (process.env.QA_THROW || "").split(",").filter(Boolean);
+const throwStub = { name: "throw-stub", setup(b) {
+  b.onResolve({ filter: /^\.\/[A-Za-z]+$/ }, (a) => (a.importer.endsWith("Orbit.tsx") && THROW.includes(a.path.slice(2)) ? { path: a.path.slice(2), namespace: "tstub" } : undefined));
+  b.onLoad({ filter: /.*/, namespace: "tstub" }, (a) => ({ contents: `export default function Boom(){ throw new Error("qa forced throw in ${'${a.path}'}"); }`, loader: "js" }));
+} };
 async function bundle(stub, app = `import Orbit from "@/components/Orbit";\nconst App = () => <Orbit userId="u1" email="owner@example.test" />;`) {
   const out = (await build({
     stdin: { contents: `import { createRoot } from "react-dom/client";
@@ -87,7 +94,7 @@ createRoot(document.getElementById("root")).render(<App />);`, loader: "tsx", re
     banner: { js: 'globalThis.process ??= { env: { NODE_ENV: "production" } };' },
     define: { "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_SUPABASE_URL": '"http://x.test"', "process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY": '"x"', "process.env.__NEXT_ROUTER_BASEPATH": '""' },
     alias: { "next/navigation": resolve("node_modules/next/dist/client/components/navigation.js") },
-    plugins: stub ? [supaPlugin, galaxyStub] : [supaPlugin],
+    plugins: [supaPlugin, ...(stub ? [galaxyStub] : []), ...(THROW.length ? [throwStub] : [])],
     loader: { ".json": "json", ".png": "dataurl", ".svg": "dataurl", ".glsl": "text", ".module.css": "local-css", ".css": "css", ".woff2": "dataurl", ".ttf": "dataurl" },
   })).outputFiles;
   return { files: new Map(out.map((f) => [`/${f.path.split("/").pop()}`, f])), css: out.filter((f) => f.path.endsWith(".css")).map((f) => f.text).join("\n"),
@@ -120,7 +127,16 @@ const LIFE_LITE = { today: dIso(0), focus: { today: 50, week: 215 }, work: [{ da
     { id: "h2", name: "Water", emoji: "", days: [0, 1, 2, 3, 4, 5, 6], created: dIso(-20), done: [], streak: 0, week: wk(() => false), doneToday: false, scheduledToday: true, unit: "glasses", goal: 8, amountToday: 3 }],
   reminders: [{ id: "r1", text: "Bring the sports kit", at: ago(-DAYMS), repeat: "weekdays", time: "07:30" }, { id: "r3", text: "Library book due", at: ago(DAYMS), last: { at: ago(DAYMS), missed: true } }],
   review: { unacked: [{ id: "r3", text: "Library book due", at: ago(DAYMS), missed: true }], overdue: [] } };
+// INTELLIGENCE: one made-up briefing so the story cards, meta rows and trust popover render.
+const A = (n) => `00000000-0000-4000-8000-00000000a00${n}`;
+const CITES = [1, 2, 3, 4].map((n) => ({ id: A(n), url: `https://news${n}.example/story-${n}`, title: `Report ${n}`, source: ["ERR News", "LSM", "Delfi", "Postimees"][n - 1], published_at: ago(n * 3600000), evidence: n % 2 ? "fetched" : "snippet", passage: "Made-up passage." }));
+const BRIEF = { id: "b1", kind: "world", title: "World brief", article_count: 12, created_at: ago(1800000), citations: CITES,
+  content: ["## World", "### Riga opens the new Rail Baltica station in Latvia (confirmed)", `- The first trains stop at the new Riga hub this week [a:${A(1)}] [a:${A(2)}] [a:${A(3)}].`,
+    "### Tallinn tram line to the port starts in Estonia (single source)", `- The new line runs every 10 minutes from Monday [a:${A(4)}].`,
+    "### Tartu library gets longer opening hours", `- Open until 22:00 on weekdays from December [a:${A(2)}] [a:${A(4)}].`].join("\n") };
 const API = (p, u) => ({
+  "/api/agents": { agents: [{ slug: "nova", name: "Nova", role: "Writer", color: "#c084fc", builtin: true, stats: { running: 2 } }, { slug: "atlas", name: "Atlas", role: "Researcher", color: "#38bdf8", builtin: true, stats: { running: 1 } }] },
+  "/api/briefings": { briefings: [BRIEF], articles: [], jobs: [], scheduled: true }, "/api/feeds": { feeds: [{ id: "f1", url: "https://news.example/rss", title: "News", topic: null, enabled: true, last_fetched_at: ago(600000), last_error: null }] },
   "/api/needs-you": { items: NEEDS }, "/api/doctor": { checks: CHECKS }, "/api/automations": { failing: false, automations: [] },
   "/api/life": u.searchParams.get("lite") === "1" ? LIFE_LITE : { habits: LIFE_LITE.habits }, // lite only: no journal, ever "/api/scout": { glowing: 2 },
   "/api/higgsfield": { used: 3, cap: 20 }, "/api/goals": { cards: [], goals: [] }, "/api/research": { cards: [] }, "/api/insights": { items: [] },
@@ -163,7 +179,8 @@ async function open(w, h, { reduced = false, galaxy = true, motion = "on", phone
 }
 // Visible leaf text that overlaps other text, or is cut off by the viewport / by its own box (text-overflow without a title).
 const audit = (page) => page.evaluate(() => {
-  const vis = (el) => { for (let e = el; e; e = e.parentElement) { const s = getComputedStyle(e); if (s.visibility === "hidden" || s.display === "none" || +s.opacity < 0.05) return false; } return true; };
+  const vis = (el) => { for (let e = el, from = null; e; from = e, e = e.parentElement) { const s = getComputedStyle(e); if (s.visibility === "hidden" || s.display === "none" || +s.opacity < 0.05) return false;
+    if (e.tagName === "DETAILS" && !e.open && from && from.tagName !== "SUMMARY") return false; } return true; }; // closed <details>: only the summary shows
   const leaves = [...document.querySelectorAll("body *")].filter((el) => !el.closest("canvas,svg,[aria-hidden=true]") && [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && vis(el))
     .map((el) => ({ el, t: el.textContent.trim().slice(0, 40), r: el.getBoundingClientRect() })).filter((x) => x.r.width > 2 && x.r.height > 2);
   const hits = [];
@@ -183,15 +200,26 @@ const report = {};
 try {
   for (const [w, h] of SIZES) for (const s of SCREENS) {
     if (s === "m" && w > 640) continue; // /m is the phone home
-    const { ctx, page, errors, calls } = await open(w, h, { galaxy: true, stubGalaxy: true, phone: s === "m" });
+    const { ctx, page, errors, calls } = await open(w, h, { galaxy: !process.env.QA_NOGL, stubGalaxy: true, phone: s === "m" });
     if (s !== "home" && s !== "m") { await page.evaluate((s) => { location.hash = `o=${s}`; dispatchEvent(new HashChangeEvent("hashchange")); }, s); }
     await page.waitForTimeout(s === "home" ? 3500 : 5000);
     // LIFE / journal: never in a picture. Blur anything marked private before the shot.
     await page.addStyleTag({ content: "[data-private],[data-private] *{filter:blur(14px)!important;color:transparent!important;text-shadow:0 0 12px #888!important}" });
+    if (process.env.QA_EVAL) console.log("EVAL", await page.evaluate(process.env.QA_EVAL).catch((e) => String(e)));
+    if (process.env.QA_SCROLL) await page.evaluate((y) => { for (const el of document.querySelectorAll(".drawer .overflow-y-auto, .pu-body, [data-intel-surface]")) el.scrollTop = y; }, +process.env.QA_SCROLL); // look below the fold
+    if (process.env.QA_CLICK) await page.evaluate((sel) => { document.querySelector(sel)?.click(); }, process.env.QA_CLICK).catch(() => {}); // e.g. the first trust mark
+    if (process.env.QA_CLICK) await page.waitForTimeout(400);
     const issues = await audit(page);
     await page.screenshot({ path: `${OUT}/${TAG}-${s}-${w}.png`, timeout: 180_000 });
+    if ((THROW.length || process.env.QA_NOGL) && s !== "home" && s !== "m") { // a crash must stay inside the planet
+      const st = await page.evaluate(() => { const h = document.querySelector(".hud-top"), r = h && h.getBoundingClientRect();
+        return { bar: !!r && r.height > 10 && getComputedStyle(h).visibility !== "hidden", card: !!document.querySelector("[data-boundary]"), root: document.getElementById("root").childElementCount }; });
+      check(st.bar && st.root > 0, `${s} ${w}: top bar still there after a crash`);
+      if (THROW.length) check(st.card, `${s} ${w}: crash card shown`);
+    }
     report[`${s}-${w}`] = { errors: [...new Set(errors)], issues, missingApi: [...unknown] };
     console.log(`\n## ${s} ${w}x${h}\n` + [...new Set(errors)].map((e) => "  ERR " + e).join("\n") + "\n" + issues.map((i) => "  " + i).join("\n"));
     unknown.clear(); await ctx.close();
   }
 } finally { await browser.close(); writeFileSync(`${OUT}/${TAG}-report.json`, JSON.stringify(report, null, 1)); }
+if (fails.length) { console.log(`\n${fails.length} FAIL:\n` + fails.join("\n")); process.exitCode = 1; }

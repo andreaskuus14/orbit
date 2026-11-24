@@ -1,4 +1,5 @@
 "use client";
+import { plainError } from "@/lib/api-error-pure";
 import { useEffect, useState } from "react";
 import type { Stored } from "@/lib/lessons-pure";
 import { useT } from "./i18n";
@@ -31,10 +32,10 @@ export function LessonsSection() {
   const [v, setV] = useState<View | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { fetch("/api/lessons", { cache: "no-store" }).then((r) => r.json()).then((j) => (j.error ? setMsg(j.error) : setV(j))).catch((e) => setMsg(e.message)); }, []);
+  useEffect(() => { fetch("/api/lessons", { cache: "no-store" }).then((r) => r.json()).then((j) => (j.error ? setMsg("Couldn't load this. Try again.") : setV(j))).catch((e) => setMsg(plainError(e, "Couldn't load this. Try again."))); }, []);
   const act = async (body: object, done = "") => {
     setBusy(true); setMsg("");
-    try { setV(await post(body)); setMsg(done); } catch (e) { setMsg(e instanceof Error ? e.message : "Could not save"); } finally { setBusy(false); }
+    try { setV(await post(body)); setMsg(done); } catch (e) { setMsg(plainError(e, "Could not save")); } finally { setBusy(false); }
   };
   return (
     <section className="space-y-2" aria-labelledby="lessons-h">

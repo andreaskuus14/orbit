@@ -451,7 +451,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const p = new THREE.Vector3(...toXYZ(lon, lat, h)), nrm = p.clone().normalize();
     return new THREE.Matrix4().lookAt(nrm, new THREE.Vector3(), new THREE.Vector3(0, 1, 0)).setPosition(p);
   }
-  const labels: { el: HTMLDivElement; p: THREE.Vector3; lo: number; hi: number; town?: TownNews; pri: number; w: number; h: number; ox: number; oy: number }[] = [];
+  const labels: { el: HTMLDivElement; p: THREE.Vector3; lo: number; hi: number; town?: TownNews; pri: number; w: number; h: number; ox: number; oy: number; flip?: boolean }[] = [];
   const hud = document.createElement("div"); hud.className = "earth-hud"; host.appendChild(hud);
   const scrim = document.createElement("div"); scrim.className = "earth-scrim"; hud.appendChild(scrim);
   const labelLayer = document.createElement("div"); labelLayer.className = "earth-labels"; hud.appendChild(labelLayer);
@@ -495,12 +495,13 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       const beam = new THREE.Mesh(g, m); beam.applyMatrix4(tangentAt(t.lon, t.lat, 0.00004)); layer.add(beam);
       glow.push({ m, lo: 50, hi: 2500, base: k, pts: Array.from({ length: 9 }, (_, i) => new THREE.Vector3(...toXYZ(t.lon, t.lat, (hKm / EARTH_KM) * (i / 8) ** 2))) });
       ringAt(t.lon, t.lat, 2.2 + 3 * Math.sqrt(t.count / max), 50, 2500, k);
-      if (i < 20) label(`<b>${esc(t.name)}</b><i>${t.count}</i>`, t.lon, t.lat, 0.00004, t.kind === "city" ? 50 : 60, t.kind === "city" ? 2200 : 700, `pin ${t.kind}`, t);
+      if (i < 20) label(`<b>${esc(t.name)}</b><i>${t.count}</i>`, t.lon, t.lat, 0.00004, t.kind === "city" ? 5 : 60, t.kind === "city" ? 2200 : 700, `pin ${t.kind}`, t); // a city keeps its name when zoomed in (Tartu at 14 km)
     });
     for (const t of d.towns.filter((x) => x.kind === "district").slice(0, 8)) {
       ringAt(t.lon, t.lat, 0.25 + 0.35 * Math.sqrt(t.count / max), 0.5, 60, 1);
       label(`<b>${esc(t.name)}</b><span>${esc(cut(t.stories[0]?.title ?? "", 48))}</span><i>${t.count}</i>`, t.lon, t.lat, 0.00005, 0.5, 60, "district", t);
     }
+    labels.sort((a, b) => +b.el.classList.contains("district") - +a.el.classList.contains("district")); // districts win a clash with their own city's pin
     // source arcs: each outlet of a top town's lead story comes down from the sky into its beam
     for (const t of d.towns.filter((x) => x.kind !== "district").slice(0, 3).concat(d.towns.filter((x) => x.kind === "district").slice(0, 2))) {
       const district = t.kind === "district", top = (district ? 0.05 : 30) / EARTH_KM, sky = (district ? 14 : 160) / EARTH_KM;
@@ -537,7 +538,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   let cardAt: THREE.Vector3 | null = null;
   const ret = document.createElement("div"); ret.className = "earth-reticle"; ret.innerHTML = "<i></i><i></i><i></i><i></i><b></b>"; hud.appendChild(ret);
   const readout = document.createElement("div"); readout.className = "earth-readout"; hud.appendChild(readout);
-  let lastAlt = 0, regionName: string | null = null;
+  let lastAlt = 0, regionName: string | null = null, edgeW = 0, edgeR = 0;
 
   /* camera */
   let pose: Pose = { lon: 18, lat: 38, alt: 16000, tilt: 0, heading: 0 };
@@ -610,6 +611,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     }
     composer.render();
     const taken: Rect[] = [...zones];
+    if (edgeW !== w) { edgeW = w; const hb = host.getBoundingClientRect(), tb = timeline.getBoundingClientRect(); edgeR = tb.width ? Math.min(w, tb.right - hb.left + 32) : w; } // the panel's left edge: labels stay left of it
     for (const l of labels) {
       const a = band(alt, l.lo, l.hi, 0.6);
       const facing = l.p.dot(cam.position) > l.p.lengthSq() * 0.999999 && l.p.clone().sub(cam.position).dot(fwd) > 0;
@@ -618,12 +620,14 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       const x = ((v.x + 1) / 2) * w, y = ((1 - v.y) / 2) * h;
       if (on) {
         if (!l.w) { l.w = l.el.offsetWidth || 120; l.h = l.el.offsetHeight || 20; l.ox = l.el.offsetLeft; l.oy = l.el.offsetTop; } // margins shift the box off its pin
-        const r: [number, number, number, number] = [x + l.ox - 8, y + l.oy - 4, x + l.ox + l.w + 8, y + l.oy + l.h + 4];
-        if (r[2] > w - 8 || r[0] < 8 || r[1] < 70 || r[3] > h - 8) on = false;
+        let r: [number, number, number, number] = [x + l.ox - 8, y + l.oy - 4, x + l.ox + l.w + 8, y + l.oy + l.h + 4];
+        l.flip = r[2] > edgeR - 8 && x - l.ox - l.w - 8 >= 8; // no room on the right (panel edge): put it on the pin's left
+        if (l.flip) r = [x - l.ox - l.w - 8, r[1], x - l.ox + 8, r[3]];
+        if (r[2] > edgeR - 8 || r[0] < 8 || r[1] < 70 || r[3] > h - 8) on = false;
         else if (taken.some((q) => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1])) on = false; else taken.push(r);
       }
       l.el.style.opacity = on ? String(a) : "0";
-      if (on) l.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+      if (on) l.el.style.transform = `translate(${(l.flip ? x - 2 * l.ox - l.w : x).toFixed(1)}px, ${y.toFixed(1)}px)`;
     }
     const moving = Math.abs(Math.log(alt / (lastAlt || alt))) > 0.004; lastAlt = alt;
     ret.style.opacity = moving ? "0.7" : "0";
@@ -729,6 +733,7 @@ export const EARTH_CSS = `
 .earth-reticle b{display:none}
 .earth-credit{position:absolute;right:calc(var(--pr) + 10px);bottom:4px;font-size:9px;color:rgba(238,242,247,.4)}
 
+.earth-on .earth-place,.earth-on .earth-readout{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .earth-on .earth-search{position:absolute;z-index:15;left:32px;top:112px;width:300px;display:flex;gap:8px;align-items:center;border-bottom:1px solid rgba(238,242,247,.3)}
 .earth-on .earth-search .field{flex:1;background:transparent;border:0;border-radius:0;padding:8px 0;color:#eef2f7;font-size:13px;box-shadow:none;outline:none}
 .earth-on .earth-search .field::placeholder{color:rgba(238,242,247,.5)}

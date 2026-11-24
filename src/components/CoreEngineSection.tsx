@@ -15,7 +15,7 @@ export function CoreEngineSection() {
     setErr("");
     const r = await fetch("/api/core/engine", init).catch(() => null);
     const j = r && (await r.json().catch(() => null));
-    if (r?.ok && j) setV(j); else setErr(j?.error ?? "Couldn't load the CORE engine");
+    if (r?.ok && j) setV(j); else setErr("Couldn't load the CORE engine. Try again.");
   };
   useEffect(() => { void call(); }, []);
   const pick = (engine: string | null) => void call({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ engine }) });

@@ -1,4 +1,5 @@
 "use client";
+import { plainError } from "@/lib/api-error-pure";
 import { useCallback, useEffect, useState } from "react";
 import { pollMs } from "@/lib/poll-pure";
 import { usePoll } from "./use-poll";
@@ -28,7 +29,7 @@ export function AutonomySection() {
     setErr("");
     const r = await fetch("/api/autonomy", body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : undefined).catch(() => null);
     const j = r && (await r.json().catch(() => null));
-    if (r?.ok && j) { setV(j); setLimitsDraft(j.limits); } else setErr(j?.error ?? "Couldn't load Autonomy");
+    if (r?.ok && j) { setV(j); setLimitsDraft(j.limits); } else setErr("Couldn't load Autonomy. Your settings are safe. Try again.");
   }, []);
   useEffect(() => { void fetch("/api/twin").then((r) => r.json()).then((j) => Array.isArray(j?.muted) && setMuted(j.muted), () => {}); }, []);
   const poll = useCallback(() => void call(), [call]);
@@ -48,7 +49,7 @@ export function AutonomySection() {
   }
   async function pauseAll() {
     setErr("");
-    try { await changeStopAll(true); await call(); } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't pause"); }
+    try { await changeStopAll(true); await call(); } catch (e) { setErr(plainError(e, "Couldn't pause")); }
   }
 
   return (

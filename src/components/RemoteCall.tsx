@@ -305,7 +305,7 @@ export function WeeklyReviewSetting() {
     setErr("");
     const res = await fetch(`${API}?op=settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ review: next }) }).catch(() => null);
     const j = (await res?.json().catch(() => ({}))) as { review?: Review; error?: string } | undefined;
-    if (res?.ok && j?.review) setV(j.review); else setErr(j?.error ?? "Could not save");
+    if (res?.ok && j?.review) setV(j.review); else setErr("Could not save. Try again.");
   }
   if (!v) return null;
   return (

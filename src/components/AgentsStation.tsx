@@ -1,6 +1,5 @@
 "use client";
 import { WarmCompile } from "./WarmCompile";
-import StateNote from "./StateNote";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -30,11 +29,11 @@ import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
 import { smoothDamp } from "@/lib/smooth-damp-pure";
 import { ORBIT_R, STATUS_LABEL, activityFeed, agentStatus, clipLine, clamp, currentTask, orbitPos, statusGlow, statusVisual, streamFrac, type AgentStatus, type StationTask } from "@/lib/station-pure";
-import { MaskText } from "./MaskText";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { NightPlan, OPS_HREF, Scorecards, WorkerCards, type Deps, type ToolInfo } from "./Workforce";
 import { useT } from "./i18n";
 import { BackToSimple, PlanetHome, useManual } from "./PlanetHome";
+import { Button, ErrorState, Loading, PlanetShell } from "./ui";
 import { taskWork } from "@/lib/planet-page-pure";
 
 // AGENTS → a floating obsidian ring station (alien megastructure theme): each agent is a ship circling its docking lane,
@@ -573,14 +572,17 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
 
       <HoverTip ref={tip} label={(id) => { const a = list.find((x) => x.slug === id); return a ? `${a.name} · ${currentTask(tasks, a.slug)?.title.slice(0, 60) ?? STATUS_LABEL[status[a.slug]]}` : null; }} />
 
-      <section className="glass hud-panel world-panel panel-in absolute z-[14] inset-x-3 bottom-32 max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:w-[30rem] min-[900px]:max-h-[calc(100dvh-11rem)]"
-        aria-label="Agents station">
+      {/* Kit shell (design-language.md): one header (dot, name, status, "…", close), plain words, kit states. */}
+      <div className="world-shell-slot panel-in absolute z-[14] inset-x-3 bottom-32 flex h-[55dvh] flex-col min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:top-[4.5rem] min-[900px]:right-3 min-[900px]:h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]">
+      <PlanetShell planet="agents" className="agents-shell" title={t("agt.title")} onClose={onClose} closeLabel={t("common.close")} closeClassName="world-back"
+        status={agents ? t("agt.context", { n: list.length, w: list.filter((a) => status[a.slug] === "working").length, a: list.filter((a) => status[a.slug] === "waiting").length }) : undefined}
+        menuLabel={t("agt.more")} menu={[{ label: t("agt.manual"), onSelect: () => { setSelected(null); setManage(false); setManual(true); } }, { label: t("agt.manage"), onSelect: () => { setSelected(null); setManage(true); } }]}>
         {!agents ? (
-          <StateNote state={err ? "failed" : "loading"} what={err || undefined} action={{ label: t("state.retry"), run: loadAgents }} />
+          err ? <ErrorState title={t("agt.loadFailed")} text={t("agt.loadFailedText")} retryLabel={t("state.retry")} onRetry={loadAgents} /> : <Loading label={t("agt.loading")} />
         ) : agent ? (
           <AgentMission key={agent.slug} agent={agent} status={status[agent.slug]} visible={visible} onClose={() => setSelected(null)} onChanged={changed} onOpenTask={onOpenTask} />
         ) : manage ? (
-          <><button className="chip mb-3" onClick={() => { setManage(false); loadAgents(); }}>← Station</button><AgentsPanel onOpenTask={(id) => onOpenTask?.(id)} /></>
+          <><BackToSimple onClick={() => { setManage(false); loadAgents(); }} /><AgentsPanel onOpenTask={(id) => onOpenTask?.(id)} /></>
         ) : !manual && !focusGoal && !radarUrl ? ( // AI-first home; the station tools sit behind "Manual tools"
           <PlanetHome planet="agents" onManual={() => setManual(true)} onOpenTask={(id) => onOpenTask?.(id)}
             work={taskWork(full, lang, Date.now())}
@@ -591,8 +593,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
         ) : (
           <>
             <BackToSimple onClick={() => setManual(false)} />
-            <div className="hud-title"><MaskText text="AGENTS STATION" /></div>
-            <WorkspaceFrame planet="agents" title="AGENTS" views={views} view={tab} onView={setTab}
+            <WorkspaceFrame planet="agents" title={t("agt.title")} views={views} view={tab} onView={setTab}
               context={<>{t("agt.context", { n: list.length, w: list.filter((a) => status[a.slug] === "working").length, a: list.filter((a) => status[a.slug] === "waiting").length })}{handoffs.length ? ` · ${handoffs.length} team hand-off${handoffs.length > 1 ? "s" : ""}` : ""}</>}
               action={<a className="chip" href={OPS_HREF}>{t("agt.opsLink")}</a>}>
             {tab === "performance" ? (
@@ -616,25 +617,25 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
                 </li>
               ))}
             </ul>
-            <button className="chip" onClick={() => setManage(true)}>Manage agents & proposals</button>
+            <Button size="sm" onClick={() => setManage(true)}>{t("agt.manage")}</Button>
             </>}
             </WorkspaceFrame>
           </>
         )}
-        {err && agents && <p className="error mt-2" role="alert">{err}</p>}
-      </section>
+        {err && agents && <ErrorState title={t("agt.loadFailed")} text={t("agt.loadFailedText")} retryLabel={t("state.retry")} onRetry={() => { loadAgents(); loadTasks(); }} />}
+      </PlanetShell>
+      </div>
 
       <div role="log" aria-label="Agent activity" aria-relevant="additions" className="glass agents-log absolute z-[14] inset-x-3 bottom-[6.25rem] flex gap-4 overflow-x-auto whitespace-nowrap rounded-full px-4 py-1.5 text-xs min-[900px]:right-[32rem]">
-        <span className="hud-title shrink-0 text-[0.7rem]">ACTIVITY</span>
+        <span className="agents-log-title shrink-0">{t("agt.activity")}</span>
         {feed.map((e) => (
           <span key={e.key} className="shrink-0">
             <b>{names[e.agent] ?? e.agent}</b> <span className="muted">{clipLine(e.text)}</span> <span className="muted" aria-hidden>· {ago(e.at)}</span>
           </span>
         ))}
-        {!feed.length && <span className="muted">No agent activity yet. Give an agent a job.</span>}
+        {!feed.length && <span className="muted">{t("agt.noActivity")}</span>}
       </div>
 
-      <button className="chip world-back absolute z-[15] left-3 top-[4.5rem] min-[900px]:left-auto min-[900px]:top-auto min-[900px]:bottom-[8.5rem] min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
     </div>
   );
 }

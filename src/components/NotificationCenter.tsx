@@ -146,3 +146,11 @@ export function NotificationCenter({ home = false }: { home?: boolean }) {
     </>
   );
 }
+
+/** Phones: the top bar has no room for the status pill ("What'" was all that showed), so its items live in the "…" menu instead. */
+export function PhoneReadyItems() {
+  const { t } = useT();
+  const ready = useReady();
+  return <>{ready.map((r) => <button key={r} className="hud-menu-item hud-menu-phone" popoverTarget="hud-menu" popoverTargetAction="hide"
+    onClick={() => dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: r }))}>{t(`quiet.${r}`)}{r === "tour" && <span className="quiet-new">{t("quiet.dot")}</span>}</button>)}</>;
+}

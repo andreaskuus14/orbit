@@ -1,4 +1,5 @@
 "use client";
+import { plainError } from "@/lib/api-error-pure";
 import { useState } from "react";
 import { useT } from "./i18n";
 import { createClient } from "@/lib/supabase/client";
@@ -18,7 +19,7 @@ export function PasswordSection() {
     setBusy(true); setMsg(null);
     const { error } = await createClient().auth.updateUser({ password: pw });
     setBusy(false);
-    if (error) return setMsg({ ok: false, text: error.message });
+    if (error) return setMsg({ ok: false, text: plainError(error, "Couldn't change the password. Try again.") });
     setPw(""); setConfirm("");
     setMsg({ ok: true, text: "Password saved. On a new browser, choose “Sign in with password” on the login page." });
   }

@@ -1,4 +1,5 @@
 "use client";
+import { Button, ErrorState } from "./ui";
 import { COMMUNICATION_STORED_MAX, isBrief, withBrief } from "@/lib/brief-mode-pure";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -294,16 +295,20 @@ export function ProfilePanel() {
   const { t } = useT();
   const [p, setP] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
-  useEffect(() => {
+  const [state, setState] = useState<"" | "loadFailed" | "saving" | "saveFailed">(""); // kit states: never the server's own text
+  const loadProfile = () => {
+    setState("");
     api<{ profile: Record<string, unknown> | null }>("/api/profile").then(({ profile }) => {
       const o: Record<string, string> = { display_name: String(profile?.display_name ?? ""), communication: String(profile?.communication ?? "") };
       for (const [k] of LIST_FIELDS) o[k] = ((profile?.[k] as string[] | undefined) ?? []).join(", ");
       setP(o);
-    }).catch((e) => setMsg(e.message));
-  }, []);
+    }).catch(() => setState("loadFailed"));
+  };
+  useEffect(loadProfile, []);
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    try { await api("/api/profile", { method: "PUT", body: JSON.stringify(p) }); setMsg(t("profile.saved")); } catch (e2) { setMsg(e2 instanceof Error ? e2.message : "Could not save"); }
+    setState("saving"); setMsg("");
+    try { await api("/api/profile", { method: "PUT", body: JSON.stringify(p) }); setMsg(t("profile.saved")); setState(""); } catch { setState("saveFailed"); }
   }
   return ( // Settings: one sentence, the three things he changes (language, about you, what ORBIT may do by itself), the rest under More
     <div className="space-y-6">
@@ -312,6 +317,7 @@ export function ProfilePanel() {
       <LangSwitch />
       <p className="muted text-xs">{t("lang.hint")}</p>
     </section>
+    {state === "loadFailed" ? <div className="pu" data-planet="profile"><ErrorState title={t("profile.loadFailed")} text={t("profile.loadFailedText")} retryLabel={t("state.retry")} onRetry={loadProfile} /></div> :
     <form onSubmit={save} className="space-y-3">
       <p className="muted text-sm">{t("profile.intro")}</p>
       <label className="block text-sm">{t("profile.name")}<input className="field mt-1 w-full" value={p.display_name ?? ""} onChange={(e) => setP({ ...p, display_name: e.target.value })} /></label>
@@ -321,8 +327,12 @@ export function ProfilePanel() {
       ))}
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isBrief(p.communication)} onChange={(e) => setP({ ...p, communication: withBrief(p.communication ?? "", e.target.checked) })} /> {t("profile.brief")} <span className="muted text-xs">{t("profile.briefHint")}</span></label>
       <label className="block text-sm">{t("profile.talk")}<textarea className="field mt-1 h-20 w-full" value={p.communication ?? ""} onChange={(e) => setP({ ...p, communication: e.target.value })} maxLength={COMMUNICATION_STORED_MAX} /></label>
-      <button className="btn">{t("profile.save")}</button> {msg && <span className="muted text-sm">{msg}</span>}
-    </form>
+      <div className="pu flex flex-wrap items-center gap-3" data-planet="profile">
+        <Button type="submit" variant="primary" busy={state === "saving"}>{t("profile.save")}</Button>
+        {msg && <span className="muted text-sm" role="status">{msg}</span>}
+        {state === "saveFailed" && <span className="text-sm" style={{ color: "var(--pu-bad)" }} role="alert">{t("profile.saveFailed")}</span>}
+      </div>
+    </form>}
     <AutonomySection />
     <details className="space-y-6">
     <summary className="chip cursor-pointer">{t("ws.more")} · <span className="muted">{t("set.moreHint")}</span></summary>
