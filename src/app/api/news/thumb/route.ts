@@ -4,16 +4,17 @@
 // ORBIT_THUMB_BLOCK are skipped, SVG is never served. Cached on disk 7 days (a miss is remembered 1 day). Nothing private is sent:
 // only the public article URL. 404 = no picture; the panel draws its own fallback.
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { requireUser } from "@/lib/supabase/server";
+import { orbitDataDir } from "@/lib/data-dir";
+import { writeStore } from "@/lib/safe-file";
 import { safeFetch } from "@/lib/memory";
 import { UA } from "@/lib/web-ladder";
 import { robotsAllows } from "@/lib/scrape-pure";
 import { imageType, ogImageOf, thumbAllowed, thumbFresh, type ThumbMeta } from "@/lib/intel-rich-pure";
 
-const dir = path.join(process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "orbit") : path.join(os.homedir(), ".orbit"), "news-thumbs");
+const dir = path.join(orbitDataDir(), "news-thumbs");
 const robotsCache = new Map<string, { at: number; text: string }>();
 
 async function robotsOk(u: URL): Promise<boolean> {
@@ -55,9 +56,9 @@ export async function GET(req: Request) {
   if (meta && thumbFresh(meta, now)) hit = meta.type ? { type: meta.type, body: await readFile(file).catch(() => new Uint8Array()) } : null;
   else {
     hit = await resolve(u, kind).catch(() => null);
-    await mkdir(dir, { recursive: true }).catch(() => {});
-    if (hit) await writeFile(file, hit.body).catch(() => {});
-    await writeFile(`${file}.json`, JSON.stringify({ at: now, type: hit?.type ?? null } satisfies ThumbMeta)).catch(() => {});
+    // tmp + rename (retried while Windows antivirus holds the file): a parallel request never reads half a picture
+    if (hit) await writeStore(file, hit.body).catch(() => {});
+    await writeStore(`${file}.json`, JSON.stringify({ at: now, type: hit?.type ?? null } satisfies ThumbMeta)).catch(() => {});
   }
   if (!hit || !hit.body.length) return new Response(null, { status: 404, headers: { "Cache-Control": "private, max-age=3600" } });
   return new Response(Buffer.from(hit.body), { headers: { "Content-Type": hit.type, "Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'" } });

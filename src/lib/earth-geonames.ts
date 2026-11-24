@@ -1,11 +1,13 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
+import { earthCacheDir } from "./data-dir";
+import { writeStore } from "./safe-file";
 import { inflateRawSync } from "node:zlib";
 import path from "node:path";
 import { byCountry, parseGeoNames, type City } from "./earth-region-pure";
 
 // GeoNames cities15000 (CC BY 4.0, "GeoNames, geonames.org"): downloaded once (~3 MB zip), split per country into
-// .cache/earth/geonames/<CC>.json plus a small index for "which country is under the camera". Countries load lazily.
-const DIR = path.join(process.cwd(), ".cache", "earth", "geonames");
+// <data dir>/cache/earth/geonames/<CC>.json plus a small index for "which country is under the camera". Countries load lazily.
+const DIR = earthCacheDir("geonames");
 const SRC = "https://download.geonames.org/export/dump/cities15000.zip";
 const TTL = 90 * 24 * 3600_000;
 type Idx = { cc: string; lon: number; lat: number }[];
@@ -34,9 +36,9 @@ async function build(): Promise<Idx> {
     const cities = parseGeoNames(unzipFirst(Buffer.from(await r.arrayBuffer())).toString("utf8"));
     await mkdir(DIR, { recursive: true });
     const by = byCountry(cities);
-    for (const [cc, list] of by) await writeFile(path.join(DIR, `${cc}.json`), JSON.stringify(list));
+    for (const [cc, list] of by) await writeStore(path.join(DIR, `${cc}.json`), JSON.stringify(list));
     const index = cities.filter((c) => c.pop >= 15000).map((c) => ({ cc: c.cc, lon: Math.round(c.lon * 100) / 100, lat: Math.round(c.lat * 100) / 100 }));
-    await writeFile(idx, JSON.stringify(index));
+    await writeStore(idx, JSON.stringify(index));
     return index;
   } catch {
     try { return JSON.parse(await readFile(idx, "utf8")); } catch { return []; } // offline: an old copy, or nothing (no region news)

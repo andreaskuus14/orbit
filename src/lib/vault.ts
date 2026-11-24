@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 // .ts extensions + lazy extract import so tests/vault-io.test.ts runs under node --experimental-strip-types.
 import { DOCX } from "./attach-pure.ts";
+import { writeStore } from "./safe-file.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   CLOUD_MAX, cloudDir, cloudFailure, cloudPath, mergeCloud, mimeOf, nameFromKey,
@@ -371,7 +372,7 @@ export async function thumbnail(name: unknown, width: number): Promise<Buffer> {
   if (hit) return hit;
   const sharp = (await import("sharp")).default;
   const out = await sharp(p, { limitInputPixels: 80_000_000, failOn: "none" }).rotate().resize({ width: w, height: w, fit: "inside", withoutEnlargement: true }).webp({ quality: 78 }).toBuffer();
-  await mkdir(dir, { recursive: true }).then(() => writeFile(file, out)).catch(() => {}); // a read-only disk still gets the picture
+  await writeStore(file, out).catch(() => {}); // tmp + rename; a read-only disk still gets the picture
   return out;
 }
 

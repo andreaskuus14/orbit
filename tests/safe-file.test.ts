@@ -98,3 +98,11 @@ test("updateStore: simultaneous read-modify-writes keep every change; an unreada
   await assert.rejects(updateStore(f, () => ({ text: "{}", out: null })), StoreUnreadable);
   assert.equal(await readFile(f, "utf8"), "{broken");
 });
+
+test("binary caches (map tiles, news pictures, vault thumbnails) go through the same tmp + rename, byte for byte", async () => {
+  const d = await tmp(), f = path.join(d, "cache", "earth", "day", "3", "4_2");
+  const bytes = new Uint8Array([0xff, 0xd8, 0x00, 0x0d, 0x0a, 0x1a, 0xff, 0xd9]); // NUL and CR LF must survive untouched
+  await Promise.all([writeStore(f, bytes), writeStore(f, bytes)]); // parallel requests for one tile: queued, never interleaved
+  assert.deepEqual(new Uint8Array(await readFile(f)), bytes);
+  assert.deepEqual(await readdir(path.dirname(f)), ["4_2"]); // no tmp left behind
+});

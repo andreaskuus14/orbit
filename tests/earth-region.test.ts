@@ -49,3 +49,8 @@ test("headlines are pinned to towns abroad, with that language's case endings", 
   assert.equal(towns[0].name, "Riga"); assert.equal(towns[0].count, 2); // a big city's short name counts even as the first word
   assert.ok(towns.some((t) => t.name === "Jelgava" && t.stories[0].weak)); // searched-by-name fallback, weak
 });
+
+test("a CRLF copy of the dump (Windows checkout or editor) parses the same", () => {
+  const raw = readFileSync(new URL("./fixtures/earth-geonames-sample.txt", import.meta.url), "utf8").replace(/\r?\n/g, "\r\n");
+  assert.deepEqual(parseGeoNames(raw), cities);
+});

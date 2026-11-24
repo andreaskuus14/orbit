@@ -43,7 +43,7 @@ const noblur = (arg("--ablate", "") || "").split(",").includes("noblur");
 const ablate = (arg("--ablate", "") || "").split(",").filter(Boolean);
 // --before <git ref>: bench the globe's files (NewsGlobe.tsx, WarmCompile.tsx) as they are at that ref, e.g. origin/main.
 const before = arg("--before");
-const atRef = (file) => execFileSync("git", ["show", `${before}:${path.relative(root, file)}`], { cwd: root, encoding: "utf8", maxBuffer: 1 << 26 });
+const atRef = (file) => execFileSync("git", ["show", `${before}:${path.relative(root, file).split(path.sep).join("/")}`], { cwd: root, encoding: "utf8", maxBuffer: 1 << 26 });
 // --shot out.png: a still of the idle globe with motion reduced (no spin, frozen shader time), to compare looks before/after.
 const shot = arg("--shot");
 const ablatePlugin = { name: "ablate", setup(b) {

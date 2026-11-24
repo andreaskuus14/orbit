@@ -42,7 +42,7 @@ function queued<T>(file: string, job: () => Promise<T>): Promise<T> {
   return p;
 }
 
-async function put(file: string, text: string) {
+async function put(file: string, text: string | Uint8Array) {
   await mkdir(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
   try {
@@ -59,7 +59,7 @@ async function put(file: string, text: string) {
 }
 
 /** Atomic, durable replace: a crash or power cut leaves the old file or the new one, never an empty or half one. */
-export const writeStore = (file: string, text: string): Promise<void> => queued(file, () => put(file, text));
+export const writeStore = (file: string, text: string | Uint8Array): Promise<void> => queued(file, () => put(file, text));
 
 /** Queued read-modify-write: fn gets the current text ("" = missing) and returns the new text (undefined = no change) and a result.
  *  An unreadable file throws StoreUnreadable before fn runs, so nothing is saved over it. fn must not write this file itself. */

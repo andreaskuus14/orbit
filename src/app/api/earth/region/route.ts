@@ -1,4 +1,6 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
+import { earthCacheDir } from "@/lib/data-dir";
+import { writeStore } from "@/lib/safe-file";
 import path from "node:path";
 import { requireUser } from "@/lib/supabase/server";
 import { safeFetch } from "@/lib/memory";
@@ -14,7 +16,7 @@ import { cityIndex, citiesOf } from "@/lib/earth-geonames";
 // feeds; stories are pinned to towns by the same geocoder. Cached 30 min per region cell, in memory and on disk. Only place
 // names go out. Feed text is untrusted; parseFeed strips HTML.
 const RSS = "application/rss+xml, application/xml, text/xml";
-const TTL = 30 * 60_000, DIR = path.join(process.cwd(), ".cache", "earth", "region");
+const TTL = 30 * 60_000, DIR = earthCacheDir("region");
 const g = globalThis as unknown as { __orbitEarthRegion?: Map<string, { at: number; body: unknown }> };
 const mem = (g.__orbitEarthRegion ??= new Map());
 
@@ -44,6 +46,6 @@ export async function GET(req: Request) {
   const body = { at: new Date().toISOString(), cc, towns: townNews(items, toPlaces(all.slice(0, 400), lang), 6, endingsOf(lang)).slice(0, 24) };
   mem.set(key, { at: Date.now(), body });
   if (mem.size > 60) mem.delete(mem.keys().next().value!);
-  await mkdir(DIR, { recursive: true }).then(() => writeFile(file, JSON.stringify(body))).catch(() => {});
+  await writeStore(file, JSON.stringify(body)).catch(() => {});
   return Response.json(body);
 }
