@@ -24,6 +24,7 @@ import DealCards from "./DealCards";
 import NegotiatorBox from "./NegotiatorBox";
 import { useT } from "./i18n";
 import { postWatch } from "./WatchesSection";
+import { askText } from "./ui/Dialog";
 
 export type Act = (key: string, body: object) => Promise<boolean>;
 /** What every sheet gets from the shell: the shared state and its actions. */
@@ -370,7 +371,7 @@ function WatchSite({ p }: { p: Prospect }) {
   const [state, setState] = useState("");
   const guess = p.contact.match(/https?:\/\/\S+|(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:\/\S*)?/i)?.[0] ?? ""; // a site, or the domain of their email
   const go = async () => {
-    const url = prompt(t("pw.leadAsk"), guess)?.trim(); // shortcut: a browser prompt; an inline field if he uses it a lot
+    const url = (await askText(t("pw.leadAsk"), { value: guess }))?.trim(); // shortcut: a browser prompt; an inline field if he uses it a lot
     if (!url) return;
     try { await postWatch({ action: "add", url, purpose: `Lead: ${p.name} website`, lead: p.id }); setState(t("pw.leadOn")); }
     catch { setState(t("bz.watchFail")); }

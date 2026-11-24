@@ -4,6 +4,7 @@ import { api } from "./AgentMission";
 import { useWorldPaused } from "./world-paused";
 import { EVENT_RUNS_PER_DAY, describeAction, describeTrigger, type ParsedRule, type Rule } from "@/lib/rules-pure";
 import { useT } from "./i18n";
+import { askConfirm } from "./ui/Dialog";
 
 // Agents → Rules (roadmap 8.4): write a rule in plain words, read back what ORBIT understood, confirm. Pause is one tap.
 type Shown = { when: string; what: string };
@@ -77,7 +78,7 @@ export function RulesView({ onOpenTask }: { onOpenTask: (id: string) => void }) 
                 {r.status === "active" && <button className="chip" disabled={busy} onClick={() => post({ action: "run", id: r.id })}>{t("rules.runNow")}</button>}
                 {r.status === "proposed" && <button className="chip" disabled={busy} onClick={() => post({ action: "confirm", id: r.id })}>{t("rules.confirm")}</button>}
                 {r.status !== "proposed" && <button className="chip" disabled={busy} aria-pressed={r.status === "paused"} onClick={() => post({ action: r.status === "active" ? "pause" : "resume", id: r.id })}>{t(r.status === "active" ? "rules.pause" : "stop.resume")}</button>}
-                <button className="chip" disabled={busy} aria-label={t("rules.deleteAria", { name: r.name })} onClick={() => { if (confirm(t("rules.deleteConfirm", { name: r.name }))) void post({ action: "delete", id: r.id }); }}>{t("rules.delete")}</button>
+                <button className="chip" disabled={busy} aria-label={t("rules.deleteAria", { name: r.name })} onClick={async () => { if ((await askConfirm(t("rules.deleteConfirm", { name: r.name })))) void post({ action: "delete", id: r.id }); }}>{t("rules.delete")}</button>
               </span>
             </div>
             <Card p={r} />

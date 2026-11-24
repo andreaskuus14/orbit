@@ -4,6 +4,7 @@ import { contentHash } from "@/lib/approval-pure";
 import { useT } from "./i18n";
 import { REMIND_LANGS, reminderContent, daysLate, euro, refunded, totals, view, type Dashboard, type Invoice, type Seller, type View } from "@/lib/invoices-pure";
 import type { Negotiation } from "@/lib/negotiator-pure";
+import { askConfirm } from "./ui/Dialog";
 
 // Invoices (roadmap B6) inside BUSINESS: his seller details, drafts made from a prospect or an agreed negotiation, the PDF,
 // sent/paid marked by him, who owes what, and reminder drafts for overdue ones. Only "Approve" on a reminder can send, after two clicks.
@@ -135,7 +136,7 @@ function Row({ i, today, stripe, open, toggle, busy, act }: { i: Invoice; today:
                 <button className="chip" disabled={any} onClick={() => void act(`edit:${i.id}`, { action: "edit", id: i.id, ...f, vatRate: f.vatRate })}>Save</button>
                 <a className="chip" href={`/api/business/invoices?pdf=${i.id}`}>PDF</a>
                 <button className="chip" disabled={any} onClick={() => void act(`sent:${i.id}`, { action: "status", id: i.id, to: "sent" })}>I sent it</button>
-                <button className="chip" disabled={any} onClick={() => confirm(`Delete draft ${i.number}?`) && void act(`del:${i.id}`, { action: "delete", id: i.id })}>Delete draft</button>
+                <button className="chip" disabled={any} onClick={async () => (await askConfirm(`Delete draft ${i.number}?`)) && void act(`del:${i.id}`, { action: "delete", id: i.id })}>Delete draft</button>
               </div>
             </div>
           ) : (

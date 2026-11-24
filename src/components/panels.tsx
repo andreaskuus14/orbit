@@ -33,6 +33,7 @@ import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { DupPreview, MemoryInspector, MemoryProjects, MemoryReview, MemorySearch, PeopleView } from "./MemoryWorkspace";
 import { isProvTag, type DupChoice } from "@/lib/memory-capture-pure";
 import { DubVoiceSection } from "./DubVoice";
+import { askConfirm } from "./ui/Dialog";
 
 type Memory = { id: string; kind: Kind; title: string; content: string; url: string | null; storage_path: string | null; tags: string[]; created_at: string; updated_at: string; source: string; confirmation?: string | null; recheck_at?: string | null };
 
@@ -140,7 +141,7 @@ export function MemoryPanel({ focusId, onChanged }: { focusId: string | null; on
     } catch (e) { setErr(e instanceof Error ? e.message : "Could not update"); }
   }
   async function remove() {
-    if (!open || !confirm(tr("mem.deleteConfirm", { title: open.title }))) return;
+    if (!open || !(await askConfirm(tr("mem.deleteConfirm", { title: open.title })))) return;
     try { await api(`/api/memories/${open.id}`, { method: "DELETE" }); setOpen(null); await Promise.all([reload(), loadLinks()]); onChanged(); }
     catch (e) { setErr(e instanceof Error ? e.message : "Could not delete"); }
   }
@@ -393,7 +394,7 @@ function PlaybookSection() {
             <button className="btn" disabled={busy || !add.trim() || draft.length >= 30}>{t("common.add")}</button>
           </form>
           <div className="flex flex-wrap items-center gap-2">
-            {!!d.rules.length && <button type="button" className="chip" disabled={busy} onClick={() => confirm(t("pb.clearConfirm")) && post({ action: "clear" }, t("pb.cleared"))}>{t("pb.clearAll")}</button>}
+            {!!d.rules.length && <button type="button" className="chip" disabled={busy} onClick={async () => (await askConfirm(t("pb.clearConfirm"))) && post({ action: "clear" }, t("pb.cleared"))}>{t("pb.clearAll")}</button>}
             {d.version > 0 && <span className="muted text-xs">{t("pb.version", { n: d.version })}</span>}
           </div>
           {d.history.length > 1 && (

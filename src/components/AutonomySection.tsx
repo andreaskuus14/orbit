@@ -10,6 +10,7 @@ import { PcPermissionsCard } from "./PcPermissionsCard";
 import { KIND_LABEL, type TwinKind } from "@/lib/twin-pure";
 import type { TrustSuggestion } from "@/lib/trust-pure";
 import type { Key } from "@/lib/i18n-pure";
+import { askText } from "./ui/Dialog";
 
 type View = { levels: Levels; limits: Limits; pending: Pending[]; today: { at: string; area: Area; action: string; ref: string }[]; stopAll: boolean; push: string | null; trust?: TrustSuggestion[]; problem?: string | null };
 
@@ -33,11 +34,11 @@ export function AutonomySection() {
   const poll = useCallback(() => void call(), [call]);
   usePoll(poll, pollMs(30_000));
 
-  function pick(area: Area, level: Level) {
+  async function pick(area: Area, level: Level) {
     const argue = () => v && setTwin({ area, from: v.levels[area], to: level });
     if (level === "auto") {
       const phrase = AUTO_CONFIRM[area]!;
-      const typed = prompt(`${AREA_INFO[area].label} → Auto with limits.\n\nORBIT will then act WITHOUT your click (this changes AGENTS.md rule 6 for this area). Limits: ${area === "business-send" ? `${v?.limits.sendPerDay} emails/day, existing prospects only` : `${v?.limits.publishPerDay} Shorts/day`}, only drafts/clips made after you switch this on, nothing with numbers, prices, payments, offers, dates, contracts or promises, 10 minutes to cancel (held 23:00-08:00), a push after each one, Stop-all pauses it.\n\nType ${phrase} to confirm:`);
+      const typed = (await askText(`${AREA_INFO[area].label} → Auto with limits.\n\nORBIT will then act WITHOUT your click (this changes AGENTS.md rule 6 for this area). Limits: ${area === "business-send" ? `${v?.limits.sendPerDay} emails/day, existing prospects only` : `${v?.limits.publishPerDay} Shorts/day`}, only drafts/clips made after you switch this on, nothing with numbers, prices, payments, offers, dates, contracts or promises, 10 minutes to cancel (held 23:00-08:00), a push after each one, Stop-all pauses it.\n\nType ${phrase} to confirm:`));
       if (typed === null) return;
       argue();
       return void call({ action: "level", area, level, confirm: typed });

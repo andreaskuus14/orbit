@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "./i18n";
+import { askConfirm } from "./ui/Dialog";
 // Not imported from capsule-pure: that file pulls node:crypto into the browser bundle.
 const MIN_PASSPHRASE = 10; // = capsule-pure MIN_PASSPHRASE (the server enforces it)
 const fmtMB = (b: number) => (b < 1048576 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${Math.round(b / 1048576)} MB`);
@@ -48,7 +49,7 @@ export function TimeCapsuleSection() {
     return d.ok ? `Drill passed: ${d.restored}/${d.expected} files restored and parsed from ${d.backup}.` : `Drill failed: ${d.error ?? d.bad?.join("; ")}`;
   });
   const restore = () => run(async () => {
-    if (!confirm(`Restore the backup from ${new Date(pv!.at).toLocaleString()}? ORBIT first saves a safety backup of how things are now.`)) return;
+    if (!(await askConfirm(`Restore the backup from ${new Date(pv!.at).toLocaleString()}? ORBIT first saves a safety backup of how things are now.`))) return;
     const { restored } = await post({ action: "restore", name: pick, passphrase: pass });
     setPv(null); setPass(""); await load();
     return `Restored ${restored.restored} files. Safety backup: ${restored.safety}. Restart ORBIT so every part reloads the restored data.`;

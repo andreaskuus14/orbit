@@ -2,6 +2,7 @@
 // The open chat's work checkpoint (checkpoint-pure.ts) in the CORE chat sheet: what CORE always keeps in mind; edit or delete lines.
 import { useCallback, useEffect, useState } from "react";
 import { MAX_TEXT, type CpKind, type CpLine } from "@/lib/checkpoint-pure";
+import { askConfirm, askText } from "./ui/Dialog";
 
 const LABEL: Record<CpKind, string> = { constraint: "Constraint", success: "Success", decision: "Decision", artifact: "Artifact", blocker: "Blocker", next: "Next" };
 
@@ -31,9 +32,9 @@ export function CheckpointCard({ chatId }: { chatId: string | null }) {
             <span className="muted shrink-0">{LABEL[l.kind]}:</span>
             <span className="min-w-0 flex-1 break-words">{l.text}{l.v ? ` (v${l.v})` : ""}</span>
             <button type="button" className="chip px-2" aria-label={`Edit ${l.text}`} title="Edit"
-              onClick={() => { const t = prompt("Edit checkpoint line", l.text)?.trim(); if (t && t !== l.text) void post({ action: "edit", line: l.id, text: t.slice(0, MAX_TEXT) }); }}>✎</button>
+              onClick={async () => { const t = (await askText("Edit checkpoint line", { value: l.text }))?.trim(); if (t && t !== l.text) void post({ action: "edit", line: l.id, text: t.slice(0, MAX_TEXT) }); }}>✎</button>
             <button type="button" className="chip px-2" aria-label={`Delete ${l.text}`} title="Delete"
-              onClick={() => { if (confirm(`Remove "${l.text}" from the checkpoint?`)) void post({ action: "delete", line: l.id }); }}>✕</button>
+              onClick={async () => { if ((await askConfirm(`Remove "${l.text}" from the checkpoint?`))) void post({ action: "delete", line: l.id }); }}>✕</button>
           </li>
         ))}
       </ul>

@@ -6,6 +6,7 @@ import { useT } from "./i18n";
 import { CheckpointCard } from "./CheckpointCard";
 import { MAX_INSTRUCTIONS, MAX_PROJECT_NAME, MAX_TITLE, type Project } from "@/lib/core-chats-pure";
 import { searchQuery, titleHits } from "@/lib/core-chat-pure";
+import { askConfirm, askText } from "./ui/Dialog";
 
 type Hit = { id: string; title: string; snippet?: string };
 /** Search box state: titles filter at once, then the server's text search over messages replaces them (no model involved). */
@@ -62,12 +63,12 @@ export function ChatSheet({ chats, projects, map, error, act, activeId, running 
   const search = useChatSearch(chats);
   const navRef = useRef<HTMLElement>(null);
   useDialogFocus(navRef, true, onClose);
-  const rename = (c: ChatRow) => {
-    const t = prompt("Rename chat", c.title)?.trim();
+  const rename = async (c: ChatRow) => {
+    const t = (await askText("Rename chat", { value: c.title }))?.trim();
     if (t && t !== c.title) void act({ action: "rename", id: c.id, title: t.slice(0, MAX_TITLE) });
   };
   const remove = async (c: ChatRow) => {
-    if (!confirm(`Delete "${c.title}"? This can't be undone.`)) return;
+    if (!(await askConfirm(`Delete "${c.title}"? This can't be undone.`))) return;
     if (await act({ action: "delete", id: c.id })) onDeleted(c.id);
   };
   const row = (c: ChatRow) => (
@@ -112,7 +113,7 @@ export function ChatSheet({ chats, projects, map, error, act, activeId, running 
                     <div className="my-1 flex flex-wrap gap-1">
                       <button type="button" className="chip" onClick={() => onNew(p.id)}>＋ Chat</button>
                       <button type="button" className="chip" onClick={() => setEditing(p)}>Edit</button>
-                      <button type="button" className="chip" onClick={() => { if (confirm(`Delete project "${p.name}" and its pinned notes? Its chats are kept.`)) void act({ action: "deleteProject", id: p.id }); }}>Delete</button>
+                      <button type="button" className="chip" onClick={async () => { if ((await askConfirm(`Delete project "${p.name}" and its pinned notes? Its chats are kept.`))) void act({ action: "deleteProject", id: p.id }); }}>Delete</button>
                     </div>
                     <ul>{inside.map(row)}</ul>
                     {!!p.pins.length && (
@@ -127,7 +128,7 @@ export function ChatSheet({ chats, projects, map, error, act, activeId, running 
                               </details>
                               <div className="mt-1 flex gap-1">
                                 <button type="button" className="chip" onClick={() => void navigator.clipboard?.writeText(n.text)}>Copy</button>
-                                <button type="button" className="chip" onClick={() => { if (confirm(`Unpin "${n.title}"?`)) void act({ action: "unpin", projectId: p.id, id: n.id }); }}>Unpin</button>
+                                <button type="button" className="chip" onClick={async () => { if ((await askConfirm(`Unpin "${n.title}"?`))) void act({ action: "unpin", projectId: p.id, id: n.id }); }}>Unpin</button>
                               </div>
                             </li>
                           ))}

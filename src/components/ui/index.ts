@@ -9,6 +9,7 @@ export { WorkCard } from "./WorkCard";
 export { Empty, Loading, ErrorState } from "./State";
 export { MoreMenu, type MenuItem } from "./MoreMenu";
 export { Sheet } from "./Sheet";
+export { askConfirm, askText } from "./Dialog";
 export { Toaster, toast, TOAST_EVENT, type ToastInput } from "./Toast";
 export { uiSound, uiTapsOn, setUiTaps, type SoundName } from "./sound";
 export * from "./icons";

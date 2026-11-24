@@ -1,8 +1,9 @@
 "use client";
 // LIFE → Today: upcoming Google Calendar events (read-only). Not connected → a "Connect Google Calendar" link (full-page OAuth redirect).
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { eventDay, eventTime, type CalEvent } from "@/lib/gcal-pure";
 import { useT } from "./i18n";
+import { askConfirm } from "./ui/Dialog";
 
 type CalState = { configured: boolean; connected: boolean; expired?: boolean; events?: CalEvent[]; error?: string; timetable?: { url: string | null } };
 const dayLabel = (k: string) => new Date(`${k}T12:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
@@ -13,7 +14,7 @@ export default function CalendarCard() {
   const load = useCallback(() => fetch("/api/life/calendar").then((r) => r.json()).then(setS, () => setS(null)), []);
   useEffect(() => { void load(); }, [load]);
   const disconnect = async () => {
-    if (!confirm("Disconnect Google Calendar from ORBIT?")) return;
+    if (!(await askConfirm(t("cal.disconnectAsk"), { ok: t("lf.cal.disconnect"), danger: true }))) return;
     await fetch("/api/life/calendar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "disconnect" }) }).catch(() => {});
     void load();
   };
@@ -23,7 +24,8 @@ export default function CalendarCard() {
     setTErr(r.error ?? ""); void load();
   };
   const upload = async (f?: File) => { if (f) await post({ action: "timetable", text: await f.text() }); };
-  const addUrl = () => { const u = prompt(t("cal.linkPrompt")); if (u?.trim()) void post({ action: "timetable", url: u.trim() }); };
+  const [link, setLink] = useState<string | null>(null); // null = field closed
+  const addUrl = (e: FormEvent) => { e.preventDefault(); const u = link?.trim(); if (!u) return; setLink(null); void post({ action: "timetable", url: u }); };
   if (!s) return null;
   const events = (s.events ?? []).slice(0, 12);
   return (
@@ -35,7 +37,14 @@ export default function CalendarCard() {
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <label className="pu-btn cursor-pointer" data-variant="secondary" data-size="sm">{t("cal.import")}<input type="file" accept=".ics,text/calendar" className="sr-only" onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} /></label>
-        <button className="pu-btn" data-variant="secondary" data-size="sm" onClick={addUrl}>{t("cal.fromLink")}</button>
+        {link === null ? <button className="pu-btn" data-variant="secondary" data-size="sm" onClick={() => setLink("")}>{t("cal.fromLink")}</button> : (
+          <form className="cal-link" onSubmit={addUrl}>
+            <input autoFocus className="cal-link-input" type="text" inputMode="url" spellCheck={false} value={link} aria-label={t("cal.linkPrompt")} placeholder={t("cal.linkPrompt")}
+              onChange={(e) => setLink(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); setLink(null); } }} />
+            <button className="pu-btn" data-variant="primary" data-size="sm" type="submit" disabled={!link.trim()}>{t("common.add")}</button>
+            <button className="pu-btn" data-variant="ghost" data-size="sm" type="button" onClick={() => setLink(null)}>{t("common.cancel")}</button>
+          </form>
+        )}
         {tErr && <span className="error" role="alert">{tErr}</span>}
       </div>
       {!s.connected && !events.length ? (

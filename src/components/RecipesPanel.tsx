@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Recipe } from "@/lib/recipes-pure";
 import { startRecipe } from "./recipe-command";
+import { askText } from "./ui/Dialog";
 
 // Agents Station → Recipes: saved agent setups, re-run with one tap (or "run recipe <name>").
 export default function RecipesPanel({ onOpenTask }: { onOpenTask?: (id: string) => void }) {
@@ -12,7 +13,7 @@ export default function RecipesPanel({ onOpenTask }: { onOpenTask?: (id: string)
   const load = useCallback(() => fetch("/api/recipes", { cache: "no-store" }).then((r) => r.json()).then((j) => setList(j.recipes ?? []), () => setMsg({ ok: false, text: "Couldn't load recipes" })), []);
   useEffect(() => { void load(); }, [load]);
   const run = async (r: Recipe) => {
-    const topic = r.contract ? window.prompt(`${r.name}: what should ORBIT research?`)?.trim() : undefined; // saved workflow: one topic in
+    const topic = r.contract ? (await askText(`${r.name}: what should ORBIT research?`))?.trim() : undefined; // saved workflow: one topic in
     if (r.contract && !topic) return;
     setBusy(r.id); setMsg(null);
     try { setMsg({ ok: true, text: await startRecipe(r, topic) }); } catch (e) { setMsg({ ok: false, text: (e as Error).message }); } finally { setBusy(""); }

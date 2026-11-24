@@ -20,6 +20,7 @@ import { applyReview, DupPreview, MemoryReview } from "./MemoryWorkspace";
 import { KnowsPanel } from "./KnowsPanel";
 import { BeliefsPanel } from "./BeliefsPanel";
 import "@/app/memory-planet.css";
+import { askConfirm } from "./ui/Dialog";
 
 export type SheetKind = "add" | "review" | "links" | "all" | "knows" | "people";
 export type Filter = { k: "all" } | { k: "links" } | { k: "learned" } | { k: "journal" } | { k: "tags" } | { k: "tag"; v: string };
@@ -349,7 +350,7 @@ function Detail({ id, readOnly, stars, links, edges, kindName, onOpen, onFly, on
     ...(m.locked || readOnly ? [] : [{ label: t("mp.d.why"), onSelect: () => void control("why") }]),
     ...(m.url ? [{ label: t("mp.d.openLink"), onSelect: () => window.open(m.url!, "_blank", "noopener,noreferrer") }] : []),
     ...(m.storage_path ? [{ label: t("mp.d.openFile"), onSelect: () => window.open(`/api/memories/${id}/file`, "_blank", "noreferrer") }] : []),
-    ...(readOnly ? [] : ["separator" as const, ...(m.locked ? [] : [{ label: t("mp.d.forget"), danger: true, onSelect: () => { if (confirm(t("mp.d.forgetConfirm"))) void control("forget"); } }]),
+    ...(readOnly ? [] : ["separator" as const, ...(m.locked ? [] : [{ label: t("mp.d.forget"), danger: true, onSelect: async () => { if ((await askConfirm(t("mp.d.forgetConfirm")))) void control("forget"); } }]),
       { label: t("mp.delete"), danger: true, onSelect: () => onDelete({ id: m.id, title: m.locked ? t("mp.journal") : m.title }) }]),
   ];
   return (

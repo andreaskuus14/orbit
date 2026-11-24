@@ -39,6 +39,7 @@ import {
   OPS_COPY, buckets, clock, counts, dur, errorLine, historyGroups, historyView, kindOf, lanes, logLines, nextRun, resultLine, ringShare, sheetFromView,
   statusText, stepRows, took, triggerText, type Buckets, routineSave, routineToggle, routineRun, oneAtATime, plainApiError, type HistoryFilter, type Kind, type OpsCopy, type OpsSheet, type OpsTask,
 } from "@/lib/operations-planet-pure";
+import { askConfirm } from "./ui/Dialog";
 
 type Pending = { tool: string; input: Record<string, unknown>; status: string; note?: string; evidence?: WriteEvidence[] };
 export type Job = OpsTask & { project_id: string | null; request: string; result: string | null; error: string | null; trace: { step: string; detail?: string; ms?: number; ok?: boolean }[]; pending: Pending[] };
@@ -426,7 +427,7 @@ function Scheduled({ w, lang, onOpenTask, onEdit, onNew, paused }: { w: OpsCopy;
   const now = new Date();
   const once = useMemo(oneAtATime, []);
   const act = (a: Routine, what: "toggle" | "run" | "delete") => once(`${what}:${a.id}`, async () => {
-    if (what === "delete" && !confirm(w.delConfirm(a.name))) return;
+    if (what === "delete" && !(await askConfirm(w.delConfirm(a.name)))) return;
     setBusy(`${what}:${a.id}`);
     try {
       if (what === "toggle") { const r = routineToggle(a); setList((l) => l?.map((x) => (x.id === a.id ? { ...x, enabled: !a.enabled } : x)) ?? l); await post("/api/automations", r.body, r.method); uiSound(a.enabled ? "toggleOff" : "toggleOn"); }
@@ -696,7 +697,7 @@ function RoutineForm({ w, agents, routine, onDone }: { w: OpsCopy; agents: Agent
     finally { setBusy(null); }
   };
   const del = async () => {
-    if (!routine || !confirm(w.delConfirm(routine.name))) return;
+    if (!routine || !(await askConfirm(w.delConfirm(routine.name)))) return;
     setBusy("del");
     try { await api(`/api/automations?id=${encodeURIComponent(routine.id)}`, { method: "DELETE" }); toast({ text: `${w.deleted}: ${routine.name}` }); onDone(); }
     catch { toast({ tone: "error", text: w.routineFailed }); } finally { setBusy(null); }

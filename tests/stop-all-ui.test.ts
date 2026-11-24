@@ -41,6 +41,7 @@ test("StopAll alone polls; HalEye receives initial, replayed, toggled and polled
         if (id === "./use-poll") return { usePoll(fn: () => void, ms: number, _on: boolean, evs: string[] = []) { // the shared poller, on this test's timers and bus
           react.useEffect(() => { fn(); const h = si(fn, ms); for (const e of evs) bus.addEventListener(e, fn); return () => { ci(h); for (const e of evs) bus.removeEventListener(e, fn); }; });
         } };
+        if (id === "./ui/Dialog") return { askConfirm: async () => true };
         if (id === "./voice/bus") return { loadVoiceSettings: () => ({ speak: true }) };
         return require(id);
       },

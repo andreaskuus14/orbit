@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { pollMs } from "@/lib/poll-pure";
 import { usePoll } from "./use-poll";
 import { takePluginsReturn, type Gate, type Mode, type Pending, type SUGGESTED } from "@/lib/plugins-pure";
+import { askConfirm } from "./ui/Dialog";
 
 type Tool = Gate & { id: string; name: string; description: string; check: "checked" | "partial" | "unchecked" | "refused"; schemaError?: string };
 type P = { name: string; command?: string; args: string[]; url?: string; env: Record<string, string>; headers?: Record<string, string>; oauth?: boolean; signedIn?: boolean; enabled: boolean; local: boolean; others?: Mode; timeoutSec: number; note?: string;
@@ -91,7 +92,7 @@ export function PluginsSection() {
               {p.oauth && (p.signedIn
                 ? <button className="chip" disabled={!!busy} onClick={() => void call({ action: "signout", name: p.name })}>Sign out</button>
                 : <a className="chip" href={`/api/plugins/oauth?name=${encodeURIComponent(p.name)}`}>Sign in</a>)}
-              <button className="chip" onClick={() => confirm(`Remove plugin ${p.name}?`) && void call({ action: "remove", name: p.name })}>Remove</button>
+              <button className="chip" onClick={async () => (await askConfirm(`Remove plugin ${p.name}?`)) && void call({ action: "remove", name: p.name })}>Remove</button>
             </div>
             {p.cache?.error && <p className="text-xs text-red-400">Last test failed: {p.cache.error}</p>}
             {!p.cache && <p className="muted text-xs">Not tested yet: CORE sees its tools after Test connection.</p>}

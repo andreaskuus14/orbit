@@ -1,0 +1,28 @@
+/* LIFE → School (components/SchoolPanel.tsx) on the planet kit (planet-ui.css). Scoped under .pu.sch. */
+.pu.sch { display: flex; flex-direction: column; gap: 16px; color: var(--pu-ink); font: var(--pu-body); }
+.pu.sch .sch-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.pu.sch .sch-meta { font: var(--pu-meta); color: var(--pu-ink-3); }
+.pu.sch .sch-warn { font: var(--pu-meta); color: var(--pu-warn); }
+.pu.sch .sch-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pu.sch .sch-flow { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.pu.sch .sch-next { margin: 0; }
+.pu.sch .sch-inline { display: inline-flex; align-items: center; gap: 6px; }
+.pu.sch .sch-push { margin-left: auto; }
+.pu.sch .sch-grow { flex: 1; }
+.pu.sch .sch-form { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: var(--pu-r-lg); background: var(--pu-raised); box-shadow: var(--pu-e1, 0 1px 2px rgba(0,0,0,.3)); }
+.pu.sch .sch-input { width: 100%; min-width: 0; min-height: var(--pu-h-md, 36px); padding: 7px 12px; border: 0; border-radius: var(--pu-r-md); background: var(--pu-surface); color: var(--pu-ink);
+  font: var(--pu-body); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); color-scheme: dark; }
+.pu.sch .sch-input::placeholder { color: var(--pu-ink-3); }
+.pu.sch .sch-input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--pu-accent-line), 0 0 0 3px var(--pu-accent-soft); }
+.pu.sch .sch-auto, .pu.sch .sch-select { width: auto; }
+.pu.sch .sch-num { width: 80px; }
+.pu.sch .sch-select option { background: var(--pu-overlay); color: var(--pu-ink); }
+.pu.sch .sch-details { padding: 12px; border-radius: var(--pu-r-lg); background: var(--pu-raised); }
+.pu.sch .sch-details > summary { cursor: pointer; font-weight: 500; }
+.pu.sch .sch-grid { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin: 12px 0; }
+
+/* LIFE → Calendar card's "From link" field (CalendarCard.tsx) */
+.pu .cal-link { display: flex; flex: 1 1 260px; align-items: center; gap: 6px; }
+.pu .cal-link-input { flex: 1; min-width: 0; min-height: 28px; padding: 4px 10px; border: 0; border-radius: var(--pu-r-sm); background: var(--pu-surface); color: var(--pu-ink);
+  font: var(--pu-meta); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }
+.pu .cal-link-input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--pu-accent-line), 0 0 0 3px var(--pu-accent-soft); }

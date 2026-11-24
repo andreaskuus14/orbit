@@ -14,6 +14,7 @@ import { ProgressCard } from "./ProgressCard";
 import type { Progress } from "@/lib/progress-pure";
 import { MAX_CALLS, MIN_CALLS } from "@/lib/pilot-pure";
 import { localDay } from "@/lib/morning-pure";
+import { askConfirm } from "./ui/Dialog";
 
 // 🎯 GOALS in the Agents Station: list, new-goal form, goal detail (plan editor, step timeline, metric sparkline, learned, log).
 // Polling GET /api/goals is itself one of the events that advances a goal (there is no schedule). Goal text and results are untrusted:
@@ -127,7 +128,7 @@ export default function GoalsPanel({ agents, visible, onOpenTask, focusId }: { a
   const color = (slug: string) => agents.find((a) => a.slug === slug)?.color;
 
   async function act(body: object, confirmText?: string): Promise<boolean> {
-    if (confirmText && !window.confirm(confirmText)) return false;
+    if (confirmText && !(await askConfirm(confirmText))) return false;
     setBusy(true); setErr("");
     try { await post(body); load(); return true; } catch (e) { setErr(e instanceof Error ? e.message : "Failed"); return false; } finally { setBusy(false); }
   }

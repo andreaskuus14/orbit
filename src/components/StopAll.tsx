@@ -6,6 +6,7 @@ import { RESOLVE_ALERT, type Signal } from "@/lib/interruption-pure";
 import { STOP_ALL_EVENT, STOP_ALL_REQUEST_EVENT, type StopAllDetail } from "@/lib/stop-all-pure";
 import { useT } from "./i18n";
 import { usePoll } from "./use-poll";
+import { askConfirm } from "./ui/Dialog";
 
 type Status = { stop: { on: boolean; at: string }; hold: string; limit: { until: number; at: number } | null; host?: string | null };
 const SEEN_KEY = "orbit.limitSeen";
@@ -52,7 +53,7 @@ export function StopAll() {
   usePoll(load, 30_000, true, STOP_EVENTS); // safety switch: 30 s, not the 60 s status floor
 
   async function toggle(on: boolean) {
-    if (on && !confirm(t("stop.confirm"))) return;
+    if (on && !(await askConfirm(t("stop.confirm")))) return;
     setBusy(true); setErr("");
     try {
       const warning = await changeStopAll(on);
