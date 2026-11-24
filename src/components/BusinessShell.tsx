@@ -95,7 +95,7 @@ export function BusinessShell({ onClose, focusId = null, onFocus }: { onClose?: 
     "separator",
     { label: t("bz.s.setup"), onSelect: () => open("setup") },
   ];
-  const status = st && res ? t("bz.status", { n: res.open, m: euro.format(res.monthly) }) : t("bz.statusLoading");
+  const status = st && res ? t("bz.status", { n: res.open, m: euro.format(res.monthly) }) : !st && err ? t("bz.err.title") : t("bz.statusLoading"); // never "Loading…" beside the error card
   const stage = (s: string) => t(`bz.stage.${s}` as Key);
   const fullBiz: Biz | null = st ? { ...biz, st } : null;
 
@@ -128,7 +128,7 @@ export function BusinessShell({ onClose, focusId = null, onFocus }: { onClose?: 
 
   const title: Record<SheetId, Key> = { clients: "bz.s.clients", find: "bz.s.find", money: "bz.s.money", insights: "bz.s.insights", setup: "bz.s.setup" };
   return (
-    <PlanetShell planet="business" title={t("bz.title")} status={status} menu={menu} menuLabel={t("bz.more")} onClose={onClose} closeLabel={t("bz.close")} className="biz-shell"
+    <PlanetShell planet="business" title={t("bz.title")} status={status} menu={menu} menuLabel={t("bz.more")} onClose={onClose} closeLabel={t("bz.close")} closeClassName="world-back" className="biz-shell"
       ask={{ label: t("bz.ask"), placeholder: t("ph.business.ex1"), sendLabel: t("bz.askSend"), suggestions: [t("ph.business.ex1"), t("ph.business.ex2"), t("ph.business.ex3")],
         onSubmit: (text) => { dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text } })); toast({ text: t("bz.asked") }); } }}
       sheet={<Sheet open={!!sheet} title={sheet ? t(title[sheet]) : ""} onClose={close} closeLabel={t("bz.close")}>

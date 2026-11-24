@@ -755,11 +755,11 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const statusDrag = useDragPanel<HTMLElement>(!shown && view === "3d" ? "status" : null);
   const panelBody = (id: PanelId) => (id === "core" ? <CorePanel initial={pending?.text ?? null} initialSkill={pending?.skill} initialHere={pending?.here} onConsumed={consumed} onOpenMemory={openMemory} greeting={wakeGreeting} onGreeted={clearGreeting} />
       : id === "profile" ? <ProfilePanel />
-      : id === "analytics" ? <AnalyticsPanel onClose={() => setPanel(null)} />
+      : id === "analytics" ? <AnalyticsPanel onClose={closeWorld} />
       : id === "intelligence" ? <IntelligencePanel />
       : id === "operations" ? <OperationsPanel focusTask={focusTask} onOpen={setFocusTask} openMemory={openMemory} />
       : id === "agents" ? <AgentsPanel onOpenTask={openTask} />
-      : id === "life" ? <LifePanel open={lifeOpen} onClose={() => setPanel(null)} /> // one calm shell; a CORE/voice jump opens the right sheet
+      : id === "life" ? <LifePanel open={lifeOpen} onClose={closeWorld} /> // one calm shell; a CORE/voice jump opens the right sheet
       : id === "vault" ? <VaultPlanet onClose={closeWorld} />
       : id === "business" ? <BusinessShell onClose={closeWorld} focusId={focusClient} onFocus={setFocusClient} />
               : null);

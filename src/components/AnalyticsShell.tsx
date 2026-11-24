@@ -82,7 +82,7 @@ export function AnalyticsShell({ onClose }: { onClose?: () => void }) {
     { label: t("ana.s.scorecard"), onSelect: () => open("scorecard") },
     { label: t("ana.s.speed"), onSelect: () => open("speed") },
   ];
-  const status = d ? t("ana.status", { n: days, f: nf.format(d.outcomes.finished) }) : t("ana.statusLoading");
+  const status = d ? t("ana.status", { n: days, f: nf.format(d.outcomes.finished) }) : err ? t("ana.err.title") : t("ana.statusLoading"); // never "Reading…" beside the error card
 
   const body = (): ReactNode => {
     if (!d && err) return <ErrorState title={t("ana.err.title")} text={t("ana.err.text")} retryLabel={t("ana.retry")} onRetry={reload} />;
@@ -131,7 +131,7 @@ export function AnalyticsShell({ onClose }: { onClose?: () => void }) {
 
   const sheetTitle: Record<SheetId, Key> = { outcomes: "ana.s.outcomes", reliability: "ana.s.reliability", cost: "ana.s.cost", improve: "ana.s.improve", usage: "ana.s.usage", scorecard: "ana.s.scorecard", speed: "ana.s.speed" };
   return (
-    <PlanetShell planet="analytics" title={t("ana.title")} status={status} menu={menu} menuLabel={t("ana.more")} onClose={onClose} closeLabel={t("ana.close")} className="ana-shell"
+    <PlanetShell planet="analytics" title={t("ana.title")} status={status} menu={menu} menuLabel={t("ana.more")} onClose={onClose} closeLabel={t("ana.close")} closeClassName="world-back" className="ana-shell"
       sheet={<Sheet open={!!sheet} title={sheet ? t(sheetTitle[sheet]) : ""} onClose={close} closeLabel={t("ana.close")}>
         {sheet && (!d ? (err ? <ErrorState title={t("ana.err.title")} text={t("ana.err.text")} retryLabel={t("ana.retry")} onRetry={reload} /> : <Loading label={t("ana.loading")} />)
           : <SheetBody id={sheet} d={d} days={days} reload={reload} nf={nf} cf={cf} loc={loc} />)}

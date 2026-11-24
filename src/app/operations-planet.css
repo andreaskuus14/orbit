@@ -191,3 +191,5 @@ html[data-motion="off"] .ops *, html[data-motion="off"] .ops *::before, html[dat
 .pu .ops-detail:focus, .pu .ops-detail:focus-visible { box-shadow: none; outline: none; }
 .ops .pu-ask-input:focus, .ops .pu-ask-input:focus-visible { outline: none; box-shadow: none; }
 .ops-steps-more .ops-step-label { color: var(--pu-ink-3); font-style: normal; }
+/* Phones: four counts in a 390px panel cut the labels ("Needs y…", "Didn't w…"); let them wrap to two lines instead. */
+@media (max-width: 480px) { .ops-stat { padding: 10px 8px; } .ops-stat dt { white-space: normal; overflow: visible; } }

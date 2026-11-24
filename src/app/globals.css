@@ -999,6 +999,8 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .chat-latest { position: sticky; bottom: 0.5rem; display: block; margin: 0 auto; z-index: 4; font-size: 0.75rem; padding: 0.3rem 0.8rem; border-radius: 999px; background: #10233a; border: 1px solid rgba(92, 200, 240, 0.5); color: #e6f1ff; }
 .chat-drop { position: absolute; inset: 0; z-index: 7; display: grid; place-items: center; border: 2px dashed rgba(92, 200, 240, 0.6); border-radius: 16px; background: rgba(2, 6, 16, 0.78); pointer-events: none; font-size: 0.95rem; }
 .chat-input { resize: none; min-height: 2.5rem; max-height: 200px; line-height: 1.45; overflow-y: auto; }
+/* Phones: the message box gets its own full row (it was squeezed to ~80px between the level picker and Send); tools and Send sit under it. */
+@media (max-width: 640px) { .chat-composer { flex-wrap: wrap; align-items: center; } .chat-composer .chat-input { order: -1; flex-basis: 100%; } .chat-composer > :last-child { margin-left: auto; } }
 .chat-stop { background: #3a1620; border-color: #fb7185; }
 .chat-hit { display: block; width: 100%; text-align: left; padding: 0.35rem 0.4rem; border-radius: 8px; }
 .chat-hit:hover, .chat-hit[aria-current] { background: rgba(255, 255, 255, 0.07); }
