@@ -20,10 +20,10 @@ export function WorkCard({ p, onAction }: { p: Progress; onAction: (a: ProgressA
         <span className="pu-dot" data-tone={TONE[p.phase]} data-live={p.phase === "working" ? "" : undefined} aria-hidden="true" />
         <span style={{ minWidth: 0, flex: 1 }}>
           <span className="pu-row-title" style={{ display: "block" }}>{p.title}</span>
-          <span className="pu-row-sub" style={{ display: "block" }}>{t(`prog.phase.${p.phase}`)}{left && ` · ${left}`}</span>
+          <span className="pu-row-sub" style={{ display: "block" }}><span aria-live="polite">{t(`prog.phase.${p.phase}`)}</span>{left && ` · ${left}`}</span>
         </span>
       </div>
-      {p.phase !== "done" && p.phase !== "failed" && <div className="pu-bar" aria-hidden="true"><i style={{ ["--p" as string]: String(share) }} /></div>}
+      {p.phase !== "done" && p.phase !== "failed" && <div className="pu-bar" role="progressbar" aria-label={p.title} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(share * 100)}><i style={{ ["--p" as string]: String(share) }} /></div>}
       {p.now && p.phase === "working" && <p className="pu-live" role="status" style={{ margin: 0 }}>{p.now}…</p>}
       {p.result && <p className="pu-live" style={{ margin: 0, color: p.phase === "failed" ? "var(--pu-bad)" : "var(--pu-ink-2)" }}>{p.result.text}</p>}
     </Card>

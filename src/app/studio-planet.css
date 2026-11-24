@@ -88,7 +88,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .st-wrap, .st-tele { animation-name: pu-fade; }
-  .st-stage, .st-stage-bar > i { transition: none; }
+  .st-stage, .st-stage-bar > i, .st-tool-back { transition: none; }
+  .st-stage:active, .st-tool-back:active, .orbit-shell .studio .st-tool .chip:active:not(:disabled) { transform: none; }
 }
 html[data-motion="off"] .st-wrap, html[data-motion="off"] .st-tele { animation: none !important; }
 html[data-motion="off"] .st-stage, html[data-motion="off"] .st-stage-bar > i, html[data-motion="off"] .st-video, html[data-motion="off"] .st-tool-back { transition: none !important; }

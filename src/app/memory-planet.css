@@ -92,7 +92,7 @@
 .pu .mp-doc-body { margin-top: 20px; min-height: 120px; font: 400 16px/26px var(--pu-font); color: #dfe4ee; letter-spacing: -0.003em; }
 .pu .mp-doc-body::placeholder { color: var(--pu-ink-3); }
 .pu .mp-related { margin-top: 32px; padding-top: 20px; box-shadow: 0 -1px 0 var(--pu-line); }
-.pu .mp-related h4 { margin: 0; font: 600 18px/26px var(--pu-font); letter-spacing: -0.01em; color: var(--pu-ink); }
+.pu .mp-related h3, .pu .mp-related h4 { margin: 0; font: 600 18px/26px var(--pu-font); letter-spacing: -0.01em; color: var(--pu-ink); }
 .pu .mp-related-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .pu .mp-related ul { list-style: none; margin: 0; padding: 0; }
 .pu .mp-rel { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 4px; width: 100%; min-height: 46px; padding: 0 4px; border: 0; background: transparent;

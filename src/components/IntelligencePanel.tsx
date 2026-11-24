@@ -83,7 +83,7 @@ function TrustMark({ trust, cites, all }: { trust: Trust; cites: Cite[]; all: Ci
     <div ref={wrap} className={css.trust} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       onFocus={() => setHover(true)} onBlur={(e) => { if (!wrap.current?.contains(e.relatedTarget as Node)) { setHover(false); setPinned(false); } }}
       onKeyDown={(e) => { if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); setHover(false); setPinned(false); } }}>
-      <button type="button" className={`${css.trustBtn} ${css[trust.level]}`} aria-expanded={open} aria-controls={id} aria-label={t("intel.tr.aria", { level: word })}
+      <button type="button" className={`${css.trustBtn} ${css[trust.level]}`} aria-expanded={open} aria-controls={id} aria-label={t("intel.tr.aria", { level: word, short: t(`intel.tr.short.${trust.level}`) })}
         onClick={() => setPinned((p) => !p)}>
         <span className={css.bars} aria-hidden="true">{[1, 2, 3].map((k) => <i key={k} data-on={k <= Math.max(1, Math.min(3, trust.outlets)) ? "" : undefined} />)}</span><span aria-hidden="true">{t(`intel.tr.short.${trust.level}`)}</span>
       </button>

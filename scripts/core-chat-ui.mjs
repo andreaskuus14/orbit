@@ -26,8 +26,8 @@ const bundle = await build({
   stdin: { contents: `import { createRoot } from "react-dom/client";
 import { CorePanel } from "@/components/${existsSync(resolve(ROOT, "src/components/CoreChat.tsx")) ? "CoreChat" : "panels"}";
 // The real drawer markup from Orbit.tsx, so the chat gets the same height and scroll box as in ORBIT.
-function H() { return <div className="orbit-shell"><aside className="glass drawer" role="dialog" aria-label="CORE"><div className="min-h-0 flex-1 overflow-y-auto">
-  <CorePanel initial={null} onConsumed={() => {}} onOpenMemory={() => {}} /></div></aside></div>; }
+function H() { return <div className="orbit-shell"><div className="glass drawer" role="dialog" aria-label="CORE"><div className="min-h-0 flex-1 overflow-y-auto">
+  <CorePanel initial={null} onConsumed={() => {}} onOpenMemory={() => {}} /></div></div></div>; }
 createRoot(document.getElementById("root")).render(<H />);`, loader: "tsx", resolveDir: resolve(ROOT, "src") },
   banner: { js: 'globalThis.process ??= { env: { NODE_ENV: "production" } };' },
   bundle: true, write: false, format: "esm", jsx: "automatic", minify: true, metafile: true, logLevel: "error",
