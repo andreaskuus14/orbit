@@ -96,16 +96,21 @@ function Copy-PrevStatic {
     $skip = @{}
     $prevList = Join-Path $distPrev "static-inherited.txt"
     if (Test-Path $prevList) { foreach ($l in Get-Content -LiteralPath $prevList) { if ($l) { $skip[$l] = $true } } }
-    $base = (Resolve-Path -LiteralPath $from).Path.TrimEnd('\', '/')
+    # FullName (not Resolve-Path): same spelling as the files' FullName below, even via a junction, subst drive or 8.3 path
+    $base = (Get-Item -LiteralPath $from).FullName.TrimEnd('\', '/')
     $copied = New-Object System.Collections.Generic.List[string]
     foreach ($f in Get-ChildItem -LiteralPath $from -Recurse -File) {
       $rel = $f.FullName.Substring($base.Length + 1)
       if ($skip.ContainsKey($rel)) { continue }
       $dest = Join-Path $to $rel
       if (Test-Path -LiteralPath $dest) { continue }
-      $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest)
-      Copy-Item -LiteralPath $f.FullName -Destination $dest
-      $copied.Add($rel)
+      # One file held by antivirus/indexer skips only that file; the list below must still be written, or next update
+      # would take the inherited files for this build's own and pile them up.
+      try {
+        $null = New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest)
+        Copy-Item -LiteralPath $f.FullName -Destination $dest -ErrorAction Stop
+        $copied.Add($rel)
+      } catch { }
     }
     Set-Content -LiteralPath (Join-Path $distLive "static-inherited.txt") -Value ($copied -join "`r`n")
     if ($copied.Count) { Write-Log "Kept $($copied.Count) static files from the previous build, so tabs opened before the update keep working." }
