@@ -14,7 +14,7 @@ import { x2lon, y2lat, arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrari
 import type { EarthData } from "@/lib/earth-data-pure";
 import { BUILDINGS_MAX_ALT, BZ, TOTAL as MAX_BUILDINGS, extrude, tilesAround, type Building } from "@/lib/earth-buildings-pure";
 import { LIGHT_GLSL } from "@/lib/earth-light-pure";
-import { GROUND_PX, GROUND_TILES, drawGround, groundFade, withOpenSea, type Ctx, type Ground } from "@/lib/earth-ground-pure";
+import { GROUND_PX, GROUND_TILES, STYLE, coverCircle, drawGround, edgeAlpha, groundFade, metresPerUnit, withOpenSea, EXT, type Ctx, type Ground } from "@/lib/earth-ground-pure";
 export type { EarthData };
 export type EarthOpts = { tileUrl: (k: TileKind, z: number, x: number, y: number) => string; sunMs?: number; dpr?: number; onTown?: (t: TownNews) => void; rightInset?: () => number; buildingsUrl?: (x: number, y: number) => string; home?: { lon: number; lat: number; name: string } };
 
@@ -99,10 +99,15 @@ void main(){ \n#include <logdepthbuf_fragment>\n vec3 V = normalize(uCam - vW); 
   vec3 sky = mix(vec3(1.,.55,.3), vec3(.35,.62,1.), smoothstep(-.05,.3,sd));
   gl_FragColor = vec4(sky * i * (.05 + 1.2*lit) * k, i * (.05 + lit)); }`;
 
+/** The vector ground's plain land colour after its own day/dusk/night shading and fog, so the terrain around the loaded area can match it. */
+const lin = (h: string) => [1, 3, 5].map((i) => (parseInt(h.slice(i, i + 2), 16) / 255) ** 2).map((v) => v.toFixed(5)).join(",");
+const GROUND_LAND_GLSL = `vec3 groundLand(float lit, float dusk, float on, float dist){ vec3 c = vec3(${lin(STYLE.land)});
+  vec3 d = c * mix(.8, 1.15, lit) * mix(vec3(1.), vec3(1.,.7,.55), dusk * .6), n = c * .18 + vec3(.0015,.0025,.005) + vec3(.008,.012,.024) * dusk;
+  return mix(mix(n, d, lit), vec3(.012,.018,.028) * mix(.3, 1., lit) + SODIUM * .01 * on, (1. - exp(-dist * .06)) * .55); }`;
 const terrVS = `${LOG} attribute vec2 uvM; attribute vec2 uvN; varying vec2 vUv; varying vec2 vUvN; varying vec3 vN; varying vec3 vW; varying float vEdge; attribute float edge; attribute float hm; attribute vec2 uvE; varying float vH; varying vec2 vUvE;
 void main(){ vH = hm; vUvE = uvE; vUv = uvM; vUvN = uvN; vN = normalize(normal); vEdge = edge; vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz;
   gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
-const terrFS = `${LOGF}${LIGHT_GLSL} uniform sampler2D uDay; uniform sampler2D uNight; uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; uniform float uHaze; uniform float uNightK;
+const terrFS = `${LOGF}${LIGHT_GLSL}${GROUND_LAND_GLSL} uniform vec3 uGC; uniform float uGR; uniform float uGK; uniform sampler2D uDay; uniform sampler2D uNight; uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; uniform float uHaze; uniform float uNightK;
 varying vec2 vUv; varying vec2 vUvN; varying vec3 vN; varying vec3 vW; varying float vEdge; varying float vH; varying vec2 vUvE; uniform sampler2D uLand; uniform float uLakes; uniform float uStyl; uniform vec2 uTexel;
 void main(){ \n#include <logdepthbuf_fragment>\n
   vec4 dayA = texture2D(uDay, vUv); if (dayA.a < .5) discard; // tile not loaded yet: the globe underneath shows instead of black
@@ -133,6 +138,10 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   map += vec3(.25,.55,.75) * grid * .1 * uStyl + vec3(.3,.6,.8) * (1. - smoothstep(.0, .25, abs(water - .5))) * .08 * uStyl; // grid + a thin coastline
   map *= mix(.35, 1., lit); // the map base darkens with the vector ground (Black Marble at ~600 m/px is too coarse to light it: it reads as flat blocks)
   c = mix(c, map, uStyl);
+  // around the loaded vector ground (circle uGC, radius uGR km) the base takes the ground's own land tone, easing back to the map
+  // base over ~2.5 km: the ground's feathered edge then fades into the same colour, with no line
+  float gm = uGK * uStyl * (1. - smoothstep(uGR, uGR + 2.5, length(vW - uGC) * 6371.));
+  c = mix(c, groundLand(lit, duskK(sun), lightsK(sun), dist), gm * (.85 - .85 * water));
   gl_FragColor = vec4(c, uOp * smoothstep(0., .22, vEdge)); }`;
 
 const glowFS = `${LOGF} uniform vec3 uColor; uniform float uT; uniform float uOp; varying vec2 vUv;
@@ -183,8 +192,8 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   gl_FragColor = vec4(c, uOp); }`;
 
 // the vector ground (OSM map drawn per z14 tile): a touch of sun shading, the major roads keep their glow at night, distance haze
-const gndVS = `${LOG} varying vec2 vUv; varying vec3 vW; void main(){ vUv = uv; vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
-const gndFS = `${LOGF}${LIGHT_GLSL} uniform sampler2D uMap; uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; varying vec2 vUv; varying vec3 vW;
+const gndVS = `${LOG} attribute float fe; varying float vFe; varying vec2 vUv; varying vec3 vW; void main(){ vFe = fe; vUv = uv; vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
+const gndFS = `${LOGF}${LIGHT_GLSL} uniform sampler2D uMap; uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; varying vec2 vUv; varying vec3 vW; varying float vFe;
 // road light from the map itself: brightness of the drawn roads, read sharp (the lamps on the road) and from blurred mip levels (the
 // pool of light around them, and what the water reflects) - no extra texture, no bloom
 float roadL(vec3 m){ return smoothstep(.015, .35, max(m.r, max(m.g, m.b))) * (1. - smoothstep(2., 2.6, m.b / max(m.g, 1e-3))); }
@@ -208,7 +217,7 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   nightC += refl * fres * water;
   c = mix(nightC, dayC, lit);
   float dist = length(uCam - vW) * 6371.; c = mix(c, vec3(.012,.018,.028) * mix(.3, 1., lit) + SODIUM * .01 * on, (1. - exp(-dist * .06)) * .55);
-  gl_FragColor = vec4(c, uOp); }`;
+  gl_FragColor = vec4(c, uOp * vFe); }`; // vFe: fades out toward tiles that have no vector ground
 
 /* ---------- the scene ---------- */
 
@@ -279,6 +288,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   ]);
 
   /* terrain patches */
+  const gM = { uGC: { value: new THREE.Vector3() }, uGR: { value: 0 }, uGK: { value: 0 } }; // where the vector ground is (terrain tone match)
   type Patch = { mesh: THREE.Mesh; u: { uOp: { value: number }; uNightK: { value: number }; uStyl: { value: number } }; lo: number; hi: number; box: Box; ground: (lon: number, lat: number) => number; sea: (lon: number, lat: number) => boolean };
   const patches: Patch[] = [];
   async function patch(box: Box, zi: number, ze: number, exag: number, lift: number, seg: number, lo: number, hi: number, haze: number, lakes = 0) {
@@ -310,7 +320,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("uvM", new THREE.BufferAttribute(uvM, 2)); g.setAttribute("uvN", new THREE.BufferAttribute(uv2, 2));
     g.setAttribute("edge", new THREE.BufferAttribute(edge, 1)); g.setAttribute("hm", new THREE.BufferAttribute(hm, 1)); g.setAttribute("uvE", new THREE.BufferAttribute(uvE, 2)); g.setIndex(idx); g.computeVertexNormals();
     const nightT = tex(night.canvas); // same box, coarser zoom: its own uv would differ only slightly, so share uvM via a matched mosaic box
-    const u = { uDay: { value: tex(day.canvas) as THREE.Texture }, uNight: { value: nightT as THREE.Texture }, uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 }, uHaze: { value: haze }, uNightK: { value: 1 }, uLand: { value: landT as THREE.Texture }, uLakes: { value: lakes }, uStyl: { value: 0 }, uTexel: { value: new THREE.Vector2(1.5 / day.canvas.width, 1.5 / day.canvas.height) } };
+    const u = { uDay: { value: tex(day.canvas) as THREE.Texture }, uNight: { value: nightT as THREE.Texture }, uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 }, uHaze: { value: haze }, uNightK: { value: 1 }, uLand: { value: landT as THREE.Texture }, uLakes: { value: lakes }, uStyl: { value: 0 }, ...gM, uTexel: { value: new THREE.Vector2(1.5 / day.canvas.width, 1.5 / day.canvas.height) } };
     const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ vertexShader: terrVS, fragmentShader: terrFS, uniforms: u, transparent: true }));
     mesh.renderOrder = 2 + patches.length;
     scene.add(mesh);
@@ -353,7 +363,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       pos.set([p[0] - o0[0], p[1] - o0[1], p[2] - o0[2]], k * 3); uv.set([i / seg, 1 - j / seg], k * 2);
     }
     for (let j = 0; j < seg; j++) for (let i = 0; i < seg; i++) { const a = j * n + i; idx.push(a, a + n, a + 1, a + 1, a + n, a + n + 1); }
-    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.BufferAttribute(uv, 2)); g.setIndex(idx); g.computeBoundingSphere();
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.BufferAttribute(uv, 2)); g.setAttribute("fe", new THREE.BufferAttribute(new Float32Array(n * n).fill(1), 1)); g.setIndex(idx); g.computeBoundingSphere();
     const t = tex(cv, false); t.onUpdate = () => { cv.width = cv.height = 1; }; // once on the GPU, free the 4 MB canvas
     const m = new THREE.Mesh(g, new THREE.ShaderMaterial({ vertexShader: gndVS, fragmentShader: gndFS, uniforms: { ...gU, uMap: { value: t } }, transparent: true, depthTest: false, depthWrite: false }));
     m.position.set(...o0); m.renderOrder = 7; scene.add(m);
@@ -363,6 +373,19 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     if (t.mesh) { scene.remove(t.mesh); t.mesh.geometry.dispose(); }
     if (t.ground) { scene.remove(t.ground); t.ground.geometry.dispose(); const mt = t.ground.material as THREE.ShaderMaterial; (mt.uniforms.uMap.value as THREE.Texture).dispose(); mt.dispose(); }
   };
+  /** After tiles come or go: re-feather every ground tile's edge and move the terrain's matching circle. 25 tiles × 289 vertices. */
+  function refreshEdge() {
+    const on = [...bTiles.entries()].filter(([, t]) => t.ground).map(([k]) => { const [x, y] = k.split("/").map(Number); return { x, y }; });
+    const has = new Set(on.map((t) => `${t.x}/${t.y}`)), hasAt = (x: number, y: number) => has.has(`${x}/${y}`);
+    for (const t of on) {
+      const a = bTiles.get(`${t.x}/${t.y}`)!.ground!.geometry.getAttribute("fe") as THREE.BufferAttribute, n = Math.round(Math.sqrt(a.count)), seg = n - 1;
+      for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) a.setX(j * n + i, edgeAlpha(t.x, t.y, i / seg, j / seg, hasAt));
+      a.needsUpdate = true;
+    }
+    const c = coverCircle(on);
+    gM.uGR.value = c ? c.r * metresPerUnit(y2lat(c.y, BZ)) * EXT / 1000 : 0;
+    if (c) gM.uGC.value.set(...toXYZ(x2lon(c.x, BZ), y2lat(c.y, BZ)));
+  }
   let bBusy = 0, bLast = 0;
   const finest = (lon: number, lat: number) => {
     let best: Patch | null = null;
@@ -375,14 +398,14 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const used = [...bTiles.values()].reduce((s, t) => s + (t.mesh ? t.n : 0), 0);
     const ground = gr ? makeGround(x, y, gr) : undefined;
     bs = bs.slice(0, Math.max(0, MAX_BUILDINGS - used));
-    if (!bs.length) { bTiles.set(key, { n: 0, ground }); return; }
+    if (!bs.length) { bTiles.set(key, { n: 0, ground }); if (ground) refreshEdge(); return; }
     const c = { lon: bs[0].r[0][0], lat: bs[0].r[0][1] };
     const ex = extrude(bs, c, groundAt, 1.6); // a little taller than life, like the terrain's exaggeration, so the city reads from above
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(ex.positions, 3)); g.setAttribute("normal", new THREE.BufferAttribute(ex.normals, 3));
     g.setAttribute("shade", new THREE.BufferAttribute(ex.shade, 1)); g.setAttribute("wall", new THREE.BufferAttribute(ex.wall, 3)); g.setIndex(new THREE.BufferAttribute(ex.index, 1));
     const mesh = new THREE.Mesh(g, bMat); mesh.position.set(...ex.origin); mesh.renderOrder = 8; mesh.frustumCulled = true; g.computeBoundingSphere();
-    scene.add(mesh); bTiles.set(key, { mesh, ground, n: ex.count });
+    scene.add(mesh); bTiles.set(key, { mesh, ground, n: ex.count }); if (ground) refreshEdge();
   }
   const loadBuildings = async (x: number, y: number, key: string) => {
     bBusy++; bTiles.set(key, { n: 0, retry: Infinity });
@@ -403,7 +426,9 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       if (bBusy >= 2) break;
       if (!have || (have.retry !== undefined && have.retry < now)) void loadBuildings(t.x, t.y, k);
     }
-    if (bTiles.size > keys.size + 12) for (const [k, t] of bTiles) if (!keys.has(k) && t.retry !== Infinity) { dropTile(t); bTiles.delete(k); if (bTiles.size <= keys.size + 6) break; }
+    let dropped = false;
+    if (bTiles.size > keys.size + 12) for (const [k, t] of bTiles) if (!keys.has(k) && t.retry !== Infinity) { dropTile(t); bTiles.delete(k); if (t.ground) dropped = true; if (bTiles.size <= keys.size + 6) break; }
+    if (dropped) refreshEdge();
   }
   /** For the fixture stills: put a tile's buildings in directly. */
   const putBuildings = async (x: number, y: number, bs: Building[], gr?: Ground) => { await terrainReady; addBuildings(`${x}/${y}`, x, y, bs, gr); };
@@ -552,7 +577,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     for (const q of patches) { q.u.uOp.value = band(alt, q.lo, q.hi, 0.9); q.u.uNightK.value = band(alt, 120, 1e9, 1.5); q.u.uStyl.value = 1 - band(alt, 9, 1e9, 1.4); } // coarse city lights only from high up
     dof.uniforms.uAmt.value = 0.3 * band(alt, 4, 60, 1.2); // no tilt-shift blur on city close-ups: the ground is soft enough
     bU.uOp.value = band(alt, 0.05, BUILDINGS_MAX_ALT, 0.6); bMat.depthWrite = bU.uOp.value > 0.5;
-    gU.uOp.value = groundFade(alt);
+    gU.uOp.value = groundFade(alt); gM.uGK.value = gM.uGR.value > 0 ? gU.uOp.value : 0;
     for (const t of bTiles.values()) { if (t.mesh) t.mesh.visible = bU.uOp.value > 0.01; if (t.ground) t.ground.visible = gU.uOp.value > 0.01; }
     updateBuildings(p);
     bloom.strength = 0.45;
