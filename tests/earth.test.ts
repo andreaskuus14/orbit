@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { band, decodeEntities, distKm, introPath, lat2y, levelAt, lon2x, nearYou, pathMs, placesIn, poseAt, SHOTS, terrarium, tilesFor, townNews, upstreamTile, validTile, y2lat, x2lon, lerpPose, arcPoints } from "../src/lib/earth-pure.ts";
+import { band, decodeEntities, distKm, introPath, lat2y, levelAt, lon2x, nearYou, pathMs, placesIn, poseAt, SHOTS, terrarium, tilesFor, townNews, upstreamTile, validTile, y2lat, x2lon, lerpPose, arcPoints, clampAlt, MIN_ALT, zoneFade } from "../src/lib/earth-pure.ts";
 
 test("tile maths round-trips and covers a box", () => {
   assert.ok(Math.abs(y2lat(lat2y(59.437, 12), 12) - 59.437) < 1e-9);
@@ -88,4 +88,14 @@ test("local headlines lose their HTML entities", () => {
   const [t] = townNews([{ title: "T&#228;na Tallinnas: uus tramm", url: "https://x.ee/1", source: "ERR &amp; co", published_at: null }]);
   assert.equal(t.stories[0].title, "Täna Tallinnas: uus tramm");
   assert.equal(t.stories[0].source, "ERR & co");
+});
+
+test("camera floor and HUD text zones", () => {
+  assert.equal(clampAlt(0.4), MIN_ALT);
+  assert.equal(clampAlt(40), 40);
+  const title: [number, number, number, number] = [24, 20, 320, 70];
+  assert.equal(zoneFade([400, 300, 500, 400], [title]), 1, "clear of the text");
+  assert.equal(zoneFade([0, 0, 400, 120], [title]), 0, "a big ring over the title is hidden");
+  assert.equal(zoneFade([310, 60, 400, 120], [title]), 1 - 10 / 24, "a 10 px graze only dims it");
+  assert.equal(zoneFade([0, 0, 10, 10], []), 1);
 });

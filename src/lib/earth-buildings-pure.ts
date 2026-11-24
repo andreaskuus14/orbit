@@ -93,17 +93,18 @@ export function earcut2(pts: [number, number][]): number[] {
   return tris;
 }
 
-export type Extruded = { origin: [number, number, number]; positions: Float32Array; normals: Float32Array; shade: Float32Array; index: Uint32Array; count: number };
+export type Extruded = { origin: [number, number, number]; positions: Float32Array; normals: Float32Array; shade: Float32Array; wall: Float32Array; index: Uint32Array; count: number };
 const M = 6371000;
 /** Walls and flat roofs for a tile's buildings, as positions relative to `origin` (the tile centre on the unit sphere, so float32
  *  stays precise to centimetres). baseAt(lon, lat) = ground height in metres in the scene (terrain exaggeration and lift included);
- *  walls go `sink` metres below it so no gap shows on slopes. shade: 0 = wall bottom … 1 = roof (the shader uses it for colour). */
+ *  walls go `sink` metres below it so no gap shows on slopes. shade: 0 = wall bottom … 1 = roof (the shader uses it for colour).
+ *  wall: per vertex [metres along the wall, metres above the ground, the building's height] (real metres) for windows and tint. */
 export function extrude(bs: Building[], center: { lon: number; lat: number }, baseAt: (lon: number, lat: number) => number = () => 0, hScale = 1, sink = 12): Extruded {
   const o = toXYZ(center.lon, center.lat);
-  const P: number[] = [], N: number[] = [], S: number[] = [], I: number[] = [];
+  const P: number[] = [], N: number[] = [], S: number[] = [], W: number[] = [], I: number[] = [];
   const kx = Math.cos((center.lat * Math.PI) / 180);
-  const put = (lon: number, lat: number, hm: number, n: [number, number, number], s: number) => {
-    const p = toXYZ(lon, lat, hm / M); P.push(p[0] - o[0], p[1] - o[1], p[2] - o[2]); N.push(...n); S.push(s); return P.length / 3 - 1;
+  const put = (lon: number, lat: number, hm: number, n: [number, number, number], s: number, w: [number, number, number]) => {
+    const p = toXYZ(lon, lat, hm / M); P.push(p[0] - o[0], p[1] - o[1], p[2] - o[2]); N.push(...n); S.push(s); W.push(...w); return P.length / 3 - 1;
   };
   for (const b of bs) {
     const cx = b.r.reduce((s, p) => s + p[0], 0) / b.r.length, cy = b.r.reduce((s, p) => s + p[1], 0) / b.r.length;
@@ -111,17 +112,20 @@ export function extrude(bs: Building[], center: { lon: number; lat: number }, ba
     const up = toXYZ(cx, cy) as [number, number, number];
     const e: [number, number, number] = [Math.cos((cx * Math.PI) / 180), 0, -Math.sin((cx * Math.PI) / 180)]; // east
     const nn: [number, number, number] = [up[1] * e[2] - up[2] * e[1], up[2] * e[0] - up[0] * e[2], up[0] * e[1] - up[1] * e[0]]; // north = up × east
+    const H = b.h * hScale, L = lo - g; // wall coordinates in real metres (before exaggeration) for the window pattern
+    let run = 0;
     for (let i = 0; i < b.r.length; i++) {
       const a = b.r[i], c = b.r[(i + 1) % b.r.length];
-      const dx = (c[0] - a[0]) * kx, dy = c[1] - a[1], l = Math.hypot(dx, dy) || 1;
+      const dx = (c[0] - a[0]) * kx, dy = c[1] - a[1], l = Math.hypot(dx, dy) || 1, lm = l * 111320;
       const ox = dy / l, oy = -dx / l; // outward for a CCW ring
       const n: [number, number, number] = [e[0] * ox + nn[0] * oy, e[1] * ox + nn[1] * oy, e[2] * ox + nn[2] * oy];
-      const v0 = put(a[0], a[1], lo, n, 0), v1 = put(c[0], c[1], lo, n, 0), v2 = put(c[0], c[1], hi, n, 0.85), v3 = put(a[0], a[1], hi, n, 0.85);
-      I.push(v0, v1, v2, v0, v2, v3);
+      const v0 = put(a[0], a[1], lo, n, 0, [run, L / hScale, b.h]), v1 = put(c[0], c[1], lo, n, 0, [run + lm, L / hScale, b.h]);
+      const v2 = put(c[0], c[1], hi, n, 0.85, [run + lm, H / hScale, b.h]), v3 = put(a[0], a[1], hi, n, 0.85, [run, H / hScale, b.h]);
+      I.push(v0, v1, v2, v0, v2, v3); run += lm;
     }
     const base = P.length / 3;
-    for (const p of b.r) put(p[0], p[1], hi, up, 1);
+    for (const p of b.r) put(p[0], p[1], hi, up, 1, [0, b.h, b.h]);
     for (const t of earcut2(b.r.map((p) => [p[0] * kx, p[1]]))) I.push(base + t);
   }
-  return { origin: o, positions: new Float32Array(P), normals: new Float32Array(N), shade: new Float32Array(S), index: new Uint32Array(I), count: bs.length };
+  return { origin: o, positions: new Float32Array(P), normals: new Float32Array(N), shade: new Float32Array(S), wall: new Float32Array(W), index: new Uint32Array(I), count: bs.length };
 }

@@ -137,6 +137,23 @@ export function band(alt: number, lo: number, hi: number, soft = 0.7): number {
   return Math.max(0, Math.min(1, (l - a) / soft + 0.5, (b - l) / soft + 0.5));
 }
 
+/** Lowest camera distance (km). Below ~8 km the 10 m Sentinel-2 ground is blur, so the scene swaps it for a dark map base
+ *  there (earth-scene uStyl); 1 km still frames a whole old town. */
+export const MIN_ALT = 1;
+export const clampAlt = (alt: number) => Math.max(MIN_ALT, alt);
+
+export type Rect = [number, number, number, number]; // left, top, right, bottom (px)
+/** How much of a screen-space story mark (ring, beam) may show, given the HUD's text boxes: 1 when clear, falling to 0 once
+ *  `pad` px or more of it overlaps one. Keeps glowing rings off the title, readout and the "Near you" list. */
+export function zoneFade(r: Rect, zones: Rect[], pad = 24): number {
+  let k = 1;
+  for (const z of zones) {
+    const ox = Math.min(r[2], z[2]) - Math.max(r[0], z[0]), oy = Math.min(r[3], z[3]) - Math.max(r[1], z[1]);
+    if (ox > 0 && oy > 0) k = Math.min(k, Math.max(0, 1 - Math.min(ox, oy) / pad));
+  }
+  return k;
+}
+
 /* ---------- places (GeoNames, CC BY 4.0) and the local-news geocoder ---------- */
 
 export type Place = { name: string; lon: number; lat: number; kind: "city" | "town" | "village" | "district"; pop: number; stem?: string; alts?: string[]; strict?: boolean };

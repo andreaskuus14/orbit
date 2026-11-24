@@ -28,11 +28,12 @@ const srv = createServer(async (req, res) => {
 const browser = await chromium.launch({ executablePath: "/usr/bin/google-chrome", args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 page.on("console", (m) => { if (m.type() === "error" && !/404/.test(m.text())) console.log("page:", m.text().slice(0, 300)); });
-await page.goto(`http://127.0.0.1:${srv.address().port}/`);
+await page.goto(`http://127.0.0.1:${srv.address().port}/`, { waitUntil: "domcontentloaded" }); // the tile images can take longer than the load timeout on a busy box
+await page.waitForFunction(() => window.earthReady, null, { timeout: 0 });
 await page.evaluate(() => window.earthReady);
 const shots = {
-  "p2-tallinn-buildings.jpg": [{ lon: 24.745, lat: 59.4372, alt: 2.2, tilt: 58, heading: 25 }, null],
-  "p2-tallinn-buildings-high.jpg": [{ lon: 24.746, lat: 59.436, alt: 6, tilt: 45, heading: -10 }, null],
+  "p2-tallinn-buildings.jpg": [{ lon: 24.7451, lat: 59.4375, alt: 1.15, tilt: 55, heading: 25 }, null],
+  "p2-tallinn-buildings-high.jpg": [{ lon: 24.746, lat: 59.436, alt: 8, tilt: 50, heading: -10 }, null],
   "p2-latvia-region.jpg": [{ lon: 24.3, lat: 56.95, alt: 260, tilt: 40, heading: 0 }, "Latvia, local news"],
 };
 for (const [name, [p, label]] of Object.entries(shots)) { await page.evaluate(([p, l]) => window.shot(p, l), [p, label]); await page.screenshot({ path: `${out}/${name}`, type: "jpeg", quality: 90 }); }

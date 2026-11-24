@@ -76,6 +76,14 @@ test("extrusion: walls + roof, heights in metres, relative to the tile centre", 
   assert.ok(Math.abs(n[0] * up[0] + n[1] * up[1] + n[2] * up[2]) < 1e-6, "wall normal is horizontal");
   assert.ok(n[1] < 0, "faces south (away from the pole)");
   for (let i = 16 * 3; i < e.normals.length; i += 3) assert.ok(e.normals[i] * up[0] + e.normals[i + 1] * up[1] + e.normals[i + 2] * up[2] > 0.99);
+  // wall coordinates: metres along the wall and up from the ground (real, unexaggerated), plus the building's height
+  assert.equal(e.wall.length, e.positions.length);
+  assert.deepEqual([...e.wall.slice(0, 3)], [0, -10, 20]);
+  assert.ok(Math.abs(e.wall[3] - 56.6) < 1, "first edge ≈ 57 m long (0.001° of longitude at 59.4°N)");
+  assert.equal(e.wall[3 * 2 + 1], 20, "wall top at the building's height");
+  assert.ok(Math.abs(e.wall[3 * 4] - e.wall[3]) < 1e-3, "the next wall starts where the last one ended");
+  const tall = extrude([{ r, h: 20, min: 0 }], { lon: 24.7455, lat: 59.43725 }, () => 0, 1.6, 10);
+  assert.equal(tall.wall[3 * 2 + 1], 20, "exaggeration does not change the window grid");
   const full = extrude(parseOverpass(fixture), { lon: 24.745, lat: 59.437 });
   assert.ok(full.index.length % 3 === 0 && full.index.every((i) => i < full.positions.length / 3));
 });
