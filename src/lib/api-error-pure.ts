@@ -79,8 +79,16 @@ export function safeMessage(e: unknown, fallback: string, env: Env = ENV()): str
   return redactMessage(e.message, env) || fallback;
 }
 
-/** Routes that handle LIFE / journal text: their failures log only the kind, never a message. */
-export const isPrivateRoute = (name: string): boolean => /(^|\/)(life|journal|diary|evening|capsule|dream)(\/|$)/i.test(name);
+/** Routes that handle LIFE / journal text: their failures log only the kind, never a message. Matched on the route's path
+ *  under src/app/api (guard names are that path; tests/api-error.test.ts checks every guard name against its file):
+ *  any top-level folder starting life/journal/diary/evening/capsule/dream/memories, plus the routes that read journal
+ *  text elsewhere (search, time-machine, core/chats). */
+const PRIVATE_TOP = /^(life|journal|diary|evening|capsule|dream|memories)[^/]*(\/|$)/i;
+const PRIVATE_EXACT = new Set(["search", "time-machine", "core/chats"]);
+export const isPrivateRoute = (name: string): boolean => {
+  const p = name.replace(/^\/+/, "").replace(/^src\/app\/api\//, "").replace(/\/route\.ts$/, "").toLowerCase();
+  return PRIVATE_TOP.test(p) || PRIVATE_EXACT.has(p) || [...PRIVATE_EXACT].some((x) => p.startsWith(x + "/"));
+};
 
 /** One log line for a failed route: no stack, redacted, no details at all for private routes. */
 export function logLine(name: string, e: unknown, env: Env = {}): string {
@@ -91,9 +99,9 @@ export function logLine(name: string, e: unknown, env: Env = {}): string {
   return `[orbit] api ${name} failed (${kind}): ${n.split(" ")[0] || "Error"}${msg ? `: ${msg}` : ""}`;
 }
 
-/** Supabase request deadline: storage uploads get longer (a big file), everything else fails fast. */
-export const supabaseTimeoutMs = (url: string, method = "GET"): number =>
-  /\/storage\/v1\/object\//.test(url) && /^(POST|PUT)$/i.test(method) ? 120_000 : 20_000;
+/** Supabase request deadline: any storage request (uploads, and downloads up to 50 MB in restoreFromCloud) gets 120 s;
+ *  database and auth calls fail fast. */
+export const supabaseTimeoutMs = (url: string, _method = "GET"): number => (/\/storage\/v1\//.test(url) ? 120_000 : 20_000);
 
 /** supabase.auth.getUser failed because Supabase couldn't be reached (not because nobody is signed in). */
 export function authUnreachable(err: unknown): boolean {
@@ -106,6 +114,16 @@ export function authUnreachable(err: unknown): boolean {
 
 /** A signal that aborts after ms, joined with the caller's own signal when there is one. */
 export function timeoutSignal(ms: number, signal?: AbortSignal | null): AbortSignal {
-  const t = AbortSignal.timeout(ms);
-  return signal ? AbortSignal.any([signal, t]) : t;
+  // Old browsers (iOS Safari < 17.4 has no AbortSignal.any, < 16 no AbortSignal.timeout): build it by hand.
+  const A = AbortSignal as typeof AbortSignal & { any?: typeof AbortSignal.any; timeout?: typeof AbortSignal.timeout };
+  if (typeof A.timeout === "function" && (!signal || typeof A.any === "function")) {
+    const t = A.timeout(ms);
+    return signal ? A.any!([signal, t]) : t;
+  }
+  const c = new AbortController();
+  const timer = setTimeout(() => c.abort(new DOMException("The operation timed out.", "TimeoutError")), ms);
+  const stop = () => clearTimeout(timer);
+  c.signal.addEventListener("abort", stop, { once: true });
+  if (signal) { if (signal.aborted) c.abort(signal.reason); else signal.addEventListener("abort", () => c.abort(signal.reason), { once: true }); }
+  return c.signal;
 }
