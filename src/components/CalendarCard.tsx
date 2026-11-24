@@ -27,23 +27,23 @@ export default function CalendarCard() {
   if (!s) return null;
   const events = (s.events ?? []).slice(0, 12);
   return (
-    <div className="card space-y-2 text-sm">
+    <div className="pu-card space-y-2 text-sm">
       <div className="flex items-center justify-between gap-2">
-        <b>📅 Calendar</b>
-        {s.timetable && <button className="chip text-xs" onClick={() => void post({ action: "timetable-remove" })}>{t("cal.removeTt")}</button>}
-        {s.connected && <button className="chip text-xs" onClick={() => void disconnect()}>Disconnect</button>}
+        <b>{t("lf.cal.title")}</b>
+        {s.timetable && <button className="pu-btn" data-variant="ghost" data-size="sm" onClick={() => void post({ action: "timetable-remove" })}>{t("cal.removeTt")}</button>}
+        {s.connected && <button className="pu-btn" data-variant="ghost" data-size="sm" onClick={() => void disconnect()}>{t("lf.cal.disconnect")}</button>}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <label className="chip cursor-pointer">{t("cal.import")}<input type="file" accept=".ics,text/calendar" className="sr-only" onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} /></label>
-        <button className="chip" onClick={addUrl}>{t("cal.fromLink")}</button>
+        <label className="pu-btn cursor-pointer" data-variant="secondary" data-size="sm">{t("cal.import")}<input type="file" accept=".ics,text/calendar" className="sr-only" onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} /></label>
+        <button className="pu-btn" data-variant="secondary" data-size="sm" onClick={addUrl}>{t("cal.fromLink")}</button>
         {tErr && <span className="error" role="alert">{tErr}</span>}
       </div>
       {!s.connected && !events.length ? (
-        s.expired ? <a className="error text-xs underline" href="/api/life/calendar/oauth">📅 {t("morning.calExpired")}</a>
-        : s.configured ? <a className="chip inline-block" href="/api/life/calendar/oauth">Connect Google Calendar</a>
-          : <p className="muted text-xs">Connect Google Calendar: add GCAL_OAUTH_CLIENT_ID/_SECRET (or the YOUTUBE_OAUTH_ ones) to .env.local first.</p>
+        s.expired ? <a className="error text-xs underline" href="/api/life/calendar/oauth">{t("morning.calExpired")}</a>
+        : s.configured ? <a className="pu-btn inline-flex" data-variant="secondary" data-size="sm" href="/api/life/calendar/oauth">{t("lf.cal.connect")}</a>
+          : <p className="muted text-xs">{t("lf.cal.notSetUp")}</p>
       ) : s.error && !events.length ? <p className="error text-xs" role="alert">{s.error}</p>
-        : !events.length ? <p className="muted text-xs">Nothing in the next 7 days.</p> : (
+        : !events.length ? <p className="muted text-xs">{t("lf.cal.empty")}</p> : (
         <ul className="space-y-1">
           {events.map((e, k) => (
             <li key={k} className="flex gap-2">

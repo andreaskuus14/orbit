@@ -423,9 +423,9 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const [lifeProgress, setLifeProgress] = useState<{ done: number; total: number } | null>(null); // drives the LIFE ring in the galaxy
   useEffect(() => {
     if (panel) return;
-    fetch("/api/life").then((r) => (r.ok ? r.json() : null)).then((st: { habits?: { scheduledToday: boolean; doneToday: boolean }[] } | null) => {
+    fetch("/api/life?lite=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((st: { habits?: { scheduledToday: boolean; doneToday: boolean }[] } | null) => {
       const today = st?.habits?.filter((h) => h.scheduledToday) ?? [];
-      setLifeLine(today.length ? `${today.filter((h) => h.doneToday).length}/${today.length} habits done today` : "");
+      setLifeLine(today.length ? t("lf.galaxy", { done: today.filter((h) => h.doneToday).length, n: today.length }) : "");
       setLifeProgress({ done: today.filter((h) => h.doneToday).length, total: today.length });
     }).catch(() => {});
   }, [panel]);
@@ -759,7 +759,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       : id === "intelligence" ? <IntelligencePanel />
       : id === "operations" ? <OperationsPanel focusTask={focusTask} onOpen={setFocusTask} openMemory={openMemory} />
       : id === "agents" ? <AgentsPanel onOpenTask={openTask} />
-      : id === "life" ? (lifeOpen ? <LifePanel open={lifeOpen} /> : <SimpleOr planet="life" onOpenTask={openTask} onOpenGoal={openGoal}><LifePanel open={lifeOpen} /></SimpleOr>) // a CORE/voice jump to a LIFE tab opens the tools
+      : id === "life" ? <LifePanel open={lifeOpen} onClose={() => setPanel(null)} /> // one calm shell; a CORE/voice jump opens the right sheet
       : id === "vault" ? <VaultPlanet onClose={closeWorld} />
       : id === "business" ? <BusinessShell onClose={closeWorld} focusId={focusClient} onFocus={setFocusClient} />
               : null);

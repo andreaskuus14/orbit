@@ -1,0 +1,90 @@
+/* LIFE planet (components/LifePanel.tsx), on top of planet-ui.css. The calmest planet: warm hairlines, one accent (mint),
+   no advanced layer except the precise focus clock. Only transform and opacity animate, only under html[data-motion="on"]
+   (ORBIT_UI_MOTION) and never with reduced motion. */
+.drawer:has(.lf-shell) > .drag-handle { display: none; }
+.lf-shell { width: 100%; max-width: none; }
+.lf-shell .pu-body { gap: 20px; }
+.lf-stack { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.lf-rows { display: flex; flex-direction: column; gap: 2px; }
+.lf-note { margin: 0; font: var(--pu-meta); color: var(--pu-ink-3); }
+.lf-text { margin: 0; font: var(--pu-body); color: var(--pu-ink-2); }
+.lf-link { padding: 0; border: 0; background: none; font: inherit; color: var(--pu-accent-ink); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--pu-accent-line); }
+.lf-link:focus-visible { outline: none; box-shadow: var(--pu-focus); border-radius: 4px; }
+.lf-card { padding: 12px; border-radius: var(--pu-r-lg); background: var(--pu-raised); box-shadow: inset 0 0 0 1px var(--pu-line); display: flex; flex-direction: column; gap: 8px; }
+
+/* habits: one tap each */
+.lf-habits { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.lf-habit { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 10px; border-radius: var(--pu-r-md); }
+.lf-habit:hover { background: rgba(255, 255, 255, 0.03); }
+.lf-check { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 99px; border: 1.5px solid var(--pu-accent-line); background: transparent; color: transparent; cursor: pointer; }
+.lf-check:hover { border-color: var(--pu-accent); }
+.lf-check:active { transform: scale(0.94); }
+.lf-check:focus-visible { outline: none; box-shadow: var(--pu-focus); }
+.lf-habit[data-done] .lf-check { background: var(--pu-accent-fill, var(--pu-accent)); border-color: transparent; color: var(--pu-on-accent); }
+.lf-habit-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lf-habit-name { font: var(--pu-body); font-weight: 500; color: var(--pu-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-habit[data-done] .lf-habit-name { color: var(--pu-ink-3); }
+.lf-habit-sub { font: var(--pu-meta); color: var(--pu-ink-3); }
+.lf-dots { flex: none; display: inline-flex; gap: 3px; }
+.lf-dots i { width: 6px; height: 6px; border-radius: 99px; box-shadow: inset 0 0 0 1px var(--pu-accent-line); }
+.lf-dots i[data-done] { background: var(--pu-accent); box-shadow: none; }
+.lf-dots i[data-off] { box-shadow: inset 0 0 0 1px var(--pu-line); }
+
+/* focus: the precise layer */
+.lf-focus { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--pu-r-lg); box-shadow: inset 0 0 0 1px var(--pu-line); background: linear-gradient(180deg, var(--pu-accent-soft), transparent 80%); }
+.lf-focus-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.lf-focus-phase { font: var(--pu-caption); color: var(--pu-ink-2); }
+.lf-focus-time { font: var(--pu-display); font-size: 40px; line-height: 44px; letter-spacing: -0.02em; color: var(--pu-ink); }
+.lf-focus[data-phase="break"] .lf-focus-time { color: var(--pu-ink-2); }
+.lf-focus-plan { display: flex; gap: 6px; }
+.lf-bar { height: 2px; border-radius: 2px; background: var(--pu-line); overflow: hidden; }
+.lf-bar i { display: block; height: 100%; background: var(--pu-accent); transform-origin: left; }
+html[data-motion="on"] .lf-bar i { transition: transform 500ms linear; }
+.lf-focus-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lf-focus-today { margin-left: auto; }
+
+/* forms in sheets */
+.lf-form { display: flex; flex-direction: column; gap: 8px; }
+.lf-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lf-lab { display: flex; flex-direction: column; gap: 2px; font: var(--pu-caption); color: var(--pu-ink-3); }
+.lf-details summary { cursor: pointer; font: var(--pu-meta); color: var(--pu-ink-3); }
+.lf-details[open] > * + * { margin-top: 8px; }
+.lf-plan-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.lf-plan-head .lf-plan-actions { flex: none; flex-wrap: nowrap; }
+.lf-plan-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* day plan timeline */
+.lf-timeline { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.lf-timeline li { display: grid; grid-template-columns: 48px 1fr; gap: 12px; padding: 8px 0; border-top: 1px solid var(--pu-line); }
+.lf-timeline li:first-child { border-top: 0; }
+.lf-timeline li[data-fixed] .lf-block-title { color: var(--pu-ink-2); }
+.lf-timeline li[data-done] .lf-block-title { text-decoration: line-through; color: var(--pu-ink-3); }
+.lf-time { font: var(--pu-meta); color: var(--pu-ink-3); }
+.lf-block { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lf-block-title { font: var(--pu-body); font-weight: 500; color: var(--pu-ink); }
+.lf-block-sub { font: var(--pu-meta); color: var(--pu-ink-3); }
+.lf-block-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+
+/* week review */
+.lf-trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.lf-stat { display: flex; flex-direction: column; padding: 10px; border-radius: var(--pu-r-md); box-shadow: inset 0 0 0 1px var(--pu-line); }
+.lf-stat-num { font: var(--pu-title); color: var(--pu-ink); }
+
+/* the journal: a quiet private room */
+.lf-journal-door { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; border-radius: var(--pu-r-lg); box-shadow: inset 0 0 0 1px var(--pu-line); }
+.lf-journal-title { margin: 0; font: var(--pu-body); font-weight: 500; color: var(--pu-ink); }
+.lf-journal-sub { margin: 0; font: var(--pu-meta); color: var(--pu-ink-3); }
+.lf-private { margin: 0; font: var(--pu-meta); color: var(--pu-ink-3); }
+.lf-today-entry { display: flex; flex-direction: column; gap: 6px; }
+.lf-entry-head { display: flex; justify-content: space-between; font: var(--pu-caption); color: var(--pu-ink-2); }
+.lf-journal-text { min-height: 180px; width: 100%; resize: vertical; padding: 14px; border-radius: var(--pu-r-lg); border: 0; background: var(--pu-raised); box-shadow: inset 0 0 0 1px var(--pu-line); color: var(--pu-ink); font: var(--pu-lead); line-height: 26px; }
+.lf-journal-text:focus { outline: none; box-shadow: inset 0 0 0 1px var(--pu-accent-line), 0 0 0 4px var(--pu-accent-soft); }
+.lf-kept { font: var(--pu-meta); color: var(--pu-warn); }
+.lf-entry { padding: 10px 12px; border-radius: var(--pu-r-md); box-shadow: inset 0 0 0 1px var(--pu-line); }
+.lf-entry-text { margin: 4px 0 0; white-space: pre-wrap; font: var(--pu-body); color: var(--pu-ink-2); }
+.lf-hidden { display: block; width: 100%; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; color: inherit; }
+.lf-hidden:focus-visible { outline: none; box-shadow: var(--pu-focus); border-radius: 6px; }
+.lf-blur { display: block; margin-top: 4px; filter: blur(6px); user-select: none; font: var(--pu-body); color: var(--pu-ink-2); white-space: pre-wrap; }
+
+@media (prefers-reduced-motion: reduce) { .lf-check:active { transform: none; } .lf-bar i { transition: none !important; } }
+html[data-motion="off"] .lf-check:active { transform: none; }
