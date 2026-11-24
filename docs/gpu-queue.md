@@ -33,7 +33,7 @@ the migration, ORBIT logs it and also runs directly.
   a result that still finishes is kept and a failure goes back to the queue without using an attempt. Turning Stop-all
   off starts claiming again.
 - Progress: OPERATIONS → Local AI shows each job on the shared ProgressCard (`/api/gpu-jobs`), with Cancel.
-- `ORBIT_GPU_WORKER=0`: this server only enqueues (for the future cloud brain).
+- `ORBIT_GPU_WORKER=0`: this server only enqueues. `ORBIT_ROLE=cloud` (docs/CLOUD.md) turns the queue on and the worker off by itself.
 
 ## Adding a worker later (not built)
 

@@ -1,0 +1,37 @@
+# ORBIT cloud brain + Caddy (HTTPS). From the repo root:  docker compose -f deploy/cloud/docker-compose.yml --env-file deploy/cloud/.env up -d --build
+# Guide: docs/CLOUD.md. Only Caddy has public ports (80 for the certificate, 443). ORBIT itself is not published.
+services:
+  orbit:
+    build:
+      context: ../..
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    env_file: .env
+    environment:
+      ORBIT_ROLE: cloud
+      ORBIT_DATA_DIR: /data
+    volumes:
+      - orbit-data:/data
+    expose: ["3000"]
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    mem_limit: 1500m
+  caddy:
+    image: caddy:2
+    depends_on:
+      orbit:
+        condition: service_healthy
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      ORBIT_DOMAIN: ${ORBIT_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+volumes:
+  orbit-data:
+  caddy-data:
+  caddy-config:

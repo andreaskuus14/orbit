@@ -1,6 +1,8 @@
 # Running ORBIT on an always-on host
 
 Investigation, 2026-11-07, against main `02b6c8f`. Nothing here is built yet; each gap below is a separate task with its own PR.
+
+> 2026-11-24: a Linux cloud "brain" is now prepared (ORBIT_ROLE=cloud, Docker + Caddy): see docs/CLOUD.md.
 File references are to that commit.
 
 ## Recommendation

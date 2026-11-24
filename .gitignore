@@ -72,3 +72,4 @@ kaggle.json
 access_token
 __pycache__/
 *.pyc
+deploy/cloud/.env

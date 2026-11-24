@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { schedulerOn } from "./role-pure";
 import { adminClient } from "./supabase/admin";
 import { runPulse } from "./pulse";
 import { handleEvents, runDueAutomations } from "./automations";
@@ -181,6 +182,7 @@ async function tick(sb: SupabaseClient) {
 export function startScheduler() {
   if (g.__orbitScheduler && g.__orbitTick === tick) return; // already running this version
   if (g.__orbitScheduler) { clearInterval(g.__orbitScheduler); g.__orbitScheduler = undefined; } // code was updated: swap in the new tick
+  if (!schedulerOn(process.env)) { console.log("[orbit] scheduler OFF here (ORBIT_SCHEDULER=0): the cloud brain runs briefings and automations"); return; }
   const sb = adminClient();
   if (!sb) {
     if (!g.__orbitWarned) console.warn("[orbit] scheduled briefings are OFF: add SUPABASE_SECRET_KEY to .env.local to enable them");
