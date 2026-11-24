@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CorePanel } from "./CoreChat";
 import { useT } from "./i18n";
+import { takeAsk } from "@/lib/phone-pwa-pure";
 
 type InstallEvent = Event & { prompt: () => Promise<void> };
 
@@ -11,7 +12,13 @@ export function ChatApp() {
   const { t } = useT();
   const [install, setInstall] = useState<InstallEvent | null>(null);
   const [offline, setOffline] = useState(false);
+  const [ask, setAsk] = useState<string | null>(null);
   useEffect(() => {
+    // /m's ask box hands its question over in this tab's sessionStorage (same origin only, so a link from another site can't
+    // make CORE send anything); it is taken once and removed, so a reload doesn't send it again.
+    const q = takeAsk(sessionStorage);
+    if (q) setAsk(q);
+    if (location.search) history.replaceState(null, "", "/chat");
     if ("serviceWorker" in navigator) void navigator.serviceWorker.register("/chat/sw.js", { scope: "/chat" }).catch(() => {});
     const onPrompt = (e: Event) => { e.preventDefault(); setInstall(e as InstallEvent); };
     const net = () => setOffline(!navigator.onLine);
@@ -31,7 +38,7 @@ export function ChatApp() {
         {install && <button type="button" className="chip" onClick={() => { void install.prompt(); setInstall(null); }}>{t("chat.install")}</button>}
         <a className="chip" href="/">{t("chat.full")}</a>
       </header>
-      <CorePanel initial={null} onConsumed={() => {}} onOpenMemory={openMemory} />
+      <CorePanel initial={ask} onConsumed={() => setAsk(null)} onOpenMemory={openMemory} />
     </main>
   );
 }

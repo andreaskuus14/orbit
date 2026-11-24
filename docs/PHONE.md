@@ -25,6 +25,24 @@ ORBIT's code doesn't change for this. It stays bound to `127.0.0.1`; Tailscale f
 - LIFE reminders show while ORBIT is open on the phone. They don't push when it's closed. (Only the /remote app below has push notifications, and only for approvals, Shorts, failures and Stop-all.)
 - STUDIO, agents, Clip Factory and everything else still run on the PC. The phone is a remote screen for it, so **the PC must be on with ORBIT running**.
 
+## ORBIT app on the phone (/m): the main phone home
+
+One app for the home screen: ask CORE, see what **needs you**, what ORBIT is **working on** (progress cards), the **latest briefing** with pictures, and quick links to the planets that work well on a phone (CORE chat, Approvals and Stop-all, Life, Memory, News, Studio).
+
+**The laptop must be on and reachable.** The phone is a screen for ORBIT; everything runs on the laptop. The phone reaches it through Tailscale (the one-time setup above). If the laptop sleeps or Tailscale is off, the app shows "ORBIT is offline. Your laptop may be asleep." with **Try again**.
+
+Install:
+1. Do the one-time setup above (Tailscale Serve + sign-in). Nothing new is opened to the internet; it is the same private address.
+2. On the phone, open `https://<your-pc>.<tailnet>.ts.net/m` and sign in.
+3. Android (Chrome): tap **Install on this phone** at the top, or menu → **Install app**. iPhone (Safari): Share → **Add to Home Screen**.
+4. Open **ORBIT** from the home screen. On iPhone, sign in once more inside it (the home-screen app keeps its own sign-in).
+
+The ask box sends your question to CORE in the phone chat (/chat). A Needs-you item opens where its exact content and its own Approve live: phone approvals in Remote, the rest in full ORBIT. Nothing is approved from the home screen itself.
+
+What's stored on the phone: only the app itself (the /m page, its code files and the icons). Answers, Needs-you items, tasks, briefings, journal and LIFE are never cached; every list is fetched live from the laptop each time.
+
+Notifications: push already exists in **Remote** (see "Notifications on the phone" below; it needs pairing and `REMOTE_VAPID_*`). The /m app itself doesn't push yet.
+
 ## Phone chat (/chat): CORE as its own app
 
 The same CORE chat as on the PC (history, search, files, pictures, Stop, Edit), without the galaxy, so it opens fast on the phone.
