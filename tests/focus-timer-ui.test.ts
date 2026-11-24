@@ -42,7 +42,8 @@ function browser(raw: string | null, now = 1_000_000) {
         if (id.endsWith("focus-timer-pure")) return focus;
         if (id.endsWith("life-private-pure")) return { DRAFT_KEY: "d", parseDraft: () => null };
         if (id === "./useLifeShield") return { useLifeShield() {} };
-        if (id === "./ui/Toast") return { toast() {} };
+        if (id === "@/components/ui") return { toast() {}, uiSound() {} };
+        if (id.endsWith(".css")) return {};
         if (id.endsWith("life-pure")) return { ALL_DAYS: [] };
         if (id.endsWith("habit-nudge-pure")) return {};
         if (id === "./i18n") return { useT: () => ({ t: (k: Parameters<typeof translate>[1], v?: Record<string, string | number>) => translate("en", k, v) }) };
