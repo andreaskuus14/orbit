@@ -15,6 +15,7 @@
     "eval": "node --no-warnings --experimental-strip-types scripts/eval-core.ts",
     "demo:build": "node scripts/demo-build.mjs",
     "smoke": "node scripts/smoke.mjs",
+    "smoke:live": "node --experimental-strip-types --no-warnings scripts/smoke-live.mjs",
     "check:watch-brief": "node --no-warnings --experimental-strip-types scripts/watch-brief-ui.mjs",
     "check:team-status": "node --no-warnings --experimental-strip-types scripts/team-status-ui.mjs",
     "check:continue-work": "node --no-warnings --experimental-strip-types scripts/continue-ui.mjs",

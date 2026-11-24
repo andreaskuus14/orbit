@@ -21,6 +21,7 @@ orbit-launcher.log.1
 
 # npm run smoke screenshots
 /smoke-shots/
+/.smoke-cookie.txt
 
 # tools/local-ai: venv, model weights, vendored repos (setup.ps1)
 /tools/local-ai/.venv/
