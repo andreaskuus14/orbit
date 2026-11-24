@@ -14,7 +14,7 @@ import { x2lon, y2lat, arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrari
 import type { EarthData } from "@/lib/earth-data-pure";
 import { BUILDINGS_MAX_ALT, BZ, TOTAL as MAX_BUILDINGS, extrude, tilesAround, type Building } from "@/lib/earth-buildings-pure";
 import { LIGHT_GLSL } from "@/lib/earth-light-pure";
-import { GROUND_PX, GROUND_TILES, STYLE, coverCircle, drawGround, edgeAlpha, groundFade, metresPerUnit, withOpenSea, EXT, type Ctx, type Ground } from "@/lib/earth-ground-pure";
+import { GROUND_PX, GROUND_TILES, STYLE, buildingEdge, coverCircle, drawGround, edgeAlpha, groundFade, metresPerUnit, withOpenSea, EXT, type Ctx, type Ground } from "@/lib/earth-ground-pure";
 export type { EarthData };
 export type EarthOpts = { tileUrl: (k: TileKind, z: number, x: number, y: number) => string; sunMs?: number; dpr?: number; onTown?: (t: TownNews) => void; rightInset?: () => number; buildingsUrl?: (x: number, y: number) => string; home?: { lon: number; lat: number; name: string } };
 
@@ -132,15 +132,15 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   // 250 m grid) that the buildings stand out on
   float lum = dot(c, vec3(.3,.55,.15));
   vec3 P = normalize(vW); vec2 gl = vec2(atan(P.x, P.z) * cos(asin(P.y)), asin(P.y)) * 6371000. / 250.;
-  vec2 gw = abs(fract(gl - .5) - .5) / max(fwidth(gl), 1e-4); float grid = (1. - min(min(gw.x, gw.y), 1.)) * (1. - water);
+  // around the loaded vector ground (circle uGC, radius uGR km) the base takes the ground's own land tone, easing back to the map
+  // base over ~2.5 km: the ground's feathered edge then fades into the same colour, with no line. The grid fades out there too.
+  float gm = uGK * uStyl * (1. - smoothstep(uGR, uGR + 2.5, length(vW - uGC) * 6371.));
+  vec2 gw = abs(fract(gl - .5) - .5) / max(fwidth(gl), 1e-4); float grid = (1. - min(min(gw.x, gw.y), 1.)) * (1. - water) * (1. - gm);
   vec3 photo = mix(vec3(lum), c, .75) * vec3(.82,.9,1.05); photo = (photo - .12) * 1.25 + .12; // cooler, more contrast
   vec3 map = mix(mix(vec3(.025,.032,.045), max(photo, 0.), .5), vec3(.004,.012,.03), water * .9); // ~60% photo, water stays a clean shape
   map += vec3(.25,.55,.75) * grid * .1 * uStyl + vec3(.3,.6,.8) * (1. - smoothstep(.0, .25, abs(water - .5))) * .08 * uStyl; // grid + a thin coastline
   map *= mix(.35, 1., lit); // the map base darkens with the vector ground (Black Marble at ~600 m/px is too coarse to light it: it reads as flat blocks)
   c = mix(c, map, uStyl);
-  // around the loaded vector ground (circle uGC, radius uGR km) the base takes the ground's own land tone, easing back to the map
-  // base over ~2.5 km: the ground's feathered edge then fades into the same colour, with no line
-  float gm = uGK * uStyl * (1. - smoothstep(uGR, uGR + 2.5, length(vW - uGC) * 6371.));
   c = mix(c, groundLand(lit, duskK(sun), lightsK(sun), dist), gm * (.85 - .85 * water));
   gl_FragColor = vec4(c, uOp * smoothstep(0., .22, vEdge)); }`;
 
@@ -159,11 +159,15 @@ const beamFS = `${LOGF} uniform vec3 uColor; uniform float uOp; uniform float uT
 void main(){ \n#include <logdepthbuf_fragment>\n float a = pow(clamp(1. - vUv.y, 0., 1.), 1.6) * uOp; float side = 1. - abs(vUv.x*2.-1.);
   gl_FragColor = vec4(uColor*1.4, a * side); }`;
 
-const bldVS = `${LOG} attribute float shade; attribute vec3 wall; varying float vS; varying vec3 vWall; varying vec3 vN; varying vec3 vW;
-void main(){ vS = shade; vWall = wall; vN = normalize(normal); vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
+// fe: the vector ground's edge mask (1 inside, 0 at the edge of the loaded area). Toward the edge the city sinks into the ground
+// (height × fe, so fewer floors, not squashed ones) and fades out, instead of ending in a wall.
+const bldVS = `${LOG} attribute float shade; attribute vec3 wall; attribute float fe; varying float vS; varying vec3 vWall; varying vec3 vN; varying vec3 vW; varying float vFe;
+void main(){ vS = shade; vFe = fe; float k = fe * fe * (3. - 2. * fe); vWall = vec3(wall.x, wall.y * k, wall.z * k); vN = normalize(normal);
+  vec4 w = modelMatrix*vec4(position,1.); w.xyz -= normalize(w.xyz) * max(wall.y, 0.) * (1. - k) * 1.6 / 6371000.;
+  vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
 // OSM buildings, "futuristic real": dark glass-and-concrete facades with a grid of windows (a few lit by day, many at night),
 // soft ambient occlusion at the foot, a faint cool line along the roof edge, taller buildings tinted cooler and lighter.
-const bldFS = `${LOGF}${LIGHT_GLSL} uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; varying float vS; varying vec3 vWall; varying vec3 vN; varying vec3 vW;
+const bldFS = `${LOGF}${LIGHT_GLSL} uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; varying float vS; varying vec3 vWall; varying vec3 vN; varying vec3 vW; varying float vFe;
 float hb(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void main(){ \n#include <logdepthbuf_fragment>\n
   vec3 up = normalize(vW); float sun = dot(up, uSun), lit = dayK(sun), on = lightsK(sun), dusk = duskK(sun);
@@ -180,7 +184,7 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   // homes warm (2700 K), offices and towers cooler LED; each window its own brightness
   vec3 wc = mix(vec3(1.,.62,.32), vec3(.78,.86,1.), step(.75 - .5*tall, hb(wid + 3.1))) * (.45 + .55*hb(wid + 9.7));
   vec3 glass = mix(vec3(.012,.018,.028), vec3(.03,.045,.065), lit) * win * (.5 + .5*diff) + vec3(.02,.03,.05) * win * dusk; // glass catches the twilight sky
-  c += glass * .6 + wc * win * isOn * mix(.1, .85, on);
+  c += glass * .6 + wc * win * isOn * mix(.1, .85, on) * vFe; // lit windows thin out toward the edge
   // soft AO at the foot; after dark the street lights wash the lower floors amber
   float foot = smoothstep(0., 6., vWall.y);
   c *= mix(.35, 1., foot);
@@ -189,7 +193,7 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   float rim = (1. - roof) * smoothstep(vWall.z - 1.2, vWall.z, vWall.y);
   c += vec3(.25,.6,1.) * rim * mix(.12, .35, lit);
   float dist = length(uCam - vW) * 6371.; c = mix(c, vec3(.05,.07,.1) * mix(.15, 1., lit), (1. - exp(-dist * .05)) * .5);
-  gl_FragColor = vec4(c, uOp); }`;
+  gl_FragColor = vec4(c, uOp * smoothstep(0., .6, vFe)); }`;
 
 // the vector ground (OSM map drawn per z14 tile): a touch of sun shading, the major roads keep their glow at night, distance haze
 const gndVS = `${LOG} attribute float fe; varying float vFe; varying vec2 vUv; varying vec3 vW; void main(){ vFe = fe; vUv = uv; vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
@@ -348,7 +352,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   /* OSM buildings (city close-ups, below BUILDINGS_MAX_ALT): one merged mesh per z14 tile, standing on the finest terrain patch */
   const bU = { uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 } };
   const bMat = new THREE.ShaderMaterial({ vertexShader: bldVS, fragmentShader: bldFS, uniforms: bU, transparent: true }); // always in the transparent pass: the ground (renderOrder 7, no depth test) must draw before them
-  const bTiles = new Map<string, { mesh?: THREE.Mesh; ground?: THREE.Mesh; n: number; retry?: number }>();
+  const bTiles = new Map<string, { mesh?: THREE.Mesh; ground?: THREE.Mesh; n: number; retry?: number; bs?: Building[] }>();
   const gU = { uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 } };
   /** The OSM ground for one tile: a canvas map on a small grid that follows the terrain, drawn after it and before the buildings. */
   function makeGround(x: number, y: number, gr: Ground): THREE.Mesh | undefined {
@@ -382,6 +386,10 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) a.setX(j * n + i, edgeAlpha(t.x, t.y, i / seg, j / seg, hasAt));
       a.needsUpdate = true;
     }
+    for (const [k, t] of bTiles) if (t.mesh && t.bs) { // the buildings take the same mask
+      const [x, y] = k.split("/").map(Number), a = t.mesh.geometry.getAttribute("fe") as THREE.BufferAttribute;
+      (a.array as Float32Array).set(buildingEdge(x, y, t.bs, hasAt)); a.needsUpdate = true;
+    }
     const c = coverCircle(on);
     gM.uGR.value = c ? c.r * metresPerUnit(y2lat(c.y, BZ)) * EXT / 1000 : 0;
     if (c) gM.uGC.value.set(...toXYZ(x2lon(c.x, BZ), y2lat(c.y, BZ)));
@@ -403,9 +411,10 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const ex = extrude(bs, c, groundAt, 1.6); // a little taller than life, like the terrain's exaggeration, so the city reads from above
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(ex.positions, 3)); g.setAttribute("normal", new THREE.BufferAttribute(ex.normals, 3));
-    g.setAttribute("shade", new THREE.BufferAttribute(ex.shade, 1)); g.setAttribute("wall", new THREE.BufferAttribute(ex.wall, 3)); g.setIndex(new THREE.BufferAttribute(ex.index, 1));
+    g.setAttribute("shade", new THREE.BufferAttribute(ex.shade, 1)); g.setAttribute("wall", new THREE.BufferAttribute(ex.wall, 3));
+    g.setAttribute("fe", new THREE.BufferAttribute(new Float32Array(ex.positions.length / 3).fill(1), 1)); g.setIndex(new THREE.BufferAttribute(ex.index, 1));
     const mesh = new THREE.Mesh(g, bMat); mesh.position.set(...ex.origin); mesh.renderOrder = 8; mesh.frustumCulled = true; g.computeBoundingSphere();
-    scene.add(mesh); bTiles.set(key, { mesh, ground, n: ex.count }); if (ground) refreshEdge();
+    scene.add(mesh); bTiles.set(key, { mesh, ground, n: ex.count, bs }); refreshEdge();
   }
   const loadBuildings = async (x: number, y: number, key: string) => {
     bBusy++; bTiles.set(key, { n: 0, retry: Infinity });

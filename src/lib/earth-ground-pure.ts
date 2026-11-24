@@ -300,3 +300,19 @@ export function coverCircle(tiles: { x: number; y: number }[]): { x: number; y: 
   for (const t of tiles) for (const [a, b] of [[0, 0], [1, 0], [0, 1], [1, 1]]) r = Math.max(r, Math.hypot(t.x + a - cx, t.y + b - cy));
   return { x: cx, y: cy, r };
 }
+/**
+ * The same edge mask for the buildings of tile (x, y): one value per vertex, taken at each building's footprint centre so a building
+ * sinks and fades as a whole (no sheared walls). Vertex order follows extrude(): 4 wall + 1 roof vertex per ring point. A tile with
+ * no ground of its own keeps its buildings (1).
+ */
+export function buildingEdge(x: number, y: number, bs: Pick<Building, "r">[], has: (x: number, y: number) => boolean, w = FEATHER): Float32Array {
+  const out = new Float32Array(bs.reduce((s, b) => s + 5 * b.r.length, 0));
+  const own = has(x, y);
+  let k = 0;
+  for (const b of bs) {
+    const cx = b.r.reduce((s, p) => s + p[0], 0) / b.r.length, cy = b.r.reduce((s, p) => s + p[1], 0) / b.r.length;
+    const a = own ? edgeAlpha(x, y, Math.min(1, Math.max(0, lon2x(cx, BZ) - x)), Math.min(1, Math.max(0, lat2y(cy, BZ) - y)), has, w) : 1;
+    out.fill(a, k, k + 5 * b.r.length); k += 5 * b.r.length;
+  }
+  return out;
+}
