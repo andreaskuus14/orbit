@@ -50,9 +50,9 @@ import { LivingEffects } from "./LivingEffects";
 import { InkGlyph } from "./InkGlyph";
 import { useT } from "./i18n";
 import { ET, translate, type Lang } from "@/lib/i18n-pure";
-import { AlienScript } from "./AlienScript";
 import { hoverParts, planetLife, toolPlanet, QUIET, WARM, WORK } from "@/lib/living-galaxy-pure";
-import { countBadge, markTone, sentenceRest, statusLook, type GalaxyStatus, type WorldStatus } from "@/lib/galaxy-status-pure";
+import { displayName, planetReadout } from "@/lib/home-ui-pure";
+import { markTone, sentenceRest, statusLook, type GalaxyStatus, type WorldStatus } from "@/lib/galaxy-status-pure";
 import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
 import { arrivalSecs, arrivalSpread, easeInStop, offscreenEdge } from "@/lib/alien-behaviour-pure";
 import { DUR, flyEase } from "@/lib/ui-motion-pure";
@@ -154,12 +154,30 @@ const CORE_RING = 3.7 * 0.62; // the CORE's outer ring at the overview (coreScal
 /* ---------- scene pieces ---------- */
 
 function OrbitPath({ r }: { r: number }) {
+  // Precise orbit (MIX look): the same faint path plus fine tick marks, a short one every 5° and a longer one every 30°,
+  // like an instrument dial. One small line geometry per orbit (144 points), drawn once; it never animates.
+  const ticks = useMemo(() => {
+    const pts: number[] = [], minor = 0.03 + r * 0.004, major = minor * 2.6;
+    for (let d = 0; d < 360; d += 5) {
+      const a = (d * Math.PI) / 180, len = d % 30 === 0 ? major : minor, c = Math.cos(a), s = Math.sin(a);
+      pts.push(c * r, 0, s * r, c * (r + len), 0, s * (r + len));
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    return g;
+  }, [r]);
+  useEffect(() => () => ticks.dispose(), [ticks]);
   return (
-    <mesh rotation-x={Math.PI / 2}>
-      {/* always the same faint path: a problem is a small dot by the world's name, never a coloured ring (owner, 22 Nov) */}
-      <ringGeometry args={[r - 0.007, r + 0.007, 256]} />
-      <meshBasicMaterial color="#cfe0ff" transparent opacity={0.05} side={THREE.DoubleSide} depthWrite={false} />
-    </mesh>
+    <group>
+      <mesh rotation-x={Math.PI / 2}>
+        {/* always the same faint path: a problem is a small dot by the world's name, never a coloured ring (owner, 22 Nov) */}
+        <ringGeometry args={[r - 0.007, r + 0.007, 256]} />
+        <meshBasicMaterial color="#cfe0ff" transparent opacity={0.05} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+      <lineSegments geometry={ticks} raycast={() => null}>
+        <lineBasicMaterial color="#d6e4ff" transparent opacity={0.11} depthWrite={false} />
+      </lineSegments>
+    </group>
   );
 }
 
@@ -755,7 +773,9 @@ function Flag({ tone, still }: { tone: "amber" | "rose" | null; still: boolean }
 }
 
 const BODIES = ["core", ...PLANETS.map((p) => p.id)];
-const LABEL_W = BODIES.map((id) => (id === "core" ? 4 : Math.max(PLANETS.find((p) => p.id === id)!.name.length, ET[`planet.${id as PlanetId}`]?.length ?? 0)) * 11 + 18); // px, 12px font at 0.3em tracking; the longer of the English and Estonian name
+const LABEL_W = BODIES.map((id) => Math.max(id === "core" ? 4 : Math.max(PLANETS.find((p) => p.id === id)!.name.length, ET[`planet.${id as PlanetId}`]?.length ?? 0), 13) * 7.6 + 16); // px: 13px sentence-case name, or the readout line under it (≈ 20 chars at 11px)
+
+const LABEL_H = 32; // name + readout line
 
 /** Projects each body's position to screen space every frame and moves plain DOM labels there (no extra React roots).
  *  Also places the HUD's leader label beside the hovered planet and writes the focus coordinates (no allocations). */
@@ -786,9 +806,9 @@ function LabelProjector({ positions, scales, labels, leaders, hover, selected, h
     const cam = camera as THREE.PerspectiveCamera, cd = Math.max(0.1, camera.position.length());
     v.set(0, 0, 0).project(camera);
     const cr = ((4.4 * coreScale(cd)) / (cd * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)))) * (size.height / 2); // the lens's Einstein radius in px
-    spreadLabels(sc.x, sc.y, LABEL_W, 22, sc.prio, 0, ((v.x + 1) / 2) * size.width, ((1 - v.y) / 2) * size.height,
+    spreadLabels(sc.x, sc.y, LABEL_W, LABEL_H, sc.prio, 0, ((v.x + 1) / 2) * size.width, ((1 - v.y) / 2) * size.height,
       v.z < 1 && cr < size.height * 0.2 ? cr : 0, 56, sc.ax, sc.ay); // close to the CORE the glare is the scene: no push
-    cullLabels(sc.x, sc.y, LABEL_W, 22, sc.prio, sc.vis, sc.order); // culled on the settled layout, so it never flickers
+    cullLabels(sc.x, sc.y, LABEL_W, LABEL_H, sc.prio, sc.vis, sc.order); // culled on the settled layout, so it never flickers
     const lines = leaders.current;
     for (let i = 0; i < BODIES.length; i++) {
       const id = BODIES[i], el = els[id];
@@ -797,7 +817,7 @@ function LabelProjector({ positions, scales, labels, leaders, hover, selected, h
       const tx = sc.x[i] - sc.ax[i], ty = sc.y[i] - sc.ay[i];
       sc.ox[i] = reduced ? tx : damp(sc.ox[i], tx, 6, dt); sc.oy[i] = reduced ? ty : damp(sc.oy[i], ty, 6, dt);
       const hw = LABEL_W[i] / 2 + 6; // keep the whole label on screen (worlds at the edge used to push theirs off it)
-      const lx = Math.min(size.width - hw, Math.max(hw, sc.ax[i] + sc.ox[i])), ly = Math.min(size.height - 14, Math.max(14, sc.ay[i] + sc.oy[i]));
+      const lx = Math.min(size.width - hw, Math.max(hw, sc.ax[i] + sc.ox[i])), ly = Math.min(size.height - LABEL_H / 2 - 4, Math.max(LABEL_H / 2 + 4, sc.ay[i] + sc.oy[i]));
       el.style.transform = `translate(-50%, -50%) translate(${lx}px, ${ly}px)`;
       const goal = sc.vis[i] * introLabelAlpha(S.intro, i, BODIES.length);
       let a = reduced ? goal : damp(sc.alpha[i], goal, 8, dt);
@@ -806,7 +826,7 @@ function LabelProjector({ positions, scales, labels, leaders, hover, selected, h
       // c11 hairline leader: from the world's anchor to a label that had to move away from it
       const ln = lines?.[id];
       if (!ln) continue;
-      const dx = lx - sc.ax[i], dy = ly - 9 - (sc.ay[i] - 12), len = Math.hypot(dx, dy); // label top edge to just under the world
+      const dx = lx - sc.ax[i], dy = ly - LABEL_H / 2 - (sc.ay[i] - 12), len = Math.hypot(dx, dy); // label top edge to just under the world
       const la = a * Math.min(1, Math.max(0, (len - 12) / 14)) * 0.55;
       if (la > 0.005) ln.style.transform = `translate(${sc.ax[i]}px, ${sc.ay[i] - 12}px) rotate(${Math.atan2(dy, dx)}rad) scaleX(${len})`;
       if (Math.abs(la - sc.la[i]) > 0.004 || (la === 0 && sc.la[i] !== 0)) { sc.la[i] = la; ln.style.opacity = la <= 0.005 ? "0" : la.toFixed(3); }
@@ -1190,16 +1210,17 @@ export default function Galaxy(props: GalaxyProps) {
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         {BODIES.map((id) => <span key={`l-${id}`} ref={(el) => { leaders.current[id] = el; }} className="planet-leader" />)}
         <span ref={(el) => { labels.current.core = el; }} className="planet-label absolute left-0 top-0" style={{ color: "#efe6d6" }}>
-          CORE<Flag tone={markTone(props.status?.core, props.warning)} still={props.reduced} />{props.warning ? " · last request failed" : countBadge(props.status?.core) ? ` · ${countBadge(props.status?.core)}` : ""}
-          <AlienScript text="CORE" className="planet-script" />
+          <span className="planet-name">CORE<Flag tone={markTone(props.status?.core, props.warning)} still={props.reduced} /></span>
+          {(props.warning || planetReadout(props.status?.core, lang)) && <span className="planet-readout">{props.warning ? t("galaxy.coreFailed") : planetReadout(props.status?.core, lang)}</span>}
           {props.busy && <InkGlyph reduced={props.reduced} />}
         </span>
-        {PLANETS.map((p) => { // calm labels (c11): pearl, with a breath of the world's identity colour; quiet badge while working
-          const st = props.status?.[p.id], badge = countBadge(st);
+        {PLANETS.map((p) => { // MIX labels: the name in sentence case, one small live readout under it ("2 jobs · 4 min left"), a soft dot for a problem
+          const st = props.status?.[p.id], line = planetReadout(st, lang);
           const failing = (p.id === "intelligence" && props.pulseFailed) || (p.id === "operations" && props.automationFailing);
           return ( // the name keeps its calm colour; a problem adds one small soft dot after it (no ring, no red name)
-            <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" style={{ color: `color-mix(in srgb, ${p.color} 38%, #e4e9f2)` }}>
-              {t(`planet.${p.id}`)}<Flag tone={markTone(st, failing)} still={props.reduced} />{badge ? ` · ${badge}` : ""}<AlienScript text={p.name} className="planet-script" />
+            <span key={p.id} ref={(el) => { labels.current[p.id] = el; }} className="planet-label absolute left-0 top-0" data-state={st?.state ?? "idle"}>
+              <span className="planet-name" style={{ color: `color-mix(in srgb, ${p.color} 30%, #eef1f6)` }}>{displayName(t(`planet.${p.id}`))}<Flag tone={markTone(st, failing)} still={props.reduced} /></span>
+              {line && <span className="planet-readout">{line}</span>}
             </span>
           );
         })}

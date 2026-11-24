@@ -21,5 +21,5 @@ export function LevelWord({ trace, model, reviewed }: { trace?: { step: string; 
   if (!l) return null;
   const word = t(`level.${l.level}` as Key);
   return <span className={`level-word ml-auto${l.capped ? " level-capped" : ""}`} data-testid="core-level"
-    title={t("level.tip", { level: word, why: t(`level.why.${l.why}` as Key) }) + (l.level === "deep" && reviewed ? " ✓" : "")}>{word}</span>;
+    title={t("level.tip", { level: word, why: t(`level.why.${l.why}` as Key) }) + (l.level === "deep" && reviewed ? " ✓" : "")}>{t("level.used", { level: word })}</span>;
 }

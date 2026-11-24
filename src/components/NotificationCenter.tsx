@@ -12,6 +12,7 @@ import { AlertWatch } from "./AlertWatch";
 import { OPEN_EVENT, openedToday, useReady, useWanting } from "./startup-store";
 import { pillOf, type Ready } from "@/lib/startup-pure";
 import { useT } from "./i18n";
+import { StudioNotifier } from "./StudioNotifier";
 
 let memory: NotifyItem[] = [], storageFailed = false;
 const load = () => { try { if (!storageFailed) memory = parseItems(localStorage.getItem(NOTIFY_KEY)); } catch { storageFailed = true; } return memory; };
@@ -77,12 +78,12 @@ export function NotificationCenter({ home = false }: { home?: boolean }) {
       <AlertWatch />
       {home && problems.length > 0 && !toastUp && <button type="button" className="chip hud-alert !border-red-500 !text-red-300" title={reasonLine(problems[0])}
         onClick={() => fix(problems[0])} aria-label={`Problem: ${problems[0].title}. ${problems[0].fixLabel ?? "Open fix"}`}>
-        🔴<span className="alert-label"> {/* what broke, not the button's verb ("Problem · Review failure" said nothing, 22 Nov) */}
+        <span aria-hidden className="hud-alert-dot" /><span className="alert-label"> {/* what broke, not the button's verb ("Problem · Review failure" said nothing, 22 Nov) */}
           {shortTitle(problems[0].title)}</span>{kinds > 1 && <span className="alert-count">{kinds}</span>}
       </button>}
       {home && pill && <>
         <button type="button" className="chip quiet-pill relative" popoverTarget="quiet-menu" aria-label={t("quiet.aria", { s: label ?? "" })}>
-          {problems.length > 0 && !toastUp && <span aria-hidden className="quiet-alert">🔴 </span>}
+          {problems.length > 0 && !toastUp && <span aria-hidden className="quiet-alert hud-alert-dot" />}
           {label}{pill.dot && <span aria-hidden className="quiet-dot" />}
         </button>
         <div id="quiet-menu" popover="auto" className="glass hud-menu quiet-menu" aria-label={t("quiet.title")}>
@@ -93,23 +94,24 @@ export function NotificationCenter({ home = false }: { home?: boolean }) {
           {pill.needYou > 0 && <button className="hud-menu-item w-full" popoverTarget="quiet-menu" popoverTargetAction="hide" onClick={() => fix(problems[0])}>🔴 {t("quiet.needYou", { n: pill.needYou })}</button>}
         </div>
       </>}
-      <button className="chip relative" popoverTarget="notify-menu" aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"} title="Notifications">
-        🔔
-        {unread > 0 && <span aria-hidden className="absolute -right-1 -top-1 min-w-[1.1rem] rounded-full bg-rose-500 px-1 text-center text-[10px] font-semibold leading-[1.1rem] text-white">{unread > 9 ? "9+" : unread}</span>}
+      <button className="chip hud-bell relative" popoverTarget="notify-menu" aria-label={unread ? t("notify.ariaUnread", { n: unread }) : t("notify.title")} title={t("notify.title")}>
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="M4 11.5V7a4 4 0 0 1 8 0v4.5l1 1H3zM6.5 14h3" /></svg>
+        {unread > 0 && <span aria-hidden className="hud-badge">{unread > 9 ? "9+" : unread}</span>}
       </button>
       {/* Same native popover as #hud-menu: light-dismiss, Esc and top layer for free. */}
-      <div id="notify-menu" popover="auto" className="glass hud-menu" style={{ width: "min(22rem, calc(100vw - 2rem))", maxHeight: "70vh" }} aria-label="Notifications"
+      <div id="notify-menu" popover="auto" className="glass hud-menu" style={{ width: "min(22rem, calc(100vw - 2rem))", maxHeight: "70vh" }} aria-label={t("notify.title")}
         onToggle={() => setNow(Date.now())}>
         <div className="flex items-center justify-between gap-2 px-2 py-1">
-          <strong className="text-xs tracking-[0.15em]">NOTIFICATIONS</strong>
+          <strong className="notify-head">{t("notify.title")}</strong>
           <span className="flex gap-1">
             <HeraldToggle />
-            <button className="chip" disabled={!unread} onClick={() => commit(load().map((x) => ({ ...x, read: true })))}>Mark all read</button>
-            <button className="chip" disabled={!items.length} title="Clear history; keep unresolved red alerts" onClick={() => commit(load().filter((x) => !x.resolved && isProblem(x)))}>Clear history</button>
+            <button className="chip" disabled={!unread} onClick={() => commit(load().map((x) => ({ ...x, read: true })))}>{t("notify.markRead")}</button>
+            <button className="chip" disabled={!items.length} title={t("notify.clearTitle")} onClick={() => commit(load().filter((x) => !x.resolved && isProblem(x)))}>{t("notify.clear")}</button>
           </span>
         </div>
+        <StudioNotifier inMenu />
         <details className="px-2 py-1 text-xs">
-          <summary className="cursor-pointer">Interruption settings</summary>
+          <summary className="cursor-pointer">{t("notify.settings")}</summary>
           <p className="muted my-1">Dismiss the same kind twice in a week to quiet it. It stays quiet until you unmute it; red alerts remain visible.</p>
           {judgment.muted.length ? judgment.muted.map((kind) => <div key={kind} className="flex items-center justify-between gap-2 py-1">
             <span>{LABELS[kind]} · quiet</span><button className="chip" onClick={() => saveJudgment(unmuteKind(loadJudgment(), kind))}>Unmute {LABELS[kind]}</button>
@@ -139,7 +141,7 @@ export function NotificationCenter({ home = false }: { home?: boolean }) {
               </li>
             ))}
           </ul>
-        ) : <p className="muted px-2 py-4 text-center text-xs">Nothing yet. Clips, reminders and agent results show up here.</p>}
+        ) : <p className="muted px-2 py-4 text-center text-xs">{t("notify.empty")}</p>}
       </div>
     </>
   );

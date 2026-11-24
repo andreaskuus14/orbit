@@ -59,6 +59,7 @@ function ui(component = "Herald", options: { voice?: boolean; hidden?: boolean; 
     if (name.endsWith("interruption-store")) return store;
     if (name.endsWith("/Herald")) return { HeraldToggle: () => null };
     if (name.endsWith("/AlertWatch")) return { AlertWatch: () => null };
+    if (name.endsWith("/StudioNotifier")) return { StudioNotifier: () => null };
     if (name.endsWith("/startup-store")) return { want() {}, wantingNow: () => [], useWanting: () => [], useReady: () => [], openedToday: () => false, OPEN_EVENT: "orbit:startup-open" };
     if (name.endsWith("startup-pure")) return options.quietOpen ? startup : { ...startup, OPEN_MS: 0 }; // other tests start after the quiet-open window
     if (name.endsWith("/sfx")) return { sfx: { chime: () => {}, tick: () => {}, open: () => {}, close: () => {}, whoosh: () => {} } };
@@ -123,7 +124,7 @@ test("real bell keeps quiet items, shows the red fix chip, and clears it only on
   assert.ok(h.nodes("button").some((b) => b.props["aria-label"] === "Unread: Update scout"));
   const red = h.nodes("button").find((b) => String(b.props["aria-label"]).startsWith("Problem:")); assert.ok(red); red.props.onClick();
   assert.deepEqual(clone(h.nav.at(-1)), { panel: "studio" });
-  h.nodes("button").find((b) => b.props.children === "Clear history").props.onClick(); h.flush();
+  h.nodes("button").find((b) => b.props.children === "notify.clear").props.onClick(); h.flush();
   assert.ok(h.nodes("button").some((b) => String(b.props["aria-label"]).startsWith("Problem:")));
   h.event(rules.RESOLVE_ALERT, "disk-full"); assert.equal(h.nodes("button").some((b) => String(b.props["aria-label"]).startsWith("Problem:")), false); h.close();
 });
@@ -148,7 +149,7 @@ test("blocked storage keeps the insight baseline in memory and every new insight
     module: m, exports: m.exports,
     localStorage: { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("quota"); } },
     fetch: async () => ({ ok: true, json: async () => ({ items }) }),
-    require: (name: string) => name.endsWith("notify-pure") ? { notify: (d: notices.NotifyDetail) => got.push(d) } : name.endsWith("interruption-pure") ? rules : name === "./use-poll" ? { sharedJson: (u: string) => fetch().then((r) => (r.ok ? r.json() : null), () => u && null) } : name === "react" || name.endsWith("studio-notify") || name.endsWith("failure-alert-pure") ? {} : require(name),
+    require: (name: string) => name.endsWith("notify-pure") ? { notify: (d: notices.NotifyDetail) => got.push(d) } : name.endsWith("interruption-pure") ? rules : name === "./use-poll" ? { sharedJson: (u: string) => fetch().then((r) => (r.ok ? r.json() : null), () => u && null) } : name === "react" || name.endsWith("/i18n") || name.endsWith("studio-notify") || name.endsWith("failure-alert-pure") ? {} : require(name),
   });
   await m.exports.pollInsights(); assert.equal(got.length, 0);
   items = [...items, ...[1, 2, 3].map((n) => ({ key: `new${n}`, kind: "hot", priority: "high", title: `Short ${n}`, detail: `${n * 1000} views` }))];

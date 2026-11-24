@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { FOCUS_BLOCKS, GOAL_MAX, isFocusActive, ringLeft, type Focus, type FocusBlock, type FocusSummary } from "@/lib/dilation-pure";
 import { holdNotify, notify, type NotifyDetail } from "@/lib/notify-pure";
 import { useDialogFocus } from "./useDialogFocus";
+import { useT } from "./i18n";
 import type { PushKind } from "@/lib/remote-push-pure";
 
 type Span = { startAt: number; endAt: number } | null;
@@ -16,6 +17,7 @@ const PUSH_NAME: Partial<Record<PushKind, string>> = {
 const R = 9, C = 2 * Math.PI * R;
 
 export function TimeDilation({ onSpan }: { onSpan: (s: Span) => void }) {
+  const { t } = useT();
   const [focus, setFocus] = useState<Focus | null>(null);
   const [summary, setSummary] = useState<FocusSummary | null>(null);
   const [held, setHeld] = useState<NotifyDetail[]>([]);
@@ -68,7 +70,9 @@ export function TimeDilation({ onSpan }: { onSpan: (s: Span) => void }) {
           <span className="tabular-nums text-xs">{ring.label}</span>
         </button>
       ) : (
-        <button className="chip" popoverTarget="dilation-menu" aria-label="Focus mode: start a focus block" title="Focus mode: work on one thing; ORBIT holds everything that isn't urgent">⧗</button>
+        <button className="chip hud-focus" popoverTarget="dilation-menu" aria-label={t("focus.startAria")} title={t("focus.startTitle")}>
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.75" /><circle cx="8" cy="8" r="2.25" /></svg>
+        </button>
       )}
       <div id="dilation-menu" popover="auto" className="glass hud-menu" style={{ width: "min(20rem, calc(100vw - 2rem))" }} aria-label="Focus mode">
         <strong className="px-2 py-1 text-xs tracking-[0.15em]">FOCUS MODE</strong>

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isSleepCommand } from "./voice/wake";
 import { goToSleep } from "./voice/sleep";
 import { numberCitations } from "@/lib/pure";
+import { IconCheck, IconMore } from "./ui/icons";
 import { takeLines } from "@/lib/streamjson";
 import { dropNote, handoffTask } from "@/lib/long-work-pure";
 import { applyLive, type LiveEvent, type LiveRow } from "@/lib/core-live-pure";
@@ -18,7 +19,7 @@ import { ResultEvidence } from "./ResultEvidence";
 import { DeliverableCards, ReceiptChip } from "./DeliverableCards";
 import { wsConfirmOffer } from "@/lib/ws-intent-pure";
 import { parseChoices, parseGoalCard, withoutCard } from "@/lib/goal-card-pure";
-import { followUps } from "@/lib/core-ui";
+import { followUps, FOLLOWUP_ET } from "@/lib/core-ui";
 import { GoalCardView } from "./GoalCard";
 import type { WriteEvidence } from "@/lib/completion-pure";
 import type { Suggestion, InsightAction } from "@/lib/insights-pure";
@@ -442,8 +443,8 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
   const drags = useRef(0);
   useEffect(() => { const el = inputRef.current; if (!el) return; el.style.height = "auto"; if (input) el.style.height = `${Math.min(el.scrollHeight, 200)}px`; }, [input]); // empty: one line, however long the placeholder
   // Screen look + voice memo: always there on a wide screen; on a phone behind one "⋯" button so the chat keeps its room.
-  const [tools, setTools] = useState(true);
-  useEffect(() => { setTools(!matchMedia("(max-width: 640px)").matches); }, []);
+  // Behind one "More" button on every screen (MIX clean-up): the composer used to show four extra controls under every chat.
+  const [tools, setTools] = useState(false);
 
   // Memoised so streaming deltas re-render only the live bubble, not the whole history.
   const history = useMemo(() => msgs.map((m, i) => (
@@ -460,18 +461,20 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
       {m.role === "assistant" && !m.error && (() => { const g = parseGoalCard(m.content); return g && <GoalCardView card={g} onChange={() => { setInput(""); inputRef.current?.focus(); }} />; })()}
       {m.role === "assistant" && !m.error && m.used && <UsedLine used={m.used} />}
       {m.role === "assistant" && (
-        <div className="mt-2 flex flex-wrap items-center gap-1 text-xs">
+        <div className="chat-acts text-xs">
           {!m.error && <>
-            <button type="button" className="chip" aria-label={tr(copied === i ? "cf.copied" : "core.copyAnswer")} title={tr("common.copy")}
+            {/* Quiet icon buttons (names for screen readers and on hover): copy, read aloud, and pin when the chat is in a project */}
+            <button type="button" className="chip chat-act" aria-label={tr(copied === i ? "cf.copied" : "core.copyAnswer")} title={tr(copied === i ? "cf.copied" : "common.copy")}
               onClick={() => { void navigator.clipboard?.writeText(m.content.replace(/\s*\[[ma]:[^\]]+\]/g, "")).then(() => { setCopied(i); setTimeout(() => setCopied((c) => (c === i ? -1 : c)), 1500); }); }}>
-              {copied === i ? `✓ ${tr("cf.copied")}` : tr("common.copy")}
+              {copied === i ? <IconCheck /> : <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 5.5V4a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" /></svg>}
             </button>
-            <button type="button" className="chip" aria-label={tr(speaking ? "core.stopSpeaking" : "core.readAloud")} title={tr(speaking ? "core.stopSpeaking" : "core.readAloud")}
+            <button type="button" className="chip chat-act" aria-label={tr(speaking ? "core.stopSpeaking" : "core.readAloud")} title={tr(speaking ? "core.stopSpeaking" : "core.readAloud")}
               onClick={() => { const was = speaking; stopSpeech(); if (!was) speechChunks(m.content).forEach((c) => speakChunk(c)); }}>
-              {speaking ? `■ ${tr("core.stop")}` : `🔊 ${tr("core.readAloud")}`}
+              {speaking ? <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" /></svg>
+                : <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2.5 6h2.5l3.5-3v10l-3.5-3H2.5zM11 5.5a3.5 3.5 0 0 1 0 5" /></svg>}
             </button>
-            <button type="button" className="chip" disabled={!project} title={tr(project ? "core.pinTitle" : "core.pinNeedsProject")}
-              onClick={() => void pin(m.content)}>{pinned === m.content ? `✓ ${tr("core.pinned")}` : `📌 ${tr("core.pin")}`}</button>
+            {project && <button type="button" className="chip chat-act" aria-label={tr(pinned === m.content ? "core.pinned" : "core.pin")} title={tr("core.pinTitle")}
+              onClick={() => void pin(m.content)}>{pinned === m.content ? <IconCheck /> : <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 2.5h4l-.5 4 2 2v1h-7v-1l2-2zM8 9.5v4" /></svg>}</button>}
             {project && codeBlocks(m.content) && (
               <button type="button" className="chip" title={tr("core.pinCodeTitle")} onClick={() => void pin(codeBlocks(m.content), `Code: ${chats.chats.find((c) => c.id === chatId)?.title ?? "chat"}`.slice(0, 100))}>
                 {pinned === codeBlocks(m.content) ? `✓ ${tr("core.pinned")}` : `📌 ${tr("core.pinCode")}`}</button>
@@ -486,7 +489,7 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
       )}
       {!busy && i === msgs.length - 1 && !!m.chips?.length && (
         <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label={tr("core.followUps")}>
-          {m.chips.map((c) => <button key={c} type="button" className="chip" onClick={() => void send(c)}>{c}</button>)}
+          {m.chips.map((c) => { const label = lang === "et" ? FOLLOWUP_ET[c] ?? c : c; return <button key={c} type="button" className="chip" onClick={() => void send(label)}>{label}</button>; })}
         </div>
       )}
       {!busy && i === msgs.length - 1 && (() => { const ws = m.trace?.map((x) => wsConfirmOffer(x.detail.split(" → ").slice(1).join(" → "))).filter(Boolean).at(-1); return ws && (
@@ -570,10 +573,11 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
       {tools && <VoiceMemo compact />}
       <form className="chat-composer mt-3 flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
         <input ref={fileRef} type="file" multiple accept={ACCEPT} className="sr-only" tabIndex={-1} aria-hidden aria-label={tr("core.attach")} onChange={(e) => { if (e.target.files) void att.add(e.target.files); e.target.value = ""; }} />
-        <button type="button" className="btn" title={tr("core.attachTitle")} aria-label={tr("core.attach")} disabled={busy} onClick={() => fileRef.current?.click()}>📎</button>
-        {!tools && <button type="button" className="btn" aria-label={tr("chat.tools")} title={tr("chat.tools")} onClick={() => setTools(true)}>⋯</button>}
+        <button type="button" className="btn chat-icon" title={tr("core.attachTitle")} aria-label={tr("core.attach")} disabled={busy} onClick={() => fileRef.current?.click()}>
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13 7.5l-5 5a3.2 3.2 0 0 1-4.5-4.5l5.5-5.5a2.1 2.1 0 0 1 3 3L6.5 11a1 1 0 0 1-1.5-1.5L10 4.5" /></svg></button>
+        <button type="button" className="btn chat-icon" aria-label={tr("chat.tools")} title={tr("chat.tools")} aria-expanded={tools} onClick={() => setTools((v) => !v)}><IconMore /></button>
         <LevelPicker value={level} onChange={setLevel} disabled={busy} />
-        <textarea ref={inputRef} rows={1} className="field chat-input flex-1" value={input} onChange={(e) => setInput(e.target.value)} onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); void att.add(e.clipboardData.files); } }} placeholder={tr("core.ph")}
+        <textarea ref={inputRef} rows={1} className="field chat-input flex-1" value={input} onChange={(e) => setInput(e.target.value)} onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); void att.add(e.clipboardData.files); } }} placeholder={tr("core.ph")} title={tr("core.phTitle")}
           onKeyDown={(e) => {
             if (e.key === "ArrowUp" && !input && lastQ.current) { e.preventDefault(); setInput(lastQ.current); return; }
             if (composerKey(e.nativeEvent) === "send") { e.preventDefault(); void send(input); }

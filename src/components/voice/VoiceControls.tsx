@@ -182,7 +182,7 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
   useEffect(() => { voiceLevel.conversation = talking; return () => { voiceLevel.conversation = false; }; }, [talking]); // ORBIT speaks first stays quiet
   const [talkNote, setTalkNote] = useState(""); // screen readers hear start and end
   useEffect(() => { setTalkNote((n) => talking ? "Conversation mode started" : n ? "Conversation mode ended" : ""); }, [talking]);
-  const micLabel = !voice.supported ? "Voice input isn't supported in this browser" : listening ? "Stop listening (Esc cancels)" : "Ask by voice (Ctrl+M)";
+  const micLabel = t(!voice.supported ? "voice.micNone" : listening ? "voice.micStop" : "voice.micAsk");
 
   return (
     <>
@@ -194,23 +194,25 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
           <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
         </svg>
       </button>
-      <button type="button" className="chip voice-gear" onClick={() => setTalking(!talking)} aria-pressed={talking}
-        disabled={s.handsFree === "off" && !talking} aria-label={talking ? t("voice.convEnd") : t("voice.convStart")}
-        title={s.handsFree === "off" ? t("voice.convNeedsHandsFree") : talking ? t("voice.convEnd") : t("voice.convTitle")}>
-        <span aria-hidden="true">💬</span>
-      </button>
+      {/* Conversation mode needs hands-free: with it off the button was a dead (disabled) control, so it only shows when it can work. */}
+      {(s.handsFree !== "off" || talking) && <button type="button" className="chip voice-gear" onClick={() => setTalking(!talking)} aria-pressed={talking}
+        aria-label={talking ? t("voice.convEnd") : t("voice.convStart")} title={talking ? t("voice.convEnd") : t("voice.convTitle")}>
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="M2.5 4.5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v4.5a2 2 0 0 1-2 2H7l-3 2.5V11h.5a2 2 0 0 1-2-2z" /></svg>
+      </button>}
       <button type="button" className="chip voice-gear" onClick={() => update({ speak: !s.speak })} aria-pressed={s.speak}
-        aria-label={s.speak ? "Mute ORBIT's voice" : "Unmute ORBIT's voice"} title={s.speak ? "ORBIT speaks answers — click to mute" : "ORBIT is muted (starts muted each time) — click to hear answers"}>
-        <span aria-hidden="true">{s.speak ? "🔊" : "🔇"}</span>
+        aria-label={t(s.speak ? "voice.muteAria" : "voice.unmuteAria")} title={t(s.speak ? "voice.speakOnTitle" : "voice.speakOffTitle")}>
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+          <path d="M2.5 6h2.5l3.5-3v10l-3.5-3H2.5z" />{s.speak ? <path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.8a6 6 0 0 1 0 8.4" /> : <path d="M11 6l3 4M14 6l-3 4" />}
+        </svg>
       </button>
       <button ref={gearRef} type="button" className="chip voice-gear" onClick={() => setOpen((o) => !o)}
-        aria-label="Voice settings" title="Voice settings" aria-expanded={open} aria-controls={popId}>
+        aria-label={t("voice.settings")} title={t("voice.settings")} aria-expanded={open} aria-controls={popId}>
         <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
           <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" />
         </svg>
       </button>
       {open && (
-        <div ref={popRef} id={popId} className="glass voice-pop" role="dialog" aria-label="Voice settings">
+        <div ref={popRef} id={popId} className="glass voice-pop" role="dialog" aria-label={t("voice.settings")}>
           <label className="voice-col">Hands-free (say &ldquo;Orbit&hellip;&rdquo;)
             <select className="field" value={s.handsFree} onChange={(e) => update({ handsFree: e.target.value as HandsFree })}>
               <option value="off">Off</option>
@@ -273,7 +275,7 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
       )}
       {(wake.interim || heard || showErr || wake.note) && (
         <span className="voice-heard" role="status" aria-live="polite">
-          {wake.interim ? <i>{wake.interim}…</i> : heard ? <>Heard: <b>{heard}</b></> : wake.note ? <i>{wake.note}</i> : <>Hands-free paused: {wake.error}</>}
+          {wake.interim ? <i>{wake.interim}…</i> : heard ? <>{t("voice.heard")} <b>{heard}</b></> : wake.note ? <i>{wake.note}</i> : <>{t("voice.pausedWhy", { why: wake.error ?? "" })}</>}
         </span>
       )}
       <span className="sr-only" role="status" aria-live="polite">{talkNote}</span>
@@ -283,10 +285,12 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
           {t("voice.openMic", { phase: t(wake.conversation === "listening" ? "voice.phaseListening" : wake.conversation === "thinking" ? "voice.phaseThinking" : "voice.phaseSpeaking") })}
         </button>
       ) : (wake.state !== "off" || wake.error) && (
-        <button type="button" aria-live="polite" className={"voice-wake voice-status" + (wake.state === "armed" ? " armed" : "") + (wake.error ? " bad" : "")} onClick={() => update({ handsFree: "off" })}
-          title={`${wake.error || "Hands-free mode: ORBIT is listening for “Hey Orbit”."} Click to turn hands-free off (voice settings turns it back on).`}>
+        // Paused (mic blocked): a click opens the voice settings to fix it; it used to switch hands-free OFF, the opposite of what he wanted.
+        <button type="button" aria-live="polite" className={"voice-wake voice-status" + (wake.state === "armed" ? " armed" : "") + (wake.error ? " bad" : "")}
+          onClick={() => (wake.error ? setOpen(true) : update({ handsFree: "off" }))}
+          title={wake.error ? t("voice.wakePausedTitle", { why: wake.error }) : t("voice.wakeOnTitle")}>
           <span className="voice-dot" aria-hidden="true" />
-          {wake.error ? "Hey Orbit paused" : wake.state === "armed" ? "Listening…" : "Hey Orbit on"}
+          {t(wake.error ? "voice.wakePaused" : wake.state === "armed" ? "voice.wakeListening" : "voice.wakeOn")}
         </button>
       )}
     </>

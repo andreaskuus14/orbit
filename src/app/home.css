@@ -1,0 +1,160 @@
+/* Galaxy home + CORE: the MIX look (owner, 23 Nov). Calm, readable chrome around a vivid galaxy: Inter in sentence case,
+   hairlines, quiet glass, one accent (ice blue) for focus and live things. Precise where it shows real data (planet readouts,
+   the voice meter, tick-marked orbits in the scene); calm where he reads. Scoped to the home shell's own parts (top bar,
+   command bar, home desk, Needs you, home answer, galaxy labels, the CORE drawer) so the planets keep their own skins.
+   Only transform and opacity animate. html[data-motion="off"] (ORBIT_UI_MOTION=0) and reduced motion: no movement. */
+.orbit-shell {
+  --h-ink: #ecf0f7; --h-ink-2: #b4bdcc; --h-ink-3: #8a95a8;
+  --h-line: rgba(255, 255, 255, 0.08); --h-line-2: rgba(255, 255, 255, 0.14);
+  --h-fill: rgba(10, 13, 20, 0.72); --h-fill-2: rgba(16, 20, 30, 0.9);
+  --h-accent: #9fdcff; --h-accent-soft: rgba(159, 220, 255, 0.14);
+  --h-amber: #f2bb55; --h-rose: #f28b82;
+  --h-font: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ---------- top bar: wordmark left; Planets · Jobs · Stop all · ⋯ right; quiet things (brief, bell, focus) before them ---------- */
+.orbit-shell > header.hud-top { height: 56px; padding-block: 0; background: linear-gradient(rgba(3, 5, 9, 0.78), rgba(3, 5, 9, 0)); border: 0; border-image: none; }
+.hud-top .logo { gap: 0.55rem; padding: 0.25rem 0.4rem 0.25rem 0.2rem; border-radius: 10px; }
+.hud-top .logo img, .hud-top .logo .brand-mark { width: 28px; height: 28px; border-radius: 8px; box-shadow: none; }
+.orbit-shell .hud-top .brand { font-family: var(--font-rajdhani), var(--h-font); font-weight: 600; font-size: 1rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--h-ink); text-shadow: none; }
+.hud-top .hud-bar-top { display: flex; align-items: center; gap: 0.375rem; }
+.orbit-shell .hud-top .hud-bar-top > .chip, .orbit-shell .hud-top .hud-bar-top > .contents > .chip, .orbit-shell .hud-top .hud-bar-top > .pill {
+  display: inline-flex; align-items: center; gap: 0.4rem; height: 32px; padding: 0 0.75rem; border: 1px solid var(--h-line); border-image: none; border-radius: 8px;
+  background: rgba(12, 15, 23, 0.55); box-shadow: none; font-family: var(--h-font); font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--h-ink-2);
+  transition: background-color var(--dur-instant, 120ms) ease-out, border-color var(--dur-instant, 120ms) ease-out, color var(--dur-instant, 120ms) ease-out, transform var(--dur-instant, 120ms) ease-out; }
+.orbit-shell .hud-top .hud-bar-top > .chip:hover, .orbit-shell .hud-top .hud-bar-top > .contents > .chip:hover { background: rgba(255, 255, 255, 0.06); border-color: var(--h-line-2); color: var(--h-ink); box-shadow: none; }
+.orbit-shell .hud-top .hud-bar-top > .chip:active, .orbit-shell .hud-top .hud-bar-top > .contents > .chip:active { transform: scale(0.97); }
+.orbit-shell .hud-top .hud-bar-top > .chip[aria-pressed="true"] { color: var(--h-ink); border-color: var(--h-line-2); background: rgba(255, 255, 255, 0.07); box-shadow: none; }
+.orbit-shell .hud-top .hud-bar-top > .chip:is(.hud-icon, .hud-bell, .hud-focus) { width: 32px; padding: 0; justify-content: center; }
+.orbit-shell .hud-top .hud-bar-top > .chip.dilation-ring { padding: 0 0.6rem 0 0.4rem; }
+.hud-top .hud-sep { width: 1px; height: 18px; margin-inline: 0.25rem; background: var(--h-line-2); }
+.orbit-shell .hud-top .stop-all { color: var(--h-ink-2); }
+.orbit-shell .hud-top .stop-all svg { color: var(--h-rose); }
+.orbit-shell .hud-top .stop-all[aria-pressed="true"] { color: #fff; border-color: rgba(242, 139, 130, 0.6); background: rgba(242, 139, 130, 0.16); }
+.hud-top .hud-badge { position: absolute; top: -5px; right: -5px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px; background: #e5484d; color: #fff;
+  font: 600 10.5px/17px var(--h-font); font-variant-numeric: tabular-nums; text-align: center; box-shadow: 0 0 0 2px #05070c; }
+.orbit-shell .hud-top .quiet-pill { color: var(--h-ink); }
+.orbit-shell .hud-top .quiet-dot { position: static; width: 6px; height: 6px; border-radius: 50%; background: var(--h-accent); box-shadow: none; }
+.orbit-shell .hud-top .hud-alert { border-color: rgba(242, 139, 130, 0.45) !important; color: #ffd4cf !important; }
+.orbit-shell .hud-top .hud-alert .hud-alert-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--h-rose); }
+@media (max-width: 900px) { .hud-top .hud-sep { display: none; } .orbit-shell .hud-top .hud-bar-top > .chip { padding-inline: 0.55rem; } }
+@media (max-width: 640px) { .hud-top .logo .brand { display: none; } .hud-top .hud-bar-top { gap: 0.25rem; } }
+
+/* the ⋯ / notification / brief menus: calm sheet */
+.orbit-shell .hud-menu.glass, .hud-menu.glass { border: 1px solid var(--h-line-2); border-image: none; border-radius: 14px; background: var(--h-fill-2); background-image: none;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.6); font-family: var(--h-font); }
+.hud-menu .hud-menu-item { border-radius: 8px; font-size: 13.5px; letter-spacing: 0; text-transform: none; }
+.hud-menu .hud-menu-item:hover { background: rgba(255, 255, 255, 0.06); box-shadow: none; }
+.hud-menu .notify-head { font: 600 13px/1.4 var(--h-font); letter-spacing: 0; color: var(--h-ink); }
+
+/* ---------- command bar: one calm field, the mic and a live voice meter ---------- */
+.orbit-shell .cmdbar.glass { width: min(44rem, calc(100vw - 1.5rem)); padding: 6px 6px 6px 14px; border: 1px solid var(--h-line-2); border-image: none; border-radius: 16px;
+  background: var(--h-fill); background-image: none; box-shadow: 0 18px 50px -24px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+.orbit-shell .cmdbar.glass:focus-within { border-color: rgba(159, 220, 255, 0.42); box-shadow: 0 18px 50px -24px rgba(0, 0, 0, 0.8), 0 0 0 3px rgba(159, 220, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+.orbit-shell .cmdbar::before { display: none; }
+html[data-motion="on"] .orbit-shell .cmdbar[data-home] { box-shadow: 0 18px 50px -24px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+.cmd-row { display: flex; align-items: center; gap: 4px; }
+.cmd-spark { flex-shrink: 0; color: var(--h-accent); opacity: 0.85; }
+.orbit-shell .cmdbar .field.cmd-field, html[data-motion="on"] .orbit-shell .cmdbar[data-home] .field.cmd-field { height: 40px; padding: 0 0.5rem; border: 0; background: transparent; box-shadow: none;
+  font-family: var(--h-font); font-size: 15.5px; letter-spacing: -0.005em; color: var(--h-ink); }
+.orbit-shell .cmdbar .field.cmd-field::placeholder { color: var(--h-ink-3); }
+.orbit-shell .cmdbar .field.cmd-field.voice-live { color: var(--h-accent); font-style: normal; }
+.orbit-shell .cmdbar .chip.voice-mic, .orbit-shell .cmdbar .chip.voice-gear { width: 36px; height: 36px; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--h-ink-2); box-shadow: none; }
+.orbit-shell .cmdbar .chip.voice-mic:hover, .orbit-shell .cmdbar .chip.voice-gear:hover { background: rgba(255, 255, 255, 0.07); color: var(--h-ink); }
+.orbit-shell .cmdbar .chip.voice-mic.on { background: var(--h-accent); color: #05070c; }
+.orbit-shell .cmdbar .chip.voice-gear[aria-pressed="true"] { color: var(--h-accent); background: var(--h-accent-soft); }
+.orbit-shell .cmdbar .chip.cmd-mode { height: 30px; border-radius: 8px; font-family: var(--h-font); font-size: 12.5px; letter-spacing: 0; text-transform: none; }
+.cmd-meter { display: inline-flex; align-items: center; gap: 2px; height: 20px; margin: 0 8px 0 4px; flex-shrink: 0; }
+.cmd-meter > i { display: block; width: 2px; height: 18px; border-radius: 1px; background: var(--h-accent); opacity: 0.35; transform: scaleY(0.15); transform-origin: 50% 50%; }
+.cmd-meter[data-live] > i { opacity: 0.95; }
+.cmdbar .cmd-note { margin: 4px 4px 2px; font: 13px/1.4 var(--h-font); }
+.cmdbar .voice-wake { left: 14px; bottom: calc(100% + 8px); padding: 3px 10px; border-radius: 999px; font: 500 12px/1.3 var(--h-font); letter-spacing: 0; text-transform: none;
+  background: var(--h-fill); border: 1px solid var(--h-line-2); color: var(--h-ink-2); }
+.cmdbar .voice-wake.armed { color: var(--h-accent); border-color: rgba(159, 220, 255, 0.4); }
+.cmdbar .voice-wake.bad { color: var(--h-amber); border-color: rgba(242, 187, 85, 0.35); }
+.cmdbar .voice-wake.bad .voice-dot { background: var(--h-amber); animation: none; }
+.cmdbar .voice-heard { left: 14px; right: 14px; bottom: calc(100% + 36px); font: 12.5px/1.4 var(--h-font); color: var(--h-ink-2); }
+.cmdbar .voice-route { font: 12px/1.3 var(--h-font); letter-spacing: 0; text-transform: none; }
+@media (max-width: 640px) { .cmd-meter { display: none; } .orbit-shell .cmdbar .field.cmd-field { font-size: 16px; } }
+
+/* ---------- galaxy labels: name (sentence case) + one live readout; a soft dot for a problem ---------- */
+.orbit-shell .planet-label { display: grid; justify-items: center; gap: 1px; font-family: var(--h-font); letter-spacing: 0; text-transform: none;
+  text-shadow: 0 0 2px #000, 0 0 8px rgba(0, 0, 0, 0.95); }
+.planet-label .planet-name { font-size: 13px; font-weight: 550; letter-spacing: 0.01em; white-space: nowrap; }
+.planet-label .planet-readout { font-size: 11px; font-weight: 450; color: #aeb8c8; font-variant-numeric: tabular-nums; white-space: nowrap; letter-spacing: 0; }
+.planet-label[data-state="idle"] .planet-name { opacity: 0.86; }
+.planet-label[data-state="needs"] .planet-readout { color: #f6d394; }
+.planet-label[data-state="broke"] .planet-readout { color: #f6c1bb; }
+.planet-label .planet-flag { margin-left: 0.4em; }
+
+/* ---------- home desk ("Working on it") and the Needs-you tray ---------- */
+.orbit-shell .home-desk.glass, .orbit-shell .needs-inbox.glass { border: 1px solid var(--h-line-2); border-image: none; border-radius: 16px; background-color: var(--h-fill-2); background-image: none;
+  box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.7); font-family: var(--h-font); }
+.orbit-shell .home-desk { width: min(24rem, calc(100vw - 1.5rem)); max-height: min(46dvh, calc(100dvh - 12rem)); }
+.orbit-shell .home-desk h2, html[data-motion="on"] .orbit-shell .home-desk h2 { font: 550 13.5px/1.35 var(--h-font); white-space: normal; overflow: visible; text-overflow: clip; color: var(--h-ink); }
+.orbit-shell :is(.home-desk, .needs-inbox, .home-answer) .chip { height: 28px; display: inline-flex; align-items: center; gap: 0.3rem; padding: 0 0.6rem; border: 1px solid var(--h-line); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03); box-shadow: none; font: 500 12.5px/1 var(--h-font); letter-spacing: 0; text-transform: none; color: var(--h-ink-2); }
+.orbit-shell :is(.home-desk, .needs-inbox, .home-answer) .chip:hover { background: rgba(255, 255, 255, 0.07); color: var(--h-ink); border-color: var(--h-line-2); }
+.orbit-shell .home-desk .chip.home-needs-on { border-color: rgba(242, 187, 85, 0.45); color: #f6d394; background: rgba(242, 187, 85, 0.08); }
+.orbit-shell :is(.home-desk, .needs-inbox) .progress-card { border: 1px solid var(--h-line); border-radius: 12px; background: rgba(255, 255, 255, 0.025); }
+.orbit-shell :is(.home-desk, .needs-inbox, .home-answer) .btn { border: 0; border-image: none; border-radius: 8px; background: var(--h-accent); color: #05070c; box-shadow: none;
+  font: 600 12.5px/1 var(--h-font); letter-spacing: 0; text-transform: none; padding: 0.45rem 0.75rem; }
+.orbit-shell :is(.home-desk, .needs-inbox, .home-answer) .btn:hover:not(:disabled) { background: #c2eaff; box-shadow: none; }
+.orbit-shell .needs-inbox .continue-heading .link { font: 500 13px/1 var(--h-font); }
+.orbit-shell .needs-inbox h2 { font: 600 15px/1.3 var(--h-font); }
+
+/* ---------- home answer under the orb ---------- */
+.orbit-shell .home-answer.glass { border: 1px solid var(--h-line-2); border-image: none; border-radius: 16px; background-color: var(--h-fill-2); background-image: none; box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.7); font-family: var(--h-font); }
+.home-answer .home-answer-q { color: var(--h-ink-3); }
+.home-answer .home-answer-status { color: var(--h-accent); }
+
+/* ---------- CORE drawer: calm frame, smooth slide (no stepped hard-light unfold), plain words ---------- */
+.orbit-shell .drawer.drawer-core.glass { border: 1px solid var(--h-line-2); border-image: none; border-radius: 20px; background-color: rgba(10, 13, 20, 0.94); background-image: none;
+  box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.7); font-family: var(--h-font); }
+.orbit-shell .drawer.drawer-core::after { content: none; }
+.orbit-shell .drawer.drawer-core.glass:not(.drawer-out) { animation: core-in var(--dur-base, 320ms) var(--ease-drawer, cubic-bezier(.32,.72,0,1)) both; }
+.orbit-shell .drawer.drawer-core.glass.drawer-out { animation: core-out var(--dur-quick, 200ms) var(--ease-out, ease-out) forwards; }
+@keyframes core-in { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes core-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(20px); } }
+.drawer-core .world-header { font: 600 18px/1.3 var(--h-font); letter-spacing: 0; text-transform: none; text-shadow: none; }
+.drawer-core .world-header-art { display: none; }
+.orbit-shell .drawer-core .chip { height: 30px; display: inline-flex; align-items: center; gap: 0.35rem; padding: 0 0.7rem; border: 1px solid var(--h-line); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03); box-shadow: none; font: 500 12.5px/1 var(--h-font); letter-spacing: 0; text-transform: none; color: var(--h-ink-2); }
+.orbit-shell .drawer-core .chip:hover:not(:disabled) { background: rgba(255, 255, 255, 0.07); color: var(--h-ink); border-color: var(--h-line-2); box-shadow: none; }
+.orbit-shell .drawer-core .chip:disabled { opacity: 0.45; }
+.orbit-shell .drawer-core .btn { border: 1px solid var(--h-line-2); border-image: none; border-radius: 10px; background: rgba(255, 255, 255, 0.04); color: var(--h-ink); box-shadow: none;
+  font: 500 13px/1 var(--h-font); letter-spacing: 0; text-transform: none; }
+.orbit-shell .drawer-core .chat-composer button.btn:not([type="button"]), .orbit-shell .drawer-core .chat-composer .chat-send { background: var(--h-accent); color: #05070c; border-color: transparent; font-weight: 600; }
+.orbit-shell .drawer-core .chat-composer button.btn:not([type="button"]):disabled { background: rgba(159, 220, 255, 0.25); color: rgba(5, 7, 12, 0.7); }
+.orbit-shell .drawer-core .field { border: 1px solid var(--h-line-2); border-radius: 12px; background: rgba(255, 255, 255, 0.03); font-family: var(--h-font); }
+.orbit-shell .drawer-core .field:focus { border-color: rgba(159, 220, 255, 0.45); box-shadow: 0 0 0 3px rgba(159, 220, 255, 0.08); }
+.orbit-shell .drawer-core .bubble { border-radius: 14px; }
+.orbit-shell .drawer-core .bubble.core { background: rgba(255, 255, 255, 0.025); border-color: var(--h-line); }
+.orbit-shell .drawer-core .bubble.user { background: rgba(159, 220, 255, 0.08); border-color: rgba(159, 220, 255, 0.2); }
+.orbit-shell .drawer-core :is(.hud-title, .h3) { font: 600 12px/1.4 var(--h-font); letter-spacing: 0; text-transform: none; color: var(--h-ink-3); text-shadow: none; }
+.orbit-shell .drawer-core .hud-title::before { content: none; }
+.drawer-core .chat-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-top: 0.5rem; }
+.orbit-shell .drawer-core .chat-acts .chip.chat-act { width: 30px; padding: 0; justify-content: center; border-color: transparent; background: transparent; }
+.orbit-shell .drawer-core .chat-acts .chip.chat-act:hover { background: rgba(255, 255, 255, 0.07); }
+.drawer-core .level-word { font: 500 12px/1 var(--h-font); color: var(--h-ink-3); }
+.drawer-core .chat-tools-pop { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 5; display: grid; gap: 6px; padding: 10px; min-width: 15rem; border: 1px solid var(--h-line-2);
+  border-radius: 14px; background: var(--h-fill-2); box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.6); }
+
+/* ---------- motion off / reduced motion ---------- */
+html[data-motion="off"] .orbit-shell .drawer.drawer-core.glass:not(.drawer-out), html[data-motion="off"] .orbit-shell .drawer.drawer-core.glass.drawer-out { animation: none; }
+html[data-motion="off"] .orbit-shell .hud-top .chip:active { transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .orbit-shell .drawer.drawer-core.glass:not(.drawer-out) { animation: vt-in var(--dur-quick, 200ms) ease-out both; }
+  .orbit-shell .drawer.drawer-core.glass.drawer-out { animation: vt-out var(--dur-quick, 200ms) ease-out forwards; }
+  .orbit-shell .hud-top .chip:active { transform: none; }
+}
+@keyframes vt-out { to { opacity: 0; } }
+.orbit-shell .drawer-core .btn.chat-icon { width: 38px; min-height: 38px; padding: 0; display: inline-grid; place-items: center; color: var(--h-ink-2); }
+.orbit-shell .drawer-core .btn.chat-icon[aria-expanded="true"] { color: var(--h-ink); background: rgba(255, 255, 255, 0.08); }
+.orbit-shell .drawer-core .level-pick { width: auto; min-width: 5.5rem; }
+.orbit-shell .cmdbar .field.cmd-field:focus-visible { outline: none; } /* the bar itself shows focus (focus-within): no second ring inside it */
+.orbit-shell .hud-top .hud-bar-top > .chip:focus-visible, .orbit-shell .hud-top .hud-bar-top > .contents > .chip:focus-visible { outline: 2px solid var(--h-accent); outline-offset: 2px; }
+:root:has(#hud-menu:popover-open) .orbit-shell .hud-top .hud-more { border-color: var(--h-line-2); background: rgba(255, 255, 255, 0.08); box-shadow: none; color: var(--h-ink); }
+.orbit-shell .drawer-core .core-ws-card h3 { font: 600 12.5px/1.4 var(--h-font); letter-spacing: 0; text-transform: none; color: var(--h-ink-3); }
+@media (min-width: 64rem) { .orbit-shell .drawer-core .core-ws-side { border-left-color: var(--h-line); } }
+.orbit-shell .overview-worlds .planet-card b { font-size: 0.95rem; font-weight: 550; letter-spacing: 0; }

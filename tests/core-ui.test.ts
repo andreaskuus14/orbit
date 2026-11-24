@@ -57,3 +57,10 @@ test("needsSelfReview: only big top-level, unverified agent results", () => {
   assert.equal(needsSelfReview("x".repeat(5000), 5, 1, false), false); // sub-task: the parent reviews
   assert.equal(needsSelfReview("x".repeat(5000), 5, 0, true), false); // research already cross-checked
 });
+
+test("followUps: every chip has an Estonian label", async () => {
+  const { FOLLOWUP_ET } = await import("../src/lib/core-ui.ts");
+  const tools = ["studio_status", "learned", "run_scout", "schedule_approved", "read_news", "web_search", "fetch_url", "ask_agent", "save_memory"];
+  const all = new Set([...tools.flatMap((t) => followUps("q", [t])), ...followUps("my project idea", []), ...followUps("a question that is longer than 25 chars", []), ]);
+  for (const c of all) if (c.length > 2) assert.ok(FOLLOWUP_ET[c], c);
+});

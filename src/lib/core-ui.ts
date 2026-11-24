@@ -37,6 +37,16 @@ export function stepLabel(tool: string, input: Record<string, unknown> = {}): st
   return labels[tool] ?? progressLabel(tool, input) ?? "Working…";
 }
 
+/** Estonian labels for the follow-up chips (the chip sends what it shows; CORE answers in the owner's language). */
+export const FOLLOWUP_ET: Record<string, string> = {
+  "Review clips": "Vaata klippe üle", "Run the scout": "Käivita skaut", "What has worked best?": "Mis on kõige paremini toiminud?",
+  "Find my niche": "Leia mu nišš", "Studio status": "Stuudio seis", "When do the next Shorts go live?": "Millal järgmised Shortsid avaldatakse?",
+  "More on this": "Rohkem sellest", "Open the globe": "Ava gloobus", "Any other big news?": "Muid suuri uudiseid?",
+  "Search deeper": "Otsi põhjalikumalt", "Save this to memory": "Salvesta see mällu", "Summarise it shorter": "Tee lühem kokkuvõte",
+  "Go deeper": "Mine sügavamale", "What else do you know about me?": "Mida sa veel minust tead?", "Open memory": "Ava mälu",
+  "What should I do next?": "Mida ma järgmiseks tegema peaksin?", "Tell me more": "Räägi rohkem", "Give me a short version": "Anna lühike versioon",
+};
+
 /** 2-3 follow-up chips from the tools used (first match wins) or the question; [] when nothing fits. */
 export function followUps(question: string, tools: string[]): string[] {
   const used = (t: string) => tools.includes(t);
