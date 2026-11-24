@@ -34,7 +34,7 @@ import { Button, Card, Chip, Empty, ErrorState, Loading, PlanetShell, Row, Secti
 import { VOICE_ASK } from "./voice/bus";
 import { openTarget } from "./NeedsYou";
 import { openProgress } from "./ProgressCard";
-import { usePoll } from "./use-poll";
+import { freshJson, usePoll } from "./use-poll";
 import { PlanetBoundary } from "./PlanetBoundary";
 import "@/app/gamedev-planet.css";
 
@@ -294,8 +294,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
   /* ---- Needs you (shared list for this planet) + Working on it (QA playtests started here) ---- */
   const [needs, setNeeds] = useState<Need[] | null>(null);
   const loadNeeds = useCallback(() => {
-    fetch(`/api/needs-you?lang=${lang}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : { items: [] }))
-      .then((j: { items?: Need[] }) => setNeeds(planetNeeds("creation", j.items ?? []).own), () => setNeeds([]));
+    void freshJson<{ items?: Need[] }>(`/api/needs-you?lang=${lang}`).then((j) => setNeeds(planetNeeds("creation", j?.items ?? []).own));
   }, [lang]);
   usePoll(loadNeeds, 30_000, !paused);
   const [tasks, setTasks] = useState<GameTask[] | null>(null);

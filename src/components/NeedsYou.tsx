@@ -3,7 +3,7 @@
 // with one action: open it where it is handled (Decide → "Review": the exact content and its Approve, never a one-tap approve here). Polls /api/needs-you every 60 s while visible. Continue my work and Mission control stay one tap away.
 import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { pollMs } from "@/lib/poll-pure";
-import { usePoll } from "./use-poll";
+import { dropFresh, usePoll } from "./use-poll";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { OPEN_MEMORY_EVENT } from "@/lib/palette-pure";
 import type { BriefOpen } from "@/lib/brief-pure";
@@ -76,7 +76,7 @@ export function NeedsYou({ onOpenTask, onOpenGoal, tasks = null, tasksFailed = f
     if (!snooze?.why.trim()) return;
     const ref = snooze.ref;
     fetch("/api/needs-you", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snooze: ref, reason: snooze.why.trim() }) })
-      .then((r) => { if (!r.ok) throw new Error(); setItems((l) => l?.filter((x) => x.ref !== ref) ?? l); setSnooze(null); })
+      .then((r) => { if (!r.ok) throw new Error(); dropFresh(); setItems((l) => l?.filter((x) => x.ref !== ref) ?? l); setSnooze(null); })
       .catch(() => setErr(t("needs.snoozeFailed")));
   };
   const label = (n: Need) => t(n.kind === "decide" ? "needs.review" : "common.open"); // Decide opens the exact content and its Approve

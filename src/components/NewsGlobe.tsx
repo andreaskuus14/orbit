@@ -999,11 +999,12 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
   useEffect(() => {
     const get = () => fetch("/api/news/follows", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
       .then((j) => { if (Array.isArray(j?.countries)) setFollowed(j.countries.filter((n: string) => INDEX.has(n)).sort()); }).catch(() => {});
+    if (paused) return; // kept but closed: no reads; re-entry reloads at once
     get();
     const t = setInterval(() => { if (!document.hidden) get(); }, REFRESH_MS); // hidden tab: skip (the next visible tick catches up)
     addEventListener(FOLLOWS_EVENT, get);
     return () => { clearInterval(t); removeEventListener(FOLLOWS_EVENT, get); };
-  }, []);
+  }, [paused]);
   const labels = useRef<Record<string, HTMLSpanElement | null>>({});
   // Only the latest request may update the screen (fast clicks, Clear during a search).
   const loadSeq = useRef(0);
@@ -1037,11 +1038,12 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
     } catch (e) { if (seq === loadSeq.current) setErr(e instanceof Error ? e.message : "Couldn't load news"); }
   }, [hours]);
   useEffect(() => {
+    if (paused) return; // kept but closed: no 5-min reads in the background; re-entry reloads at once
     void load();
     const t = setInterval(() => { if (!document.hidden) void load(); }, 5 * 60_000);
     addEventListener("orbit:news", load); // a new briefing just finished
     return () => { clearInterval(t); removeEventListener("orbit:news", load); };
-  }, [load]);
+  }, [load, paused]);
 
   // Live top headlines for the selected country (any country, even without stored stories).
   useEffect(() => {

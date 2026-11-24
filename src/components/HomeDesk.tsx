@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { fromTask, sortProgress, statusLine, type Progress } from "@/lib/progress-pure";
 import { STOP_ALL_EVENT, STOP_ALL_REQUEST_EVENT, type StopAllDetail } from "@/lib/stop-all-pure";
 import { runSeconds } from "@/lib/task-line-pure";
-import { usePoll, sharedJson } from "./use-poll";
+import { freshJson, usePoll, sharedJson } from "./use-poll";
 import { ProgressList, openProgress } from "./ProgressCard";
 import { RadarCards } from "./DreamRadar";
 import { useT } from "./i18n";
@@ -59,7 +59,7 @@ export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask, onNeeds,
       .then(({ data, error }) => { if (error || !data) { setFailed(true); return; } setFailed(false); setRows(data as Parameters<typeof fromTask>[0][]); }, () => setFailed(true));
     void sharedJson<{ cards?: Progress[] }>(`/api/goals?cards=1&lang=${lang}`).then((j) => setPilots(Array.isArray(j?.cards) ? j.cards : []));
     void sharedJson<{ cards?: Progress[] }>("/api/research").then((j) => setResearch(Array.isArray(j?.cards) ? j.cards : []));
-    void sharedJson<{ items?: unknown[] }>(`/api/needs-you?lang=${lang}`).then((j) => setNeeds(j?.items ? j.items.length : null));
+    void freshJson<{ items?: unknown[] }>(`/api/needs-you?lang=${lang}`).then((j) => setNeeds(j?.items ? j.items.length : null));
   }, [sb, lang]);
   usePoll(load, 20_000);
   useEffect(() => { if (refresh) load(); }, [refresh]); // eslint-disable-line react-hooks/exhaustive-deps

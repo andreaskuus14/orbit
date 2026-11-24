@@ -18,6 +18,7 @@ import type { PanelId } from "@/lib/planets";
 import { useT } from "./i18n";
 import css from "./PlanetHome.module.css";
 import { useManual as useManualChoice } from "./planet-manual";
+import { freshJson } from "./use-poll";
 
 /** One result: what happened (title + sub) and the one next step (next, default "Open"). */
 export type PlanetResult = { id: string; title: string; sub?: string; next?: string; open: () => void };
@@ -42,8 +43,7 @@ export function PlanetHome({ planet, results, work, primary, action, onManual, o
   const [text, setText] = useState("");
   useEffect(() => {
     let live = true;
-    fetch(`/api/needs-you?lang=${lang}`, { cache: "no-store" }).then((r) => r.json())
-      .then((j: { items?: Need[] }) => { if (live) setNeeds(planetNeeds(planet, j.items ?? [])); }, () => { if (live) setNeeds({ own: [], elsewhere: [] }); });
+    void freshJson<{ items?: Need[] }>(`/api/needs-you?lang=${lang}`).then((j) => { if (live) setNeeds(planetNeeds(planet, j?.items ?? [])); });
     return () => { live = false; };
   }, [lang, planet]);
   const ask = onExample ?? ((q: string) => dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text: q } })));

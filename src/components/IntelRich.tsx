@@ -8,7 +8,7 @@ import { ago, breaking, hueOf, initials, miniMap, nearYou, HOME, type Place } fr
 import css from "./IntelligencePanel.module.css";
 
 type Art = { id: string; title: string; url: string; source: string | null; published_at: string | null };
-const thumb = (url: string, kind: "image" | "icon" = "image") => `/api/news/thumb?kind=${kind}&u=${encodeURIComponent(url)}`;
+const thumb = (url: string, kind: "image" | "icon" = "image", w?: "sm" | "lead") => `/api/news/thumb?kind=${kind}${w ? `&w=${w}` : ""}&u=${encodeURIComponent(url)}`;
 const safeHref = (u: string) => (/^https?:\/\//i.test(u) ? u : "#");
 
 /** The article's picture; while loading or when there is none, a calm gradient with the source's initials. */
@@ -19,7 +19,7 @@ export function Thumb({ url, source, size, className }: { url?: string; source: 
     <div className={`${css.thumb} ${size === "lead" ? css.thumbLead : css.thumbSm} ${className ?? ""}`} data-state={state}
       style={{ background: `linear-gradient(135deg, hsl(${h} 35% 22%), hsl(${(h + 40) % 360} 30% 12%))` }} aria-hidden="true">
       {state !== "ok" && <span className={css.thumbInit}>{initials(source)}</span>}
-      {url && state !== "none" && <img src={thumb(url)} alt="" loading={size === "lead" ? "eager" : "lazy"} decoding="async"
+      {url && state !== "none" && <img src={thumb(url, "image", size)} alt="" loading={size === "lead" ? "eager" : "lazy"} decoding="async"
         onLoad={(e) => setState((e.currentTarget.naturalWidth || 0) > 8 ? "ok" : "none")} onError={() => setState("none")} />}
     </div>
   );

@@ -2,6 +2,7 @@
 import { useEffect } from "react";
 import { useWorldPaused } from "./world-paused";
 import { dedupe, shouldPoll } from "@/lib/poll-pure";
+import { createTtlCache } from "@/lib/ttl-cache-pure";
 
 /** Shared poller: runs fn now and every ms while enabled; skips ticks while the tab is hidden or its world is kept-but-hidden
  *  (WorldPaused), and refreshes at once when the tab comes back or the window regains focus. `refreshOn`: bus events that refresh too. */
@@ -24,6 +25,15 @@ const inflight = new Map<string, Promise<unknown>>();
 /** GET JSON (null on failure), shared across components while one identical request is in flight. */
 export const sharedJson = <T = unknown>(url: string): Promise<T | null> =>
   dedupe(inflight, url, () => fetch(url, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null), () => null));
+
+/** Shared status data many worlds read (Needs you, boot checks): one answer serves every reader for FRESH_MS, so the galaxy,
+ *  the home desk and an open planet polling on their own timers make one request instead of one each. Failures are not kept. */
+export const FRESH_MS = 20_000;
+const fresh = createTtlCache<unknown>({ max: 16, ttlMs: FRESH_MS });
+export const freshJson = <T = unknown>(url: string): Promise<T | null> =>
+  fresh.memo(url, () => sharedJson<unknown>(url), (v) => v !== null) as Promise<T | null>;
+/** After a change (snooze, approve), the next read goes to the server. */
+export const dropFresh = () => fresh.clear();
 
 const tagged = new Map<string, { etag: string; json: unknown }>();
 /** GET JSON with If-None-Match: a 304 returns the exact object of the last 200 (same identity, so React skips the re-render).
