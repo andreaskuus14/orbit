@@ -5,6 +5,7 @@ import { capabilityStart } from "@/lib/capability";
 import { withHeadsUp } from "@/lib/capability-pure";
 import { projectId } from "@/lib/project-desk-pure";
 import { listTag, slimTask } from "@/lib/operations-planet-pure";
+import { taskCols } from "@/lib/station-pure";
 
 const COLS = "id, parent_id, project_id, agent, title, request, status, result, error, trace, pending, created_at, started_at, finished_at";
 
@@ -14,7 +15,8 @@ export async function GET(req: Request) {
   // No sweep on read: a task's age doesn't prove its worker died. Tasks a restart orphaned are marked interrupted by the scheduler
   // (kickQueue → reclaimInterrupted, keyed on this process's boot time), whether or not this screen is ever opened.
   const p = new URL(req.url).searchParams;
-  let q = sb.from("tasks").select(COLS).is("parent_id", null).order("created_at", { ascending: false }).limit(60);
+  // `as typeof COLS` keeps the full row type; fields=status rows are a subset of it.
+  let q = sb.from("tasks").select(taskCols(p.get("fields"), COLS) as typeof COLS).is("parent_id", null).order("created_at", { ascending: false }).limit(60);
   if (p.get("id")) q = q.eq("id", p.get("id")!);
   if (p.get("agent")) q = q.eq("agent", p.get("agent")!);
   if (p.get("project")) q = q.eq("project_id", p.get("project")!);
