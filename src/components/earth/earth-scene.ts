@@ -13,6 +13,7 @@ import { x2lon, y2lat, arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrari
 
 import type { EarthData } from "@/lib/earth-data-pure";
 import { BUILDINGS_MAX_ALT, BZ, TOTAL as MAX_BUILDINGS, extrude, tilesAround, type Building } from "@/lib/earth-buildings-pure";
+import { LIGHT_GLSL } from "@/lib/earth-light-pure";
 import { GROUND_PX, GROUND_TILES, drawGround, groundFade, withOpenSea, type Ctx, type Ground } from "@/lib/earth-ground-pure";
 export type { EarthData };
 export type EarthOpts = { tileUrl: (k: TileKind, z: number, x: number, y: number) => string; sunMs?: number; dpr?: number; onTown?: (t: TownNews) => void; rightInset?: () => number; buildingsUrl?: (x: number, y: number) => string; home?: { lon: number; lat: number; name: string } };
@@ -101,7 +102,7 @@ void main(){ \n#include <logdepthbuf_fragment>\n vec3 V = normalize(uCam - vW); 
 const terrVS = `${LOG} attribute vec2 uvM; attribute vec2 uvN; varying vec2 vUv; varying vec2 vUvN; varying vec3 vN; varying vec3 vW; varying float vEdge; attribute float edge; attribute float hm; attribute vec2 uvE; varying float vH; varying vec2 vUvE;
 void main(){ vH = hm; vUvE = uvE; vUv = uvM; vUvN = uvN; vN = normalize(normal); vEdge = edge; vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz;
   gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
-const terrFS = `${LOGF} uniform sampler2D uDay; uniform sampler2D uNight; uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; uniform float uHaze; uniform float uNightK;
+const terrFS = `${LOGF}${LIGHT_GLSL} uniform sampler2D uDay; uniform sampler2D uNight; uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; uniform float uHaze; uniform float uNightK;
 varying vec2 vUv; varying vec2 vUvN; varying vec3 vN; varying vec3 vW; varying float vEdge; varying float vH; varying vec2 vUvE; uniform sampler2D uLand; uniform float uLakes; uniform float uStyl; uniform vec2 uTexel;
 void main(){ \n#include <logdepthbuf_fragment>\n
   vec4 dayA = texture2D(uDay, vUv); if (dayA.a < .5) discard; // tile not loaded yet: the globe underneath shows instead of black
@@ -109,7 +110,7 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   { vec3 bl = (texture2D(uDay, vUv + vec2(uTexel.x, 0.)).rgb + texture2D(uDay, vUv - vec2(uTexel.x, 0.)).rgb + texture2D(uDay, vUv + vec2(0., uTexel.y)).rgb + texture2D(uDay, vUv - vec2(0., uTexel.y)).rgb) * .25;
     day = max(day + (day - bl) * .9 * uStyl, 0.); } // close-ups: unsharp mask on the soft imagery
   vec3 night = texture2D(uNight, vUvN).rgb;
-  vec3 up = normalize(vW); float sun = dot(up, uSun), lit = smoothstep(-.1, .2, sun);
+  vec3 up = normalize(vW); float sun = dot(up, uSun), lit = dayK(sun);
   float water = 1. - smoothstep(.35, .65, texture2D(uLand, vUvE).r);
   // big lakes (Ladoga, Onega, Peipus) sit above sea level and read as flat grey in the 2016 mosaic: on the wide Baltic patch, low,
   // grey, unsaturated ground is treated as water too (cities are too small to matter at that scale)
@@ -130,6 +131,7 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   vec3 photo = mix(vec3(lum), c, .75) * vec3(.82,.9,1.05); photo = (photo - .12) * 1.25 + .12; // cooler, more contrast
   vec3 map = mix(mix(vec3(.025,.032,.045), max(photo, 0.), .5), vec3(.004,.012,.03), water * .9); // ~60% photo, water stays a clean shape
   map += vec3(.25,.55,.75) * grid * .1 * uStyl + vec3(.3,.6,.8) * (1. - smoothstep(.0, .25, abs(water - .5))) * .08 * uStyl; // grid + a thin coastline
+  map *= mix(.35, 1., lit); // the map base darkens with the vector ground (Black Marble at ~600 m/px is too coarse to light it: it reads as flat blocks)
   c = mix(c, map, uStyl);
   gl_FragColor = vec4(c, uOp * smoothstep(0., .22, vEdge)); }`;
 
@@ -152,38 +154,60 @@ const bldVS = `${LOG} attribute float shade; attribute vec3 wall; varying float 
 void main(){ vS = shade; vWall = wall; vN = normalize(normal); vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
 // OSM buildings, "futuristic real": dark glass-and-concrete facades with a grid of windows (a few lit by day, many at night),
 // soft ambient occlusion at the foot, a faint cool line along the roof edge, taller buildings tinted cooler and lighter.
-const bldFS = `${LOGF} uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; varying float vS; varying vec3 vWall; varying vec3 vN; varying vec3 vW;
+const bldFS = `${LOGF}${LIGHT_GLSL} uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; varying float vS; varying vec3 vWall; varying vec3 vN; varying vec3 vW;
 float hb(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void main(){ \n#include <logdepthbuf_fragment>\n
-  vec3 up = normalize(vW); float sun = dot(up, uSun), lit = smoothstep(-.1, .2, sun);
+  vec3 up = normalize(vW); float sun = dot(up, uSun), lit = dayK(sun), on = lightsK(sun), dusk = duskK(sun);
   float roof = step(.95, vS), tall = smoothstep(8., 45., vWall.z);
   vec3 N = normalize(vN); float diff = max(dot(N, uSun), 0.);
   vec3 base = mix(vec3(.016,.019,.025), vec3(.022,.03,.042), tall); // linear: about #2a2f38 … #33404f on screen // dark facades; towers a little cooler and lighter
-  vec3 c = base * (.6 + 1.6*diff*lit + .4*lit);
+  vec3 sunC = mix(vec3(1.), vec3(1.,.6,.38), dusk); // low sun goes warm
+  vec3 c = base * (mix(.25, .6, lit) + (1.6*diff + .4) * lit * sunC) + vec3(.004,.006,.012) * dusk; // blue-hour sky fill
   // windows: 3.2 m floors, 3.4 m bays, on walls only, from the first floor up
   vec2 g = vec2(vWall.x / 3.4, vWall.y / 3.2), f = fract(g), id = floor(g);
   float win = step(.22, f.x) * step(f.x, .78) * step(.3, f.y) * step(f.y, .8) * step(1., id.y) * (1. - roof) * step(vWall.y, vWall.z - 1.);
-  float on = step(mix(.9, .45, 1. - lit), hb(id + vec2(floor(vWall.z), 7.)));
-  vec3 glass = mix(vec3(.012,.018,.028), vec3(.03,.045,.065), lit) * win * (.5 + .5*diff);
-  c += glass * .6 + vec3(1.,.72,.42) * win * on * mix(.9, .1, lit);
-  // soft AO at the foot, a cool rim on the roof edge, lighter roofs
+  vec2 wid = id + vec2(floor(vWall.z), 7.); float r = hb(wid);
+  float isOn = step(1. - mix(.08, .55, on), r); // a few by day, about half after dark
+  // homes warm (2700 K), offices and towers cooler LED; each window its own brightness
+  vec3 wc = mix(vec3(1.,.62,.32), vec3(.78,.86,1.), step(.75 - .5*tall, hb(wid + 3.1))) * (.45 + .55*hb(wid + 9.7));
+  vec3 glass = mix(vec3(.012,.018,.028), vec3(.03,.045,.065), lit) * win * (.5 + .5*diff) + vec3(.02,.03,.05) * win * dusk; // glass catches the twilight sky
+  c += glass * .6 + wc * win * isOn * mix(.1, .85, on);
+  // soft AO at the foot; after dark the street lights wash the lower floors amber
   float foot = smoothstep(0., 6., vWall.y);
   c *= mix(.35, 1., foot);
-  c = mix(c, vec3(.03,.034,.04) * (.6 + .8*lit), roof * .9);
+  c += SODIUM * .012 * on * (1. - roof) * (1. - smoothstep(0., 8., vWall.y));
+  c = mix(c, vec3(.03,.034,.04) * (.25 + .5*lit + .3*lit*diff) * sunC, roof * .9);
   float rim = (1. - roof) * smoothstep(vWall.z - 1.2, vWall.z, vWall.y);
-  c += vec3(.25,.6,1.) * rim * .35;
-  float dist = length(uCam - vW) * 6371.; c = mix(c, vec3(.05,.07,.1), (1. - exp(-dist * .05)) * .5);
+  c += vec3(.25,.6,1.) * rim * mix(.12, .35, lit);
+  float dist = length(uCam - vW) * 6371.; c = mix(c, vec3(.05,.07,.1) * mix(.15, 1., lit), (1. - exp(-dist * .05)) * .5);
   gl_FragColor = vec4(c, uOp); }`;
 
 // the vector ground (OSM map drawn per z14 tile): a touch of sun shading, the major roads keep their glow at night, distance haze
 const gndVS = `${LOG} varying vec2 vUv; varying vec3 vW; void main(){ vUv = uv; vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
-const gndFS = `${LOGF} uniform sampler2D uMap; uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; varying vec2 vUv; varying vec3 vW;
+const gndFS = `${LOGF}${LIGHT_GLSL} uniform sampler2D uMap; uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; varying vec2 vUv; varying vec3 vW;
+// road light from the map itself: brightness of the drawn roads, read sharp (the lamps on the road) and from blurred mip levels (the
+// pool of light around them, and what the water reflects) - no extra texture, no bloom
+float roadL(vec3 m){ return smoothstep(.015, .35, max(m.r, max(m.g, m.b))) * (1. - smoothstep(2., 2.6, m.b / max(m.g, 1e-3))); }
 void main(){ \n#include <logdepthbuf_fragment>\n
-  vec3 c = texture2D(uMap, vUv).rgb; c = c * c; // the canvas is sRGB: to linear
-  float sun = dot(normalize(vW), uSun), lit = smoothstep(-.1, .2, sun);
+  vec3 m = texture2D(uMap, vUv).rgb; vec3 c = m * m; // the canvas is sRGB: to linear
+  vec3 up = normalize(vW); float sun = dot(up, uSun), lit = dayK(sun), on = lightsK(sun), dusk = duskK(sun);
   float bright = max(c.r, max(c.g, c.b));
-  c *= mix(.8, 1.15, lit) + smoothstep(.15, .5, bright) * (1. - lit) * .6; // lit roads read as lights after dark
-  float dist = length(uCam - vW) * 6371.; c = mix(c, vec3(.012,.018,.028), (1. - exp(-dist * .06)) * .55);
+  float water = smoothstep(1.9, 2.4, c.b / max(c.g, 1e-4)) * (1. - smoothstep(.02, .06, bright)); // the deep-blue fill of sea and lakes
+  float road = smoothstep(.02, .3, bright) * (1. - water);
+  vec3 b1 = texture2D(uMap, vUv, 3.5).rgb, b2 = texture2D(uMap, vUv, 5.5).rgb;
+  float pool = roadL(b1 * b1) * .6 + roadL(b2 * b2) * .4;
+  // day: the map as drawn, warm and dimmer at dusk
+  vec3 dayC = c * mix(.8, 1.15, lit) * mix(vec3(1.), vec3(1.,.7,.55), dusk * .6);
+  // night: dark land under a faint blue sky, the roads turn amber (Black Marble), light pools spill onto the ground around them
+  vec3 nightC = c * .18 + vec3(.0015,.0025,.005) + vec3(.008,.012,.024) * dusk;
+  nightC = mix(nightC, SODIUM * (.03 + .7 * bright * bright + .25 * bright), road * on) + SODIUM * pool * .09 * on * (1. - water);
+  // water: the twilight sky and the city's light, broken by small waves, stronger at a glancing view
+  vec3 V = normalize(uCam - vW); float fres = .25 + .75 * pow(1. - max(dot(V, up), 0.), 3.);
+  vec2 wp = vW.xz * 6371000.; float wave = .55 + .45 * sin(wp.x * .9 + sin(wp.y * .23) * 3.) * sin(wp.y * 1.3 + sin(wp.x * .17) * 2.);
+  vec3 refl = SODIUM * (pool * .35 + .015) * wave * on + vec3(.01,.015,.03) * dusk + vec3(.04,.025,.03) * dusk * lit;
+  nightC += refl * fres * water;
+  c = mix(nightC, dayC, lit);
+  float dist = length(uCam - vW) * 6371.; c = mix(c, vec3(.012,.018,.028) * mix(.3, 1., lit) + SODIUM * .01 * on, (1. - exp(-dist * .06)) * .55);
   gl_FragColor = vec4(c, uOp); }`;
 
 /* ---------- the scene ---------- */
@@ -611,6 +635,8 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     setData, frame, flyTo, playPath, focusPlace, putBuildings,
     /** Tiles still loading (for the stills script). */
     loading: () => bBusy,
+    /** Puts the sun where it is at a moment (ms since 1970). */
+    setSun,
     /** Where the camera is now (EarthView asks for the region's news once it settles). */
     view: () => ({ ...pose }),
     setPlaceName(s: string | null) { regionName = s; },
