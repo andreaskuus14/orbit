@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { getAgent } from "@/lib/agents";
 import { createPlanJob, listPlanJobs, patchPlanJob } from "@/lib/plan-jobs";
@@ -5,14 +6,14 @@ import { createPlanJob, listPlanJobs, patchPlanJob } from "@/lib/plan-jobs";
 export const dynamic = "force-dynamic";
 
 /** OPERATIONS → Plans: long jobs with their plan file (steps, progress). Files on this PC (plan-jobs.ts). */
-export async function GET() {
+async function GET_() {
   const { res } = await requireUser();
   if (res) return res;
   return Response.json({ jobs: await listPlanJobs() }, { headers: { "Cache-Control": "private, no-store" } });
 }
 
 /** {title, agent, goal?, night?, steps: "one per line"} → a new job; the scheduler starts its first step. */
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const b = await req.json().catch(() => null);
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
 }
 
 /** {id, action: pause | resume | retry | delete} */
-export async function PATCH(req: Request) {
+async function PATCH_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => null)) as { id?: unknown; action?: unknown } | null;
@@ -31,3 +32,6 @@ export async function PATCH(req: Request) {
   const err = await patchPlanJob(b.id, b.action);
   return err ? Response.json({ error: err }, { status: err === "Not found" ? 404 : 400 }) : Response.json({ ok: true });
 }
+export const GET = guard("plan-jobs", GET_);
+export const POST = guard("plan-jobs", POST_);
+export const PATCH = guard("plan-jobs", PATCH_);

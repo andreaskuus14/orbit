@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { MAX_RECEIPT } from "@/lib/money-pure";
@@ -32,7 +33,7 @@ export async function GET(req: Request) {
     const v = await moneyView(q.get("period") ?? new Date().toISOString().slice(0, 7));
     return typeof v === "string" ? fail(v) : Response.json(v);
   } catch (e) {
-    return fail(`Couldn't load the money view: ${e instanceof Error ? e.message : "unknown error"}`, 500);
+    return fail(`Couldn't load the money view: ${safeMessage(e, "unknown error")}`, 500);
   }
 }
 
@@ -61,6 +62,6 @@ export async function POST(req: Request) {
       default: return fail("action must be expense (multipart), settings, vatPaid or delete");
     }
   } catch (e) {
-    return fail(`Couldn't do that: ${e instanceof Error ? e.message : "unknown error"}`, 500);
+    return fail(`Couldn't do that: ${safeMessage(e, "unknown error")}`, 500);
   }
 }

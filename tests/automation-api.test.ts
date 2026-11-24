@@ -5,6 +5,8 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import * as pure from "../src/lib/pure.ts";
 import * as edit from "../src/lib/automation-edit-pure.ts";
+import * as apiErrorPure from "../src/lib/api-error-pure.ts";
+const apiRouteStub = { guard: (_name: string, fn: unknown) => fn }; // route tests call the raw handler
 
 const code = ts.transpileModule(readFileSync(new URL("../src/app/api/automations/route.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
 const row = (id = "one", owner = "owner") => ({ id, user_id: owner, name: "Old name", agent: "forge", prompt: "Write a summary", enabled: false,
@@ -27,7 +29,7 @@ function api(options: { authorized?: boolean; readError?: boolean; writeError?: 
   }
   const sb = { from: () => new Query() }, m = { exports: {} as any };
   runInNewContext(code, { module: m, exports: m.exports, Response, URL, Error,
-    require: (name: string) => name.endsWith("automation-edit-pure") ? edit : name.endsWith("/pure") ? pure : name.endsWith("supabase/server") ? {
+    require: (name: string) => name.endsWith("api-route") ? apiRouteStub : name.endsWith("api-error-pure") ? apiErrorPure : name.endsWith("automation-edit-pure") ? edit : name.endsWith("/pure") ? pure : name.endsWith("supabase/server") ? {
       requireUser: async () => options.authorized === false ? { res: new Response("Unauthorized", { status: 401 }) } : { sb, user: { id: "owner" } },
     } : name.endsWith("/agents") ? {
       getAgent: async (_sb: any, slug: string, owner: string) => { lookups.push({ slug, owner }); if (options.deleteBeforeWrite) rows.splice(0, 1); return ["forge", "nova", "pulse", "my-agent"].includes(slug) ? { slug } : null; },

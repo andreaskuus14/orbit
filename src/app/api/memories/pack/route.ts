@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { packView, savePack } from "@/lib/memory-pack";
 import { packMarkdown } from "@/lib/memory-pack-pure";
@@ -20,7 +21,7 @@ export async function GET(req: Request) {
     if (u.searchParams.get("format") !== "md") return Response.json(v);
     return new Response(packMarkdown(v.saved ?? v.current, v.outdatedSince), { headers: { "Content-Type": "text/markdown; charset=utf-8",
       "Content-Disposition": `attachment; filename="handover-${p.replace(/[^\w-]+/g, "_")}.md"` } });
-  } catch (e) { return fail(e instanceof Error ? e.message : "Could not build the pack", 500); }
+  } catch (e) { return fail(safeMessage(e, "Could not build the pack"), 500); }
 }
 
 export async function POST(req: Request) {
@@ -29,5 +30,5 @@ export async function POST(req: Request) {
   const p = project(Object(await req.json().catch(() => ({}))).project);
   if (!p) return fail("project is required");
   try { await savePack(sb, user.id, p); return Response.json(await packView(sb, user.id, p)); }
-  catch (e) { return fail(e instanceof Error ? e.message : "Could not save the pack", 500); }
+  catch (e) { return fail(safeMessage(e, "Could not save the pack"), 500); }
 }

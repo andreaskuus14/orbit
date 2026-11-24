@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { rivalsBoard, runRivals, setRivalUrls } from "@/lib/rivals";
@@ -12,7 +13,7 @@ const fail = (error: string, status = 400) => Response.json({ error }, { status 
 export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
-  try { return Response.json(await rivalsBoard()); } catch (e) { return fail(e instanceof Error ? e.message : "Couldn't read the competitor watch", 500); }
+  try { return Response.json(await rivalsBoard()); } catch (e) { return fail(safeMessage(e, "Couldn't read the competitor watch"), 500); }
 }
 
 export async function POST(req: Request) {

@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { readPlace, updatePlace } from "@/lib/place";
 import { currentPoint, MAX_PLACES, nearestPlace, parsePlaces, placeName, type PlaceState } from "@/lib/place-pure";
@@ -13,13 +14,13 @@ const view = (s: PlaceState) => {
 };
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
-export async function GET() {
+async function GET_() {
   const { res } = await requireUser();
   if (res) return res;
   return Response.json(view(await readPlace()));
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => null)) as { on?: unknown; places?: unknown; saveHere?: unknown; pc?: unknown } | null;
@@ -44,8 +45,11 @@ export async function POST(req: Request) {
   return fail("Expected on, places or saveHere");
 }
 
-export async function DELETE() {
+async function DELETE_() {
   const { res } = await requireUser();
   if (res) return res;
   return Response.json(view(await updatePlace((s) => ({ on: s.on, places: s.places }))));
 }
+export const GET = guard("place", GET_);
+export const POST = guard("place", POST_);
+export const DELETE = guard("place", DELETE_);

@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { radarAct, radarWindows } from "@/lib/radar";
 import { windowCard } from "@/lib/radar-pure";
@@ -13,7 +14,7 @@ export async function GET(req: Request) {
   try {
     const ws = await radarWindows(sb, user.id, now);
     return Response.json({ windows: ws.map((w) => ({ id: w.id, card: windowCard(w, lang, now), evidence: w.evidence })) });
-  } catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Radar failed" }, { status: 500 }); }
+  } catch (e) { return Response.json({ error: safeMessage(e, "Radar failed") }, { status: 500 }); }
 }
 
 export async function POST(req: Request) {

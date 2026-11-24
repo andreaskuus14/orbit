@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { vaultPodcast } from "@/lib/vault-podcast";
 import { VaultError, docText, thumbnail, warmIndex, cloudList, cloudOnlyNames, cloudMove, cloudPut, cloudRemove, deleteFile, listDetailed, listTrash, markSync, previewText, purgeTrash, readStream, renameFile, restoreFromCloud, restoreTrash, saveUpload, searchVaultInfo, syncToCloud, usage } from "@/lib/vault";
@@ -48,7 +49,7 @@ export async function GET(req: Request) {
     if (file !== null && q.get("preview") === "1") return Response.json(await previewText(file));
     if (q.get("content") === "1") return Response.json(await searchVaultInfo(q.get("q") ?? "", 50));
     let cloud: Map<string, number> | null = null, cloudError: string | null = null;
-    try { cloud = await cloudList(sb, user.id); } catch (e) { cloudError = e instanceof Error ? e.message : "cloud unavailable"; }
+    try { cloud = await cloudList(sb, user.id); } catch (e) { cloudError = safeMessage(e, "cloud unavailable"); }
     const files = await listDetailed(cloud);
     warmIndex(); // the first "search inside" then answers at once (index work runs after this reply)
     return Response.json({ ...mergeCloud(files, cloud), cloudError, trash: await listTrash(), usage: await usage(files) });

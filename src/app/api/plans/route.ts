@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { currentStudioPlan as currentPlan, resumeStudioPlans, studioPlanAction as planAction } from "@/lib/plan-jobs";
 import { progressLine } from "@/lib/plans-pure";
@@ -6,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 // CORE plans: GET the latest plan (+ its progress line); POST { id, op: "confirm"|"cancel", step } = the owner's OK / Cancel click.
 // Confirming is only possible here (signed-in UI click); CORE's tools can create plans but never confirm a step.
-export async function GET() {
+async function GET_() {
   const { res } = await requireUser();
   if (res) return res;
   void resumeStudioPlans(); // owner lane: he has CORE open
@@ -14,7 +15,7 @@ export async function GET() {
   return Response.json({ plan: plan && { ...plan, line: progressLine(plan) } });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => null)) as { id?: unknown; op?: unknown; step?: unknown } | null;
@@ -24,3 +25,5 @@ export async function POST(req: Request) {
   const plan = await currentPlan();
   return Response.json({ plan: plan && { ...plan, line: progressLine(plan) } });
 }
+export const GET = guard("plans", GET_);
+export const POST = guard("plans", POST_);

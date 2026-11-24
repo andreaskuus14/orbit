@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { getAgent } from "@/lib/agents";
 import { startAutomation } from "@/lib/automations";
@@ -36,7 +37,7 @@ export async function POST(req: Request) {
     if (!a) return Response.json({ error: "Not found" }, { status: 404 });
     if (!(await getAgent(sb, a.agent, user.id))) return Response.json({ error: `Unknown agent "${a.agent}"` }, { status: 400 });
     try { return Response.json({ task: await startAutomation(sb, a, "run manually") }); }
-    catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Could not start" }, { status: 500 }); }
+    catch (e) { return Response.json({ error: safeMessage(e, "Could not start") }, { status: 500 }); }
   }
   const v = validateAutomation(body);
   if ("error" in v) return Response.json({ error: v.error }, { status: 400 });

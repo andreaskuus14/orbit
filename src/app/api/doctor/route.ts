@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import type { Report } from "@/lib/doctor-pure";
 import { disk, runDoctor } from "@/lib/doctor";
 import { bootSelfTest } from "@/lib/doctor-boot";
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
 // ORBIT doctor: every health check with a plain-English fix. Signed-in only; returns no secrets (env names only). Log text appears only as the
 // night health check's redacted evidence excerpts (health-pure redact), for the owner to copy to a builder.
 // ?boot=1 → only this boot's cached self-test (what the bell uses); otherwise a fresh report plus that self-test.
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   // Background interruption watcher needs only local disk space, not the full CLI/network self-test.
@@ -41,7 +42,7 @@ export async function GET(req: Request) {
 
 // POST {ack: "<incident key>"}: the owner's "Got it" on a System health incident (no more pushes for it; it still clears by itself).
 // POST {retry: "<consumer>:<event id>"}: his Retry on a dead-letter event (Saved state & events check).
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => null)) as { ack?: unknown; retry?: unknown } | null;
@@ -54,3 +55,5 @@ export async function POST(req: Request) {
   await ackSystemIncident(b.ack);
   return Response.json({ ok: true });
 }
+export const GET = guard("doctor", GET_);
+export const POST = guard("doctor", POST_);

@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { ensureDirs } from "@/lib/clips/factory";
 import { readInboxAuto, updateInboxAuto } from "@/lib/clips/inbox-watch";
@@ -28,5 +29,5 @@ export async function POST(req: Request) {
       Object.assign(x, { enabled: b.enabled, options });
     });
     return Response.json(s);
-  } catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Couldn't save" }, { status: 503 }); }
+  } catch (e) { return Response.json({ error: safeMessage(e, "Couldn't save") }, { status: 503 }); }
 }

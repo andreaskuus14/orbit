@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
@@ -29,7 +30,7 @@ async function view(sb: SupabaseClient) {
 export async function GET() {
   const { sb, res } = await requireUser();
   if (res) return res;
-  try { return Response.json(await view(sb)); } catch (e) { return fail(e instanceof Error ? e.message : "Rules failed", 500); }
+  try { return Response.json(await view(sb)); } catch (e) { return fail(safeMessage(e, "Rules failed"), 500); }
 }
 
 export async function POST(req: Request) {
@@ -57,5 +58,5 @@ export async function POST(req: Request) {
       if (err) return fail(err, 409);
     } else return fail("Unknown action");
     return Response.json(await view(sb));
-  } catch (e) { return fail(e instanceof Error ? e.message : "Rules failed", 500); }
+  } catch (e) { return fail(safeMessage(e, "Rules failed"), 500); }
 }

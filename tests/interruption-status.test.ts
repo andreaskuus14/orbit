@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import * as apiErrorPure from "../src/lib/api-error-pure.ts";
+const apiRouteStub = { guard: (_name: string, fn: unknown) => fn }; // route tests call the raw handler
 
 function route(file: string, imports: Record<string, any>) {
   const code = ts.transpileModule(readFileSync(new URL(`../src/app/api/${file}/route.ts`, import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
   const m = { exports: {} as any };
-  runInNewContext(code, { module: m, exports: m.exports, Response, URL, require: (name: string) => imports[name] });
+  runInNewContext(code, { module: m, exports: m.exports, Response, URL, require: (name: string) => name.endsWith("api-route") ? apiRouteStub : name.endsWith("api-error-pure") ? apiErrorPure : imports[name] });
   return m.exports.GET;
 }
 test("notification disk check is authenticated and never runs boot/CLI/network doctor checks", async () => {

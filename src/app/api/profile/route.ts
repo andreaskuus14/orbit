@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { cleanTags, str } from "@/lib/pure";
 import { COMMUNICATION_STORED_MAX } from "@/lib/brief-mode-pure";
@@ -5,7 +6,7 @@ import { forgetProfile } from "@/lib/core";
 
 const LISTS = ["interests", "projects", "goals", "news_topics", "research_priorities"] as const;
 
-export async function GET() {
+async function GET_() {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const { data, error } = await sb.from("profiles").select("*").eq("id", user.id).maybeSingle();
@@ -14,7 +15,7 @@ export async function GET() {
 }
 
 /** Only what the user types is stored; nothing is inferred into the profile. */
-export async function PUT(req: Request) {
+async function PUT_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const body = await req.json().catch(() => ({}));
@@ -27,3 +28,5 @@ export async function PUT(req: Request) {
   if (error) return Response.json({ error: error.message }, { status: 400 });
   return Response.json({ profile: data });
 }
+export const GET = guard("profile", GET_);
+export const PUT = guard("profile", PUT_);

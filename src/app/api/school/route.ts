@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { archScene, getSchool, schoolAction } from "@/lib/school";
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 // POST {action: addCourse|removeCourse|addItem|updateItem|removeItem|settings|linkArch|prep, ...}. Data stays local (school.json).
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const arch = new URL(req.url).searchParams.get("arch");
@@ -16,7 +17,7 @@ export async function GET(req: Request) {
   return Response.json(await getSchool());
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const h = req.headers;
   if (crossSiteBlocked("POST", "/api/school", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return fail("Cross-site request refused", 403);
   const { user, res } = await requireUser();
@@ -26,3 +27,5 @@ export async function POST(req: Request) {
   const r = await schoolAction(b, user.id);
   return "error" in r ? fail(r.error) : Response.json(r);
 }
+export const GET = guard("school", GET_);
+export const POST = guard("school", POST_);

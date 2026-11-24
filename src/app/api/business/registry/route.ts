@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { stopAllOn } from "@/lib/stop-all";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 const ID = /^[0-9a-f-]{36}$/i;
 
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const id = new URL(req.url).searchParams.get("people");
@@ -24,7 +25,7 @@ export async function GET(req: Request) {
   return Response.json({ state: await registryState(), running: running(), attribution: ATTRIBUTION, licence: LICENCE_URL });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const h = req.headers;
   if (crossSiteBlocked("POST", "/api/business/registry", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return fail("Cross-site request refused", 403);
   const { sb, res } = await requireUser();
@@ -50,3 +51,5 @@ export async function POST(req: Request) {
   }
   return fail("action must be refresh, pick or weekly");
 }
+export const GET = guard("business/registry", GET_);
+export const POST = guard("business/registry", POST_);

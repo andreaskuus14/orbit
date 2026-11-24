@@ -1,9 +1,10 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { decideProposal, personaView, savePersona } from "@/lib/persona";
 import { LABELS, VOICES, previewLine } from "@/lib/persona-pure";
 
 // Profile → ORBIT's character: sliders, Kokoro voice, the pending "too long" proposal. Local file only (persona.ts).
-const fail = (e: unknown) => Response.json({ error: e instanceof Error ? e.message : "Persona failed" }, { status: 500 });
+const fail = (e: unknown) => Response.json({ error: safeMessage(e, "Persona failed") }, { status: 500 });
 const view = async (userId: string) => { const v = await personaView(userId); return Response.json({ ...v, voices: VOICES, labels: LABELS, preview: previewLine(v.persona) }); };
 
 export async function GET() {

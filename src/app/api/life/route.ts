@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { emit } from "@/lib/claude";
 import { LOCKED_TEXT, journalNotes, openLifeJournal } from "@/lib/life-journal";
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic";
 // ?week=1 → the weekly review (LIF08, local data only, never the journal).
 // ?due=1 also drains in-app habit nudges ({ habits }) from habit-nudge.ts.
 
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   if (new URL(req.url).searchParams.get("week") === "1") return Response.json(await getWeekReview());
@@ -34,7 +35,7 @@ const str = (v: unknown, max: number) => (typeof v === "string" && v.length <= m
 const bad = (error: string) => Response.json({ error }, { status: 400 });
 const out = (r: object) => ("error" in r ? Response.json(r, { status: 400 }) : Response.json(r));
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const b = await req.json().catch(() => null);
@@ -105,3 +106,5 @@ export async function POST(req: Request) {
       return bad("Unknown action");
   }
 }
+export const GET = guard("life", GET_);
+export const POST = guard("life", POST_);

@@ -1,7 +1,8 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { startScheduler } from "@/lib/scheduler";
 
-export async function GET() {
+async function GET_() {
   const { sb, res } = await requireUser();
   if (res) return res;
   startScheduler(); // no-op if already running; picks up a secret key added after the server started
@@ -17,3 +18,4 @@ export async function GET() {
     scheduled: !!process.env.SUPABASE_SECRET_KEY,
   });
 }
+export const GET = guard("briefings", GET_);

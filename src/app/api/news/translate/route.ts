@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { FAST_MODEL, recordUsage } from "@/lib/claude";
 import { translateTitles } from "@/lib/translate";
@@ -5,7 +6,7 @@ import { MAX_BATCH, cleanTitle } from "@/lib/translate-pure";
 
 // INTELLIGENCE headline translation. POST {items:[{id,title}], to:"en"} → {items:[{id,title,translated}], failed}.
 // Already-English and cached headlines cost nothing; the rest is one haiku call. CSRF: src/middleware.ts (all /api POSTs).
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const body = await req.json().catch(() => ({}));
@@ -21,3 +22,4 @@ export async function POST(req: Request) {
     failed: r.failed,
   });
 }
+export const POST = guard("news/translate", POST_);

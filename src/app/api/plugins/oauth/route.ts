@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { NextResponse, type NextRequest } from "next/server";
 import { requireUser } from "@/lib/supabase/server";
 import { finishOAuth, startOAuth } from "@/lib/plugins";
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 // Profile → Plugins "Sign in" for an http plugin with "oauth": true. GET ?name=<plugin> starts it (opens the server's login page);
 // the server sends the browser back here with ?code&state. Only on http://127.0.0.1:<port>; no token ever goes into a URL or answer.
-export async function GET(req: NextRequest) {
+async function GET_(req: NextRequest) {
   const { res } = await requireUser();
   if (res) return res;
   const redirect = req.headers.get("x-forwarded-host") ? null : oauthRedirect(req.headers.get("host"));
@@ -25,3 +26,4 @@ export async function GET(req: NextRequest) {
   if (r.error) return Response.json({ error: r.error }, { status: 400 });
   return r.url ? NextResponse.redirect(r.url) : back("signed-in");
 }
+export const GET = guard("plugins/oauth", GET_);

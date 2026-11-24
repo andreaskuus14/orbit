@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { getAgent, kickQueue } from "@/lib/agents";
 import { str } from "@/lib/pure";
@@ -9,7 +10,7 @@ import { taskCols } from "@/lib/station-pure";
 
 const COLS = "id, parent_id, project_id, agent, title, request, status, result, error, trace, pending, created_at, started_at, finished_at";
 
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   // No sweep on read: a task's age doesn't prove its worker died. Tasks a restart orphaned are marked interrupted by the scheduler
@@ -32,7 +33,7 @@ export async function GET(req: Request) {
 }
 
 /** Create a task for an agent (Nova by default) and start it as soon as a slot is free. */
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const body = await req.json().catch(() => ({}));
@@ -57,3 +58,5 @@ export async function POST(req: Request) {
   void kickQueue(sb, user.id);
   return Response.json({ task: data }, { status: 201 });
 }
+export const GET = guard("tasks", GET_);
+export const POST = guard("tasks", POST_);

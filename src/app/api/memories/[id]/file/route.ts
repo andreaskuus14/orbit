@@ -1,7 +1,8 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 
 /** Open the original uploaded file through a short-lived private link. */
-export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+async function GET_(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { sb, res } = await requireUser();
   if (res) return res;
   const { id } = await params;
@@ -11,3 +12,4 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (error || !signed) return Response.json({ error: error?.message ?? "Could not open file" }, { status: 500 });
   return Response.redirect(signed.signedUrl, 302);
 }
+export const GET = guard("memories/[id]/file", GET_);

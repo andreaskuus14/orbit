@@ -1,8 +1,9 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { muteTwin, twinMuted, twinView } from "@/lib/twin";
 
 export const dynamic = "force-dynamic";
-const fail = (e: unknown) => Response.json({ error: e instanceof Error ? e.message : "Twin failed" }, { status: 500 });
+const fail = (e: unknown) => Response.json({ error: safeMessage(e, "Twin failed") }, { status: 500 });
 
 /** Muted kinds ("don't argue on this kind"). */
 export async function GET() {

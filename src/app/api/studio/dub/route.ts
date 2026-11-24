@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { deleteVoice, saveVoice, voiceState } from "@/lib/clips/dub";
 import { localHealth } from "@/lib/local-ai";
@@ -5,14 +6,14 @@ import { CONSENT_TEXT } from "@/lib/clips/dub-pure";
 
 // His voice for the bilingual dub: GET = is it set (and is the local dub tool installed), POST multipart {sample: WAV, consent: CONSENT_TEXT},
 // DELETE = remove the sample and the consent. The sample stays on this PC (<studio>/dub) and is only sent to the local AI service.
-export async function GET() {
+async function GET_() {
   const { res } = await requireUser();
   if (res) return res;
   const [voice, h] = await Promise.all([voiceState(), localHealth().catch(() => null)]);
   return Response.json({ voice, consentText: CONSENT_TEXT, tool: { running: !!h?.running, installed: !!h?.tools.dub } });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const f = await req.formData().catch(() => null);
@@ -23,9 +24,12 @@ export async function POST(req: Request) {
   return Response.json({ voice: await voiceState() });
 }
 
-export async function DELETE() {
+async function DELETE_() {
   const { res } = await requireUser();
   if (res) return res;
   await deleteVoice();
   return Response.json({ voice: await voiceState() });
 }
+export const GET = guard("studio/dub", GET_);
+export const POST = guard("studio/dub", POST_);
+export const DELETE = guard("studio/dub", DELETE_);

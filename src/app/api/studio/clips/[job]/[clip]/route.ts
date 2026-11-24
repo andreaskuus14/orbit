@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { getJob, startClipQueue, updateClip, withJobLock } from "@/lib/clips/factory";
@@ -5,7 +6,7 @@ import { isClipId, isJobId, isRejectReason } from "@/lib/clips/pure";
 
 // Approve/reject a clip, rename it or pick its thumbnail (thumb: one of clip.thumbOptions). Rejecting deletes its rendered files, so it can't be approved afterwards.
 // reason (a REJECT_REASONS chip) goes with a reject, or alone on an already rejected clip; it is stored as review feedback.
-export async function PATCH(req: Request, { params }: { params: Promise<{ job: string; clip: string }> }) {
+async function PATCH_(req: Request, { params }: { params: Promise<{ job: string; clip: string }> }) {
   const h = req.headers;
   if (crossSiteBlocked("PATCH", "/api/studio/clips", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { res } = await requireUser();
@@ -34,3 +35,4 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ job: s
     return Response.json({ clip });
   });
 }
+export const PATCH = guard("studio/clips/[job]/[clip]", PATCH_);

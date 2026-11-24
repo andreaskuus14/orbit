@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { addMissed, addWatch, checkNow, markChange, markWatch, removeWatch, watchBoard } from "@/lib/pagewatch";
 
@@ -11,7 +12,7 @@ const fail = (error: string, status = 400) => Response.json({ error }, { status 
 export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
-  try { return Response.json(await watchBoard()); } catch (e) { return fail(e instanceof Error ? e.message : "Couldn't read the watches", 500); }
+  try { return Response.json(await watchBoard()); } catch (e) { return fail(safeMessage(e, "Couldn't read the watches"), 500); }
 }
 
 export async function POST(req: Request) {

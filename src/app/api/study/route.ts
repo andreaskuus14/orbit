@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { BusyError } from "@/lib/claude";
 import { usageHardHold } from "@/lib/usage-meter";
@@ -17,7 +18,7 @@ const isId = (v: unknown): v is string => typeof v === "string" && v.length > 0 
 export async function GET() {
   const { user, res } = await requireUser();
   if (res) return res;
-  try { return Response.json(await studyView(user.id)); } catch (e) { return fail(e instanceof Error ? e.message : "Study cards failed", 500); }
+  try { return Response.json(await studyView(user.id)); } catch (e) { return fail(safeMessage(e, "Study cards failed"), 500); }
 }
 
 export async function POST(req: Request) {
@@ -70,6 +71,6 @@ export async function POST(req: Request) {
     return Response.json(await studyView(user.id));
   } catch (e) {
     if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
-    return fail(e instanceof Error ? e.message : "Study cards failed", 500);
+    return fail(safeMessage(e, "Study cards failed"), 500);
   }
 }

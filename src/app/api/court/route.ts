@@ -1,10 +1,11 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { courtCost, keepCourt, runCourt } from "@/lib/court";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const fail = (e: unknown, aborted = false) => Response.json({ error: e instanceof Error ? e.message : "Courtroom failed" }, { status: aborted ? 499 : (e as { status?: number })?.status ?? 503 });
+const fail = (e: unknown, aborted = false) => Response.json({ error: safeMessage(e, "Courtroom failed") }, { status: aborted ? 499 : (e as { status?: number })?.status ?? 503 });
 
 /** ?options=2|3 → what a run would cost (calls, model, usage so far, hold). Shown before he clicks. */
 export async function GET(req: Request) {

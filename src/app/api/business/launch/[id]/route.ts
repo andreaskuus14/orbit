@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { queueDraft } from "@/lib/clips/story";
@@ -35,7 +36,7 @@ export async function POST(req: Request, { params }: Ctx) {
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!isNicheId(id) || !b || !isPlatform(b.platform)) return fail("niche id and platform (shopify, woocommerce or etsy) required");
   if (b.action === "build") {
-    try { return Response.json({ launch: await buildLaunch(id, b.platform) }); } catch (e) { return fail(e instanceof Error ? e.message : "Couldn't build the package", 409); }
+    try { return Response.json({ launch: await buildLaunch(id, b.platform) }); } catch (e) { return fail(safeMessage(e, "Couldn't build the package"), 409); }
   }
   if (b.action === "quote") {
     const img = await launchImage(id, b.platform, b.index);

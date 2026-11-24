@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { addMistake, deleteMistake, listMistakes, setMistakeStatus, editMistakeFix } from "@/lib/mistake-memory";
@@ -14,14 +15,14 @@ function csrfBlock(req: Request, method: string) {
   });
 }
 
-export async function GET() {
+async function GET_() {
   const { user, res } = await requireUser();
   if (res) return res;
   const items = await listMistakes(user.id);
   return Response.json({ items });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   if (csrfBlock(req, "POST")) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { user, res } = await requireUser();
   if (res) return res;
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
   return Response.json({ item: out.saved }, { status: 201 });
 }
 
-export async function PATCH(req: Request) {
+async function PATCH_(req: Request) {
   if (csrfBlock(req, "PATCH")) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { user, res } = await requireUser();
   if (res) return res;
@@ -56,7 +57,7 @@ export async function PATCH(req: Request) {
   return Response.json({ ok: true });
 }
 
-export async function DELETE(req: Request) {
+async function DELETE_(req: Request) {
   if (csrfBlock(req, "DELETE")) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { user, res } = await requireUser();
   if (res) return res;
@@ -66,3 +67,7 @@ export async function DELETE(req: Request) {
   if (!ok) return Response.json({ error: "Not found" }, { status: 404 });
   return Response.json({ ok: true });
 }
+export const GET = guard("mistakes", GET_);
+export const POST = guard("mistakes", POST_);
+export const PATCH = guard("mistakes", PATCH_);
+export const DELETE = guard("mistakes", DELETE_);

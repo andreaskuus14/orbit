@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { companyView, startCompany } from "@/lib/company";
@@ -11,7 +12,7 @@ export async function GET() {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   try { return Response.json(await companyView(sb, user.id)); }
-  catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 }); }
+  catch (e) { return Response.json({ error: safeMessage(e, "Failed") }, { status: 500 }); }
 }
 
 const blocked = (method: string, h: Headers) =>
@@ -35,5 +36,5 @@ export async function POST(req: Request) {
     if (b?.tonight === true) { const err = await addCompanyTonightItem(user.id, b.goal); return err ? Response.json({ error: err }, { status: 400 }) : Response.json({ ok: true }, { status: 201 }); }
     const r = await startCompany(sb, user.id, b?.goal);
     return "error" in r ? Response.json(r, { status: 400 }) : Response.json(r, { status: 201 });
-  } catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 }); }
+  } catch (e) { return Response.json({ error: safeMessage(e, "Failed") }, { status: 500 }); }
 }

@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { readInbox } from "@/lib/herald-watch";
 
@@ -8,6 +9,6 @@ export async function GET() {
   try {
     return Response.json({ cards: await readInbox() });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Inbox unreadable" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Inbox unreadable") }, { status: 500 });
   }
 }

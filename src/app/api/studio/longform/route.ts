@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { draftVisual, getLong, listLong, longBusy, writeLong } from "@/lib/clips/longform";
 
@@ -26,6 +27,6 @@ export async function POST(req: Request) {
     } else return Response.json({ error: "action must be write or visual" }, { status: 400 });
     return typeof out === "string" ? Response.json({ error: out }, { status: 409 }) : Response.json({ plan: out });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Failed") }, { status: 500 });
   }
 }

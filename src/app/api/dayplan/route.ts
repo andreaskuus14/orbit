@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { dayplanKind } from "@/lib/dayplan-pure";
@@ -14,7 +15,7 @@ export async function GET(req: Request) {
     const [plan, rev, inbox] = await Promise.all([planDay(sb, user.id, { fresh }), review(), commitments()]);
     return Response.json({ plan, review: rev, commitments: inbox });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Plan failed" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Plan failed") }, { status: 500 });
   }
 }
 

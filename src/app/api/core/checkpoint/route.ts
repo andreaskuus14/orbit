@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { getCheckpoint, updateCheckpoint } from "@/lib/checkpoint";
 import { editLine, removeLine } from "@/lib/checkpoint-pure";
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
 // The chat id is checked against Supabase (RLS = owner only) first. CSRF: src/middleware.ts guards all /api/*.
 const bad = (error: string, status = 400) => Response.json({ error }, { status });
 
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const id = new URL(req.url).searchParams.get("id");
@@ -17,7 +18,7 @@ export async function GET(req: Request) {
   return Response.json(await getCheckpoint(user.id, id));
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const b = await req.json().catch(() => null);
@@ -26,3 +27,5 @@ export async function POST(req: Request) {
   const { out, cp } = await updateCheckpoint(user.id, b.id, (c) => (b.action === "edit" ? editLine(c, b.line, b.text) : removeLine(c, b.line)));
   return out ? Response.json(cp) : bad(b.action === "edit" ? "Line not found, or text empty / over 200 characters" : "Line not found", 404);
 }
+export const GET = guard("core/checkpoint", GET_);
+export const POST = guard("core/checkpoint", POST_);

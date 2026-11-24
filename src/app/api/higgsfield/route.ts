@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { weekUsage } from "@/lib/clips/story";
 
@@ -7,5 +8,5 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
-  try { return Response.json(await weekUsage()); } catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 }); }
+  try { return Response.json(await weekUsage()); } catch (e) { return Response.json({ error: safeMessage(e, "Failed") }, { status: 500 }); }
 }

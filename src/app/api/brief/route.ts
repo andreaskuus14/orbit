@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { getBrief, setBriefLife, snoozeItem } from "@/lib/brief";
 import { ledgerIssue } from "@/lib/ledger-pure";
@@ -12,7 +13,7 @@ export async function GET() {
   try {
     return Response.json(await getBrief(sb, user.id));
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Brief failed" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Brief failed") }, { status: 500 });
   }
 }
 

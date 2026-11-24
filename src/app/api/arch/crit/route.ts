@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude } from "@/lib/claude";
@@ -17,7 +18,7 @@ export const maxDuration = 180;
 // version, memoryId}: facts computed here, ONE model call. POST JSON {id, reply} → one follow-up answer appended to that crit.
 const fail = (error: string, status = 400) => Response.json({ error }, { status });
 const held = () => (stopAllOn() ? "Stop-all is on" : usageHardHold());
-const busy = (e: unknown, what: string) => (e instanceof BusyError ? fail("CORE is busy; try again in a moment", 429) : fail(`Couldn't ${what}: ${e instanceof Error ? e.message : "unknown error"}`, 502));
+const busy = (e: unknown, what: string) => (e instanceof BusyError ? fail("CORE is busy; try again in a moment", 429) : fail(`Couldn't ${what}: ${safeMessage(e, "unknown error")}`, 502));
 
 export async function POST(req: Request) {
   const h = req.headers;
@@ -55,7 +56,7 @@ export async function POST(req: Request) {
     const out = await createMemory(sb, user.id, { kind: "note", ...note, source: "arch.crit" });
     return Response.json({ crit, facts, version, memoryId: out.memory.id, content: note.content });
   } catch (e) {
-    return Response.json({ crit, facts, version, memoryId: null, content: note.content, saveError: e instanceof Error ? e.message : "Could not save" });
+    return Response.json({ crit, facts, version, memoryId: null, content: note.content, saveError: safeMessage(e, "Could not save") });
   }
 }
 

@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { traceExport } from "@/lib/trace-export-pure";
 
@@ -5,7 +6,7 @@ const COLS = "id, parent_id, agent, title, request, status, result, error, trace
 type Ctx = { params: Promise<{ id: string }> };
 
 /** S07: the run (task + two delegation levels, as the task view loads it) as a redacted JSON download, safe to share for debugging. */
-export async function GET(_: Request, { params }: Ctx) {
+async function GET_(_: Request, { params }: Ctx) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const { id } = await params;
@@ -17,3 +18,4 @@ export async function GET(_: Request, { params }: Ctx) {
   const body = JSON.stringify(traceExport([task, ...(kids ?? []), ...(nested ?? [])], new Date().toISOString()), null, 2);
   return new Response(body, { headers: { "content-type": "application/json; charset=utf-8", "content-disposition": `attachment; filename="orbit-trace-${id.replace(/[^\w-]/g, "").slice(0, 36)}.json"`, "cache-control": "no-store", "x-content-type-options": "nosniff" } });
 }
+export const GET = guard("tasks/[id]/trace", GET_);

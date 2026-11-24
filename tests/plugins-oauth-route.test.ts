@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { oauthRedirect } from "../src/lib/plugins-pure.ts";
+import * as apiErrorPure from "../src/lib/api-error-pure.ts";
+const apiRouteStub = { guard: (_name: string, fn: unknown) => fn }; // route tests call the raw handler
 
 // The sign-in route with fake auth + plugins: only the route's own checks (host, sec-fetch-site, callback mapping) run.
 const code = ts.transpileModule(readFileSync(new URL("../src/app/api/plugins/oauth/route.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -11,7 +13,7 @@ function route(finishes: Array<{ name?: string; error?: string }> = []) {
   const calls = { start: 0, finish: 0 };
   const m = { exports: {} as any };
   runInNewContext(code, { module: m, exports: m.exports, Response, URL,
-    require: (n: string) => {
+    require: (n: string) => { if (n.endsWith("api-route")) return apiRouteStub; if (n.endsWith("api-error-pure")) return apiErrorPure;
       if (n === "next/server") return { NextResponse: { redirect: (u: string | URL) => new Response(null, { status: 307, headers: { location: String(u) } }) } };
       if (n.endsWith("supabase/server")) return { requireUser: async () => ({}) };
       if (n.endsWith("lib/plugins-pure")) return { oauthRedirect };

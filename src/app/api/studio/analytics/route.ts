@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { getAnalytics } from "@/lib/yt-analytics";
 import { isVideoId, parseRange } from "@/lib/yt-analytics-pure";
@@ -15,12 +16,12 @@ export async function GET(req: Request) {
       const [i, postmortem] = await Promise.all([learnView(), postmortemView().catch(() => null)]);
       return Response.json({ shorts: i.lastShorts ?? [], checkedAt: i.checkedAt, warnings: i.warnings, postmortem });
     } catch (e) {
-      return Response.json({ error: e instanceof Error ? e.message : "Couldn't load Short results" }, { status: 502 });
+      return Response.json({ error: safeMessage(e, "Couldn't load Short results") }, { status: 502 });
     }
   }
   if (sp.get("forecast") === "1") {
     try { return Response.json(await forecastView()); }
-    catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Couldn't load forecasts" }, { status: 502 }); }
+    catch (e) { return Response.json({ error: safeMessage(e, "Couldn't load forecasts") }, { status: 502 }); }
   }
   const range = parseRange(sp.get("range")), video = sp.get("video") || undefined;
   if (!range) return Response.json({ error: "range must be 7, 28, 90 or 365" }, { status: 400 });
@@ -28,6 +29,6 @@ export async function GET(req: Request) {
   try {
     return Response.json(await getAnalytics({ range, videoId: video, force: sp.get("refresh") === "1" }));
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Couldn't load analytics" }, { status: 502 });
+    return Response.json({ error: safeMessage(e, "Couldn't load analytics") }, { status: 502 });
   }
 }

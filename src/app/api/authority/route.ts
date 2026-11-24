@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { randomUUID } from "node:crypto";
 import { requireUser } from "@/lib/supabase/server";
 import { authorityState, updateAuthority } from "@/lib/authority";
@@ -10,13 +11,13 @@ export const dynamic = "force-dynamic";
 // Profile → Authority (standing grants). GET: grants, workflow modes, policy version, Stop-all.
 // POST {action:"grant", workflow, actions, limits?, destinations?, account?, project?, expiresAt?} | {action:"pause", id, on} | {action:"revoke", id} | {action:"mode", workflow, mode|null}.
 // Grants cover reversible internal actions only (authority-pure newGrant); a change applies at the next action boundary (the file is re-read per check).
-export async function GET() {
+async function GET_() {
   const { res } = await requireUser();
   if (res) return res;
   return Response.json({ ...authorityState(), policyVersion: POLICY_VERSION, stopAll: stopAllOn() });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
@@ -32,3 +33,5 @@ export async function POST(req: Request) {
   }).catch((e) => { if (e instanceof StoreUnreadable) return `${e.message}. Fix or restore authority.json, then try again`; throw e; });
   return err ? Response.json({ error: err }, { status: 400 }) : GET();
 }
+export const GET = guard("authority", GET_);
+export const POST = guard("authority", POST_);

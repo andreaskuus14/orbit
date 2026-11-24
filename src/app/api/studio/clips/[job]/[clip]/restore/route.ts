@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { isClipId, isJobId } from "@/lib/clips/pure";
@@ -13,5 +14,5 @@ export async function POST(req: Request, { params }: { params: Promise<{ job: st
   const b = await req.json().catch(() => null);
   if (typeof b?.videoId !== "string") return Response.json({ error: "Read the original video before restoring" }, { status: 400 });
   try { return Response.json({ clip: await restoreOriginal(job, clip, b.videoId) }); }
-  catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Couldn't restore the original" }, { status: 409 }); }
+  catch (e) { return Response.json({ error: safeMessage(e, "Couldn't restore the original") }, { status: 409 }); }
 }

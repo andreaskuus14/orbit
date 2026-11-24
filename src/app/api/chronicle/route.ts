@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { getChronicle, titleMonth } from "@/lib/chronicle";
@@ -11,7 +12,7 @@ export async function GET(req: Request) {
   if (res) return res;
   const priv = new URL(req.url).searchParams.get("private") === "1";
   try { return Response.json(await getChronicle(sb, user.id, priv)); }
-  catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Could not build the chronicle" }, { status: 500 }); }
+  catch (e) { return Response.json({ error: safeMessage(e, "Could not build the chronicle") }, { status: 500 }); }
 }
 
 export async function POST(req: Request) {

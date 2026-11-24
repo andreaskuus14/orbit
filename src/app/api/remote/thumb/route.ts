@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { readFile } from "node:fs/promises";
 import { clipsDir } from "@/lib/clips/factory";
 import { resolveInside } from "@/lib/clips/pure";
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 // GET ?id=<approval id>: the thumbnail of a clip waiting for review, for the paired phone only (device-token cookie).
 // Only clips listed as waiting right now are served, so the id can't reach any other file.
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   if (remoteProblem()) return new Response(null, { status: 503 });
   const device = await deviceFromCookie();
   if (!device) return new Response(null, { status: 401 });
@@ -20,3 +21,4 @@ export async function GET(req: Request) {
   if (!data) return new Response(null, { status: 404 });
   return new Response(new Uint8Array(data), { headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff" } });
 }
+export const GET = guard("remote/thumb", GET_);

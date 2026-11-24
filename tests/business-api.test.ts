@@ -7,6 +7,8 @@ import * as pure from "../src/lib/business-pure.ts";
 import * as leadPure from "../src/lib/lead-loop-pure.ts";
 import * as crmPure from "../src/lib/prospect-crm-pure.ts";
 import * as regPure from "../src/lib/registry-pure.ts";
+import * as apiErrorPure from "../src/lib/api-error-pure.ts";
+const apiRouteStub = { guard: (_name: string, fn: unknown) => fn }; // route tests call the raw handler
 
 const code = ts.transpileModule(readFileSync(new URL("../src/app/api/business/route.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 function api(answer = "Tere! Kas minu eelmine idee võiks teile kasulik olla?", stage = "contacted", draft = "Tere! Pakun tasuta pilooti.", noTemplateColumn = false, heavy = false, noDraftedAt = "") {
@@ -25,7 +27,7 @@ function api(answer = "Tere! Kas minu eelmine idee võiks teile kasulik olla?", 
   const m = { exports: {} as any };
   runInNewContext(code, { module: m, exports: m.exports, Response, process: { env: {} },
     fetch: () => { throw new Error("Drafting must never send"); },
-    require: (name: string) => {
+    require: (name: string) => { if (name.endsWith("api-route")) return apiRouteStub; if (name.endsWith("api-error-pure")) return apiErrorPure;
       if (name.endsWith("business-pure")) return pure;
       if (name.endsWith("lead-loop-pure")) return leadPure;
       if (name.endsWith("supabase/server")) return { requireUser: async () => ({ sb }) };

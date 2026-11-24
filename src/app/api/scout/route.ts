@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { markCandidate, prototypeCandidate, runFeatureScout, scoutBoard, scoutGlowing } from "@/lib/feature-scout";
 import { stopAllOn } from "@/lib/stop-all";
@@ -12,7 +13,7 @@ export async function GET(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   if (new URL(req.url).searchParams.get("count")) return Response.json({ glowing: process.env.ORBIT_SCOUT?.trim() === "0" ? 0 : await scoutGlowing() });
-  try { return Response.json(await scoutBoard()); } catch (e) { return fail(e instanceof Error ? e.message : "Couldn't read the scout board", 500); }
+  try { return Response.json(await scoutBoard()); } catch (e) { return fail(safeMessage(e, "Couldn't read the scout board"), 500); }
 }
 
 export async function POST(req: Request) {

@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { startClipQueue, startDownload } from "@/lib/clips/factory";
 import { cleanPermission, parseClipUrl, validOptions } from "@/lib/clips/pure";
@@ -5,7 +6,7 @@ import { cleanPermission, parseClipUrl, validOptions } from "@/lib/clips/pure";
 export const dynamic = "force-dynamic";
 
 // Add from link: yt-dlp downloads a YouTube/Twitch video into the inbox (optionally then makes clips). Contract: src/lib/clips/types.ts.
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   startClipQueue();
@@ -25,3 +26,4 @@ export async function POST(req: Request) {
   if ("error" in r) { const { status, ...body } = r; return Response.json(body, { status }); }
   return Response.json(r);
 }
+export const POST = guard("studio/clips/download", POST_);

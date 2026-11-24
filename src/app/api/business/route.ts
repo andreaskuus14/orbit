@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { crossSiteBlocked } from "@/lib/csrf";
@@ -67,7 +68,7 @@ export async function POST(req: Request) {
       return finds.length ? Response.json({ finds, pastBudget: pastBudget() }) : fail("CORE found nothing usable; try other words", 502);
     } catch (e) {
       if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
-      return fail(`Couldn't search: ${e instanceof Error ? e.message : "unknown error"}`, 502);
+      return fail(`Couldn't search: ${safeMessage(e, "unknown error")}`, 502);
     }
   }
   if (b.action !== "add" && (typeof b.id !== "string" || !/^[0-9a-f-]{36}$/i.test(b.id))) return fail("id required");
@@ -124,7 +125,7 @@ export async function POST(req: Request) {
         return one(sb.from("prospects").update({ notes, updated_at: new Date().toISOString() }).eq("id", b.id as string).select(COLS).maybeSingle());
       } catch (e) {
         if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
-        return fail(`Couldn't research: ${e instanceof Error ? e.message : "unknown error"}`, 502);
+        return fail(`Couldn't research: ${safeMessage(e, "unknown error")}`, 502);
       }
     }
     case "followup":
@@ -168,7 +169,7 @@ export async function POST(req: Request) {
         return one(Promise.resolve(noColumn(tagged.error) ? saveDraft(save, patch) : tagged)); // no column before 0015: save untagged
       } catch (e) {
         if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
-        return fail(`Couldn't draft: ${e instanceof Error ? e.message : "unknown error"}`, 502);
+        return fail(`Couldn't draft: ${safeMessage(e, "unknown error")}`, 502);
       }
     }
     case "send": return sendDraft(sb, user.id, b.id as string, b.seen);

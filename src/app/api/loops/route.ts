@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { actLoop, loopsView, scanLoops } from "@/lib/loops";
@@ -9,7 +10,7 @@ export async function GET(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   try { return Response.json(new URL(req.url).searchParams.get("scan") === "1" ? await scanLoops(sb, user.id) : await loopsView(sb, user.id)); }
-  catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Open loops failed" }, { status: 500 }); }
+  catch (e) { return Response.json({ error: safeMessage(e, "Open loops failed") }, { status: 500 }); }
 }
 
 /** { key, action: "close" | "snooze" | "task" } — his own bookkeeping; task adds it to his day plan. */
