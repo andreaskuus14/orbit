@@ -755,7 +755,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const statusDrag = useDragPanel<HTMLElement>(!shown && view === "3d" ? "status" : null);
   const panelBody = (id: PanelId) => (id === "core" ? <CorePanel initial={pending?.text ?? null} initialSkill={pending?.skill} initialHere={pending?.here} onConsumed={consumed} onOpenMemory={openMemory} greeting={wakeGreeting} onGreeted={clearGreeting} />
       : id === "profile" ? <ProfilePanel />
-      : id === "analytics" ? <SimpleOr planet="analytics" onOpenTask={openTask} onOpenGoal={openGoal}><AnalyticsPanel /></SimpleOr>
+      : id === "analytics" ? <AnalyticsPanel onClose={() => setPanel(null)} />
       : id === "intelligence" ? <IntelligencePanel />
       : id === "operations" ? <OperationsPanel focusTask={focusTask} onOpen={setFocusTask} openMemory={openMemory} />
       : id === "agents" ? <AgentsPanel onOpenTask={openTask} />

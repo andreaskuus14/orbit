@@ -19,12 +19,7 @@ import { KnowsPanel } from "./KnowsPanel";
 import { EpisodesList } from "./EpisodesList";
 import { Rewind } from "./Rewind";
 import { LearnThis, StudyCards } from "./StudyCards";
-import { LifeStats } from "./LifeStats";
-import { UsageMeter } from "./UsageMeter";
-import { AgentScorecard } from "./AgentScorecard";
-import { OutcomesView, ReliabilityView, TimeCostView } from "./AnalyticsOutcomes";
-import { PerfRuns } from "./PerfRuns";
-import { ModelRuns } from "./ModelRuns";
+import { AnalyticsShell } from "./AnalyticsShell";
 import { LessonsSection } from "./LessonsCard";
 import { LangSwitch, useT } from "./i18n";
 import { loadUsageTotals } from "@/lib/analytics-usage";
@@ -422,50 +417,7 @@ function PlaybookSection() {
 }
 
 /* ---------------- ANALYTICS (real counts) ---------------- */
-export function AnalyticsPanel() {
-  const { t: tr } = useT();
-  const sb = useMemo(() => createClient(), []);
-  const [days, setDays] = useState<UsageDays>(7);
-  const views = [{ id: "outcomes", label: tr("ana.views.outcomes") }, { id: "reliability", label: tr("ana.views.reliability") }, { id: "cost", label: tr("ana.views.cost") }, { id: "perf", label: tr("ana.views.perf") }] as const;
-  const [view, setView] = useWorkspaceView("analytics", views);
-  const [s, setS] = useState<{ memories: number; messages: number; calls: number; tokens: number; usage: UsageTotal[]; events: { type: string; created_at: string }[] } | null>(null);
-  const [err, setErr] = useState("");
-  useEffect(() => {
-    let active = true;
-    setErr(""); setS(null);
-    (async () => {
-      const count = (t: string) => sb.from(t).select("id", { count: "exact", head: true });
-      const [m, msg, usage, ev] = await Promise.all([
-        count("memories"), count("messages"),
-        loadUsageTotals(sb, days),
-        sb.from("events").select("type, created_at").order("created_at", { ascending: false }).limit(8),
-      ]);
-      const bad = m.error || msg.error || ev.error;
-      if (bad) throw bad;
-      if (active) setS({ memories: m.count ?? 0, messages: msg.count ?? 0, ...usageSummary(usage), usage, events: ev.data ?? [] });
-    })().catch((e) => { if (active) setErr(e.message ?? "Could not load analytics"); });
-    return () => { active = false; };
-  }, [sb, days]);
-  const stat = (n: number | string, l: string) => <div className="card"><div className="text-2xl">{n}</div><div className="muted text-xs">{l}</div></div>;
-  const period = <div className="flex gap-2" role="group" aria-label={tr("an.period")}>{([7, 30] as const).map((d) => <button key={d} className="chip" aria-pressed={days === d} onClick={() => setDays(d)}>{tr("an.lastDays", { n: d })}</button>)}</div>;
-  return (
-    <WorkspaceFrame planet="analytics" title={tr("planet.analytics")} context={tr("ana.context")} action={period} views={views} view={view} onView={setView}>
-      {view === "outcomes" ? <OutcomesView days={days} /> : view === "reliability" ? <ReliabilityView days={days} /> : view === "cost" ? <TimeCostView days={days} /> :
-      err ? <p className="error" role="alert">{err}</p> : !s ? <p className="muted" role="status">{tr("common.loading")}</p> : <>
-      <div className="grid grid-cols-2 gap-2">{stat(s.memories, tr("an.memories"))}{stat(s.messages, tr("an.messages"))}{stat(s.calls, tr("an.calls", { n: days }))}{stat(s.tokens.toLocaleString(), tr("an.tokens", { n: days }))}</div>
-      <table className="w-full text-xs" aria-label={tr("an.tableAria", { n: days })}>
-        <thead><tr><th className="text-left">{tr("an.model")}</th><th className="text-right">{tr("an.callsCol")}</th><th className="text-right">{tr("an.tokensCol")}</th></tr></thead>
-        <tbody>{s.usage.map((g) => <tr key={JSON.stringify([g.model, g.purpose])}><td>{g.model} / {g.purpose}</td><td className="text-right num">{Number(g.calls).toLocaleString()}</td><td className="text-right num">{usageSummary([g]).tokens.toLocaleString()}</td></tr>)}{!s.usage.length && <tr><td colSpan={3} className="muted">{tr("an.noUsage")}</td></tr>}</tbody>
-      </table>
-      <p className="muted text-xs">{tr("an.subscription")}</p>
-      <UsageMeter />
-      <AgentScorecard />
-      <ModelRuns />
-      <PerfRuns />
-      <LifeStats />
-      <h3 className="h3">{tr("an.recent")}</h3>
-      <ul className="space-y-1 text-sm">{s.events.map((e, i) => { const event = eventLabel(e.type); return <li key={i}><span aria-hidden="true">{event.icon}</span> <b>{event.label}</b> <span className="muted">{when(e.created_at)}</span></li>; })}{!s.events.length && <li className="muted">{tr("an.nothing")}</li>}</ul>
-      </>}
-    </WorkspaceFrame>
-  );
+/** ANALYTICS: the planet shell (AnalyticsShell); one summary request, everything totalled on the server. */
+export function AnalyticsPanel({ onClose }: { onClose?: () => void }) {
+  return <AnalyticsShell onClose={onClose} />;
 }
