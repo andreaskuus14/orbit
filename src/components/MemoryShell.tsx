@@ -256,8 +256,8 @@ export const MemoryShell = memo(function MemoryShell({ stars, links, edges, tota
             : <ul className="mp-items" role="listbox" aria-label={t("mp.list")} ref={listRef} onKeyDown={onListKey}>
               {groups ? groups.map((g) => <li key={g.key} role="presentation" className="mp-group"><p className="mp-day" aria-hidden="true">{g.label}</p><ul role="group" aria-label={g.label}>{g.items.map(item)}</ul></li>)
                 : listRows.slice(0, limit).map(item)}
-              {listRows.length > limit && <li role="none" className="mp-more"><Button size="sm" variant="ghost" onClick={() => setLimit((x) => x + PAGE)}>{t("mp.more", { n: listRows.length - limit })}</Button></li>}
             </ul>}
+          {stars && !(filter.k === "tags" && !q) && listRows.length > limit && <div className="mp-more"><Button size="sm" variant="ghost" onClick={() => setLimit((x) => x + PAGE)}>{t("mp.more", { n: listRows.length - limit })}</Button></div>}
           {q && <p className="pu-sr" role="status">{t("mp.matchCount", { n: listRows.length })}</p>}
         </div>
 
@@ -376,7 +376,7 @@ function Detail({ id, readOnly, stars, links, edges, kindName, onOpen, onFly, on
         </>}
       {why && <section className="mp-related"><h4>{t("mp.d.sources")}</h4>{why.length ? <ul>{why.map((s) => <li key={s.id}><button type="button" className="mp-rel" onClick={() => onOpen(s.id)}><span className="mp-rel-i"><IconNote /></span><span className="mp-rel-t">{s.title}</span><span className="mp-rel-d">{s.source}</span></button></li>)}</ul> : <p className="mp-doc-note">{t("mp.d.noSource")}</p>}</section>}
       <section className="mp-related" aria-labelledby={`rel-${id}`}>
-        <div className="mp-related-head"><h4 id={`rel-${id}`}>{t("mp.d.connections")}</h4>{!m.locked && !readOnly && <Button size="sm" variant="ghost" aria-expanded={picking} onClick={() => setPicking(!picking)}>{t("mp.link")}</Button>}</div>
+        <div className="mp-related-head"><h3 id={`rel-${id}`}>{t("mp.d.connections")}</h3>{!m.locked && !readOnly && <Button size="sm" variant="ghost" aria-expanded={picking} onClick={() => setPicking(!picking)}>{t("mp.link")}</Button>}</div>
         {picking && <div className="mp-link-pick">
           <input className="mp-input" type="search" autoFocus value={pick} placeholder={t("mp.linkPh")} aria-label={t("mp.linkPh")} onChange={(e) => setPick(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setPicking(false); } }} />
           {pickHits.length > 0 && <ul className="pu-list">{pickHits.map((s) => <li key={s.id}><Row title={s.title} sub={kindName(s.kind)} lead={<IconPlus />} onClick={() => void link(s)} /></li>)}</ul>}

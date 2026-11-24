@@ -25,8 +25,8 @@ export default function ClipPicks({ clip: c, busy, onPick, onMore, onReview, mor
         ))}
         {cr?.rewrite && <button className={`${chip} text-left leading-snug`} aria-pressed={cr.rewrite === c.title} disabled={busy || cr.rewrite === c.title}
           onClick={() => onPick({ title: cr.rewrite })} aria-label={`Use the critics' rewrite: ${cr.rewrite}`}>🧐 {cr.rewrite}</button>}
-        <button className={chip} onClick={onMore} disabled={moreBusy} aria-label={`Get more title options for ${c.title}`}>{moreBusy ? "Writing…" : "✨ More titles"}</button>
-        {onReview && !cr && <button className={chip} onClick={onReview} disabled={moreBusy} aria-label={`Let the title critics review the options for ${c.title}`}>🧐 Review titles</button>}
+        <button className={chip} onClick={onMore} disabled={moreBusy} aria-label={`More titles for ${c.title}`}>{moreBusy ? "Writing…" : "✨ More titles"}</button>
+        {onReview && !cr && <button className={chip} onClick={onReview} disabled={moreBusy} aria-label={`Review titles for ${c.title}`}>🧐 Review titles</button>}
       </div>
       {!!cr?.notes.length && <ul className="muted text-[10px] leading-snug" aria-label="Title critics' notes">{cr.notes.map((n) => <li key={n}>🧐 {n}</li>)}</ul>}
       {thumbs.length > 1 && (

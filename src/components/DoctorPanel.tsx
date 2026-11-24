@@ -212,7 +212,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
   const [busy, setBusy] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const spoke = useRef(false);
-  const box = useRef<HTMLElement>(null);
+  const box = useRef<HTMLDivElement>(null);
   useDialogFocus(box, true, onClose);
 
   const run = useCallback(async () => {
@@ -248,7 +248,7 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
   useEffect(() => () => stopSpeech(), []); // closing the panel stops the read-out
 
   return (
-    <aside ref={box} tabIndex={-1} className="glass drawer" style={{ zIndex: 40 }} role="dialog" aria-label={t("doc.title")}>
+    <div ref={box} tabIndex={-1} className="glass drawer" style={{ zIndex: 40 }} role="dialog" aria-label={t("doc.title")}>
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="brand text-base">🩺 {t("doc.title")}</h2>
         <div className="flex gap-2">
@@ -311,6 +311,6 @@ export function DoctorPanel({ onClose, speak }: { onClose: () => void; speak?: b
             <p className="muted mt-3 text-[10px]">{t("doc.checkedIn", { s: (report.ms / 1000).toFixed(1), at: new Date(report.at).toLocaleTimeString() })}</p>
           </>}
       </div>
-    </aside>
+    </div>
   );
 }

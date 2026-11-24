@@ -668,7 +668,7 @@ function JournalBody({ st }: { st: LifeState }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const Hidden = ({ k, children }: { k: string; children: string }) => shown.has(k)
     ? <p className="lf-entry-text">{children}</p>
-    : <button type="button" className="lf-hidden" onClick={() => show(k)} aria-label={t("life.showEntry")}>
+    : <button type="button" className="lf-hidden" onClick={() => show(k)}>
         <span className="lf-blur" aria-hidden="true">{children.slice(0, 160)}</span>
         <span className="lf-note">{t("life.hiddenEntry")}</span>
       </button>;

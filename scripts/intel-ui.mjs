@@ -34,10 +34,10 @@ createRoot(document.getElementById("root")).render(
   <main className="orbit-shell relative h-dvh w-full overflow-hidden" data-view="3d">
     <header className="absolute inset-x-0 top-0 z-30 flex h-14 items-center px-4"><span className="brand">Orbital</span></header>
     <NewsGlobe reduced onClose={n} quality="low" />
-    <aside className="glass drawer" role="dialog" aria-label="Intelligence">
+    <div className="glass drawer" role="dialog" aria-label="Intelligence">
       <div className="drag-handle mb-3 flex items-center justify-between"><h2 className="brand world-header flex items-center gap-2 text-base">Intelligence</h2><button className="chip">Close</button></div>
       <div className="min-h-0 flex-1 overflow-y-auto"><IntelligencePanel /></div>
-    </aside>
+    </div>
     <form className="cmdbar glass flex gap-2"><input className="field w-full" placeholder="Ask ORBIT…" aria-label="Ask ORBIT" /></form>
   </main>);`, loader: "tsx", resolveDir: resolve("src") },
   bundle: true, write: false, outdir: "/tmp/intel-ui-out", format: "esm", jsx: "automatic", logLevel: "error",
@@ -152,39 +152,39 @@ try {
     await page.goto(`${ORIGIN}/`);
     await page.waitForTimeout(9000); // swiftshader: the globe's first frames are slow
     await page.screenshot({ path: `${OUT}/${TAG}-${name}.png` });
-    let text = await page.locator("aside.drawer").innerText();
+    let text = await page.locator(".drawer").innerText();
     check(!/\d+\s*ms\)|fact check \d+ backed/i.test(text), `${TAG}-${name}: no debug numbers in the panel`);
     const research = page.getByRole("tab", { name: "Research" }); // before: the briefing text lives in the Research tab
-    if (manual && await research.count()) { await research.click(); await page.waitForTimeout(600); text = await page.locator("aside.drawer").innerText(); }
-    if (name === "desktop") await page.screenshot({ path: `${OUT}/${TAG}-briefing.png`, clip: await page.locator("aside.drawer").boundingBox() });
+    if (manual && await research.count()) { await research.click(); await page.waitForTimeout(600); text = await page.locator(".drawer").innerText(); }
+    if (name === "desktop") await page.screenshot({ path: `${OUT}/${TAG}-briefing.png`, clip: await page.locator(".drawer").boundingBox() });
     check(!/\(not backed by the source\)|\(only one source\)/.test(text), `${TAG}-${name}: no inline trust marks in the briefing text`);
     if (TAG !== "before") { // after: the one surface: briefing first, trust in a popover, actions behind "…", the sheet
       check(await page.getByText("Back to the simple page").count() === 0, `${TAG}-${name}: one page (no simple/advanced switch)`);
-      const firstH = await page.locator("aside.drawer h3").first().innerText().catch(() => "");
+      const firstH = await page.locator(".drawer h3").first().innerText().catch(() => "");
       check(/for you/i.test(firstH), `${TAG}-${name}: briefing starts with For you (${firstH})`);
       if (name === "desktop") {
-        const mark = page.locator("aside.drawer article").filter({ hasText: "Roblox opens" }).getByRole("button", { name: /Show the evidence/ }).first();
+        const mark = page.locator(".drawer article").filter({ hasText: "Roblox opens" }).getByRole("button", { name: /Show the evidence/ }).first();
         await mark.hover(); await page.waitForTimeout(300);
-        check(/did not check out/i.test(await page.locator("aside.drawer").innerText()), `${TAG}: evidence shows on hover`);
-        await page.screenshot({ path: `${OUT}/${TAG}-trust-hover.png`, clip: await page.locator("aside.drawer").boundingBox() });
+        check(/did not check out/i.test(await page.locator(".drawer").innerText()), `${TAG}: evidence shows on hover`);
+        await page.screenshot({ path: `${OUT}/${TAG}-trust-hover.png`, clip: await page.locator(".drawer").boundingBox() });
         await page.mouse.move(5, 5);
-        const dots = page.locator("aside.drawer article").first().getByRole("button", { name: /^Actions for/ });
+        const dots = page.locator(".drawer article").first().getByRole("button", { name: /^Actions for/ });
         await dots.focus(); await page.keyboard.press("Enter"); await page.waitForTimeout(250);
         check(await page.getByRole("menuitem", { name: /^Useful/ }).first().isVisible(), `${TAG}: "…" menu opens from the keyboard`);
-        await page.screenshot({ path: `${OUT}/${TAG}-menu.png`, clip: await page.locator("aside.drawer").boundingBox() });
+        await page.screenshot({ path: `${OUT}/${TAG}-menu.png`, clip: await page.locator(".drawer").boundingBox() });
         await page.keyboard.press("Escape");
         await page.getByRole("button", { name: /^More: following/ }).click(); await page.waitForTimeout(200);
         await page.getByRole("menuitem", { name: "Following" }).click(); await page.waitForTimeout(600);
         check(await page.getByRole("tab", { name: "Watches" }).isVisible(), `${TAG}: sheet shows Following / Watches / Research / Sources`);
         await page.screenshot({ path: `${OUT}/${TAG}-sheet.png` });
         await page.keyboard.press("Escape"); await page.waitForTimeout(300);
-        check(await page.locator("aside.drawer article").first().locator("img").count() > 0, `${TAG}: lead story has a picture`);
-        check(/Near you/.test(await page.locator("aside.drawer").innerText()), `${TAG}: Near you section`);
-        check(await page.locator("aside.drawer [role=region]").count() > 0, `${TAG}: breaking ticker`);
-        await page.locator("aside.drawer").evaluate((el) => { el.querySelector(".min-h-0")?.scrollTo(0, 0); });
-        await page.screenshot({ path: `${OUT}/${TAG}-briefing-top.png`, clip: await page.locator("aside.drawer").boundingBox() });
+        check(await page.locator(".drawer article").first().locator("img").count() > 0, `${TAG}: lead story has a picture`);
+        check(/Near you/.test(await page.locator(".drawer").innerText()), `${TAG}: Near you section`);
+        check(await page.locator(".drawer [role=region]").count() > 0, `${TAG}: breaking ticker`);
+        await page.locator(".drawer").evaluate((el) => { el.querySelector(".min-h-0")?.scrollTo(0, 0); });
+        await page.screenshot({ path: `${OUT}/${TAG}-briefing-top.png`, clip: await page.locator(".drawer").boundingBox() });
         const near = page.locator("#intel-near"); await near.scrollIntoViewIfNeeded(); await page.waitForTimeout(400);
-        await page.screenshot({ path: `${OUT}/${TAG}-near-you.png`, clip: await page.locator("aside.drawer").boundingBox() });
+        await page.screenshot({ path: `${OUT}/${TAG}-near-you.png`, clip: await page.locator(".drawer").boundingBox() });
         check(await page.getByRole("button", { name: "New briefing" }).isVisible(), `${TAG}: Esc closes the sheet`);
       }
     }

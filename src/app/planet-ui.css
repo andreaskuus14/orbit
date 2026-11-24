@@ -179,7 +179,8 @@ button.pu-row:active, a.pu-row:active { background: var(--pu-press); }
 .pu-menu[data-align="start"] { right: auto; left: 0; transform-origin: top left; }
 .pu-menu-item { display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 10px; border: 0; border-radius: var(--pu-r-sm); background: transparent;
   color: var(--pu-ink); font: var(--pu-body); text-align: left; cursor: pointer; }
-.pu-menu-item:hover, .pu-menu-item:focus-visible { background: var(--pu-press); box-shadow: none; }
+.pu-menu-item:hover { background: var(--pu-press); box-shadow: none; }
+.pu-menu-item:focus-visible { background: var(--pu-press); box-shadow: inset 0 0 0 2px var(--pu-accent-ink); } /* keyboard: a ring, not only a tint */
 .pu-menu-item[data-danger] { color: var(--pu-bad); }
 .pu-menu-item:disabled { color: var(--pu-ink-3); cursor: default; background: transparent; }
 .pu-menu-item kbd { margin-left: auto; padding: 0; border: 0; background: none; box-shadow: none; font: var(--pu-caption); color: var(--pu-ink-3); font-family: var(--pu-font); }

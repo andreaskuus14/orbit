@@ -750,7 +750,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   async function signOut() { try { clearProjectSession(sessionStorage); } catch { /* storage off */ } await sb.auth.signOut(); location.href = "/login"; }
 
   const docked = !!behind && WORLDS.includes(behind);
-  const drawerDrag = useDragPanel<HTMLElement>(drawer && !docked ? `drawer:${drawer}` : null);
+  const drawerDrag = useDragPanel<HTMLDivElement>(drawer && !docked ? `drawer:${drawer}` : null);
   useDialogFocus(drawerDrag.ref, !!panel && !WORLDS.includes(panel)); // Esc is the window handler above
   const statusDrag = useDragPanel<HTMLElement>(!shown && view === "3d" ? "status" : null);
   const panelBody = (id: PanelId) => (id === "core" ? <CorePanel initial={pending?.text ?? null} initialSkill={pending?.skill} initialHere={pending?.here} onConsumed={consumed} onOpenMemory={openMemory} greeting={wakeGreeting} onGreeted={clearGreeting} />
@@ -873,13 +873,13 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><RemoteCall compact /><PcConfirm /></>}
 
       {drawer && !WORLDS.includes(drawer) && (
-        <aside ref={drawerDrag.ref} tabIndex={-1} className={`glass drawer${drawer === "core" ? " drawer-core" : ""}${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
+        <div ref={drawerDrag.ref} tabIndex={-1} className={`glass drawer${drawer === "core" ? " drawer-core" : ""}${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
           aria-hidden={!panel || undefined} inert={!panel || undefined}>
           <div className="drag-handle mb-3 flex items-center justify-between" {...(docked ? {} : drawerDrag.handle)}><h2 className="brand world-header flex items-center gap-2 text-base">{drawer && drawer !== "profile" && <WorldEmblem id={drawer} size={28} />}<MaskText key={title} text={title} />{drawer && <WorldHeaderArt id={drawer} />}</h2><button className="chip" onClick={() => setPanel(null)} aria-label={t("hud.closePanel")} title={t("hud.closeEsc")}>{t("common.close")}</button></div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {drawer && <PlanetBoundary key={drawer} name={drawer}>{panelBody(drawer)}</PlanetBoundary>}
           </div>
-        </aside>
+        </div>
       )}
 
       {boot >= 1 && <>

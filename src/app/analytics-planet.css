@@ -112,7 +112,7 @@ button.ana-stat:focus-visible { outline: none; box-shadow: var(--pu-focus); }
 .ana-spark > span[data-on] { opacity: 1; }
 
 @media (max-width: 640px) { .ana-life { grid-template-columns: 1fr; } .ana-form { grid-template-columns: 1fr; } }
-@media (prefers-reduced-motion: reduce) { .ana-bars-track > span, .ana-stack[aria-busy] * { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .ana-bars-track > span, .ana-stack[aria-busy] *, button.ana-stat { transition: none; } button.ana-stat:active { transform: none; } }
 html[data-motion="off"] .ana-shell *, html[data-motion="off"] .ana-shell *::before { animation: none !important; transition: none !important; }
 /* Needs you: one line of text, the action on the right */
 .ana-cards .pu-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; }

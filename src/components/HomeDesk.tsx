@@ -85,7 +85,7 @@ export function HomeDesk({ refresh, onOpenNeeds, onOpenAll, onOpenTask, onNeeds,
   return (
     <section className="glass home-desk" data-fold={fold || undefined} aria-labelledby="home-desk-title" data-tour="progress">
       <header className="flex items-center gap-2">
-        <h2 id="home-desk-title" className="min-w-0 flex-1 truncate text-sm font-medium" role="status">{stopAll ? t("home.paused") : line}</h2>
+        <h2 id="home-desk-title" className="min-w-0 flex-1 truncate text-sm font-medium"><span role="status">{stopAll ? t("home.paused") : line}</span></h2>
         <button type="button" className={`chip shrink-0${needN ? " home-needs-on" : ""}`} onClick={onOpenNeeds} data-tour="needs">
           {t("needs.title")}{needN ? ` · ${badge(needN)}` : ""}
         </button>

@@ -25,7 +25,7 @@ const Code = memo(function Code({ b }: { b: Extract<Block, { kind: "code" }> }) 
         {!b.open && <button type="button" className="chat-mini" aria-label={t("chat.copyCode")}
           onClick={() => void navigator.clipboard?.writeText(b.code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}>{copied ? `✓ ${t("cf.copied")}` : t("common.copy")}</button>}
       </figcaption>
-      <pre className={open || b.open ? "" : "chat-folded"}><code>{b.code}</code></pre>
+      <pre tabIndex={0} className={open || b.open ? "" : "chat-folded"}><code>{b.code}</code></pre>
       {!b.open && lines > CODE_FOLD && <button type="button" className="chat-mini chat-more" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? t("chat.less") : t("chat.allLines", { n: lines })}</button>}
     </figure>
   );

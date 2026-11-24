@@ -337,7 +337,7 @@ export default function ClipFactory({ reduced, onClose, review, failed }: { redu
   };
   const goSchedule = () => { selectTab("clips"); requestAnimationFrame(() => document.getElementById("schedule-all")?.focus()); };
   // One obvious next step, in priority order: review > schedule > connect YouTube > wait for work > find videos.
-  const next = fresh ? <button className="btn" onClick={() => openReview()} aria-label={tr("cf.reviewAria", { n: fresh })}>{tn("cf.readyReview", fresh)}</button>
+  const next = fresh ? <button className="btn" onClick={() => openReview()}>{tn("cf.readyReview", fresh)}</button>
     : unpublished && yt?.canUpload ? <button className="btn" onClick={goSchedule} aria-label={tr("cf.scheduleAllAria", { n: unpublished })}>🕒 {tr("cf.approvedSchedule", { n: unpublished })}</button>
     : unpublished && yt?.configured ? <a className="btn" href="/api/studio/oauth/start">🔗 {tr("cf.connectToPublish", { n: unpublished })}</a>
     : workText ? workNext
@@ -575,7 +575,7 @@ export default function ClipFactory({ reduced, onClose, review, failed }: { redu
                 ))}
               </ul>
             )) : <>
-            {fresh > 0 && <button className="btn mb-2" onClick={() => openReview()} aria-label={tr("cf.reviewAria", { n: fresh })}>{tr("cf.reviewOne", { n: fresh })}</button>}
+            {fresh > 0 && <button className="btn mb-2" onClick={() => openReview()}>{tr("cf.reviewOne", { n: fresh })}</button>}
             {!jobs.length && <Empty text={tr("cf.noClips")} action={<button className="btn" onClick={() => selectTab("find")}>{tr("cf.findVideos")}</button>} />}
             <div className="space-y-3">
               {jobs.map((j) => (

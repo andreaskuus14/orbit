@@ -164,10 +164,9 @@ export function StudioShell({ channel, videos, configured, fetchedAt, loading, e
           {stages.map((s, i) => (
             <li key={s.key}>
               <button type="button" className="st-stage" data-live={s.live || undefined} data-zero={s.n === 0 || undefined}
-                aria-label={k("sx.stageLabel", { stage: k(`sx.stage.${s.key}`), n: s.n })}
                 onClick={() => onTool({ mode: "clips", review: s.key === "check" && s.n > 0 })}>
                 <span className="st-stage-n pu-num">{s.n}</span>
-                <span className="st-stage-name">{k(`sx.stage.${s.key}`)}</span>
+                <span className="st-stage-name">{k(`sx.stage.${s.key}`)}</span><span className="pu-sr">{k("sx.stageOpen")}</span>
                 <span className="st-stage-bar" aria-hidden="true"><i style={{ ["--p" as string]: String(s.share ?? (s.n ? 1 : 0)) }} /></span>
               </button>
               {i < STAGES.length - 1 && <span className="st-stage-sep" aria-hidden="true" />}

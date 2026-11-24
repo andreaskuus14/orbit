@@ -226,10 +226,10 @@ try {
       // continue in CORE (or CORE itself when the answer opened there)
       const cont = page.getByRole("button", { name: /continue in chat|jätka vestluses/i });
       if (await cont.count()) { await cont.first().click(); await page.waitForTimeout(1200); }
-      else if (!(await page.locator("aside.drawer").count())) { await page.evaluate(() => dispatchEvent(new CustomEvent("orbit:navigate", { detail: { panel: "core" } }))); await page.waitForTimeout(1200); }
+      else if (!(await page.locator(".drawer").count())) { await page.evaluate(() => dispatchEvent(new CustomEvent("orbit:navigate", { detail: { panel: "core" } }))); await page.waitForTimeout(1200); }
       await shoot(page, `${w}-core`);
       // a second question typed in CORE itself: thinking → steps → streamed answer with numbered sources
-      const cbox = page.locator("aside.drawer textarea, aside.drawer input[type=text], aside.drawer input:not([type])").last();
+      const cbox = page.locator(".drawer textarea, .drawer input[type=text], .drawer input:not([type])").last();
       if (await cbox.count()) {
         await cbox.fill("And which cafés should I start with?");
         await page.evaluate(() => { window.__lt.length = 0; });
@@ -240,7 +240,7 @@ try {
       // close CORE: back to home
       const tc = Date.now(); await page.keyboard.press("Escape"); await page.waitForTimeout(500); P.coreCloseMs = Date.now() - tc;
       await shoot(page, `${w}-after-core`);
-      P.coreText = (await page.locator("aside.drawer").first().innerText().catch(() => "")).slice(0, 600);
+      P.coreText = (await page.locator(".drawer").first().innerText().catch(() => "")).slice(0, 600);
       check(!/undefined|\bnull\b|NaN|Invalid Date/.test(await page.locator("body").innerText()), `${TAG}-${w}: no undefined/null/NaN on screen`);
       P.errors = errors.slice(0, 8); P.apiCalls = [...new Set(calls.filter((c) => c.includes("/api/")).map((c) => c.split("?")[0]))];
       void t0;

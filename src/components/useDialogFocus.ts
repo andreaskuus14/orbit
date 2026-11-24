@@ -16,6 +16,7 @@ export function useDialogFocus(ref: RefObject<HTMLElement | null>, open = true, 
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || !close.current) return;
       if (document.querySelector("dialog[open], :popover-open")) return; // that overlay is on top: its own Esc closes it
+      if ((e.target as Element | null)?.closest?.('[role="menu"]')) return; // an open "…" menu: its own Esc closes just the menu
       e.preventDefault(); close.current();
     };
     addEventListener("keydown", onKey, true);
