@@ -8,6 +8,14 @@ export type StationTask = {
 export type AgentStatus = "idle" | "working" | "waiting" | "failed";
 
 /** Newest first. Active work (waiting > running/queued) wins over the newest finished task. */
+/** Columns for GET /api/tasks?fields=status: just what the station's status dots, holograms and activity line need
+ *  (no request, result, error, trace or pending), so the 3 s poll stays small. Tasks have no updated_at: the three times cover it. */
+export const STATUS_COLS = "id, parent_id, agent, title, status, created_at, started_at, finished_at";
+export function taskCols(fields: string | null, full: string): string { return fields === "status" ? STATUS_COLS : full; }
+
+/** Cut-off activity text: the quote in the text closes with the ellipsis, never a second stray quote. */
+export function clipLine(text: string, max = 70): string { return text.length > max ? `${text.slice(0, max)}…` : text; }
+
 export function currentTask<T extends StationTask>(tasks: T[], agent: string): T | null {
   const mine = tasks.filter((t) => t.agent === agent).sort((a, b) => time(b.created_at) - time(a.created_at));
   return mine.find((t) => t.status === "awaiting_approval") ?? mine.find((t) => t.status === "running" || t.status === "queued") ?? mine[0] ?? null;

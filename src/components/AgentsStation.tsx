@@ -1,7 +1,7 @@
 "use client";
 import { WarmCompile } from "./WarmCompile";
 import StateNote from "./StateNote";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
@@ -29,7 +29,7 @@ import { beamPairs, chainActive } from "@/lib/mission-pure";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
 import { smoothDamp } from "@/lib/smooth-damp-pure";
-import { ORBIT_R, STATUS_LABEL, activityFeed, agentStatus, clamp, currentTask, orbitPos, statusGlow, statusVisual, streamFrac, type AgentStatus } from "@/lib/station-pure";
+import { ORBIT_R, STATUS_LABEL, activityFeed, agentStatus, clipLine, clamp, currentTask, orbitPos, statusGlow, statusVisual, streamFrac, type AgentStatus, type StationTask } from "@/lib/station-pure";
 import { MaskText } from "./MaskText";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { NightPlan, OPS_HREF, Scorecards, WorkerCards, type Deps, type ToolInfo } from "./Workforce";
@@ -461,13 +461,28 @@ function Rig() {
 
 /* ---------- data + UI ---------- */
 
+type TipHandle = { move: (id: string | null, x: number, y: number) => void };
+/** The ship tooltip keeps its own state, so hovering re-renders only this span, not the Canvas tree. */
+const HoverTip = forwardRef<TipHandle, { label: (id: string) => string | null }>(function HoverTip({ label }, ref) {
+  const [h, setH] = useState<{ id: string | null; x: number; y: number }>({ id: null, x: 0, y: 0 });
+  useImperativeHandle(ref, () => ({ move: (id, x, y) => setH((p) => (p.id === id && Math.abs(p.x - x) < 2 && Math.abs(p.y - y) < 2 ? p : { id, x, y })) }), []);
+  const text = h.id ? label(h.id) : null;
+  if (!text) return null;
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+      <span className="globe-tip" style={{ transform: `translate(${h.x + 14}px, ${h.y + 12}px)` }}>{text}</span>
+    </div>
+  );
+});
+
 type Props = { paused?: boolean /* kept mounted but hidden: polls stop via WorldPaused in usePoll */; flat?: boolean; onClose: () => void; reduced: boolean; quality?: QualityMode; onOpenTask?: (id: string) => void; focusGoal?: string | null; radarUrl?: string | null; onRadarDone?: () => void };
 
 export default function AgentsStation({ flat, onClose, reduced, quality = "auto", onOpenTask, focusGoal, radarUrl, onRadarDone, paused = false }: Props) {
   const glr = useGlRecovery();
   const [visible, setVisible] = useState(true);
   const [agents, setAgents] = useState<Agent[] | null>(null);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasks, setTasks] = useState<StationTask[]>([]);
+  const [full, setFull] = useState<Task[]>([]);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [manage, setManage] = useState(false);
@@ -488,7 +503,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
     if (selected) { last.current = selected; return; }
     if (last.current) rows.current.get(last.current)?.focus();
   }, [selected]);
-  const [hover, setHover] = useState<{ id: string | null; x: number; y: number }>({ id: null, x: 0, y: 0 });
+  const tip = useRef<TipHandle>(null); // hover lives in <HoverTip>: a pointer move must not re-render the station
 
   useEffect(() => {
     const on = () => setVisible(document.visibilityState === "visible");
@@ -498,16 +513,21 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   }, []);
 
   const loadAgents = useCallback(() => { api<{ agents: Agent[]; deps?: Deps; tools?: ToolInfo[] }>("/api/agents").then((r) => { setAgents(r.agents); setDeps(r.deps ?? null); setToolInfo(r.tools ?? []); setErr(""); }).catch((e) => setErr(e.message)); }, []);
-  const loadTasks = useCallback(() => { api<{ tasks: Task[] }>("/api/tasks").then((r) => { setTasks(r.tasks); setErr(""); }).catch((e) => setErr(e.message)); }, []);
+  // Status dots poll a slim list every 3 s; full rows (result, trace) only feed the home cards, so they load slowly and only there.
+  const loadTasks = useCallback(() => { api<{ tasks: StationTask[] }>("/api/tasks?fields=status").then((r) => { setTasks(r.tasks); setErr(""); }).catch((e) => setErr(e.message)); }, []);
+  const loadFull = useCallback(() => { api<{ tasks: Task[] }>("/api/tasks?lite=1").then((r) => setFull(r.tasks)).catch(() => {}); }, []);
+  const home = !selected && !manage && !manual && !focusGoal && !radarUrl;
   usePoll(loadAgents, 10_000, visible);
   usePoll(loadTasks, 3_000, visible);
+  usePoll(loadFull, 15_000, visible && home);
+  const changed = useCallback(() => { loadTasks(); if (home) loadFull(); }, [loadTasks, loadFull, home]);
   // Chains only advance when GET /api/chains runs: 4 s while one is live (or the Teams tab is open), else a slow check for new ones.
   const loadChains = useCallback(() => { api<{ chains: ChainView[] }>("/api/chains").then((r) => { setChains(r.chains); setChainErr(""); }).catch((e) => setChainErr(e.message)); }, []);
   usePoll(loadChains, chainActive(chains ?? []) || tab === "teams" ? 4_000 : 30_000, visible);
   const handoffs = useMemo(() => beamPairs(chains ?? []), [chains]);
 
   const onHover = useCallback((id: string | null, x: number, y: number) => {
-    setHover((h) => (h.id === id && Math.abs(h.x - x) < 2 && Math.abs(h.y - y) < 2 ? h : { id, x, y }));
+    tip.current?.move(id, x, y);
     document.body.style.cursor = id ? "pointer" : "";
   }, []);
   useEffect(() => () => { document.body.style.cursor = ""; }, [paused]); // leaving mid-hover must not keep the hand cursor
@@ -524,7 +544,6 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   }, [list, tasks, status]);
   const feed = useMemo(() => activityFeed(tasks, 10), [tasks]);
   const agent = list.find((a) => a.slug === selected) ?? null;
-  const hovered = list.find((a) => a.slug === hover.id);
   const q = useLeanQuality(quality);
 
   return (
@@ -552,26 +571,20 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
         {process.env.NODE_ENV === "development" && <FrameMark name="agents" />}
       </Canvas>}
 
-      {hovered && (
-        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-          <span className="globe-tip" style={{ transform: `translate(${hover.x + 14}px, ${hover.y + 12}px)` }}>
-            {hovered.name} · {currentTask(tasks, hovered.slug)?.title.slice(0, 60) ?? STATUS_LABEL[status[hovered.slug]]}
-          </span>
-        </div>
-      )}
+      <HoverTip ref={tip} label={(id) => { const a = list.find((x) => x.slug === id); return a ? `${a.name} · ${currentTask(tasks, a.slug)?.title.slice(0, 60) ?? STATUS_LABEL[status[a.slug]]}` : null; }} />
 
       <section className="glass hud-panel world-panel panel-in absolute z-[14] inset-x-3 bottom-32 max-h-[40dvh] overflow-y-auto p-3 min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:w-[30rem] min-[900px]:max-h-[calc(100dvh-11rem)]"
         aria-label="Agents station">
         {!agents ? (
           <StateNote state={err ? "failed" : "loading"} what={err || undefined} action={{ label: t("state.retry"), run: loadAgents }} />
         ) : agent ? (
-          <AgentMission key={agent.slug} agent={agent} status={status[agent.slug]} visible={visible} onClose={() => setSelected(null)} onChanged={loadTasks} onOpenTask={onOpenTask} />
+          <AgentMission key={agent.slug} agent={agent} status={status[agent.slug]} visible={visible} onClose={() => setSelected(null)} onChanged={changed} onOpenTask={onOpenTask} />
         ) : manage ? (
           <><button className="chip mb-3" onClick={() => { setManage(false); loadAgents(); }}>← Station</button><AgentsPanel onOpenTask={(id) => onOpenTask?.(id)} /></>
         ) : !manual && !focusGoal && !radarUrl ? ( // AI-first home; the station tools sit behind "Manual tools"
           <PlanetHome planet="agents" onManual={() => setManual(true)} onOpenTask={(id) => onOpenTask?.(id)}
-            work={taskWork(tasks, lang, Date.now())}
-            results={tasks.filter((x) => x.status === "done" && !x.parent_id).slice(0, 6).map((x) => ({
+            work={taskWork(full, lang, Date.now())}
+            results={full.filter((x) => x.status === "done" && !x.parent_id).slice(0, 6).map((x) => ({
               id: x.id, title: x.title, sub: `${(x.result ?? "").replace(/[#*_`>]/g, "").split(/\n+/).find((l) => l.trim())?.slice(0, 90) ?? ""}${x.finished_at ? ` · ${new Date(x.finished_at).toLocaleDateString()}` : ""}`,
               next: t("ph.seeResult"), open: () => onOpenTask?.(x.id),
             }))} />
@@ -615,7 +628,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
         <span className="hud-title shrink-0 text-[0.7rem]">ACTIVITY</span>
         {feed.map((e) => (
           <span key={e.key} className="shrink-0">
-            <b>{names[e.agent] ?? e.agent}</b> <span className="muted">{e.text.length > 70 ? `${e.text.slice(0, 70)}…”` : e.text}</span> <span className="muted" aria-hidden>· {ago(e.at)}</span>
+            <b>{names[e.agent] ?? e.agent}</b> <span className="muted">{clipLine(e.text)}</span> <span className="muted" aria-hidden>· {ago(e.at)}</span>
           </span>
         ))}
         {!feed.length && <span className="muted">No agent activity yet. Give an agent a job.</span>}
