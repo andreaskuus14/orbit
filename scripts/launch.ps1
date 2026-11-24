@@ -28,6 +28,7 @@ $buildId = Join-Path $distLive "BUILD_ID"
 $failMark = Join-Path $distNew "BUILD_FAILED" # written when a build fails; stops retrying until an input changes
 $stoppedFlag = Join-Path $root "orbit-stopped.flag" # stop.ps1: stopped on purpose, so the watchdog leaves it off
 $updateFlag = Join-Path $root "orbit-update.request" # written by ORBIT (POST /api/system/update, owner only): pull main + rebuild while running
+$verifyMark = Join-Path $root "orbit-verify.pending" # written at every swap: the supervisor checks the new release, whoever built it
 $updateLog = Join-Path $root "orbit-update.log"      # output of the self-update's git pull and npm ci
 $busyUrl = "http://127.0.0.1:3000/api/studio/busy"  # auth-free, localhost only: is a clip render, download, scout run or publish going?
 $buildFailedMsg = "Build failed $([char]0x2014) still running the previous version. Fix the errors, then npm run app:rebuild"
@@ -82,6 +83,7 @@ function Switch-Release {
     throw
   }
   Write-Log "New build installed (the previous one is kept in .next-prev)."
+  try { Set-Content -LiteralPath $verifyMark -Value (Get-Head) } catch { }
   Copy-PrevStatic
 }
 
@@ -289,20 +291,37 @@ function Start-Server([string]$npmScript) {
   return $proc
 }
 
-# After an update swap. "ok": the server answered /api/health with the new BUILD_ID and was still running after
-# $timeoutSec; "exited": it stopped within $timeoutSec; "timeout": it never answered with the new build.
+# HTTP status of an auth-free page (0 = no answer). /login renders the root layout, which /api/health doesn't.
+function Get-PageStatus([string]$path = "/login") {
+  try { return [int](Invoke-WebRequest "http://127.0.0.1:3000$path" -UseBasicParsing -TimeoutSec 20).StatusCode }
+  catch { try { if ($_.Exception.Response) { return [int]$_.Exception.Response.StatusCode } } catch { }; return 0 }
+}
+
+# After an update swap. "ok": the server answered /api/health with the new BUILD_ID, reported no fatal problem, served
+# /login without a server error and was still running after $timeoutSec. Otherwise "exited" (it stopped), "timeout"
+# (never answered with the new build), "broken" (fatal problem, e.g. settings missing from the build; reason in
+# $script:releaseWhy) or "page" (/login kept failing). $script:releaseWarn: non-fatal problems to log.
 function Wait-NewRelease($proc, [string]$expectId, [int]$timeoutSec = 120) {
   $deadline = (Get-Date).AddSeconds($timeoutSec)
-  $healthy = $false
+  $healthy = $false; $pageOk = $false
+  $script:releaseWhy = ""; $script:releaseWarn = @()
   while ((Get-Date) -lt $deadline) {
     if ($proc.WaitForExit(2000)) { return "exited" }
     if (-not $healthy) {
       $h = Get-Health
       # The build id check: an old server still dying on the port mustn't count as the new one answering.
-      if ($h -and (-not $expectId -or "$($h.buildId)" -eq $expectId)) { $healthy = $true }
+      if ($h -and (-not $expectId -or "$($h.buildId)" -eq $expectId)) {
+        $fatal = @($h.problems.fatal | Where-Object { $_ })
+        if ($fatal.Count) { $script:releaseWhy = $fatal -join " "; return "broken" }
+        $healthy = $true
+      }
     }
+    if ($healthy -and -not $pageOk) { $code = Get-PageStatus; $pageOk = $code -ge 200 -and $code -lt 500 }
   }
-  if ($healthy) { return "ok" } else { return "timeout" }
+  if ($healthy) { $h = Get-Health; if ($h) { $script:releaseWarn = @($h.problems.warn | Where-Object { $_ }) } }
+  if (-not $healthy) { return "timeout" }
+  if (-not $pageOk) { return "page" }
+  return "ok"
 }
 
 # Undoes an update swap (the server must be stopped): the bad .next becomes .next-build (keeps its build cache for
@@ -352,14 +371,27 @@ if ($Supervise) {
     }
     $npmScript = if ($devMode) { "dev" } else { "start" }
     $started = Get-Date
+    # A swap made by a launcher (double-click, wake build) is checked here too, not only one from the update button.
+    if (Test-Path $verifyMark) {
+      if (-not $verify -and -not $devMode) { $verify = @{ Id = "$(Get-Content $buildId -Raw -ErrorAction SilentlyContinue)".Trim(); Commit = "$(Get-Content $verifyMark -Raw -ErrorAction SilentlyContinue)".Trim() } }
+      Remove-Item -LiteralPath $verifyMark -Force -ErrorAction SilentlyContinue
+    }
     $p = Start-Server $npmScript
     if ($verify) {
       # Never leave ORBIT down on a bad update: the new release must answer /api/health and keep running for 2
       # minutes, or the previous one is swapped back in and started.
       $v = Wait-NewRelease $p $verify.Id 120
-      if ($v -eq "ok") { Write-Log "Update verified: $(Get-Short $verify.Commit) answers and kept running for 2 minutes." }
+      if ($v -eq "ok") {
+        Write-Log "Update verified: $(Get-Short $verify.Commit) answers, shows its pages and kept running for 2 minutes."
+        foreach ($w in $script:releaseWarn) { Write-Log "!!!!! ORBIT runs, but: $w" }
+      }
       else {
-        $why = if ($v -eq "exited") { "the new version stopped (exit code $($p.ExitCode)) within 2 minutes" } else { "the new version didn't answer /api/health within 2 minutes" }
+        $why = switch ($v) {
+          "exited" { "the new version stopped (exit code $($p.ExitCode)) within 2 minutes" }
+          "broken" { "the new version can't work: $($script:releaseWhy)" }
+          "page" { "the new version answers but its pages fail (/login gave a server error or no answer for 2 minutes)" }
+          default { "the new version didn't answer /api/health within 2 minutes" }
+        }
         Write-Log "!!!!! $why; rolling back to the previous version."
         Stop-Server $p
         $badCommit = $verify.Commit

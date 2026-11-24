@@ -4,6 +4,7 @@ import { isAllowedEmail } from "@/lib/allow";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { publicOrigin } from "@/lib/origin-pure";
 import { csp, cspApplies, newNonce } from "@/lib/csp-pure";
+import { missingSettings, missingSettingsText } from "@/lib/release-check-pure";
 import { allowHit, clientIp, isCloud, laptopOnlyApi, LAPTOP_ONLY_TEXT, rateRule, type Buckets } from "@/lib/role-pure";
 
 const buckets = ((globalThis as { __orbitRate?: Buckets }).__orbitRate ??= new Map());
@@ -39,6 +40,11 @@ export async function middleware(request: NextRequest) {
   const withCsp = (r: NextResponse) => { if (policy) r.headers.set("Content-Security-Policy", policy); return r; };
   let response = NextResponse.next({ request });
 
+  // Missing Supabase settings: say so plainly instead of a blank page (health still answers, with the reason).
+  const missing = missingSettings({ NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY });
+  if (missing.length && request.nextUrl.pathname !== "/api/health") {
+    return new NextResponse(missingSettingsText(missing), { status: 503, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
+  }
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

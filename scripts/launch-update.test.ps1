@@ -85,6 +85,19 @@ Check ((Wait-StudioIdle 600) -and (LogHas "Couldn't ask ORBIT whether Studio is 
 function FakeProc([int]$exitAfter) { $o = [pscustomobject]@{ n = 0; exitAfter = $exitAfter }; $o | Add-Member ScriptMethod WaitForExit { param($ms) $this.n++; return ($this.exitAfter -gt 0 -and $this.n -ge $this.exitAfter) }; $o }
 $script:health = $null
 function Get-Health { $script:health }
+$script:page = 200
+function Get-PageStatus { $script:page }
+$script:health = [pscustomobject]@{ buildId = "NEW"; problems = [pscustomobject]@{ fatal = @("NEXT_PUBLIC_SUPABASE_URL is missing"); warn = @() } }
+Check ((Wait-NewRelease (FakeProc 0) "NEW" 1) -eq "broken" -and $script:releaseWhy -match "SUPABASE_URL") "Wait-NewRelease: fatal problem in health -> broken, reason kept"
+$script:health = [pscustomobject]@{ buildId = "NEW"; problems = [pscustomobject]@{ fatal = @(); warn = @("Database migrations missing") } }
+Check ((Wait-NewRelease (FakeProc 0) "NEW" 1) -eq "ok" -and $script:releaseWarn -contains "Database migrations missing") "Wait-NewRelease: warnings don't roll back, but are kept"
+$script:page = 500
+Check ((Wait-NewRelease (FakeProc 0) "NEW" 1) -eq "page") "Wait-NewRelease: /login keeps failing -> page"
+$script:page = 0
+Check ((Wait-NewRelease (FakeProc 0) "NEW" 1) -eq "page") "Wait-NewRelease: /login never answers -> page"
+$script:page = 307
+Check ((Wait-NewRelease (FakeProc 0) "NEW" 1) -eq "ok") "Wait-NewRelease: a redirect counts as the page working"
+$script:page = 200
 $script:health = [pscustomobject]@{ buildId = "NEW" }
 Check ((Wait-NewRelease (FakeProc 0) "NEW" 1) -eq "ok") "Wait-NewRelease: answers with the new build and stays up -> ok"
 Check ((Wait-NewRelease (FakeProc 1) "NEW" 5) -eq "exited") "Wait-NewRelease: exits -> exited"
