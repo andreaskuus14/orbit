@@ -12,8 +12,9 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, tilesFor, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, lerpPose, moveMs } from "@/lib/earth-pure";
 
 import type { EarthData } from "@/lib/earth-data-pure";
+import { BUILDINGS_MAX_ALT, TOTAL as MAX_BUILDINGS, extrude, tilesAround, type Building } from "@/lib/earth-buildings-pure";
 export type { EarthData };
-export type EarthOpts = { tileUrl: (k: TileKind, z: number, x: number, y: number) => string; sunMs?: number; dpr?: number; onTown?: (t: TownNews) => void; rightInset?: () => number; home?: { lon: number; lat: number; name: string } };
+export type EarthOpts = { tileUrl: (k: TileKind, z: number, x: number, y: number) => string; sunMs?: number; dpr?: number; onTown?: (t: TownNews) => void; rightInset?: () => number; buildingsUrl?: (x: number, y: number) => string; home?: { lon: number; lat: number; name: string } };
 
 const ACCENT = "#f2b35e"; // the one warm news accent; UI text is cool white
 const LOG = `#include <common>\n#include <logdepthbuf_pars_vertex>\n`;
@@ -135,6 +136,21 @@ const beamFS = `${LOGF} uniform vec3 uColor; uniform float uOp; uniform float uT
 void main(){ \n#include <logdepthbuf_fragment>\n float a = pow(clamp(1. - vUv.y, 0., 1.), 1.6) * uOp; float side = 1. - abs(vUv.x*2.-1.);
   gl_FragColor = vec4(uColor*1.4, a * side); }`;
 
+const bldVS = `${LOG} attribute float shade; varying float vS; varying vec3 vN; varying vec3 vW;
+void main(){ vS = shade; vN = normalize(normal); vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
+// OSM buildings: pale stone walls lit by the sun, a little darker at the foot (cheap ambient occlusion), lighter roofs, the same
+// haze as the terrain so they sink into the distance; a faint warm glow on the night side.
+const bldFS = `${LOGF} uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; varying float vS; varying vec3 vN; varying vec3 vW;
+void main(){ \n#include <logdepthbuf_fragment>\n
+  vec3 up = normalize(vW); float sun = dot(up, uSun), lit = smoothstep(-.1, .2, sun);
+  float roof = step(.95, vS);
+  vec3 base = mix(vec3(.5,.47,.43), vec3(.42,.33,.28), roof); // limestone walls, the old town's red-brown roofs
+  float diff = max(dot(normalize(vN), uSun), 0.);
+  vec3 c = base * (.16 + .62*diff*lit + .14*lit) * mix(.5, 1., smoothstep(0., .85, vS));
+  c += vec3(1.,.72,.4) * .08 * (1. - lit) * (1. - roof);
+  float dist = length(uCam - vW) * 6371.; c = mix(c, vec3(.78,.76,.72) * mix(.4, 1., lit), (1. - exp(-dist * .004)) * .35);
+  gl_FragColor = vec4(c, uOp); }`;
+
 /* ---------- the scene ---------- */
 
 export function createEarth(host: HTMLElement, o: EarthOpts) {
@@ -204,7 +220,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   ]);
 
   /* terrain patches */
-  type Patch = { mesh: THREE.Mesh; u: { uOp: { value: number }; uNightK: { value: number } }; lo: number; hi: number };
+  type Patch = { mesh: THREE.Mesh; u: { uOp: { value: number }; uNightK: { value: number } }; lo: number; hi: number; box: Box; ground: (lon: number, lat: number) => number };
   const patches: Patch[] = [];
   async function patch(box: Box, zi: number, ze: number, exag: number, lift: number, seg: number, lo: number, hi: number, haze: number, lakes = 0) {
     const [day, night, elev] = await Promise.all([mosaic(o, "day", box, zi), mosaic(o, "night", box, Math.min(zi, 8)), mosaic(o, "elev", box, ze)]);
@@ -238,7 +254,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ vertexShader: terrVS, fragmentShader: terrFS, uniforms: u, transparent: true }));
     mesh.renderOrder = 2 + patches.length;
     scene.add(mesh);
-    patches.push({ mesh, u, lo, hi });
+    patches.push({ mesh, u, lo, hi, box, ground: (lon, lat) => hAt(lon, lat) * exag + lift });
   }
   // Estonia (z8 imagery ≈ 600 m/px, z8 elevation) and central Tallinn (z14 imagery ≈ 5 m/px drawn, z12 elevation)
   const terrainReady = ready.then(() => Promise.all([
@@ -258,6 +274,52 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     }
     return focusCache.get(key)!;
   }
+
+  /* OSM buildings (city close-ups, below BUILDINGS_MAX_ALT): one merged mesh per z14 tile, standing on the finest terrain patch */
+  const bU = { uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 } };
+  const bMat = new THREE.ShaderMaterial({ vertexShader: bldVS, fragmentShader: bldFS, uniforms: bU, transparent: true });
+  const bTiles = new Map<string, { mesh?: THREE.Mesh; n: number; retry?: number }>();
+  let bBusy = 0, bLast = 0;
+  const groundAt = (lon: number, lat: number) => {
+    let best: Patch | null = null;
+    for (const q of patches) if (lon >= q.box.w && lon <= q.box.e && lat >= q.box.s && lat <= q.box.n && (!best || q.box.e - q.box.w < best.box.e - best.box.w)) best = q;
+    return best ? best.ground(lon, lat) : 0;
+  };
+  function addBuildings(key: string, x: number, y: number, bs: Building[]) {
+    const used = [...bTiles.values()].reduce((s, t) => s + (t.mesh ? t.n : 0), 0);
+    bs = bs.slice(0, Math.max(0, MAX_BUILDINGS - used));
+    if (!bs.length) { bTiles.set(key, { n: 0 }); return; }
+    const c = { lon: bs[0].r[0][0], lat: bs[0].r[0][1] };
+    const ex = extrude(bs, c, groundAt, 1.6); // a little taller than life, like the terrain's exaggeration, so the city reads from above
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(ex.positions, 3)); g.setAttribute("normal", new THREE.BufferAttribute(ex.normals, 3));
+    g.setAttribute("shade", new THREE.BufferAttribute(ex.shade, 1)); g.setIndex(new THREE.BufferAttribute(ex.index, 1));
+    const mesh = new THREE.Mesh(g, bMat); mesh.position.set(...ex.origin); mesh.renderOrder = 8; mesh.frustumCulled = true; g.computeBoundingSphere();
+    scene.add(mesh); bTiles.set(key, { mesh, n: ex.count });
+  }
+  const loadBuildings = async (x: number, y: number, key: string) => {
+    bBusy++; bTiles.set(key, { n: 0, retry: Infinity });
+    try {
+      const r = await fetch(o.buildingsUrl!(x, y)); const j = r.ok ? await r.json() : null;
+      await terrainReady;
+      if (!bTiles.has(key)) return; // dropped meanwhile
+      if (!j || j.offline) bTiles.set(key, { n: 0, retry: performance.now() + 10 * 60_000 }); else addBuildings(key, x, y, j.buildings ?? []);
+    } catch { bTiles.set(key, { n: 0, retry: performance.now() + 10 * 60_000 }); } finally { bBusy--; }
+  };
+  function updateBuildings(p: Pose) {
+    if (!o.buildingsUrl || p.alt > BUILDINGS_MAX_ALT * 1.2) return;
+    const now = performance.now();
+    if (now - bLast < 400) return; bLast = now;
+    const want = tilesAround(p.lon, p.lat, p.alt), keys = new Set(want.map((t) => `${t.x}/${t.y}`));
+    for (const t of want) {
+      const k = `${t.x}/${t.y}`, have = bTiles.get(k);
+      if (bBusy >= 2) break;
+      if (!have || (have.retry !== undefined && have.retry < now)) void loadBuildings(t.x, t.y, k);
+    }
+    if (bTiles.size > keys.size + 12) for (const [k, t] of bTiles) if (!keys.has(k) && t.retry !== Infinity) { if (t.mesh) { scene.remove(t.mesh); t.mesh.geometry.dispose(); } bTiles.delete(k); if (bTiles.size <= keys.size + 6) break; }
+  }
+  /** For the fixture stills: put a tile's buildings in directly. */
+  const putBuildings = async (x: number, y: number, bs: Building[]) => { await terrainReady; addBuildings(`${x}/${y}`, x, y, bs); };
 
   /* story layers */
   const glow: { m: THREE.ShaderMaterial; lo: number; hi: number; base: number }[] = [];
@@ -311,7 +373,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       const beam = new THREE.Mesh(g, m); beam.applyMatrix4(tangentAt(t.lon, t.lat, 0.00004)); layer.add(beam);
       glow.push({ m, lo: 50, hi: 2500, base: k });
       ringAt(t.lon, t.lat, 2.2 + 3 * Math.sqrt(t.count / max), 50, 2500, k);
-      if (i < 8) label(`<b>${esc(t.name)}</b><i>${t.count}</i>`, t.lon, t.lat, 0.00004, t.kind === "city" ? 50 : 60, t.kind === "city" ? 2200 : 700, `pin ${t.kind}`, t);
+      if (i < 20) label(`<b>${esc(t.name)}</b><i>${t.count}</i>`, t.lon, t.lat, 0.00004, t.kind === "city" ? 50 : 60, t.kind === "city" ? 2200 : 700, `pin ${t.kind}`, t);
     });
     for (const t of d.towns.filter((x) => x.kind === "district").slice(0, 8)) {
       ringAt(t.lon, t.lat, 0.25 + 0.35 * Math.sqrt(t.count / max), 0.5, 60, 1);
@@ -348,11 +410,11 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   const card = document.createElement("div"); card.className = "earth-card"; hud.appendChild(card);
   const lower = document.createElement("div"); lower.className = "earth-lower"; hud.appendChild(lower);
   const place = document.createElement("div"); place.className = "earth-place"; hud.appendChild(place);
-  const credit = document.createElement("div"); credit.className = "earth-credit"; credit.textContent = "Imagery: Sentinel-2 cloudless 2016 by EOX (Copernicus) · NASA Black Marble · AWS Terrain Tiles · GeoNames"; hud.appendChild(credit);
+  const credit = document.createElement("div"); credit.className = "earth-credit"; credit.textContent = "Imagery: Sentinel-2 cloudless 2016 by EOX (Copernicus) · NASA Black Marble · AWS Terrain Tiles · GeoNames · Buildings © OpenStreetMap contributors"; hud.appendChild(credit);
   let cardAt: THREE.Vector3 | null = null;
   const ret = document.createElement("div"); ret.className = "earth-reticle"; ret.innerHTML = "<i></i><i></i><i></i><i></i><b></b>"; hud.appendChild(ret);
   const readout = document.createElement("div"); readout.className = "earth-readout"; hud.appendChild(readout);
-  let lastAlt = 0;
+  let lastAlt = 0, regionName: string | null = null;
 
   /* camera */
   let pose: Pose = { lon: 18, lat: 38, alt: 16000, tilt: 0, heading: 0 };
@@ -379,6 +441,9 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     cloudU.uT.value = t; U.uT.value = t; cloudU.uFade.value = band(alt, 3000, 1e9, 1.0); // gone before the country shot: half-faded clouds read as grey blobs
     for (const q of patches) { q.u.uOp.value = band(alt, q.lo, q.hi, 0.9); q.u.uNightK.value = band(alt, 120, 1e9, 1.5); } // coarse city lights only from high up
     dof.uniforms.uAmt.value = 0.3 * band(alt, 0.5, 60, 1.2);
+    bU.uOp.value = band(alt, 0.05, BUILDINGS_MAX_ALT, 0.6); bMat.transparent = bU.uOp.value < 0.99; bMat.depthWrite = !bMat.transparent || bU.uOp.value > 0.5;
+    for (const t of bTiles.values()) if (t.mesh) t.mesh.visible = bU.uOp.value > 0.01;
+    updateBuildings(p);
     bloom.strength = 0.45;
     for (const g of glow) { g.m.uniforms.uOp.value = g.base * band(alt, g.lo, g.hi, 0.8); g.m.uniforms.uT.value = t; }
     composer.render();
@@ -408,7 +473,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     readout.textContent = `${Math.abs(p.lat).toFixed(3)}° ${ns}  ${Math.abs(p.lon).toFixed(3)}° ${ew}   alt ${alt >= 100 ? Math.round(alt).toLocaleString("en") : alt.toFixed(1)} km   tilt ${Math.round(p.tilt)}°`;
     const lvl = levelAt(alt);
     hud.dataset.level = lvl;
-    place.textContent = names[lvl];
+    place.textContent = lvl !== "orbit" && regionName ? regionName : names[lvl];
     timeline.style.opacity = String(band(alt, 3000, 1e9, 0.8));
     lower.style.opacity = String(band(alt, 3000, 1e9, 0.8));
     nearEl.style.opacity = String(band(alt, 0.5, 30, 0.8));
@@ -446,7 +511,10 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
 
   return {
     ready: ready.then(() => terrainReady),
-    setData, frame, flyTo, playPath, focusPlace,
+    setData, frame, flyTo, playPath, focusPlace, putBuildings,
+    /** Where the camera is now (EarthView asks for the region's news once it settles). */
+    view: () => ({ ...pose }),
+    setPlaceName(s: string | null) { regionName = s; },
     start() { cancelAnimationFrame(raf); t0 = performance.now(); loop(); },
     stop() { cancelAnimationFrame(raf); },
     renderPathAt(p: Shot[], ms: number) { frame(poseAt(p, ms).pose, ms); const gl = renderer.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.finish(); },

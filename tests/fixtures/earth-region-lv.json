@@ -1,0 +1,9 @@
+[
+  { "title": "Rīgā atklāj jaunu tramvaja līniju", "url": "https://example.invalid/1", "source": "Fixture A", "published_at": "2026-11-24T07:10:00Z" },
+  { "title": "Riga port sees record autumn traffic", "url": "https://example.invalid/2", "source": "Fixture B", "published_at": "2026-11-24T08:00:00Z" },
+  { "title": "Jūrmalā vētra nogāž kokus", "url": "https://example.invalid/3", "source": "Fixture A", "published_at": "2026-11-24T06:30:00Z" },
+  { "title": "Jelgavā remontēs tiltu pār Lielupi", "url": "https://example.invalid/4", "source": "Fixture C", "published_at": "2026-11-24T09:20:00Z" },
+  { "title": "Valmierā sāk ziemas festivālu", "url": "https://example.invalid/5", "source": "Fixture B", "published_at": "2026-11-23T18:00:00Z" },
+  { "title": "Plūdi skar Ogre pilsētas centru", "url": "https://example.invalid/6", "source": "Fixture C", "published_at": "2026-11-24T05:00:00Z" },
+  { "title": "Riga council approves budget", "url": "https://example.invalid/7", "source": "Fixture C", "published_at": "2026-11-24T10:00:00Z" }
+]
