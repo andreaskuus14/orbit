@@ -17,7 +17,7 @@ export const PLANETS: PlanetDef[] = [
   { id: "analytics", name: "ANALYTICS", color: "#60a5fa", radius: 29.3, speed: 0.034, size: 0.55, phase: 1, live: true, blurb: "How you spent your time, and what the AI cost." },
   // Beyond the outer belt (32–34): the YouTube channel sits apart as its own system.
   { id: "studio", name: "STUDIO", color: "#f43f5e", radius: 37, speed: 0.03, size: 0.6, phase: 4, live: true, blurb: "Your YouTube channel: Shorts, videos and how they do." },
-  { id: "business", name: "BUSINESS", color: "#38bdf8", radius: 47.5, speed: 0.021, size: 0.5, phase: 4, live: true, blurb: "Finding clients, first messages and follow-ups. Nothing is sent without you." },
+  { id: "business", name: "BUSINESS", color: "#fb923c", radius: 47.5, speed: 0.021, size: 0.5, phase: 4, live: true, blurb: "Finding clients, first messages and follow-ups. Nothing is sent without you." },
   { id: "arch", name: "ARCH", color: "#94a3b8", radius: 51, speed: 0.019, size: 0.55, phase: 4, live: true, blurb: "Design a house in 3D by talking, with amounts and costs." },
 ];
 

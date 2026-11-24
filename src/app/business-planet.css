@@ -1,0 +1,37 @@
+/* BUSINESS planet (components/BusinessShell.tsx), on top of planet-ui.css. MIX look: calm rows and numbers; the pipeline map
+   is the one precise layer. Only transform and opacity animate. */
+.drawer:has(.biz-shell) > .drag-handle { display: none; }
+.biz-shell { width: 100%; max-width: none; }
+.biz-shell .pu-body { gap: 20px; }
+.biz-cards { display: flex; flex-direction: column; gap: 8px; }
+.biz-note { margin: 0; font: var(--pu-meta); color: var(--pu-ink-3); }
+.biz-link { padding: 0; border: 0; background: none; font: inherit; color: var(--pu-accent-ink); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.biz-link:focus-visible { outline: none; box-shadow: var(--pu-focus); border-radius: 4px; }
+.biz-trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.biz-stat { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: var(--pu-r-lg); background: var(--pu-raised); box-shadow: inset 0 0 0 1px var(--pu-line); min-width: 0; }
+.biz-stat-label { font: var(--pu-caption); color: var(--pu-ink-2); }
+.biz-stat-value { font: var(--pu-title); color: var(--pu-ink); }
+.biz-stat-sub { font: var(--pu-meta); color: var(--pu-ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* the pipeline map */
+.biz-map { margin: 8px 0 0; padding: 8px; border-radius: var(--pu-r-lg); box-shadow: inset 0 0 0 1px var(--pu-line); background: radial-gradient(circle at 50% 50%, var(--pu-accent-soft), transparent 70%); }
+.biz-map svg { display: block; width: 100%; max-width: 280px; height: auto; margin: 0 auto; overflow: visible; }
+.biz-ring { fill: none; stroke-width: 1; opacity: 0.35; }
+.biz-core { fill: var(--pu-accent); }
+.biz-node { cursor: pointer; outline: none; }
+.biz-hit { fill: transparent; stroke: transparent; stroke-width: 2; }
+.biz-node:hover .biz-hit { fill: rgba(255, 255, 255, 0.06); }
+.biz-node:focus-visible .biz-hit { stroke: var(--pu-accent-ink); }
+.biz-node[data-lost] { opacity: 0.5; }
+.biz-due { fill: none; stroke: var(--pu-warn); stroke-width: 1.5; transform-box: fill-box; transform-origin: center; }
+@media (prefers-reduced-motion: no-preference) { html:not([data-motion="off"]) .biz-due { animation: biz-pulse 1.6s ease-in-out infinite; } }
+@keyframes biz-pulse { 50% { opacity: 0.35; transform: scale(1.25); } }
+.biz-map-tip { margin: 4px 0 0; min-height: 18px; text-align: center; font: var(--pu-meta); color: var(--pu-ink-2); }
+@media (max-width: 420px) { .biz-trio { grid-template-columns: 1fr 1fr; } }
+
+/* the older sheet parts (contracts, invoices, deals…) keep their markup but take the calm planet type: Inter, sentence case */
+.biz-shell .chip, .biz-shell .btn, .biz-shell .field, .biz-shell select { font-family: var(--pu-font); text-transform: none; letter-spacing: 0; font-size: 13px; border-radius: var(--pu-r-sm); }
+.biz-shell .chip[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--pu-accent-line); background: var(--pu-accent-soft); color: var(--pu-ink); }
+.biz-shell .uppercase { text-transform: none; }
+.biz-shell .tracking-widest { letter-spacing: 0; }
+.biz-shell .card { border-radius: var(--pu-r-lg); }

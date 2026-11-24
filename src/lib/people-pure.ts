@@ -5,7 +5,7 @@
 
 export const AFFINITIES = ["business", "studio", "roblox", "life"] as const;
 export type Affinity = (typeof AFFINITIES)[number];
-export const AFFINITY_COLOR: Record<Affinity, string> = { business: "#38bdf8", studio: "#f43f5e", roblox: "#f472b6", life: "#34d399" };
+export const AFFINITY_COLOR: Record<Affinity, string> = { business: "#fb923c", studio: "#f43f5e", roblox: "#f472b6", life: "#34d399" };
 
 export type LogEntry = { at: string; note: string };
 export type Person = {

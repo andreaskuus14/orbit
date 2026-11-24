@@ -55,9 +55,10 @@ test("planet-ui.css: scoped, animates only transform/opacity, has reduced-motion
   assert.match(css, /html\[data-motion="off"\] \.pu/);
 });
 
-test("close accents are known (BUSINESS shares OPERATIONS' colour; flagged in design-language.md)", () => {
+test("BUSINESS has its own accent (#fb923c, owner decision); no other pair moved closer", () => {
   const close = closeAccents().map((p) => p.join("/"));
-  assert.ok(close.includes("operations/business"));
+  assert.ok(!close.some((p) => p.includes("business")), close.join(", "));
+  assert.equal(accent("business"), "#fb923c");
 });
 
 test("toasts: timing and stacking", () => {

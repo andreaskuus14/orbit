@@ -4,6 +4,7 @@ import { pollMs } from "@/lib/poll-pure";
 import { usePoll } from "./use-poll";
 import type { Offer, Wish } from "@/lib/deals-pure";
 import NegotiatorBox from "./NegotiatorBox";
+import { getDeals } from "./deals-client";
 
 // MARKETS → Deals: his wishlist and what the deal hunter found on public listings and shops (read-only). ORBIT never contacts a
 // seller or buys: the message draft is for him to copy and send himself.
@@ -14,6 +15,7 @@ type Board = {
 };
 
 async function call(body?: object) {
+  if (!body) return getDeals();
   const res = await fetch("/api/markets/deals", { method: body ? "POST" : "GET", cache: "no-store", ...(body && { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
