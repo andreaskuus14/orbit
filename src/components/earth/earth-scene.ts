@@ -9,7 +9,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, tilesFor, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, lerpPose, moveMs } from "@/lib/earth-pure";
+import { arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, tilesFor, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, lerpPose, moveMs, clampAlt, zoneFade, type Rect } from "@/lib/earth-pure";
 
 import type { EarthData } from "@/lib/earth-data-pure";
 import { BUILDINGS_MAX_ALT, TOTAL as MAX_BUILDINGS, extrude, tilesAround, type Building } from "@/lib/earth-buildings-pure";
@@ -101,7 +101,7 @@ const terrVS = `${LOG} attribute vec2 uvM; attribute vec2 uvN; varying vec2 vUv;
 void main(){ vH = hm; vUvE = uvE; vUv = uvM; vUvN = uvN; vN = normalize(normal); vEdge = edge; vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz;
   gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
 const terrFS = `${LOGF} uniform sampler2D uDay; uniform sampler2D uNight; uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; uniform float uHaze; uniform float uNightK;
-varying vec2 vUv; varying vec2 vUvN; varying vec3 vN; varying vec3 vW; varying float vEdge; varying float vH; varying vec2 vUvE; uniform sampler2D uLand; uniform float uLakes;
+varying vec2 vUv; varying vec2 vUvN; varying vec3 vN; varying vec3 vW; varying float vEdge; varying float vH; varying vec2 vUvE; uniform sampler2D uLand; uniform float uLakes; uniform float uStyl;
 void main(){ \n#include <logdepthbuf_fragment>\n
   vec4 dayA = texture2D(uDay, vUv); if (dayA.a < .5) discard; // tile not loaded yet: the globe underneath shows instead of black
   vec3 day = dayA.rgb; vec3 night = texture2D(uNight, vUvN).rgb;
@@ -117,8 +117,14 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   float relief = clamp(1. + 4.*dot(normalize(vN) - up, uSun), .55, 1.5);
   vec3 c = day * (0.32 + 1.1*sqrt(max(sun, 0.))) * mix(.55, 1., lit) * relief * 1.35 * vec3(1.06,1.,.9) + night * vec3(1.,.8,.5) * 0.9 * uNightK * (1. - lit);
   float dist = length(uCam - vW) * 6371.; float haze = 1. - exp(-dist * uHaze);
-  float low = (1. - smoothstep(0., .000012, length(vW) - 1.)) * smoothstep(3., 15., vH); // fog lies in the low ground
-  c = mix(c, vec3(.78,.76,.72) * mix(.4, 1., lit), (haze*.35 + low*.12) * (1. - water*.85));
+  c = mix(c, vec3(.36,.46,.6) * mix(.25, .8, lit), haze * .3 * (1. - water)); // thin blue air in the distance, never over the sea
+  // city close-ups: 10 m imagery turns to blur, so it fades into a dark map base (a faint hint of the photo, clean water, a fine
+  // 250 m grid) that the buildings stand out on
+  float lum = dot(c, vec3(.3,.55,.15));
+  vec3 P = normalize(vW); vec2 gl = vec2(atan(P.x, P.z) * cos(asin(P.y)), asin(P.y)) * 6371000. / 250.;
+  vec2 gw = abs(fract(gl - .5) - .5) / max(fwidth(gl), 1e-4); float grid = (1. - min(min(gw.x, gw.y), 1.)) * (1. - water);
+  vec3 map = mix(vec3(.02,.026,.036) + min(lum, .6) * vec3(.07,.09,.12), vec3(.004,.01,.022), water) + vec3(.2,.45,.6) * grid * .07 * uStyl;
+  c = mix(c, map, uStyl);
   gl_FragColor = vec4(c, uOp * smoothstep(0., .22, vEdge)); }`;
 
 const glowFS = `${LOGF} uniform vec3 uColor; uniform float uT; uniform float uOp; varying vec2 vUv;
@@ -136,19 +142,31 @@ const beamFS = `${LOGF} uniform vec3 uColor; uniform float uOp; uniform float uT
 void main(){ \n#include <logdepthbuf_fragment>\n float a = pow(clamp(1. - vUv.y, 0., 1.), 1.6) * uOp; float side = 1. - abs(vUv.x*2.-1.);
   gl_FragColor = vec4(uColor*1.4, a * side); }`;
 
-const bldVS = `${LOG} attribute float shade; varying float vS; varying vec3 vN; varying vec3 vW;
-void main(){ vS = shade; vN = normalize(normal); vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
-// OSM buildings: pale stone walls lit by the sun, a little darker at the foot (cheap ambient occlusion), lighter roofs, the same
-// haze as the terrain so they sink into the distance; a faint warm glow on the night side.
-const bldFS = `${LOGF} uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; varying float vS; varying vec3 vN; varying vec3 vW;
+const bldVS = `${LOG} attribute float shade; attribute vec3 wall; varying float vS; varying vec3 vWall; varying vec3 vN; varying vec3 vW;
+void main(){ vS = shade; vWall = wall; vN = normalize(normal); vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
+// OSM buildings, "futuristic real": dark glass-and-concrete facades with a grid of windows (a few lit by day, many at night),
+// soft ambient occlusion at the foot, a faint cool line along the roof edge, taller buildings tinted cooler and lighter.
+const bldFS = `${LOGF} uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; varying float vS; varying vec3 vWall; varying vec3 vN; varying vec3 vW;
+float hb(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void main(){ \n#include <logdepthbuf_fragment>\n
   vec3 up = normalize(vW); float sun = dot(up, uSun), lit = smoothstep(-.1, .2, sun);
-  float roof = step(.95, vS);
-  vec3 base = mix(vec3(.5,.47,.43), vec3(.42,.33,.28), roof); // limestone walls, the old town's red-brown roofs
-  float diff = max(dot(normalize(vN), uSun), 0.);
-  vec3 c = base * (.16 + .62*diff*lit + .14*lit) * mix(.5, 1., smoothstep(0., .85, vS));
-  c += vec3(1.,.72,.4) * .08 * (1. - lit) * (1. - roof);
-  float dist = length(uCam - vW) * 6371.; c = mix(c, vec3(.78,.76,.72) * mix(.4, 1., lit), (1. - exp(-dist * .004)) * .35);
+  float roof = step(.95, vS), tall = smoothstep(8., 45., vWall.z);
+  vec3 N = normalize(vN); float diff = max(dot(N, uSun), 0.);
+  vec3 base = mix(vec3(.016,.019,.025), vec3(.022,.03,.042), tall); // linear: about #2a2f38 … #33404f on screen // dark facades; towers a little cooler and lighter
+  vec3 c = base * (.6 + 1.6*diff*lit + .4*lit);
+  // windows: 3.2 m floors, 3.4 m bays, on walls only, from the first floor up
+  vec2 g = vec2(vWall.x / 3.4, vWall.y / 3.2), f = fract(g), id = floor(g);
+  float win = step(.22, f.x) * step(f.x, .78) * step(.3, f.y) * step(f.y, .8) * step(1., id.y) * (1. - roof) * step(vWall.y, vWall.z - 1.);
+  float on = step(mix(.9, .45, 1. - lit), hb(id + vec2(floor(vWall.z), 7.)));
+  vec3 glass = mix(vec3(.012,.018,.028), vec3(.03,.045,.065), lit) * win * (.5 + .5*diff);
+  c += glass * .6 + vec3(1.,.72,.42) * win * on * mix(.9, .1, lit);
+  // soft AO at the foot, a cool rim on the roof edge, lighter roofs
+  float foot = smoothstep(0., 6., vWall.y);
+  c *= mix(.35, 1., foot);
+  c = mix(c, vec3(.03,.034,.04) * (.6 + .8*lit), roof * .9);
+  float rim = (1. - roof) * smoothstep(vWall.z - 1.2, vWall.z, vWall.y);
+  c += vec3(.25,.6,1.) * rim * .35;
+  float dist = length(uCam - vW) * 6371.; c = mix(c, vec3(.05,.07,.1), (1. - exp(-dist * .05)) * .5);
   gl_FragColor = vec4(c, uOp); }`;
 
 /* ---------- the scene ---------- */
@@ -220,7 +238,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   ]);
 
   /* terrain patches */
-  type Patch = { mesh: THREE.Mesh; u: { uOp: { value: number }; uNightK: { value: number } }; lo: number; hi: number; box: Box; ground: (lon: number, lat: number) => number };
+  type Patch = { mesh: THREE.Mesh; u: { uOp: { value: number }; uNightK: { value: number }; uStyl: { value: number } }; lo: number; hi: number; box: Box; ground: (lon: number, lat: number) => number };
   const patches: Patch[] = [];
   async function patch(box: Box, zi: number, ze: number, exag: number, lift: number, seg: number, lo: number, hi: number, haze: number, lakes = 0) {
     const [day, night, elev] = await Promise.all([mosaic(o, "day", box, zi), mosaic(o, "night", box, Math.min(zi, 8)), mosaic(o, "elev", box, ze)]);
@@ -232,7 +250,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     };
     const land = document.createElement("canvas"); land.width = ew; land.height = eh;
     { const lg = land.getContext("2d")!, img = lg.createImageData(ew, eh);
-      for (let i = 0; i < ew * eh; i++) { const v = terrarium(ed[i * 4], ed[i * 4 + 1], ed[i * 4 + 2]) > 0.5 ? 255 : 0; img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255; }
+      for (let i = 0; i < ew * eh; i++) { const v = terrarium(ed[i * 4], ed[i * 4 + 1], ed[i * 4 + 2]) > -1.5 ? 255 : 0; /* sea = below -1.5 m: flat coastal land near 0 m stays land */ img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255; }
       lg.putImageData(img, 0, 0); }
     const landT = new THREE.CanvasTexture(land); landT.colorSpace = THREE.NoColorSpace;
     const uvOf = (m: Mosaic, lon: number, lat: number): [number, number] => [(((lon + 180) / 360) * 2 ** m.z - m.x0) / m.nx, 1 - (lat2y(lat, m.z) - m.y0) / m.ny];
@@ -250,7 +268,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("uvM", new THREE.BufferAttribute(uvM, 2)); g.setAttribute("uvN", new THREE.BufferAttribute(uv2, 2));
     g.setAttribute("edge", new THREE.BufferAttribute(edge, 1)); g.setAttribute("hm", new THREE.BufferAttribute(hm, 1)); g.setAttribute("uvE", new THREE.BufferAttribute(uvE, 2)); g.setIndex(idx); g.computeVertexNormals();
     const nightT = tex(night.canvas); // same box, coarser zoom: its own uv would differ only slightly, so share uvM via a matched mosaic box
-    const u = { uDay: { value: tex(day.canvas) as THREE.Texture }, uNight: { value: nightT as THREE.Texture }, uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 }, uHaze: { value: haze }, uNightK: { value: 1 }, uLand: { value: landT as THREE.Texture }, uLakes: { value: lakes } };
+    const u = { uDay: { value: tex(day.canvas) as THREE.Texture }, uNight: { value: nightT as THREE.Texture }, uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 }, uHaze: { value: haze }, uNightK: { value: 1 }, uLand: { value: landT as THREE.Texture }, uLakes: { value: lakes }, uStyl: { value: 0 } };
     const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ vertexShader: terrVS, fragmentShader: terrFS, uniforms: u, transparent: true }));
     mesh.renderOrder = 2 + patches.length;
     scene.add(mesh);
@@ -293,7 +311,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const ex = extrude(bs, c, groundAt, 1.6); // a little taller than life, like the terrain's exaggeration, so the city reads from above
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(ex.positions, 3)); g.setAttribute("normal", new THREE.BufferAttribute(ex.normals, 3));
-    g.setAttribute("shade", new THREE.BufferAttribute(ex.shade, 1)); g.setIndex(new THREE.BufferAttribute(ex.index, 1));
+    g.setAttribute("shade", new THREE.BufferAttribute(ex.shade, 1)); g.setAttribute("wall", new THREE.BufferAttribute(ex.wall, 3)); g.setIndex(new THREE.BufferAttribute(ex.index, 1));
     const mesh = new THREE.Mesh(g, bMat); mesh.position.set(...ex.origin); mesh.renderOrder = 8; mesh.frustumCulled = true; g.computeBoundingSphere();
     scene.add(mesh); bTiles.set(key, { mesh, n: ex.count });
   }
@@ -322,7 +340,8 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   const putBuildings = async (x: number, y: number, bs: Building[]) => { await terrainReady; addBuildings(`${x}/${y}`, x, y, bs); };
 
   /* story layers */
-  const glow: { m: THREE.ShaderMaterial; lo: number; hi: number; base: number }[] = [];
+  const glow: { m: THREE.ShaderMaterial; lo: number; hi: number; base: number; pts?: THREE.Vector3[] }[] = [];
+  const circle = (lon: number, lat: number, rKm: number, h: number) => { const d = rKm / 111.32, k = Math.cos((lat * Math.PI) / 180); return [[d / k, 0], [-d / k, 0], [0, d], [0, -d]].map(([x, y]) => new THREE.Vector3(...toXYZ(lon + x, lat + y, h))); };
   const layer = new THREE.Group(); scene.add(layer);
   const col = (c: string) => new THREE.Color(c);
   function tangentAt(lon: number, lat: number, h: number) {
@@ -349,7 +368,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: ringFS, uniforms: { uColor: { value: col(ACCENT) }, uT: { value: Math.random() * 3 }, uOp: { value: 1 }, uK: { value: Math.min(1, r.outlets / 8) }, uN: { value: Math.min(24, r.outlets) } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(s, s), m);
       mesh.applyMatrix4(tangentAt(r.lon, r.lat, 0.004));
-      layer.add(mesh); glow.push({ m, lo: 2500, hi: 1e9, base: 1 }); // country rings give way to the town layer
+      layer.add(mesh); glow.push({ m, lo: 2500, hi: 1e9, base: 1, pts: circle(r.lon, r.lat, (ringDeg(r.outlets) * 111.32), 0.004) }); // country rings give way to the town layer
       if (ri < 5) label(`<b>${esc(r.label)}</b><span>${esc(cut(r.title, 52))}</span><i>${r.outlets} ${r.outlets === 1 ? "outlet" : "outlets"}</i>`, r.lon, r.lat, 0.01, 5000, 1e9, "ring");
     }
     for (const a of d.arcs.slice(0, 8)) {
@@ -362,7 +381,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const ringAt = (lon: number, lat: number, rKm: number, lo: number, hi: number, k: number) => {
       const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: ringFS, uniforms: { uColor: { value: col(ACCENT) }, uT: { value: 0 }, uOp: { value: 0 }, uK: { value: 0.5 }, uN: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
       const s2 = (rKm * 2) / EARTH_KM, mesh = new THREE.Mesh(new THREE.PlaneGeometry(s2, s2), m);
-      mesh.applyMatrix4(tangentAt(lon, lat, 400 / (EARTH_KM * 1000))); layer.add(mesh); glow.push({ m, lo, hi, base: k });
+      mesh.applyMatrix4(tangentAt(lon, lat, 400 / (EARTH_KM * 1000))); layer.add(mesh); glow.push({ m, lo, hi, base: k, pts: circle(lon, lat, rKm, 400 / (EARTH_KM * 1000)) });
     };
     const townsOnly = d.towns.filter((t) => t.kind !== "district");
     townsOnly.slice(0, 30).forEach((t, i) => {
@@ -371,7 +390,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       const g = new THREE.CylinderGeometry(wKm / EARTH_KM * 0.4, wKm / EARTH_KM, hKm / EARTH_KM, 8, 1, true);
       g.translate(0, hKm / EARTH_KM / 2, 0); g.rotateX(Math.PI / 2);
       const beam = new THREE.Mesh(g, m); beam.applyMatrix4(tangentAt(t.lon, t.lat, 0.00004)); layer.add(beam);
-      glow.push({ m, lo: 50, hi: 2500, base: k });
+      glow.push({ m, lo: 50, hi: 2500, base: k, pts: Array.from({ length: 9 }, (_, i) => new THREE.Vector3(...toXYZ(t.lon, t.lat, (hKm / EARTH_KM) * (i / 8) ** 2))) });
       ringAt(t.lon, t.lat, 2.2 + 3 * Math.sqrt(t.count / max), 50, 2500, k);
       if (i < 20) label(`<b>${esc(t.name)}</b><i>${t.count}</i>`, t.lon, t.lat, 0.00004, t.kind === "city" ? 50 : 60, t.kind === "city" ? 2200 : 700, `pin ${t.kind}`, t);
     });
@@ -389,8 +408,9 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
         const b = new THREE.Vector3(...toXYZ(t.lon, t.lat, top));
         const mid = a.clone().lerp(b, 0.5).multiplyScalar(1 + sky * 0.15);
         const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: glowFS, uniforms: { uColor: { value: col(ACCENT) }, uT: { value: i * 0.37 }, uOp: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
-        layer.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, mid, b), 48, (district ? 0.012 : 0.08) / EARTH_KM, 5), m));
-        glow.push(district ? { m, lo: 0.3, hi: 40, base: 0.8 } : { m, lo: 30, hi: 900, base: 0.8 });
+        const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
+        layer.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 48, (district ? 0.012 : 0.08) / EARTH_KM, 5), m));
+        glow.push({ m, base: 0.8, pts: curve.getPoints(12), ...(district ? { lo: 0.3, hi: 40 } : { lo: 30, hi: 900 }) });
       });
     }
     layer.traverse((x) => { x.renderOrder = 10; }); // story light draws after the (transparent) terrain
@@ -435,23 +455,50 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
 
   const v = new THREE.Vector3();
   const names: Record<string, string> = { orbit: "Earth today", country: "Estonia", region: "Estonia, towns and villages", town: "Tallinn" };
+  // HUD text boxes, in host px: rings, beams and labels stay out of them
+  const zonesNow = (nearOn: boolean, cardOn: boolean): Rect[] => {
+    const b = host.getBoundingClientRect(), out: Rect[] = [];
+    const add = (z: HTMLElement, pad: number) => { if (!z.offsetHeight) return; const r = z.getBoundingClientRect(); out.push([r.left - b.left - pad, r.top - b.top - pad, r.right - b.left + pad, r.bottom - b.top + pad]); };
+    for (const z of [lower, timeline]) if (+z.style.opacity !== 0) add(z, 8);
+    add(place, 10); add(readout, 10);
+    if (nearOn) add(nearEl, 14);
+    if (cardOn) add(card, 10);
+    return out;
+  };
+  const pv = new THREE.Vector3();
+  function screenRect(pts: THREE.Vector3[], fwd: THREE.Vector3): Rect | null {
+    let r: Rect | null = null;
+    for (const q of pts) {
+      if (pv.copy(q).sub(cam.position).dot(fwd) <= 0) continue;
+      pv.copy(q).project(cam); const x = ((pv.x + 1) / 2) * W(), y = ((1 - pv.y) / 2) * H();
+      r = r ? [Math.min(r[0], x), Math.min(r[1], y), Math.max(r[2], x), Math.max(r[3], y)] : [x, y, x, y];
+    }
+    return r;
+  }
   function frame(p: Pose, tMs: number) {
+    p = { ...p, alt: clampAlt(p.alt) };
     pose = p; applyPose(p);
     const alt = p.alt, t = tMs / 1000;
     cloudU.uT.value = t; U.uT.value = t; cloudU.uFade.value = band(alt, 3000, 1e9, 1.0); // gone before the country shot: half-faded clouds read as grey blobs
-    for (const q of patches) { q.u.uOp.value = band(alt, q.lo, q.hi, 0.9); q.u.uNightK.value = band(alt, 120, 1e9, 1.5); } // coarse city lights only from high up
+    for (const q of patches) { q.u.uOp.value = band(alt, q.lo, q.hi, 0.9); q.u.uNightK.value = band(alt, 120, 1e9, 1.5); q.u.uStyl.value = 1 - band(alt, 9, 1e9, 1.4); } // coarse city lights only from high up
     dof.uniforms.uAmt.value = 0.3 * band(alt, 0.5, 60, 1.2);
     bU.uOp.value = band(alt, 0.05, BUILDINGS_MAX_ALT, 0.6); bMat.transparent = bU.uOp.value < 0.99; bMat.depthWrite = !bMat.transparent || bU.uOp.value > 0.5;
     for (const t of bTiles.values()) if (t.mesh) t.mesh.visible = bU.uOp.value > 0.01;
     updateBuildings(p);
     bloom.strength = 0.45;
-    for (const g of glow) { g.m.uniforms.uOp.value = g.base * band(alt, g.lo, g.hi, 0.8); g.m.uniforms.uT.value = t; }
-    composer.render();
     const w = W(), h = H();
     const fwd = new THREE.Vector3(); cam.getWorldDirection(fwd);
-    const taken: [number, number, number, number][] = [];
-    for (const z of [lower, timeline, place]) if (+z.style.opacity !== 0 && z.offsetHeight) { const r = z.getBoundingClientRect(), b = host.getBoundingClientRect(); taken.push([r.left - b.left - 8, r.top - b.top - 8, r.right - b.left + 8, r.bottom - b.top + 8]); }
-    if (+nearEl.style.opacity > 0.1) { const r = nearEl.getBoundingClientRect(), b = host.getBoundingClientRect(); taken.push([r.left - b.left, r.top - b.top, r.right - b.left, r.bottom - b.top]); }
+    timeline.style.opacity = String(band(alt, 3000, 1e9, 0.8));
+    lower.style.opacity = String(band(alt, 3000, 1e9, 0.8));
+    const nearA = band(alt, 0.5, 30, 0.8), cA = band(alt, 60, 700, 0.6);
+    const zones = zonesNow(nearA > 0.1, cA > 0.1);
+    for (const g of glow) {
+      let a = g.base * band(alt, g.lo, g.hi, 0.8);
+      if (a > 0.005 && g.pts) { const r = screenRect(g.pts, fwd); if (r) a *= zoneFade(r, zones); }
+      g.m.uniforms.uOp.value = a; g.m.uniforms.uT.value = t;
+    }
+    composer.render();
+    const taken: Rect[] = [...zones];
     for (const l of labels) {
       const a = band(alt, l.lo, l.hi, 0.6);
       const facing = l.p.dot(cam.position) > l.p.lengthSq() * 0.999999 && l.p.clone().sub(cam.position).dot(fwd) > 0;
@@ -461,7 +508,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       if (on) {
         if (!l.w) { l.w = l.el.offsetWidth || 120; l.h = l.el.offsetHeight || 20; l.ox = l.el.offsetLeft; l.oy = l.el.offsetTop; } // margins shift the box off its pin
         const r: [number, number, number, number] = [x + l.ox - 8, y + l.oy - 4, x + l.ox + l.w + 8, y + l.oy + l.h + 4];
-        if (r[2] > w - 8 || r[1] < 70) on = false;
+        if (r[2] > w - 8 || r[0] < 8 || r[1] < 70 || r[3] > h - 8) on = false;
         else if (taken.some((q) => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1])) on = false; else taken.push(r);
       }
       l.el.style.opacity = on ? String(a) : "0";
@@ -474,10 +521,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const lvl = levelAt(alt);
     hud.dataset.level = lvl;
     place.textContent = lvl !== "orbit" && regionName ? regionName : names[lvl];
-    timeline.style.opacity = String(band(alt, 3000, 1e9, 0.8));
-    lower.style.opacity = String(band(alt, 3000, 1e9, 0.8));
-    nearEl.style.opacity = String(band(alt, 0.5, 30, 0.8));
-    const cA = band(alt, 60, 700, 0.6);
+    nearEl.style.opacity = String(nearA);
     card.style.opacity = String(cA);
     if (cardAt && cA > 0) { v.copy(cardAt).project(cam); card.style.transform = `translate(${Math.min(w - 312, Math.max(32, ((v.x + 1) / 2) * w + 24))}px, ${Math.min(h - 220, Math.max(80, ((1 - v.y) / 2) * h - 40))}px)`; }
   }
@@ -505,7 +549,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     drag = { x: e.clientX, y: e.clientY };
   };
   addEventListener("pointerup", () => { drag = null; });
-  el.onwheel = (e) => { e.preventDefault(); path = null; fly = null; pose = { ...pose, alt: Math.max(1.5, Math.min(30000, pose.alt * Math.exp(e.deltaY * 0.0012))), tilt: Math.min(62, Math.max(0, 62 - Math.log2(Math.max(1, pose.alt / 8)) * 6)) }; };
+  el.onwheel = (e) => { e.preventDefault(); path = null; fly = null; pose = { ...pose, alt: Math.max(clampAlt(0), Math.min(30000, pose.alt * Math.exp(e.deltaY * 0.0012))), tilt: Math.min(62, Math.max(0, 62 - Math.log2(Math.max(1, pose.alt / 8)) * 6)) }; };
   const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => { renderer.setSize(W(), H()); composer.setSize(W(), H()); dof.uniforms.uRes.value.set(W(), H()); cam.aspect = W() / H(); cam.updateProjectionMatrix(); }) : null;
   ro?.observe(host);
 
@@ -556,7 +600,7 @@ export const EARTH_CSS = `
 .earth-lower{position:absolute;left:var(--g);bottom:84px;max-width:620px;text-shadow:0 2px 20px rgba(0,0,0,.7)}
 .earth-lower small,.earth-card small{display:block;font-size:12px;color:var(--accent)}
 .earth-lower b{display:block;font-family:var(--font-serif,Georgia,serif);font-size:30px;font-weight:400;line-height:1.18;margin-top:6px;letter-spacing:-.01em}
-.earth-near{position:absolute;right:calc(var(--pr) + var(--g));top:28px;width:272px;padding-top:10px;border-top:1px solid rgba(238,242,247,.35);text-shadow:0 1px 3px rgba(0,0,0,.85)}
+.earth-near{position:absolute;right:calc(var(--pr) + var(--g));top:28px;width:272px;padding:10px 14px 6px;margin-right:-14px;background:linear-gradient(180deg,rgba(1,3,8,.72),rgba(1,3,8,.55));border-top:1px solid rgba(238,242,247,.35);text-shadow:0 1px 3px rgba(0,0,0,.85)}
 .earth-near h4{margin:0 0 6px;font-size:13px;font-weight:600}
 .earth-near div{display:grid;grid-template-columns:1fr auto;gap:1px 12px;padding:8px 0;border-top:1px solid rgba(238,242,247,.12)}
 .earth-near b{font-size:12px;font-weight:600}.earth-near span{grid-column:1;font-size:11px;color:rgba(238,242,247,.74);line-height:1.35}
