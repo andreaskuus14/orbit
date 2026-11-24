@@ -236,6 +236,7 @@ export function WarmCompile({ cap = 20_000, defer = false, onDone, onLater, worl
       released = true; drawn.add(gl);
       if (--h.n > 0) return;
       setFrameloop(h.prev); veil?.removeAttribute("data-warming");
+      get().invalidate(); // a "demand" canvas draws its first frame now, not on the first pointer move
       const l = laterOf(gl); // background warm-ups start after the first frames have drawn
       requestAnimationFrame(() => requestAnimationFrame(() => { l.open = true; void pump(l); }));
     };
