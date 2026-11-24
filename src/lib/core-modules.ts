@@ -16,6 +16,7 @@ import { validateMemory } from "./reflect-pure";
 import { saveCoreMemory } from "./reflect";
 import { isPluginTool } from "./plugins-pure";
 import { pluginPromptNow, runPluginTool } from "./plugins";
+import { isCloud, laptopOnlyTool, LAPTOP_ONLY_TEXT } from "./role-pure";
 
 type Base = { sb: SupabaseClient; userId: string };
 /** What a tool call sees. tainted: page/file/agent/tool output or attachments/pins are in context (core.ts's dataIn).
@@ -214,7 +215,8 @@ export const MODULE_PRIVATE = privateTools(MODULES);
 export const MODULE_WRITES = writeTools(MODULES);
 export const isModuleTool = (tool: string) => !!toolModule(MODULES, tool) || isPluginTool(tool);
 export const runModuleTool = (tool: string, input: Record<string, unknown>, c: Ctx) =>
-  isPluginTool(tool) ? runPluginTool(tool, input, { steps: c.steps, pinned: c.pinned, chat: c.chat }) : toolModule(MODULES, tool)!.run(tool, input, c);
+  isCloud(process.env) && laptopOnlyTool(tool) ? Promise.resolve(`Error: ${LAPTOP_ONLY_TEXT}`)
+  : isPluginTool(tool) ? runPluginTool(tool, input, { steps: c.steps, pinned: c.pinned, chat: c.chat }) : toolModule(MODULES, tool)!.run(tool, input, c);
 
 /** Every module's live status in parallel; a module that fails just says nothing. Never throws. */
 export async function moduleStatus(sb: SupabaseClient, userId: string): Promise<string> {

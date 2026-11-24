@@ -4,6 +4,9 @@ import { isAllowedEmail } from "@/lib/allow";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { publicOrigin } from "@/lib/origin-pure";
 import { csp, cspApplies, newNonce } from "@/lib/csp-pure";
+import { allowHit, clientIp, isCloud, laptopOnlyApi, LAPTOP_ONLY_TEXT, rateRule, type Buckets } from "@/lib/role-pure";
+
+const buckets = ((globalThis as { __orbitRate?: Buckets }).__orbitRate ??= new Map());
 
 // /w = workspace previews: the route checks the signed link + session itself (sandboxed pages' CSS/JS requests carry no cookies).
 // /p = tracked pitch links (BUSINESS): the route checks its own signed token; read-only, no session.
@@ -17,6 +20,14 @@ export async function middleware(request: NextRequest) {
   if (crossSiteBlocked(request.method, request.nextUrl.pathname, { secFetchSite: request.headers.get("sec-fetch-site"), origin: request.headers.get("origin"), host: request.headers.get("host"), forwardedHost: request.headers.get("x-forwarded-host") }))
   { console.warn(`[security] cross-site ${request.method} ${request.nextUrl.pathname} refused (origin ${request.headers.get("origin") ?? "none"})`);
     return NextResponse.json({ error: "Cross-site request refused" }, { status: 403 }); }
+  // Cloud server (ORBIT_ROLE=cloud, docs/CLOUD.md): per-IP limits on the public sign-in/pairing paths, and the laptop-only
+  // routes (shell, PC helper, GPU servers, self-update) answer 503 instead of running on the server.
+  if (isCloud(process.env)) {
+    const p = request.nextUrl.pathname, rule = rateRule(p);
+    if (rule && !allowHit(buckets, `${rule.prefix}|${clientIp(request.headers.get("x-forwarded-for"), request.headers.get("x-real-ip"))}`, Date.now(), rule.limit, rule.windowMs))
+      return NextResponse.json({ error: "Too many tries. Wait a minute." }, { status: 429, headers: { "Retry-After": "60" } });
+    if (laptopOnlyApi(p)) return NextResponse.json({ error: LAPTOP_ONLY_TEXT, laptopOnly: true }, { status: 503 });
+  }
   // Launcher / night run poll these; no session work. (busy checks its own Host header and returns only booleans.)
   if (request.nextUrl.pathname === "/api/health" || request.nextUrl.pathname === "/api/studio/busy") return NextResponse.next();
   // Public demo: static fixture page, no session work (it never calls /api; its fetch guard answers from fixtures).

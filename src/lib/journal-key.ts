@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { orbitDataDir } from "./data-dir.ts";
+import { journalWriteBlocked, JOURNAL_CLOUD_TEXT } from "./role-pure.ts";
 import { isSealed, keyId, memoryAad, parseKeyFile, seal, lifeAad } from "./journal-crypt-pure.ts";
 
 // The journal key: one file on this PC, outside the repo and outside Supabase. Made once by tools\backup\setup.ps1
@@ -25,11 +26,13 @@ export const journalKeyId = () => { const k = journalKey(); return k ? keyId(k) 
 /** Seal one life.json day (plain text when there is no key yet: the doctor shows that). */
 export function sealLifeDay(date: string, text: string): string {
   const k = journalKey();
+  if (journalWriteBlocked(process.env, !!k)) throw new Error(JOURNAL_CLOUD_TEXT);
   return k && !isSealed(text) ? seal(k, text, lifeAad(date)) : text;
 }
 /** Seal a journal memory's title and content for Supabase. */
 export function sealJournalMemory(userId: string, title: string, content: string): { title: string; content: string } {
   const k = journalKey();
+  if (journalWriteBlocked(process.env, !!k)) throw new Error(JOURNAL_CLOUD_TEXT);
   if (!k) return { title, content };
   return {
     title: isSealed(title) ? title : seal(k, title, memoryAad(userId, "title")),

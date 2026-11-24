@@ -1,0 +1,10 @@
+node_modules
+.next
+.next-*
+.git
+.env*
+!.env.example
+*.log
+tools/comfyui
+tools/local-ai
+tools/ollama

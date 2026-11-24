@@ -1,0 +1,12 @@
+# HTTPS with an automatic Let's Encrypt certificate for ORBIT_DOMAIN (its DNS A record must point at this server).
+{$ORBIT_DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	# Laptop-only and loopback-only helpers never reach the cloud ORBIT from outside (ORBIT also answers 503 itself).
+	@blocked path /api/voice/desk* /api/studio/busy* /api/system/update* /api/terminal*
+	respond @blocked 404
+	reverse_proxy orbit:3000
+}

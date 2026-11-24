@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { hostname } from "node:os";
 import { adminClient } from "./supabase/admin.ts";
 import { stopAllOn } from "./stop-all.ts";
+import { isCloud } from "./role-pure.ts";
 import {
   afterFailure, canCancel, kindOfTool, LEASE_BEAT_MS, LEASE_MS, queueOn, runnerError, validatePayload, WAIT_MS, workerOn,
   type GpuJob, type GpuJobKind,
@@ -72,12 +73,16 @@ export async function listJobs(sb: SupabaseClient, limit = 20): Promise<GpuJob[]
  *  wait a while; if it's still waiting (worker offline, GPU busy) say so: the job stays queued and runs later. */
 export async function runLocalAiTool(t: string, i: Record<string, unknown>, userId: string): Promise<string> {
   const kind = kindOfTool(t), sb = adminClient();
+  const cloud = isCloud(process.env);
+  // The cloud server has no GPU: never run a runner there; without the queue it can only say so.
+  if (cloud && (!kind || !sb || !userId)) return "Error: This needs the laptop's GPU, and the job queue isn't reachable (SUPABASE_SECRET_KEY / migration 0029).";
   if (!queueOn(process.env) || !kind || !sb || !userId) return runDirect(t, i);
   let job: GpuJob;
   try { job = await enqueue(sb, userId, kind, { tool: t, input: i }); }
   catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (/can't go into|too (big|long)|nested|plain data|bad number/.test(msg)) return `Error: ${msg}`;
+    if (cloud) return `Error: Couldn't queue the GPU job for the laptop (${msg}).`;
     console.error(`[orbit] GPU queue unavailable (${msg}); running directly`);
     return runDirect(t, i);
   }

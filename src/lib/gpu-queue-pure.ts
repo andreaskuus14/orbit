@@ -16,9 +16,10 @@ export type GpuJob = {
 };
 
 /** ORBIT_GPU_QUEUE=1 routes GPU work through the queue. Off (anything else) = the old direct calls, nothing changes. */
-export const queueOn = (env: Record<string, string | undefined>) => (env.ORBIT_GPU_QUEUE ?? "").trim() === "1";
+/** On with ORBIT_GPU_QUEUE=1, and always on the cloud server (ORBIT_ROLE=cloud): it has no GPU, so jobs must queue. */
+export const queueOn = (env: Record<string, string | undefined>) => (env.ORBIT_GPU_QUEUE ?? "").trim() === "1" || (env.ORBIT_ROLE ?? "").trim().toLowerCase() === "cloud";
 /** This server also works jobs, unless ORBIT_GPU_WORKER=0 (a future cloud "brain" that only enqueues). */
-export const workerOn = (env: Record<string, string | undefined>) => queueOn(env) && (env.ORBIT_GPU_WORKER ?? "").trim() !== "0";
+export const workerOn = (env: Record<string, string | undefined>) => queueOn(env) && (env.ORBIT_GPU_WORKER ?? "").trim() !== "0" && (env.ORBIT_ROLE ?? "").trim().toLowerCase() !== "cloud";
 
 /** CORE's LOCALAI tools that go through the queue → job kind. local_transcribe stays direct (quick, needs its own file). */
 export const TOOL_KIND: Record<string, GpuJobKind> = {
