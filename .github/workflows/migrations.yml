@@ -1,0 +1,23 @@
+name: Migrations dry run
+
+# Every supabase/migrations file must apply in order on a fresh Postgres (with Supabase stand-ins), and running any
+# file a second time must not change data. Files from 0018 on must also be safe to run twice. No real database is used.
+on:
+  push:
+    branches: [main]
+    paths: ["supabase/**", "scripts/migrations-dryrun.sh", ".github/workflows/migrations.yml"]
+  pull_request:
+    paths: ["supabase/**", "scripts/migrations-dryrun.sh", ".github/workflows/migrations.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  dryrun:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Postgres 16 + pgvector
+        run: sudo apt-get update -q && sudo apt-get install -y -q postgresql-16 postgresql-16-pgvector
+      - run: PGBIN=/usr/lib/postgresql/16/bin scripts/migrations-dryrun.sh --strict-rerun-from 0018
