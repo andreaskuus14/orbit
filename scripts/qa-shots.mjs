@@ -212,7 +212,8 @@ async function open(w, h, { reduced = false, galaxy = true, motion = "on", phone
   page.on("console", (m) => { if (m.type() === "error" && !/WebGL|GPU stall|404|Failed to load resource|GL_|swiftshader/i.test(m.text())) errors.push(m.text().slice(0, 200)); else if (m.type() === "error" && /crashed/.test(m.text())) errors.push(m.text().slice(0, 200)); });
   page.on("dialog", (d) => d.dismiss());
   await page.addInitScript(({ lang, galaxy }) => {
-    try { sessionStorage.setItem("orbit.booted", "1"); sessionStorage.setItem("orbit.woke", "1"); localStorage.setItem("orbit.woke", "1"); localStorage.setItem("orbit.lang", lang); localStorage.setItem("orbit.view", "3d"); localStorage.setItem("orbit.boot.seen", "1"); localStorage.setItem("orbit.tour.v1", "done"); localStorage.setItem("orbit.home.fold.v2", "0"); } catch {}
+    try { sessionStorage.setItem("orbit.booted", "1"); sessionStorage.setItem("orbit.woke", "1"); localStorage.setItem("orbit.woke", "1"); localStorage.setItem("orbit.lang", lang); localStorage.setItem("orbit.view", "3d"); localStorage.setItem("orbit.boot.seen", "1"); localStorage.setItem("orbit.tour.v1", "done"); localStorage.setItem("orbit.home.fold.v2", "0");
+      const d = new Date(); localStorage.setItem("orbit.evening.shown", `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`); } catch {} // no evening (journal) pop-up in a QA picture
     if (!galaxy) { const g = HTMLCanvasElement.prototype.getContext; HTMLCanvasElement.prototype.getContext = function (k, o) { return /webgl/.test(k) && this.isConnected ? null : g.call(this, k, o); }; } // UI layer: the CSS orb (software GL would drown the numbers)
     window.__lt = []; new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__lt.push(e.duration); }).observe({ type: "longtask", buffered: true });
   }, { lang: LANG, galaxy });
@@ -253,15 +254,48 @@ const audit = (page) => page.evaluate(() => {
   const hscroll = document.documentElement.scrollWidth > innerWidth + 1 ? [`page scrolls sideways (${document.documentElement.scrollWidth}px)`] : [];
   return [...new Set([...hscroll, ...hits, ...off, ...clip])].slice(0, 40);
 });
+// CORE over a planet: the planet stays behind (dimmed, inert); none of its panels may show over CORE's frame, nothing in CORE is cut off.
+const CORE_OVER = ["intelligence", "studio", "creation", "agents", "arch", "memory", "operations", "life", "vault", "analytics", "business"].map((p) => `core@${p}`);
+const coreOver = (page) => page.evaluate(() => {
+  const d = document.querySelector(".drawer-core:not(.drawer-out)"); if (!d) return ["CORE frame not open"];
+  for (const a of [...d.getAnimations(), ...(document.querySelector("[data-under-core]")?.getAnimations() ?? [])]) if (a.effect?.getTiming().iterations !== Infinity) a.finish(); // measure where the slide-in ends, not a busy box's mid-frame
+  const r = d.getBoundingClientRect(), out = [];
+  if (r.left < -1 || r.top < -1 || r.right > innerWidth + 1 || r.bottom > innerHeight + 1) out.push(`CORE frame off-screen (${Math.round(r.left)},${Math.round(r.top)} → ${Math.round(r.right)},${Math.round(r.bottom)} in ${innerWidth}x${innerHeight})`);
+  const under = document.querySelector("[data-under-core]");
+  if (!under) out.push("planet behind CORE is not marked under-core");
+  else { const s = getComputedStyle(under); if (s.filter === "none" && +s.opacity > 0.6) out.push("planet behind CORE is not dimmed"); if (!under.inert) out.push("planet behind CORE still takes clicks"); }
+  // Paint order: probe a grid inside the frame with hit-testing forced on everywhere; the top element must belong to CORE (or the top bar / a popover).
+  const st = document.createElement("style"); st.textContent = "*{pointer-events:auto!important}"; document.head.append(st);
+  const wasInert = under?.inert; if (under) under.inert = false;
+  const bleed = new Set();
+  for (let i = 1; i < 12; i++) for (let j = 1; j < 12; j++) {
+    const x = r.left + (r.width * i) / 12, y = r.top + (r.height * j) / 12;
+    const seen = (el) => { for (let e = el; e; e = e.parentElement) { const c = getComputedStyle(e); if (c.visibility === "hidden" || c.display === "none" || +c.opacity < 0.05) return false; } return true; };
+    const top = document.elementsFromPoint(x, y).find(seen); // the first element you can actually see there
+    if (top && !d.contains(top) && !top.closest(".hud-top,[popover],.toaster,.pu-toasts,[role=dialog]:not(.drawer)")) bleed.add((top.className?.baseVal ?? top.className ?? top.tagName).toString().slice(0, 40) || top.tagName);
+  }
+  if (under) under.inert = wasInert; st.remove();
+  for (const b of bleed) out.push(`planet UI over CORE: .${b}`);
+  // Cut-off columns: a visible box inside the frame that runs past its right edge.
+  for (const el of d.querySelectorAll("section,aside,form,.bubble,textarea,input,button")) { const b = el.getBoundingClientRect(); if (b.width > 2 && b.height > 2 && getComputedStyle(el).visibility !== "hidden" && b.right > r.right + 1 && !el.closest("[hidden]")) { out.push(`cut off in CORE: ${el.tagName.toLowerCase()}.${String(el.className).split(" ")[0]}`); break; } }
+  return out;
+});
 const ONLY = process.env.QA_ONLY ? process.env.QA_ONLY.split(",") : null;
-const SCREENS = ["home", "core", "memory", "intelligence", "creation", "operations", "agents", "life", "vault", "analytics", "studio", "business", "arch", "profile", "m"].filter((s) => !ONLY || ONLY.includes(s));
+const SCREENS = ["home", "core", "memory", "intelligence", "creation", "operations", "agents", "life", "vault", "analytics", "studio", "business", "arch", "profile", "m", ...CORE_OVER].filter((s) => !ONLY || ONLY.includes(s));
 const report = {};
 try {
   for (const [w, h] of SIZES) for (const s of SCREENS) {
     if (s === "m" && w > 640) continue; // /m is the phone home
     const { ctx, page, errors, calls } = await open(w, h, { galaxy: !process.env.QA_NOGL, stubGalaxy: true, phone: s === "m" });
-    if (s !== "home" && s !== "m") { await page.evaluate(([s, v]) => { location.hash = `o=${s}${v ? `&v=${v}` : ""}`; dispatchEvent(new HashChangeEvent("hashchange")); }, [s, process.env.QA_V || ""]); }
+    const over = s.startsWith("core@") ? s.slice(5) : null;
+    if (s !== "home" && s !== "m") { await page.evaluate(([s, v]) => { location.hash = `o=${s}${v ? `&v=${v}` : ""}`; dispatchEvent(new HashChangeEvent("hashchange")); }, [over ?? s, process.env.QA_V || ""]); }
     await page.waitForTimeout(s === "home" ? 3500 : 5000);
+    if (over) { // then open CORE over it, the way the top-bar CORE button / "Ask CORE" does
+      await page.evaluate(() => dispatchEvent(new CustomEvent("orbit:navigate", { detail: { panel: "core" } })));
+      await page.waitForTimeout(2500);
+      for (const i of await coreOver(page)) check(false, `${s} ${w}: ${i}`);
+      if (!fails.some((f) => f.startsWith(`${s} ${w}:`))) check(true, `${s} ${w}: CORE owns the screen`);
+    }
     // LIFE / journal: never in a picture. Blur anything marked private before the shot.
     await page.addStyleTag({ content: "[data-private],[data-private] *{filter:blur(14px)!important;color:transparent!important;text-shadow:0 0 12px #888!important}" });
     if (process.env.QA_EVAL) console.log("EVAL", await page.evaluate(process.env.QA_EVAL).catch((e) => String(e)));

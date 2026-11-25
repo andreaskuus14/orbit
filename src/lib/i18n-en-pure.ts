@@ -594,6 +594,7 @@ const BASE = {
   "deliv.saving": "Saving…", "deliv.saved": "Saved to VAULT as {name}", "deliv.already": "Already in VAULT as {name}", "deliv.failed": "Could not save", "deliv.unchecked": "Not checked: saved and read back only",
   "core.trace": "Execution trace", "core.chatsTitle": "Chats and projects", "core.chats": "Chats", "core.chat": "Chat", "core.newChat": "New chat", "core.chatRunning": "Still working in this chat",
   "core.projectFor": "Project for this chat", "core.newTitle": "Start a new chat", "core.new": "New",
+ "core.you": "You", "core.railAria": "CORE tools", "core.draftTitle": "Draft and progress of this chat", "core.toolsShort": "Tools",
   "core.intro": "Tell me what you need. I answer, or start the job and show its progress on the home screen. Nothing is sent, posted or bought without your click.",
   "core.attach": "Attach files", "core.attachTitle": "Attach images or documents (or drop / paste them)",
   "core.ph": "What do you need?", "core.phTitle": "↑ brings back your last question · Esc stops an answer", "core.message": "Message CORE", "core.send": "Send", "core.suggests": "CORE suggests",
