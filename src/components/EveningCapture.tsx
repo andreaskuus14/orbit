@@ -10,6 +10,9 @@ import { recordUtterance, transcribeAudio } from "./voice/whisper";
 import { whisperLang } from "./voice/bus";
 import { useLifeShield } from "./useLifeShield";
 import { useT } from "./i18n";
+import { Button } from "./ui/Button";
+import { IconClose } from "./ui/icons";
+import "@/app/planet-ui.css";
 
 const KEY = "orbit.evening.shown"; // local day it last opened by itself
 const typing = () => { const el = document.activeElement as HTMLElement | null; return !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable); };
@@ -92,29 +95,30 @@ export function EveningCapture() {
   };
 
   return (
-    <dialog ref={ref} className="glass keys-overlay" aria-labelledby="evening-title" onClose={() => { rec.current?.abort(); setIsOpen(false); }}
+    <dialog ref={ref} className="pu pu-modal" data-planet="life" aria-labelledby="evening-title" onClose={() => { rec.current?.abort(); setIsOpen(false); }}
       onClick={(e) => { if (e.target === e.currentTarget) e.currentTarget.close(); }}>
-      <form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); void save(); }}>
-        <div className="flex items-center justify-between gap-4">
-          <h2 id="evening-title" className="hud-title uppercase">{tr("eve.title")}</h2>
-          <button type="button" className="chip" onClick={() => ref.current?.close()}>{tr("eve.close")}</button>
+      <form className="pu-modal-body" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+        <div className="pu-modal-head">
+          <span className="pu-mark" aria-hidden="true" />
+          <h2 id="evening-title" className="pu-title">{tr("eve.title")}</h2>
+          <Button variant="ghost" icon={<IconClose />} label={tr("eve.close")} onClick={() => ref.current?.close()} />
         </div>
-        {review && <p className="text-sm" aria-label={tr("eve.plan")}>{review}</p>}
-        <label htmlFor="evening-text" className="muted text-xs">{tr("eve.prompt")}</label>
-        <textarea id="evening-text" className="field evening-text" autoFocus maxLength={ENTRY_MAX} value={text} disabled={busy}
+        {review && <p className="pu-modal-note" aria-label={tr("eve.plan")}>{review}</p>}
+        <label htmlFor="evening-text" className="pu-modal-label">{tr("eve.prompt")}</label>
+        <textarea id="evening-text" className="pu-modal-field evening-text" autoFocus maxLength={ENTRY_MAX} value={text} disabled={busy}
           onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void save(); } }} />
-        <div className="flex items-center gap-2">
-          <button type="submit" className="btn" disabled={busy || !text.trim()}>{busy ? tr("eve.saving") : tr("eve.save")}</button>
+        <div className="pu-modal-actions">
+          <Button type="submit" variant="primary" busy={busy} disabled={busy || !text.trim()}>{busy ? tr("eve.saving") : tr("eve.save")}</Button>
           {canVoice && (
-            <button type="button" className="chip" aria-pressed={listening} onClick={listening ? stopVoice : startVoice} disabled={busy}>
-              {listening ? `■ ${tr("eve.stopDict")}` : `🎙 ${tr("eve.dict")}`}
-            </button>
+            <Button aria-pressed={listening} onClick={listening ? stopVoice : startVoice} disabled={busy}>
+              {listening ? tr("eve.stopDict") : tr("eve.dict")}
+            </Button>
           )}
-          {noLocal && <span className="muted text-xs">{tr("evening.noLocal")}</span>}
-          <span className="num muted ml-auto text-xs" aria-hidden>{text.length}/{ENTRY_MAX}</span>
+          {noLocal && <span className="pu-modal-meta">{tr("evening.noLocal")}</span>}
+          <span className="pu-num pu-modal-meta" style={{ marginLeft: "auto" }} aria-hidden>{text.length}/{ENTRY_MAX}</span>
         </div>
-        <p className="muted text-xs">{tr("eve.keys")}</p>
-        {msg && <p className={`text-xs ${msg.ok ? "ok" : "error"}`} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
+        <p className="pu-modal-meta">{tr("eve.keys")}</p>
+        {msg && <p className="pu-modal-status" data-bad={msg.ok ? undefined : ""} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
       </form>
     </dialog>
   );
