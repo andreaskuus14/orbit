@@ -5,7 +5,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
-import { Capsule, Crystals, LightShaft, Motes, Plate, PlanetGround, type Chip, type CrystalIn } from "./world-kit";
+import { Capsule, Crystals, LightShaft, Many, Motes, Plate, PlanetGround, rockGeometry, type Chip, type CrystalIn, type Inst } from "./world-kit";
+import { lifeGarden } from "@/lib/worlds-v3-pure";
 import { BIZ_STAGES, GATE_ANGLE, GATE_COLOR, VAULT_KIND_COLOR, bizScene, bytes, clip, fmtMin, heightAt, lifeScene, opsScene, podAngle, timeScene, vaultScene, type SceneId } from "@/lib/planet-scenes-pure";
 import { STAGE_COLOR } from "@/lib/living-galaxy-pure";
 
@@ -242,6 +243,32 @@ function Analytics({ m, reduced }: { m: ReturnType<typeof timeScene>; reduced: b
 
 /* ---------- LIFE ---------- */
 
+/** Garden props from worlds-v3-pure lifeGarden (habit positions only): one instanced draw call per kind. */
+function useLifeGarden(pods: { at: [number, number, number] }[]) {
+  const key = pods.map((p) => p.at.join(",")).join(";");
+  const lg = useMemo(() => {
+    const g = lifeGarden(pods), FL = ["#f9a8d4", "#fde68a", "#e9d5ff", "#ffffff", "#fda4af"];
+    return {
+      rock: rockGeometry(7.4, 5, 21), disc: new THREE.CylinderGeometry(1, 1, 1, 14), ball: new THREE.IcosahedronGeometry(0.5, 1), stem: new THREE.CylinderGeometry(0.5, 0.7, 1, 7),
+      stone: new THREE.MeshStandardMaterial({ color: "#a89f8f", roughness: 0.85 }), pad: new THREE.MeshStandardMaterial({ color: "#4d8a3a", roughness: 0.7 }),
+      leaf: new THREE.MeshStandardMaterial({ color: "#3f7a32", roughness: 0.9, flatShading: true }), bark: new THREE.MeshStandardMaterial({ color: "#5a3e2b", roughness: 1 }),
+      flower: new THREE.MeshStandardMaterial({ color: "#ffffff", emissive: "#ffd1e8", emissiveIntensity: 0.25, roughness: 0.6 }),
+      blossom: new THREE.MeshStandardMaterial({ color: "#ffb3d1", emissive: "#ff8fbf", emissiveIntensity: 0.18, roughness: 0.8, flatShading: true }),
+      fall: new THREE.MeshBasicMaterial({ color: "#dff6ff", transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide }),
+      stones: g.stones.map((p): Inst => ({ at: [p.x, 0.03, p.z], s: [0.34 * p.s, 0.06, 0.28 * p.s], ry: p.x })),
+      pads: g.pads.map((p): Inst => ({ at: [p.x, 0.05, p.z], s: [0.26 * p.s, 0.02, 0.26 * p.s] })),
+      bushes: g.bushes.map((p): Inst => ({ at: [p.x, 0.17 * p.s, p.z], s: [0.55 * p.s, 0.4 * p.s, 0.55 * p.s], ry: p.z })),
+      flowers: g.flowers.map((p, i): Inst => ({ at: [p.x, 0.1, p.z], s: [0.16, 0.16, 0.16], color: FL[i % FL.length] })),
+      trunk: [{ at: [g.tree.x, 1.2, g.tree.z], s: [0.3, 2.4, 0.3] }] as Inst[],
+      canopy: [[0, 3, 0, 2.6], [0.9, 2.6, 0.4, 1.8], [-0.8, 2.7, -0.3, 1.9], [0.2, 3.6, -0.6, 1.7], [-0.3, 2.4, 0.9, 1.5]].map(([x, y, z, k]): Inst => ({ at: [g.tree.x + x, y, g.tree.z + z], s: [k, k * 0.8, k] })),
+      isles: [[-9, 6, -12, 0.5], [7, 8, -15, 0.4], [-2, 9.5, -19, 0.35]].map(([x, y, z, k]): Inst => ({ at: [x, y, z], s: [k * 0.45, k * 0.45, k * 0.45] })),
+      isleTops: [[-9, 6, -12, 0.5], [7, 8, -15, 0.4], [-2, 9.5, -19, 0.35]].map(([x, y, z, k]): Inst => ({ at: [x, y + 0.1, z], s: [k * 3.3, 0.2, k * 3.3] })),
+    };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { for (const v of Object.values(lg)) if (v instanceof THREE.BufferGeometry || v instanceof THREE.Material) v.dispose(); }, [lg]);
+  return lg;
+}
+
 function Life({ m, reduced }: { m: ReturnType<typeof lifeScene>; reduced: boolean }) {
   const glass = usePhys({ color: "#cfe8ff", metalness: 0.1, roughness: 0.04, transparent: true, opacity: 0.22, clearcoat: 1, depthWrite: false });
   const rock = usePhys({ color: "#3b302a", roughness: 0.9, metalness: 0, flatShading: true });
@@ -252,15 +279,25 @@ function Life({ m, reduced }: { m: ReturnType<typeof lifeScene>; reduced: boolea
       float sun = exp(-pow(length(vP - normalize(vec3(-0.6, 0.06, -0.8))) * 7.0, 2.0)); gl_FragColor = vec4(c*0.55 + vec3(1.0,0.7,0.4)*sun*1.2, 1.0); }` }), []);
   useEffect(() => () => sky.dispose(), [sky]);
   const seeds = useRef<THREE.Group>(null);
+  const lg = useLifeGarden(m.pods);
   useFrame(({ clock }) => { if (!seeds.current || reduced) return; seeds.current.children.forEach((c, i) => { c.position.y = 0.75 + Math.sin(clock.elapsedTime * 0.8 + i) * 0.06; }); });
   return (<group>
     <mesh material={sky}><sphereGeometry args={[80, 32, 16]} /></mesh>
     <directionalLight position={[-8, 3, -10]} intensity={1.6} color="#ffb070" />
-    {/* the island */}
-    <mesh position={[0, -0.15, 0]}><cylinderGeometry args={[7, 6.8, 0.3, 64]} /><meshStandardMaterial color="#2c4a25" roughness={0.95} /></mesh>
-    <mesh position={[0, -2.4, 0]} material={rock}><coneGeometry args={[6.8, 4.2, 12, 3]} /></mesh>
+    {/* the island: grass top, jagged rock below, waterfalls off the front edge, a ring of stepping stones round the pond */}
+    <mesh position={[0, -0.15, 0]}><cylinderGeometry args={[7.6, 7.4, 0.3, 64]} /><meshStandardMaterial color="#3d6b2c" roughness={0.95} flatShading /></mesh>
+    <mesh position={[0, -0.3, 0]} geometry={lg.rock} material={rock} />
     <mesh rotation-x={-Math.PI / 2} position={[0, 0.02, 0]}><circleGeometry args={[2.2, 48]} /><meshPhysicalMaterial color="#1d4f6b" metalness={0.1} roughness={0.05} clearcoat={1} emissive="#3aa0c8" emissiveIntensity={0.15} /></mesh>
-    <mesh rotation-x={-Math.PI / 2} position={[0, 0.015, 0]}><ringGeometry args={[4.0, 4.5, 64]} /><meshStandardMaterial color="#7d6c4e" roughness={0.9} /></mesh>
+    {[[-2.4, 7.2], [3.1, 6.9]].map(([x, z], i) => <mesh key={i} position={[x, -1.9, z]} rotation-y={Math.atan2(x, z)} material={lg.fall}><planeGeometry args={[1.1, 3.6]} /></mesh>)}
+    <Many items={lg.stones} geo={lg.disc} mat={lg.stone} />
+    <Many items={lg.pads} geo={lg.disc} mat={lg.pad} />
+    <Many items={lg.bushes} geo={lg.ball} mat={lg.leaf} />
+    <Many items={lg.flowers} geo={lg.ball} mat={lg.flower} />
+    {/* the blossom tree and three small islands floating behind */}
+    <Many items={lg.trunk} geo={lg.stem} mat={lg.bark} />
+    <Many items={lg.canopy} geo={lg.ball} mat={lg.blossom} />
+    <Many items={lg.isles} geo={lg.rock} mat={rock} />
+    <Many items={lg.isleTops} geo={lg.disc} mat={lg.leaf} />
     {/* pods */}
     <group ref={seeds}>{m.pods.map((p) => (<group key={p.id} position={[p.at[0], 0, p.at[2]]}>
       <pointLight position={[0, 0.8, 0]} intensity={p.done ? 4 : 0.6} distance={3} color={p.done ? "#a7f3d0" : "#ffd9a8"} />

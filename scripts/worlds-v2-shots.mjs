@@ -29,6 +29,10 @@ createRoot(document.getElementById("root")).render(${shell}<MemoryWorld reduced=
 createRoot(document.getElementById("root")).render(${shell}<AgentsStation reduced={false} quality="high" onClose={() => {}} /></main>);`;
   if (id === "studio") return `import { createRoot } from "react-dom/client"; import StudioWorld from "@/components/StudioWorld";
 createRoot(document.getElementById("root")).render(${shell}<StudioWorld reduced={false} quality="high" onClose={() => {}} /></main>);`;
+  if (id === "gamedev") return `import { createRoot } from "react-dom/client"; import DevWorld from "@/components/DevWorld";
+createRoot(document.getElementById("root")).render(${shell}<DevWorld reduced={false} quality="high" onClose={() => {}} /></main>);`;
+  if (id === "arch") return `import { createRoot } from "react-dom/client"; import ArchWorld from "@/components/ArchWorld";
+createRoot(document.getElementById("root")).render(${shell}<ArchWorld reduced={false} quality="high" onClose={() => {}} /></main>);`;
   return `import { createRoot } from "react-dom/client"; import PlanetWorld from "@/components/PlanetWorld"; ${PANEL}
 createRoot(document.getElementById("root")).render(${shell}<PlanetWorld id="${id}" reduced={false} quality="high" onClose={() => {}}><Panel /></PlanetWorld></main>);`;
 };
@@ -54,6 +58,8 @@ const summary = { cost: { projects: [["Pet simulator", 412], ["ORBIT", 296], ["Y
 const habits = [["Exercise", 12, true], ["Hydrate", 30, true], ["Read", 6, true], ["Meditate", 3, false], ["Sleep by 23:00", 0, false]].map(([name, streak, doneToday], i) => ({ id: `h${i}`, name, streak, doneToday, scheduledToday: true, week: [] }));
 const memKinds = ["note", "idea", "project", "person", "learning", "link"];
 const memItems = Array.from({ length: 260 }, (_, i) => { const k = memKinds[i % 6], a = (i % 6) * 1.05, r = 6 + (i % 13) * 0.6; return { id: `m${i}`, title: `Memory ${i}`, kind: k, tags: [], folder: null, created_at: iso(T0 - i * 5 * H), source: null, x: Math.cos(a) * 14 + Math.cos(i) * r * 0.5, y: Math.sin(i * 1.3) * 4, z: Math.sin(a) * 14 + Math.sin(i) * r * 0.5 }; });
+const devGames = [["pet-sim", "Pet Simulator", "roblox", "beta"], ["tower-run", "Tower Run", "roblox", "prototype"], ["orbit-web", "Orbit Arcade", "web", "idea"]].map(([id, name, platform, stage]) => ({ id, name, platform, stage, pitch: "", notes: "" }));
+const devBugs = [["crash", "open"], ["major", "open"], ["major", "fixing"], ["minor", "open"], ["minor", "open"], ["polish", "open"], ["minor", "fixed"]].map(([severity, status], i) => ({ id: `b${i}`, game: i < 5 ? "pet-sim" : "tower-run", title: `Bug ${i}`, detail: "", severity, status, created: iso(T0 - i * H) }));
 const THUMBS = (process.env.WV_THUMBS || "").split(",").filter(Boolean);
 const DATA = {
   "/api/tasks": { tasks }, "/api/vault": { files, usage: {} }, "/api/business": { prospects }, "/api/activity": { items: tasks.map((t) => ({ at: t.created_at, area: "agents", title: t.title })) },
@@ -61,7 +67,7 @@ const DATA = {
   "/api/agents": { agents: ["nova", "forge", "echo", "sentinel", "atlas"].map((s, i) => ({ slug: s, name: s[0].toUpperCase() + s.slice(1), role: ["Research", "Content", "Writing", "Watch", "Planning"][i], color: ["#a78bfa", "#f472b6", "#38bdf8", "#4ade80", "#fbbf24"][i], builtin: true, stats: { running: i < 2 ? 1 : 0, done: 10 + i, failed: i % 2 } })) },
   "/api/studio": { configured: true, fetchedAt: iso(T0), channel: { id: "c", title: "Andreas", subs: 12400, views: 980000, videos: 42 },
     videos: ["What if there was no military?", "Why ships avoid one strait", "The cheapest house in Europe", "Pet sim update", "Roblox egg odds explained", "A day building ORBIT", "Stickman history"].map((title, i) => ({ id: `v${i}`, title, publishedAt: iso(T0 - i * 50 * H), views: [182000, 64000, 41000, 22000, 15000, 9000, 6000][i], likes: 100, comments: 10, durationSec: i % 2 ? 40 : 480, thumb: THUMBS[i % THUMBS.length] })) },
-  "/api/chains": { chains: [] }, "/api/goals": { goals: [] },
+  "/api/chains": { chains: [] }, "/api/devworld": { world: { v: 1, games: devGames, bugs: devBugs }, updatedAt: iso(T0) }, "/api/projects": { projects: [] }, "/api/goals": { goals: [] },
 };
 
 const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
@@ -77,6 +83,7 @@ for (const id of IDS) {
     if (p === "/app.js") return route.fulfill({ contentType: "text/javascript", body: b.js });
     const f = resolve(ROOT, "public" + p);
     if (!p.startsWith("/api/") && existsSync(f)) return route.fulfill({ body: readFileSync(f) });
+    const mm = p.match(/^\/api\/memories\/(m\d+)$/); if (mm) { const m = memItems.find((x) => x.id === mm[1]); return route.fulfill({ contentType: "application/json", body: JSON.stringify({ memory: { ...m, content: "Made-up note.", updated_at: m.created_at } }) }); }
     const j = DATA[p];
     return j ? route.fulfill({ contentType: "application/json", body: JSON.stringify(j) }) : route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
   });
@@ -91,7 +98,7 @@ for (const id of IDS) {
   if (process.env.WV_DEBUG) page.on("requestfailed", (r) => console.log(`  [failed] ${r.url().slice(0, 140)} ${r.failure()?.errorText}`));
   if (process.env.WV_DEBUG) page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") console.log(`  [${m.type()}] ${m.text().slice(0, 300)}`); });
   await page.goto(`${ORIGIN}/`);
-  if (id === "memory") { await page.waitForTimeout(3000); await page.getByRole("button", { name: /^Map$/ }).first().click({ timeout: 10_000 }).catch(() => console.log("memory: no Map button")); }
+  if (id === "memory") { await page.waitForTimeout(3000); await page.getByRole("button", { name: /^Map$/ }).first().click({ timeout: 10_000 }).catch(() => console.log("memory: no Map button")); await page.waitForTimeout(2500); await page.getByRole("button", { name: /back/i }).first().click({ timeout: 5000 }).catch(() => console.log("memory: no Back button")); }
   await page.waitForTimeout(WAIT);
   const chips = await page.evaluate(() => [...document.querySelectorAll(".wchip")].map((e) => getComputedStyle(e).opacity === "1").reduce((a, v) => [a[0] + (v ? 1 : 0), a[1] + 1], [0, 0]));
   console.log(`${id}: chips shown ${chips[0]}/${chips[1]}`);
