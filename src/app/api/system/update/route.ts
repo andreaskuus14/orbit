@@ -25,7 +25,7 @@ async function POST_(req: Request) {
   const rebuild = ((await req.json().catch(() => null)) as { rebuild?: unknown } | null)?.rebuild === true;
   if (!(await requestUpdate(rebuild))) return Response.json({ error: "Only the production server (scripts/launch.ps1) can update itself" }, { status: 409 });
   logActivity({ area: "system", title: rebuild ? "Update requested: pull main and force a rebuild" : "Update requested: pull main and rebuild if it changed", detail: `from ${process.env.ORBIT_BUILD_COMMIT?.slice(0, 8) || "unknown build"}` });
-  return Response.json({ queued: true, note: "The supervisor picks it up within 5 s; progress is in orbit-launcher.log. Nothing is built when main has nothing new (send {\"rebuild\": true} to force it). A new build swaps in when it succeeds (about 10 min) and is rolled back if it doesn't answer within 2 min." });
+  return Response.json({ queued: true, note: "The supervisor picks it up within 5 s; progress is in orbit-launcher.log. Nothing is built when main has nothing new (send {\"rebuild\": true} to force it). A new build swaps in when it succeeds (about 10 min) and is rolled back if it doesn't answer, show its pages or keep running for 2 min." });
 }
 export const GET = guard("system/update", GET_);
 export const POST = guard("system/update", POST_);
