@@ -2,6 +2,9 @@
 // "?" (when not typing) opens a list of ORBIT's keyboard shortcuts. Also opened by the header menu via SHORTCUTS_EVENT.
 import { useEffect, useRef } from "react";
 import { useT } from "./i18n";
+import { Button } from "./ui/Button";
+import { IconClose } from "./ui/icons";
+import "@/app/planet-ui.css";
 import type { Key } from "@/lib/i18n-en-pure";
 
 export const SHORTCUTS_EVENT = "orbit:shortcuts";
@@ -50,15 +53,15 @@ export function ShortcutsOverlay() {
     return () => { removeEventListener("keydown", onKey); removeEventListener(SHORTCUTS_EVENT, open); };
   }, []);
   return (
-    <dialog ref={ref} className="glass keys-overlay" aria-labelledby="keys-title"
+    <dialog ref={ref} className="pu pu-modal" data-planet="core" aria-labelledby="keys-title"
       onClick={(e) => { if (e.target === e.currentTarget) e.currentTarget.close(); }}>
-      <div className="mb-3 flex items-center justify-between gap-4">
-        <h2 id="keys-title" className="hud-title">{t("keys.title")}</h2>
-        <button className="chip" onClick={() => ref.current?.close()} autoFocus>{t("common.close")}</button>
+      <div className="pu-modal-head">
+        <h2 id="keys-title" className="pu-title">{t("keys.title")}</h2>
+        <Button variant="ghost" icon={<IconClose />} label={t("common.close")} onClick={() => ref.current?.close()} autoFocus />
       </div>
       {GROUPS.map(([name, rows]) => (
-        <section key={name} className="mb-3 last:mb-0">
-          <h3 className="h3 mb-1.5">{t(name)}</h3>
+        <section key={name}>
+          <h3 className="pu-modal-group">{t(name)}</h3>
           <dl className="keys-list">
             {rows.map(([k, what]) => <div key={name + k}><dt><kbd>{k.startsWith("keys.") ? t(k as Key) : k}</kbd></dt><dd>{t(what)}</dd></div>)}
           </dl>

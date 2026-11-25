@@ -261,3 +261,30 @@ html[data-motion="off"] .pu :not(.pu-spin), html[data-motion="off"] .pu *::befor
 .pu-dialog-input:focus { box-shadow: 0 0 0 2px var(--pu-accent-ink, #8590a3); }
 .pu-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 @keyframes pu-dialog-in { from { opacity: 0; transform: scale(0.96); } }
+
+/* Native <dialog> modal in the kit look (EveningCapture, ShortcutsOverlay): put className="pu pu-modal" and data-planet on the
+   <dialog>. A real <dialog> keeps showModal(), the focus trap, Esc and the dialog[open] checks other overlays rely on. */
+.pu-modal { width: min(34rem, calc(100vw - 2rem)); max-height: min(80dvh, 40rem); overflow-y: auto; margin: auto; padding: 20px; color: var(--pu-ink);
+  background: var(--pu-glass-float); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 0; border-radius: var(--pu-r-xl); box-shadow: var(--pu-e3), var(--pu-highlight); }
+.pu-modal[open] { animation: pu-dialog-in var(--dur-quick) var(--ease-out); }
+.pu-modal::backdrop { background: rgba(2, 3, 8, 0.55); backdrop-filter: blur(3px); }
+.pu-modal-head { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+.pu-modal-head .pu-title { flex: 1; min-width: 0; }
+.pu-modal-body { display: grid; gap: 10px; }
+.pu-modal-label { margin: 0; font: var(--pu-meta); color: var(--pu-ink-2); }
+.pu-modal-note { margin: 0; font: var(--pu-body); color: var(--pu-ink); padding: 10px 12px; background: var(--pu-raised); border-radius: var(--pu-r-md); box-shadow: inset 0 0 0 1px var(--pu-line); }
+.pu-modal-field { width: 100%; min-height: 6.5rem; resize: vertical; padding: 10px 12px; font: var(--pu-lead); color: var(--pu-ink); background: var(--pu-raised);
+  border: 0; border-radius: var(--pu-r-lg); box-shadow: inset 0 0 0 1px var(--pu-line); }
+.pu-modal-field:focus { box-shadow: inset 0 0 0 1px var(--pu-accent-line), 0 0 0 4px var(--pu-accent-soft); }
+.pu-modal-field:disabled { opacity: 0.6; }
+.pu-modal-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pu-modal-meta { font: var(--pu-caption); color: var(--pu-ink-3); margin: 0; }
+.pu-modal-status { margin: 0; font: var(--pu-meta); color: var(--pu-good); }
+.pu-modal-status[data-bad] { color: var(--pu-bad); }
+.pu-modal kbd { font: var(--pu-caption); font-family: var(--pu-font); padding: 1px 6px; border-radius: var(--pu-r-xs); color: var(--pu-ink); background: var(--pu-raised); border: 0; box-shadow: inset 0 0 0 1px var(--pu-line-strong); }
+.pu-modal-group { margin: 0 0 4px; font: var(--pu-caption); color: var(--pu-ink-2); }
+.pu-modal .keys-list { display: grid; gap: 6px; margin: 0 0 14px; }
+.pu-modal .keys-list > div { display: grid; grid-template-columns: 7.5rem 1fr; align-items: baseline; gap: 12px; font: var(--pu-meta); }
+.pu-modal .keys-list dd { margin: 0; color: var(--pu-ink-2); }
+@media (prefers-reduced-motion: reduce) { .pu-modal[open] { animation: none; } }
