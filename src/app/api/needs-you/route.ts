@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/supabase/server";
 import { gatherDigest, gatherNeeds, NEED_SNOOZE } from "@/lib/needs-you";
 import { parseSince } from "@/lib/morning-pure";
 import { snoozeItem } from "@/lib/brief";
-import { parseLang } from "@/lib/i18n-pure";
+import { parseLang } from "@/lib/i18n-core-pure";
 
 export const dynamic = "force-dynamic";
 

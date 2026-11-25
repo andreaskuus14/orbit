@@ -1,7 +1,7 @@
 // "Check before promising" (review 1c4cd6c): what each kind of request needs, evaluated against data ORBIT already has
 // (the doctor's last checks, env names, local token files). Pure, client-safe; tested in tests/capability.test.ts. IO: capability.ts.
 // Used by CORE's prompt (missing things for the routed modules), mission/agent start (blocked up front) and the Doctor panel.
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 
 export type Dep = "claude" | "youtube_key" | "youtube_oauth" | "resend" | "calendar" | "higgsfield" | "ollama" | "phone" | "ffmpeg" | "whisper";
 export type CapId = "think" | "youtube_stats" | "youtube_upload" | "clips" | "email_send" | "calendar" | "media" | "local_brain" | "phone" | "arch";

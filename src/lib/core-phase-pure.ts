@@ -2,7 +2,7 @@
 // Each pose is held long enough to read (no flicker when a tool takes 40 ms), then the next one plays; done settles back to idle.
 // Fed by CoreChat's stream (CORE_PHASE_EVENT) and the voice input. Pure; tests in tests/ui-motion.test.ts.
 import { plainStep } from "./progress-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 
 export const CORE_PHASE_EVENT = "orbit:core-phase";
 export type CorePhase = "idle" | "listening" | "thinking" | "tool" | "writing" | "done" | "error";

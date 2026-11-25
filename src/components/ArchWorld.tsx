@@ -14,7 +14,7 @@ import { BackToSimple, useManual } from "./PlanetHome";
 import { Button, Card, Empty, PlanetShell, Section, Sheet, type MenuItem } from "./ui";
 import "@/app/arch-planet.css";
 import { buildMs, clock, locale, money, needsLoop, num, SAVE_WAIT_MS, shadowMap, shadowsOn, sunFact } from "@/lib/arch-shell-pure";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { dayArc, sunDirection, sunPosition } from "@/lib/sun-pure";
 import { domeArcs, hourSegments, type Vec } from "@/lib/arch-sunpath-pure";
 import { concepts as makeConcepts, type Brief } from "@/lib/arch-concepts-pure";

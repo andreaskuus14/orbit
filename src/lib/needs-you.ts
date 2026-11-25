@@ -8,7 +8,7 @@ import { briefInvoices, daysLate, isOverdue, totals } from "./invoices-pure";
 import { dueFollowups } from "./business-pure";
 import { doneDigest, needsYou, reuse, type DigestReceipt, type Need, type NeedsIn } from "./needs-you-pure";
 import { rowReceipt } from "./receipt-pure";
-import type { Lang } from "./i18n-pure";
+import type { Lang } from "./i18n-core-pure";
 
 const DAY = 86_400_000;
 const soft = <T>(p: PromiseLike<T>, empty: T, ms = 4000): Promise<T> =>

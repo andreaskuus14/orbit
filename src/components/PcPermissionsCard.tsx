@@ -3,7 +3,7 @@
 // PC apps & files, Screen & window watch, and Chrome browser control.
 import { useCallback, useEffect, useState } from "react";
 import { PC_PERM_KEYS, type PcPermKey, type PcPermissions } from "@/lib/pc-permissions-pure";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { useT } from "./i18n";
 
 export function PcPermissionsCard() {

@@ -3,7 +3,7 @@
 // Apache-2.0) → a 3DGS-layout .ply in VAULT → ARCH's splat viewer opens it and its measure tool sets the size from one known length.
 // Progress shows on the shared "Working on it" card. The photos never leave this PC (the service is loopback-only).
 import { fromStages, type Progress } from "./progress-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 
 export const MIN_PHOTOS = 3;
 export const MAX_PHOTOS = 10;

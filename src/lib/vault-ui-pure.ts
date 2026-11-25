@@ -5,7 +5,7 @@
 import { memoryType, type Kind } from "./vault-pure.ts";
 import type { Progress } from "./progress-pure.ts";
 import type { TmRecord } from "./time-machine-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 /** Same rule as offline-tools-pure isJournalName (kept here so the browser bundle doesn't pull node-only modules; the test checks they agree). */
 export const isJournalName = (s: unknown) => typeof s === "string" && /journal|p[äa]evik|diary|life\.json/i.test(s);
 

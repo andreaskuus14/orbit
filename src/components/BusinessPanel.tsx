@@ -12,7 +12,7 @@ import { leadLabel, type Candidate } from "@/lib/lead-loop-pure";
 import { euro as euroCents } from "@/lib/invoices-pure";
 import type { Bucket, Split } from "@/lib/money-pure";
 import type { BizState } from "@/lib/business-state-pure";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import NicheCards from "./NicheCards";
 import RegistryBox, { RegistryFacts } from "./RegistryBox";
 import InvoicesPanel from "./InvoicesPanel";

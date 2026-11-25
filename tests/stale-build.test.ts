@@ -69,6 +69,6 @@ test("wiring: boundary and watcher use the pure rules; launcher keeps the previo
 });
 
 test("i18n: update toast in English and Estonian", () => {
-  const src = readFileSync(new URL("../src/lib/i18n-pure.ts", import.meta.url), "utf8");
+  const src = ["en", "et"].map((l) => readFileSync(new URL(`../src/lib/i18n-${l}-pure.ts`, import.meta.url), "utf8")).join("\n");
   for (const k of ["update.ready", "update.reload"]) assert.equal(src.split(`"${k}":`).length - 1, 2, k);
 });

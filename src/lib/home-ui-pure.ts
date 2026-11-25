@@ -1,7 +1,7 @@
 // Galaxy home + CORE (MIX look, 23 Nov): the small pure helpers the home screen reads. Planet names in sentence case for the
 // galaxy labels, one short live readout per planet ("2 jobs · 4 min left"), the "9+" badge, the voice meter's bar heights and
 // the Needs-you detail + question join. Pure; tests in tests/home-ui.test.ts.
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 import type { WorldStatus } from "./galaxy-status-pure.ts";
 
 /** "GAME DEV" → "Game dev", "MÄLU" → "Mälu". Names already in mixed case stay as they are; CORE / ORBIT stay names. */

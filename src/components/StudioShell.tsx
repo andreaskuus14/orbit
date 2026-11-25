@@ -17,7 +17,7 @@ import { studioWork, type ClipJobLike, type DownloadLike } from "@/lib/planet-pa
 import { isShort, viewsPerDay, type Channel, type Video } from "@/lib/youtube-pure";
 import { STAGES, TOOL_MENU, ago, at, biggestDrop, compactN, coveredFailures, paceText, pipeline, retentionPoints, statusParts, type RetPt, type StageKey } from "@/lib/studio-shell-pure";
 import { linePath, areaPath } from "@/lib/chart-pure";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import type { StudioMode } from "@/lib/studio-ui-pure";
 import "@/app/studio-planet.css";
 

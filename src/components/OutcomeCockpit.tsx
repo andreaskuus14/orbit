@@ -13,7 +13,7 @@ import {
   type ReviewDeskSummary,
 } from "@/lib/outcome-cockpit-pure";
 import type { ObjectionVerdict, PlanDebate } from "@/lib/outcome-debate-pure";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { useT } from "./i18n";
 
 type ProjectRow = OutcomeProject & { summary: ReviewDeskSummary };

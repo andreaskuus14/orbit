@@ -10,7 +10,7 @@ import { TwinCard } from "./TwinCard";
 import { PcPermissionsCard } from "./PcPermissionsCard";
 import { KIND_LABEL, type TwinKind } from "@/lib/twin-pure";
 import type { TrustSuggestion } from "@/lib/trust-pure";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { askText } from "./ui/Dialog";
 
 type View = { levels: Levels; limits: Limits; pending: Pending[]; today: { at: string; area: Area; action: string; ref: string }[]; stopAll: boolean; push: string | null; trust?: TrustSuggestion[]; problem?: string | null };

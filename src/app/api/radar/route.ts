@@ -2,7 +2,7 @@ import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { radarAct, radarWindows } from "@/lib/radar";
 import { windowCard } from "@/lib/radar-pure";
-import { parseLang } from "@/lib/i18n-pure";
+import { parseLang } from "@/lib/i18n-core-pure";
 
 // Opportunity radar (radar.ts): GET the open windows as shared progress cards (+ evidence links); POST {id, act: "draft"|"later"}.
 // "draft" only creates a draft task inside ORBIT; nothing is posted or sent.

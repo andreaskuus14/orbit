@@ -6,7 +6,7 @@ import * as THREE from "three";
 import type { RootState } from "@react-three/fiber";
 import type { IfcAPI } from "web-ifc";
 import { useT } from "./i18n";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { checkIfcSize, GROUP_COLOR, IFC_GROUPS, shadowStudyTimes } from "@/lib/arch-ifc-import-pure";
 import type { IfcModel } from "@/lib/arch-ifc-read";
 import { sunDirection } from "@/lib/sun-pure";

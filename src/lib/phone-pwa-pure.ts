@@ -4,7 +4,7 @@
 // Keep this file free of non-erasable TS syntax (it runs under node --experimental-strip-types).
 import { linkToHash } from "./deeplink-pure.ts";
 import type { BriefOpen } from "./brief-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 
 export const PHONE_HOME = "/m";
 export const PHONE_OFFLINE = "/m/__offline";

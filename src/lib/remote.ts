@@ -11,7 +11,7 @@ import { orbitDataDir } from "@/lib/data-dir";
 import { emit } from "@/lib/claude";
 import { makePairCode, NonceCache, deviceForToken, type PairCode, type RemoteCommand } from "@/lib/remote-pure";
 import { approvalId, clipStamp, ledgerData, REMOTE_COOKIE, secretProblem, takeRate, type Approval } from "@/lib/remote-web-pure";
-import type { Lang } from "@/lib/i18n-pure";
+import type { Lang } from "@/lib/i18n-core-pure";
 import { isAllowedEmail } from "@/lib/allow";
 import { listJobs } from "@/lib/clips/factory";
 import { listStories } from "@/lib/clips/story";

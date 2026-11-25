@@ -6,7 +6,7 @@
 // model sees titles and short snippets only, fenced as data.
 import { isPrivate } from "./private-pure.ts";
 import { extractObject, isSensitive } from "./reflect-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 import type { Progress } from "./progress-pure.ts";
 
 export type DreamSource = "memory" | "chat" | "project" | "task" | "goal" | "short" | "idea";

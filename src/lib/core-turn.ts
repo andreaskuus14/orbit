@@ -18,7 +18,7 @@ import { prepareAttachments } from "@/lib/core-attach";
 import { chatProjectContext, updateChats } from "@/lib/core-chats";
 import { describeFailure } from "@/lib/core-capability-pure";
 import { MAX_MESSAGES, chatTitle, isId, moveChat } from "@/lib/core-chats-pure";
-import { parseLang } from "@/lib/i18n-pure";
+import { parseLang } from "@/lib/i18n-core-pure";
 import { parseChoice } from "@/lib/think-level-pure";
 import { noteOwnerTurn, noteReceipts, projectRecordFor } from "@/lib/checkpoint";
 import { checkpointPrompt, isContinue } from "@/lib/checkpoint-pure";

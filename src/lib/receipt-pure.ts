@@ -6,7 +6,7 @@
 import { EFFECTS } from "./approval-pure.ts";
 import type { ActionResult, WriteEvidence } from "./completion-pure.ts";
 import { redact } from "./health-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 
 /** Never "done" without a passed check: verified = the acceptance check passed; partly = some of it; unverified = ran, not checked. */
 export type ReceiptStatus = "verified" | "partly" | "unverified" | "failed";
