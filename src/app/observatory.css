@@ -377,7 +377,7 @@ summary.core-step::-webkit-details-marker { display: none; }
 .mc::backdrop { background: #05090e; }
 .mc[open] { animation: observatory-enter .2s var(--orbit-ease, ease-out); }
 .mc-top { display: flex; align-items: center; gap: 1rem; padding-bottom: .6rem; margin-bottom: 1rem; border-bottom: 1px solid #7dd3fc33; }
-.mc-title { color: #e4f6f8; letter-spacing: .3em; font-size: .8rem; }
+.mc-title { color: #e4f6f8; letter-spacing: .3em; font-size: .8rem; text-transform: uppercase; }
 .mc-top .mc-code { margin-left: auto; }
 .mc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
 .mc-panel { --notch: 12px; position: relative; padding: .8rem .9rem; min-height: 11rem; max-height: 22rem; overflow-y: auto; border: 1px solid #7dd3fc2e;
@@ -385,7 +385,7 @@ summary.core-step::-webkit-details-marker { display: none; }
   clip-path: polygon(var(--notch) 0, 100% 0, 100% calc(100% - var(--notch)), calc(100% - var(--notch)) 100%, 0 100%, 0 var(--notch)); }
 .mc-panel > header { display: flex; justify-content: space-between; gap: .5rem; padding-bottom: .4rem; margin-bottom: .6rem; border-bottom: 1px solid #7dd3fc22;
   color: #7dd3fc; font-size: .75rem; letter-spacing: 0; }
-.mc-code, .mc-label { color: #7dd3fc; font-size: .75rem; letter-spacing: 0; }
+.mc-code, .mc-label { color: #7dd3fc; font-size: .75rem; letter-spacing: 0; text-transform: uppercase; }
 .mc-panel ul, .mc-log { display: flex; flex-direction: column; gap: .5rem; margin: 0 0 .6rem; padding: 0; list-style: none; }
 .mc-row { display: flex; justify-content: space-between; align-items: baseline; gap: .75rem; margin-top: .3rem; }
 .mc-row b { font-weight: 500; letter-spacing: .14em; color: #e4f6f8; }
@@ -403,7 +403,7 @@ summary.core-step::-webkit-details-marker { display: none; }
 .mc-bar-fg { fill: #7dd3fc; }
 .mc-bar-warn { fill: #fbbf24; }
 .mc-log li { display: flex; gap: .6rem; }
-.mc-foot { margin-top: 1rem; font-size: .6rem; letter-spacing: .2em; }
+.mc-foot { margin-top: 1rem; font-size: .6rem; letter-spacing: .2em; text-transform: uppercase; }
 .mc button:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 2px; }
 @media (max-width: 1000px) { .mc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .mc-grid { grid-template-columns: 1fr; } .mc-panel { max-height: none; min-height: 0; } .mc-top .mc-code { display: none; } .mc-top button { margin-left: auto; } }

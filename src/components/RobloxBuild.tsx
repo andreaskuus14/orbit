@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BuildResult, Item, PlanResult, ScanResult } from "@/lib/roblox-pure";
+import { useT } from "./i18n";
 
 export const PINK = "#f472b6";
 const OPEN_STUDIO = "Open Roblox Studio with your place and enable the MCP plugin, then check again.";
@@ -28,6 +29,7 @@ export const scanTargets = (b: Built) => b.inserted.filter((x) => x.found !== fa
 
 /** Read-only free-model check. Runs whenever `autoPaths` changes to a new array (memoise it!) (after a build) and on the button. ORBIT never deletes anything. */
 export function ScanPanel({ autoPaths }: { autoPaths: string[] | null }) {
+  const { t } = useT();
   const [res, setRes] = useState<ScanResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -43,23 +45,23 @@ export function ScanPanel({ autoPaths }: { autoPaths: string[] | null }) {
   return (
     <div className="rounded-lg border p-2 text-xs" style={{ borderColor: `${PINK}44` }} aria-live="polite">
       <div className="flex items-center justify-between gap-2">
-        <b style={{ color: PINK }}>Free-model scan</b>
-        <button className="chip" onClick={() => run()} disabled={busy}>{busy ? "Scanning (read-only, up to 3 min)…" : "Scan ORBIT Builds"}</button>
+        <b style={{ color: PINK }}>{t("rbb.scanTitle")}</b>
+        <button className="chip" onClick={() => run()} disabled={busy}>{busy ? t("rbb.scanning") : t("rbb.scan")}</button>
       </div>
-      {res && !res.done && <p className="muted mt-1">{res.notes || "The scan didn't finish."}</p>}
+      {res && !res.done && <p className="muted mt-1">{res.notes || t("rbb.scanUnfinished")}</p>}
       {res?.done && (
         <div className="mt-1 grid gap-1">
           <p style={{ color: ok ? "var(--mint)" : "#fbbf24" }}>
-            <b>{ok ? "No risky code reported" : "⚠️ Risky"}</b> · {res.parts} parts · {res.meshes} meshes · {res.scripts} scripts · lag risk {res.lag}
+            <b>{ok ? t("rbb.clean") : `⚠️ ${t("rbb.risky")}`}</b> · {t("rbb.counts", { parts: res.parts, meshes: res.meshes, scripts: res.scripts, lag: res.lag })}
           </p>
-          {ok && <p className="muted text-[11px]">A model read these scripts; it can be fooled.</p>}
+          {ok && <p className="muted text-[11px]">{t("rbb.fooled")}</p>}
           {!!res.raw?.length && (
             <div>
-              <p className="muted text-[11px]">ORBIT&apos;s own pattern check of the raw script text matched these lines (they may be in scripts outside the scanned folder):</p>
+              <p className="muted text-[11px]">{t("rbb.raw")}</p>
               {res.raw.map((l, i) => <code key={i} className="block whitespace-pre-wrap break-all text-[11px]">{l}</code>)}
             </div>
           )}
-          {res.lag === "high" && <p className="muted">That&apos;s a lot of parts: it may lag on phones.</p>}
+          {res.lag === "high" && <p className="muted">{t("rbb.lag")}</p>}
           {res.findings.length > 0 && (
             <>
               <ul className="grid gap-1">
@@ -70,7 +72,7 @@ export function ScanPanel({ autoPaths }: { autoPaths: string[] | null }) {
                   </li>
                 ))}
               </ul>
-              <p><b>Delete these scripts in Studio before publishing.</b> <span className="muted">ORBIT only reads; it doesn&apos;t delete anything.</span></p>
+              <p><b>{t("rbb.delete")}</b> <span className="muted">{t("rbb.readOnly")}</span></p>
             </>
           )}
           {res.notes && <p className="muted">{res.notes}</p>}
@@ -83,6 +85,7 @@ export function ScanPanel({ autoPaths }: { autoPaths: string[] | null }) {
 
 /** Put an item into the owner's open Roblox Studio place: check status → Plan (dry run) → review → Build it → result. */
 export default function RobloxBuild({ item, onDone }: { item: Item | null; onDone?: () => void }) {
+  const { t } = useT();
   const [status, setStatus] = useState<Status | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [built, setBuilt] = useState<Built | null>(null);
@@ -127,19 +130,19 @@ export default function RobloxBuild({ item, onDone }: { item: Item | null; onDon
   const btn = { background: `linear-gradient(90deg, ${PINK}, #db2777)`, boxShadow: `0 0 18px ${PINK}55` };
 
   return (
-    <section className="glass rounded-xl p-3 text-sm" style={{ borderColor: `${PINK}44` }} aria-label="Build in Roblox Studio">
+    <section className="glass rounded-xl p-3 text-sm" style={{ borderColor: `${PINK}44` }} aria-label={t("rbb.title")}>
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="brand text-sm" style={{ color: PINK }}>Build in Roblox Studio</h3>
-        <button className="chip" onClick={check} disabled={!!busy} aria-label="Check Roblox Studio connection again">
-          {busy === "status" ? "Checking…" : "Check again"}
+        <h3 className="brand text-sm" style={{ color: PINK }}>{t("rbb.title")}</h3>
+        <button className="chip" onClick={check} disabled={!!busy} aria-label={t("rbb.checkAria")}>
+          {busy === "status" ? t("rbb.checking") : t("rbb.checkAgain")}
         </button>
       </div>
 
       <div aria-live="polite" className="grid gap-2">
-        {!status ? (busy === "status" && <p className="muted text-xs">Checking Roblox Studio (up to 40 seconds)…</p>)
+        {!status ? (busy === "status" && <p className="muted text-xs">{t("rbb.checkingLong")}</p>)
           : !status.configured ? (
             <div>
-              <p className="text-xs"><b>Roblox Studio isn&apos;t connected to ORBIT yet.</b> To set it up:</p>
+              <p className="text-xs"><b>{t("rbb.notConnected")}</b> {t("rbb.setup")}</p>
               <pre className="muted mt-1 whitespace-pre-wrap text-[11px]">{status.help}</pre>
             </div>
           ) : studio && (
@@ -150,30 +153,30 @@ export default function RobloxBuild({ item, onDone }: { item: Item | null; onDon
 
         {status?.configured && (item ? (
           <>
-            <p className="text-xs"><span className="muted">Item:</span> {describe(item)}</p>
+            <p className="text-xs"><span className="muted">{t("rbb.item")}</span> {describe(item)}</p>
             {!plan?.ready && (
               <button className="btn" style={btn} onClick={doPlan} disabled={!!busy}>
-                {busy === "plan" ? "Planning (dry run, changes nothing)…" : "Plan it"}
+                {busy === "plan" ? t("rbb.planning") : t("rbb.planIt")}
               </button>
             )}
           </>
-        ) : <p className="muted text-xs">Pick an item to build.</p>)}
+        ) : <p className="muted text-xs">{t("rbb.pick")}</p>)}
 
         {plan?.ready && (
           <div className="rounded-lg border p-2" style={{ borderColor: `${PINK}55` }}>
-            <p className="mb-1 text-xs"><b>Plan</b>{plan.place && <> for <b>{plan.place}</b></>}. Review it, then build:</p>
+            <p className="mb-1 text-xs"><b>{t("rbb.plan")}</b>{plan.place && <> {t("rbb.for")} <b>{plan.place}</b></>}. {t("rbb.review")}</p>
             <pre className="whitespace-pre-wrap text-[11px]">{plan.text}</pre>
             {plan.notes && <p className="muted mt-1 text-[11px]">{plan.notes}</p>}
             <div className="mt-2 flex gap-2">
-              <button className="btn" style={btn} onClick={doBuild} disabled={!!busy}>{busy === "build" ? "Building (up to 4 minutes)…" : "Build it"}</button>
-              <button className="chip" onClick={() => setPlan(null)} disabled={!!busy}>Cancel</button>
+              <button className="btn" style={btn} onClick={doBuild} disabled={!!busy}>{busy === "build" ? t("rbb.building") : t("rbb.buildIt")}</button>
+              <button className="chip" onClick={() => setPlan(null)} disabled={!!busy}>{t("rbb.cancel")}</button>
             </div>
           </div>
         )}
 
         {built && (
           <div className="rounded-lg border p-2" style={{ borderColor: built.done ? "rgba(110,231,183,0.4)" : "rgba(251,113,133,0.4)" }}>
-            <p className="text-xs" style={{ color: built.done ? "var(--mint)" : "var(--rose)" }}><b>{built.done ? "Built in Studio." : "Not finished."}</b></p>
+            <p className="text-xs" style={{ color: built.done ? "var(--mint)" : "var(--rose)" }}><b>{built.done ? t("rbb.built") : t("rbb.notDone")}</b></p>
             {built.inserted.length > 0 && (
               <ul className="mt-1 text-[11px]">
                 {built.inserted.map((x, i) => <li key={i}>{x.found !== undefined && <span aria-hidden>{x.found ? "✓ " : "✗ "}</span>}<b>{x.name}</b> <span className="muted font-mono">{x.path}</span></li>)}
@@ -182,7 +185,7 @@ export default function RobloxBuild({ item, onDone }: { item: Item | null; onDon
             {built.notes && <p className="muted mt-1 text-[11px]">{built.notes}</p>}
             {built.image?.startsWith("data:image/png;base64,") && built.image.length < 3_100_000 && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={built.image} alt="Screenshot of Roblox Studio after the build" className="mt-2 w-full rounded-md" />
+              <img src={built.image} alt={t("rbb.shot")} className="mt-2 w-full rounded-md" />
             )}
           </div>
         )}
