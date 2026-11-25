@@ -29,6 +29,8 @@ import { PeoplePanel, usePeople } from "./PeopleRing";
 import { MEMORY_SHEET_EVENT, MemoryShell } from "./MemoryShell";
 import { Button } from "./ui";
 import dynamic from "next/dynamic";
+import { ChipLayer, ChipProjector, Crystals, Motes, PlanetGround, WorldLights, useChipRig, type Chip } from "./world-kit";
+import { memoryClusters } from "@/lib/planet-scenes-pure";
 
 const Chronicle = dynamic(() => import("./Chronicle"), { ssr: false }); // its own canvas, loaded only when he opens Chronicle
 
@@ -135,6 +137,18 @@ const sparkFrag = /* glsl */ `
   varying vec3 vC;
   void main() { vec2 p = gl_PointCoord * 2.0 - 1.0; float a = max(1.0 - dot(p, p), 0.0);
     gl_FragColor = vec4(clamp(vC * 1.3 * a * a * a, 0.0, 1.2), 1.0); }`;
+
+/** v2: the memories as crystal clusters growing on a planet under the star map, one per kind (counts in the chips). */
+function MemoryGround({ items, reduced }: { items: Star[]; reduced: boolean }) {
+  const { clusters, ground } = useMemo(() => memoryClusters(items), [items]);
+  const crystals = useMemo(() => clusters.flatMap((c) => { const col = new THREE.Color(kindColor(c.kind)).lerp(new THREE.Color("#b08cff"), 0.45).getStyle();
+    return c.crystals.map((k, i) => ({ at: k.at, h: k.h * 0.7, w: k.h * 0.26, tilt: k.tilt, color: col, glow: i ? 0.9 : 1.5 })); }), [clusters]);
+  return (<group>
+    <group position={[0, ground, 0]}><PlanetGround glow="#8b5cf6" a="#07050f" b="#1a1230" R={140} /></group>
+    <Crystals items={crystals} reduced={reduced} intensity={0.8} />
+    <group position={[0, ground, 0]}><Motes count={reduced ? 120 : 320} color="#c4b5fd" spread={30} height={10} reduced={reduced} /></group>
+  </group>);
+}
 
 /** Faint obsidian rings far behind the constellation, turning very slowly: the megastructure the memories live in. */
 const FAR_RINGS = [{ r: 16, spin: 0.02 }, { r: 26, spin: -0.014 }, { r: 38, spin: 0.01 }, { r: 52, spin: -0.007 }, { r: 68, spin: 0.005 }] as const;
@@ -473,6 +487,9 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   const pick = useCallback((i: number) => { const m = data?.items[i]; if (m) setOpenId(m.id); }, [data]);
   const kinds = useMemo(() => [...new Set(data?.items.map((m) => m.kind))].sort(), [data]);
   const kindName = (k: string) => { const v = t(`mp.k.${k}` as Key); return v === `mp.k.${k}` ? k.charAt(0).toUpperCase() + k.slice(1) : v; };
+  const rig = useChipRig();
+  const memChips = useMemo<Chip[]>(() => { if (!data) return []; const { clusters, ground } = memoryClusters(data.items);
+    return clusters.slice(0, 8).map((c, i) => ({ id: c.kind, at: [c.x, ground + 3.6, c.z], title: kindName(c.kind), value: tn("overview.memories", c.count), color: kindColor(c.kind), prio: 20 - i })); }, [data, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   const onCreated = (s: RootState) => { glr.onCreated(s); s.raycaster.params.Points = { threshold: 0.45 }; };
   const labels = useMemo(() => { // the open star, its connections and the hovered one: precise labels drawn by Projector
     const out: { i: number; main: boolean }[] = [];
@@ -504,6 +521,9 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
           <color attach="background" args={[BG]} />
           <Stars radius={120} depth={60} count={reduced ? 800 : Math.min(3000, q.stars)} factor={2.2} fade speed={reduced ? 0 : 0.2} />
           <FarRings reduced={reduced} />
+          <WorldLights color="#8b5cf6" keyLight="#e9dcff" />
+          {data && <MemoryGround items={data.items} reduced={reduced} />}
+          {sel === null && !query.trim() && <ChipProjector rig={rig} chips={memChips} />}
           {data && <Constellation data={data} at={when} hi={hi} searching={!!query.trim()} reduced={reduced} lite={q.bloomScale === 0} onHover={setHover} onPick={pick} />}
           {data && <FocusLines items={data.items} from={sel} to={near} />}
           {data?.graph && !query.trim() && sel === null && <ClusterHalos graph={data.graph} items={data.items} />}
@@ -519,6 +539,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
             </EffectComposer>
           )}
         </Canvas>
+        {sel === null && !query.trim() && <ChipLayer rig={rig} chips={memChips} />}
         <div className="mp-labels" aria-hidden="true">{labels.map((l) => { const m = data!.items[l.i]; return (
           <div key={`${m.id}-${l.main ? "m" : "n"}`} ref={(el) => { if (el) labelEls.current.set(l.i, el); else labelEls.current.delete(l.i); }} className="memory-star-label" data-main={l.main ? "" : undefined}>
             <b>{m.kind === "journal" ? t("mp.journal") : m.title}</b>{l.main && <span>{kindName(m.kind)}{isLearned(m.source) ? ` · ${t("mp.d.learned")}` : ""}</span>}</div>); })}</div>
