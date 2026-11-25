@@ -9,7 +9,7 @@ import { SHORTCUTS_EVENT } from "./ShortcutsOverlay";
 import { TERMINAL_EVENT } from "@/lib/terminal-pure";
 import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT } from "@/lib/core-chats-pure";
 import { changeStopAll } from "./nav-command";
-import { TOUR_EVENT } from "@/lib/tour-pure";
+import { TOUR_EVENT } from "@/lib/tour-key-pure";
 import { askConfirm } from "./ui/Dialog";
 
 export type Command = { id: string; group: "Go to" | "Actions"; label: string; hint?: string; keywords?: string; run: () => void };

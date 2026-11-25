@@ -44,7 +44,6 @@ import { HudFrame } from "./HudFrame";
 import { WeeklyCard } from "./WeeklyCard";
 import { EveningCapture } from "./EveningCapture";
 import { updateSkillRun, type SkillLaunch } from "./skill-run-receipts";
-import { MissionControl } from "./MissionControl";
 import { StatusRail } from "./StatusRail";
 import { Ticker } from "./Ticker";
 import { WarpBurst, WarpOverlay } from "./WarpOverlay";
@@ -62,7 +61,6 @@ import { runRecipeCommand } from "./recipe-command";
 import { OrbitExplore, warmWorld, WorldLoading } from "./OrbitExplore";
 import { markOpen } from "./dev-mark";
 import { useStageActive } from "./stage-slot";
-import { WorkView } from "./WorkView";
 import type { WorkTab } from "@/lib/work-vocab-pure";
 import { NeedsYou } from "./NeedsYou";
 import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
@@ -92,7 +90,7 @@ import { HomeDesk } from "./HomeDesk";
 import type { Progress } from "@/lib/progress-pure";
 import { AMBER, countBadge, galaxyStatus, ROSE, sentenceRest, type CheckLike, type GalaxyStatus, type NeedLike, type StatusWorld } from "@/lib/galaxy-status-pure";
 import { freshJson } from "./use-poll";
-import { Tour, TOUR_EVENT } from "./Tour";
+import { TOUR_EVENT } from "@/lib/tour-key-pure";
 import { corePhase, useUiMotion } from "./motion/motion";
 import { CorePresence } from "./motion/CorePresence";
 import { HomeAnswer, type HomeAsk } from "./motion/HomeAnswer";
@@ -124,6 +122,11 @@ const MemoryPanel = dynamic(() => import("./panels").then((m) => m.MemoryPanel),
 const IntelligencePanel = dynamic(() => import("./IntelligencePanel").then((m) => m.IntelligencePanel), { ssr: false, loading: PanelLoading });
 const AgentsPanel = dynamic(() => import("./AgentsPanels").then((m) => m.AgentsPanel), { ssr: false, loading: PanelLoading });
 const OperationsPanel = dynamic(() => import("./AgentsPanels").then((m) => m.OperationsPanel), { ssr: false, loading: PanelLoading });
+// Only on screen after a click or after boot: kept out of the first-load bundle (WorkView alone carries Goals, Missions,
+// Skills, Routines and the Outcome cockpit). The Work sheet's code is warmed with the drawers at boot 3, so it still opens at once.
+const WorkView = dynamic(() => import("./WorkView").then((m) => m.WorkView), { ssr: false, loading: PanelLoading });
+const MissionControl = dynamic(() => import("./MissionControl").then((m) => m.MissionControl), { ssr: false });
+const Tour = dynamic(() => import("./Tour").then((m) => m.Tour), { ssr: false });
 const DoctorPanel = dynamic(() => import("./DoctorPanel").then((m) => m.DoctorPanel), { ssr: false });
 const RemoteCall = dynamic(() => import("./RemoteCall").then((m) => m.RemoteCall), { ssr: false });
 const PcConfirm = dynamic(() => import("./voice/DeskVoice").then((m) => m.PcConfirm), { ssr: false });
@@ -156,7 +159,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const { t, tn, lang } = useT();
   const sb = useMemo(() => createClient(), []);
   const boot = useBootBatch(3);
-  useEffect(() => { if (boot >= 3) void import("./panels"); }, [boot]); // warm the CORE drawer after first paint
+  useEffect(() => { if (boot >= 3) { void import("./panels"); void import("./WorkView"); } }, [boot]); // warm the CORE drawer after first paint
   const [view, setView] = useState<"3d" | "2d" | null>(null); // null = still deciding: show the loader, never flash the 2D index
   const [reduced, setReduced] = useState(false);
   const [dilation, setDilation] = useState<{ startAt: number; endAt: number } | null>(null); // a time dilation focus block
