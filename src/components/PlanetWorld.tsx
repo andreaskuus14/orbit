@@ -19,6 +19,8 @@ import { placeAt, worldScene, WORLD_SOURCE, type Place, type PlanetWorldId, type
 import { useT } from "./i18n";
 import { PlanetBoundary } from "./PlanetBoundary";
 import { SHELL_WORLDS, WorldShellContext, ZONE_WORDS } from "./world-shell";
+const VAULT_KINDS = new Set(["image", "video", "audio", "pdf", "text", "doc", "other"]);
+const ACT_ZONES = new Set(["agents", "chains", "goals", "automations", "autopilot", "clips", "core", "operator", "system", "other"]);
 
 const BG = "#020308";
 const FRESH = new THREE.Color("#ffe6b0"); // the galaxy's "work" white-gold: new in the last 24 h
@@ -149,7 +151,7 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
           {groups.map((g) => <Group key={g.shape} {...g} reduced={reduced} onHover={setHover} onPick={setSel} />)}
           {scene?.zones.map((z) => (
             <Html key={z.label} position={z.at} center zIndexRange={[11, 0]} style={{ pointerEvents: "none" }}>
-              <span className="planet-world-zone" style={{ color: planet.color }}>{(id === "operations" && ZONE_WORDS[lang][z.label]) || (id === "business" && t(`bz.stage.${z.label}` as Parameters<typeof t>[0])) || z.label}</span>
+              <span className="planet-world-zone" style={{ color: planet.color }}>{(id === "operations" && ZONE_WORDS[lang][z.label]) || (id === "business" && t(`bz.stage.${z.label}` as Parameters<typeof t>[0])) || (id === "vault" && VAULT_KINDS.has(z.label) && t(`pw.kind.${z.label}` as Parameters<typeof t>[0])) || (id === "analytics" && ACT_ZONES.has(z.label) && t(`pw.area.${z.label}` as Parameters<typeof t>[0])) || z.label}</span>
             </Html>
           ))}
           {shown !== null && flatPlaces[shown] && <Label p={flatPlaces[shown]} reduced={reduced} />}
