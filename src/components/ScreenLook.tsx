@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useT } from "./i18n";
 import { fitSize, lookPrompt, SCREEN_NAME, type Preset } from "@/lib/screen-look-pure";
 
 // "Look at my screen" (roadmap D3): only on his click, Ctrl+Shift+L, or a spoken/typed ask he confirms with a click.
@@ -31,6 +32,7 @@ export function ScreenLook({ busy, input, ask, onAsk, run }: {
   busy: boolean; input: string; ask: LookAsk | null; onAsk: (a: LookAsk | null) => void;
   run: (file: File, text: string, preset: Preset) => Promise<void>;
 }) {
+  const { t } = useT();
   const [state, setState] = useState<"" | "picking" | "looking">("");
   const [err, setErr] = useState("");
   const [shot, setShot] = useState(""); // object URL of the last frame, for Save; revoked on the next look / dismiss / unmount
@@ -48,7 +50,7 @@ export function ScreenLook({ busy, input, ask, onAsk, run }: {
       await run(file, lookPrompt(question, preset), preset);
     } catch (e) {
       const name = e instanceof DOMException ? e.name : "";
-      setErr(name === "NotAllowedError" || name === "AbortError" ? "Cancelled: nothing was captured." : e instanceof Error ? e.message : "Screen capture failed");
+      setErr(name === "NotAllowedError" || name === "AbortError" ? t("slook.cancelled") : e instanceof Error ? e.message : t("slook.failed"));
     } finally { setState(""); }
   };
   const latest = useRef(look); latest.current = look;
@@ -65,22 +67,22 @@ export function ScreenLook({ busy, input, ask, onAsk, run }: {
     <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
       {state
         ? <span className="chip" role="status" aria-live="assertive" style={{ borderColor: "#f59e0b", color: "#f59e0b" }}>
-            👁 {state === "picking" ? "Pick the window ORBIT should look at…" : "ORBIT is looking at your screenshot…"}</span>
+            👁 {state === "picking" ? t("slook.picking") : t("slook.looking")}</span>
         : <>
-            <button type="button" className="chip" disabled={busy} onClick={() => void look(input, "general")} title="Show ORBIT one screenshot of a window you pick (Ctrl+Shift+L). Uses what you typed as the question.">👁 Look at my screen</button>
-            <button type="button" className="chip" disabled={busy} onClick={() => void look(input, "roblox")} title="Screenshot Roblox Studio: ORBIT reads the errors and links a docs-checked fix">🧩 Roblox error</button>
+            <button type="button" className="chip" disabled={busy} onClick={() => void look(input, "general")} title={t("slook.lookTip")}>👁 {t("slook.look")}</button>
+            <button type="button" className="chip" disabled={busy} onClick={() => void look(input, "roblox")} title={t("slook.robloxTip")}>🧩 {t("slook.roblox")}</button>
           </>}
       {ask && !state && (
         <span className="chip inline-flex items-center gap-1.5" role="status">
-          <button type="button" className="underline" onClick={() => void look(ask.question, ask.preset)}>👁 Choose the window to show ORBIT</button>
-          <button type="button" aria-label="Cancel screen look" onClick={() => onAsk(null)}>✕</button>
+          <button type="button" className="underline" onClick={() => void look(ask.question, ask.preset)}>👁 {t("slook.choose")}</button>
+          <button type="button" aria-label={t("slook.cancel")} onClick={() => onAsk(null)}>✕</button>
         </span>
       )}
       {shot && !state && (
         <span className="chip inline-flex items-center gap-1.5">
-          <img src={shot} alt="Last screenshot shown to ORBIT" className="h-6 w-10 rounded object-cover" />
-          <a href={shot} download={`orbit-screen-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.jpg`} className="underline" title="Not kept anywhere unless you save it">💾 Save</a>
-          <button type="button" aria-label="Forget this screenshot" onClick={() => keep("")}>✕</button>
+          <img src={shot} alt={t("slook.lastShot")} className="h-6 w-10 rounded object-cover" />
+          <a href={shot} download={`orbit-screen-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.jpg`} className="underline" title={t("slook.saveTip")}>💾 {t("slook.save")}</a>
+          <button type="button" aria-label={t("slook.forget")} onClick={() => keep("")}>✕</button>
         </span>
       )}
       {err && <span className="text-red-400" role="alert">{err}</span>}

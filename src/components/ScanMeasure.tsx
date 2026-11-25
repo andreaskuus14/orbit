@@ -68,40 +68,40 @@ export function MeasurePanel({ m, set, onSaved }: { m: MeasureState; set: SetM; 
   const { t } = useT();
   const [cal, setCal] = useState<number | null>(null), [real, setReal] = useState("2.0"), [msg, setMsg] = useState("");
   async function save(next: MeasureState) {
-    if (!next.noteId) return setMsg("This scan has no MEMORY note to save to; re-import it to get one.");
-    setMsg("Saving…");
+    if (!next.noteId) return setMsg(t("scanm.noNote"));
+    setMsg(t("scanm.saving"));
     const content = withMeasures(next.note, next);
     const r = await fetch(`/api/memories/${next.noteId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }) }).catch(() => null);
-    if (!r?.ok) return setMsg("Couldn't save to the scan note.");
+    if (!r?.ok) return setMsg(t("scanm.saveFail"));
     set((s) => s && { ...s, note: content });
-    setMsg("Saved to the scan note."); onSaved();
+    setMsg(t("scanm.saved")); onSaved();
   }
   function applyCal(i: number) {
     const x = m.list[i], v = parseLength(real), s = x && v !== null ? calibrate(dist(x.a, x.b), v) : null;
-    if (!s || v === null) return setMsg("Type the real length, e.g. 2.0 or 200 cm.");
+    if (!s || v === null) return setMsg(t("scanm.typeReal"));
     const next = { ...m, scale: s, ref: v };
     set(next); setCal(null); void save(next); // calibration is once per scan: keep it right away
   }
   return (
-    <div className="space-y-1.5" aria-label="Measure">
+    <div className="space-y-1.5" aria-label={t("scanm.measure")}>
       <div className="flex flex-wrap gap-1.5">
-        <button className="chip" aria-pressed={m.on} onClick={() => set((s) => s && { ...s, on: !s.on, pending: null })} title="Click two points on the scan">📏 Measure</button>
-        {m.list.length > 0 && <button className="chip" onClick={() => void save(m)}>Save to scan note</button>}
+        <button className="chip" aria-pressed={m.on} onClick={() => set((s) => s && { ...s, on: !s.on, pending: null })} title={t("scanm.measureTip")}>📏 {t("scanm.measure")}</button>
+        {m.list.length > 0 && <button className="chip" onClick={() => void save(m)}>{t("scanm.save")}</button>}
       </div>
-      {m.on && <p className="muted text-[11px]" aria-live="polite">{m.pending ? "Now click the second point." : "Click two points on the scan (drag still orbits)."}{!m.scale && " Calibrate first: measure something you know, like a door (2.0 m)."}</p>}
+      {m.on && <p className="muted text-[11px]" aria-live="polite">{m.pending ? t("scanm.second") : t("scanm.two")}{!m.scale && ` ${t("scanm.calFirst")}`}</p>}
       {!m.scale && m.list.length > 0 && cal === null && <form className="flex flex-wrap items-center gap-1 text-xs" onSubmit={(e) => { e.preventDefault(); applyCal(0); }}>
         <span>{t("ps.askReal")}</span>
         <input className="field w-20" value={real} maxLength={12} onChange={(e) => setReal(e.target.value)} aria-label={t("ps.askReal")} />
         <button className="chip">{t("ps.setSize")}</button>
       </form>}
-      <p className="muted text-[11px]">{m.scale ? `Calibrated${m.ref ? ` on ${formatLength(m.ref)}` : ""}: 1 scan unit = ${m.scale.toPrecision(4)} m.` : "Not calibrated: lengths assume the scan is in metres (≈)."}</p>
+      <p className="muted text-[11px]">{m.scale ? (m.ref ? t("scanm.calOn", { ref: formatLength(m.ref), k: m.scale.toPrecision(4) }) : t("scanm.cal", { k: m.scale.toPrecision(4) })) : t("scanm.notCal")}</p>
       {m.list.length > 0 && <ul className="space-y-0.5">{m.list.map((x, i) => <li key={i} className="flex flex-wrap items-center gap-1.5 text-xs">
         <span className="num w-20">{i + 1} · {label(m, x.a, x.b)}</span>
         {cal === i ? <form className="flex items-center gap-1" onSubmit={(e) => { e.preventDefault(); applyCal(i); }}>
-          <input className="field w-20" value={real} maxLength={12} onChange={(e) => setReal(e.target.value)} aria-label={`Real length of measurement ${i + 1}`} autoFocus />
-          <button className="chip">Set</button><button type="button" className="chip" onClick={() => setCal(null)}>Cancel</button>
-        </form> : <button className="chip" onClick={() => setCal(i)} title="Tell ORBIT the real length of this one; every length rescales">Calibrate…</button>}
-        <button className="chip error" aria-label={`Delete measurement ${i + 1}`} onClick={() => { set((s) => s && { ...s, list: s.list.filter((_, j) => j !== i) }); setCal(null); }}>×</button>
+          <input className="field w-20" value={real} maxLength={12} onChange={(e) => setReal(e.target.value)} aria-label={t("scanm.realL", { n: i + 1 })} autoFocus />
+          <button className="chip">{t("scanm.set")}</button><button type="button" className="chip" onClick={() => setCal(null)}>{t("scanm.cancel")}</button>
+        </form> : <button className="chip" onClick={() => setCal(i)} title={t("scanm.calTip")}>{t("scanm.calibrate")}</button>}
+        <button className="chip error" aria-label={t("scanm.delL", { n: i + 1 })} onClick={() => { set((s) => s && { ...s, list: s.list.filter((_, j) => j !== i) }); setCal(null); }}>×</button>
       </li>)}</ul>}
       {msg && <p className="text-xs" aria-live="polite">{msg}</p>}
     </div>

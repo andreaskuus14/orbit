@@ -129,6 +129,9 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
   }, [scene]);
   const flatPlaces = useMemo(() => groups.flatMap((g) => g.items), [groups]); // indexes match each group's base
   useEffect(() => { setSel(null); setHover(null); }, [scene]);
+  // Zone labels go into this fixed layer. Left to itself, drei <Html> moves its label once R3F connects pointer events, remaking its inner
+  // React root; React 19 unmounts the old root a moment later and wipes the label just drawn (the first zone label stayed empty until a hover).
+  const labelLayer = useRef<HTMLDivElement>(null!);
   const shown = hover ?? sel;
   const fresh = flatPlaces.filter((p) => p.fresh).length;
   const shell = SHELL_WORLDS.includes(id);
@@ -150,7 +153,7 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
           <gridHelper args={[40, 40, planet.color, "#13202f"]} position={[0, 0.001, 0]} />
           {groups.map((g) => <Group key={g.shape} {...g} reduced={reduced} onHover={setHover} onPick={setSel} />)}
           {scene?.zones.map((z) => (
-            <Html key={z.label} position={z.at} center zIndexRange={[11, 0]} style={{ pointerEvents: "none" }}>
+            <Html key={z.label} portal={labelLayer} position={z.at} center zIndexRange={[11, 0]} style={{ pointerEvents: "none" }}>
               <span className="planet-world-zone" style={{ color: planet.color }}>{(id === "operations" && ZONE_WORDS[lang][z.label]) || (id === "business" && t(`bz.stage.${z.label}` as Parameters<typeof t>[0])) || (id === "vault" && VAULT_KINDS.has(z.label) && t(`pw.kind.${z.label}` as Parameters<typeof t>[0])) || (id === "analytics" && ACT_ZONES.has(z.label) && t(`pw.area.${z.label}` as Parameters<typeof t>[0])) || z.label}</span>
             </Html>
           ))}
@@ -164,6 +167,7 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
             </EffectComposer>
           )}
         </Canvas>
+        <div ref={labelLayer} className="pointer-events-none absolute inset-0 overflow-hidden" />
       </PlanetBoundary>)}
 
       {bare ? (

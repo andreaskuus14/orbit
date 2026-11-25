@@ -1,25 +1,27 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useT } from "../i18n";
 
 // The background "Hey Orbit" listener (tools/voice, jarvis.ts): its toggle in Voice settings, and the card for level-3 PC actions
 // waiting for the owner's click (pc-policy-pure). Polls only while the tab is visible.
 type DeskState = { on: boolean; peripheral: boolean; everySec: number; envOff: boolean; helper: boolean };
 
 export function DeskVoiceToggle() {
+  const { t } = useT();
   const [s, setS] = useState<DeskState | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => { fetch("/api/voice/desk-settings").then((r) => (r.ok ? r.json() : null)).then(setS, () => setS(null)); }, []);
   const save = async (patch: Partial<DeskState>) => {
     setErr("");
     const r = await fetch("/api/voice/desk-settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) });
-    if (r.ok) setS(await r.json()); else setErr("Couldn't save");
+    if (r.ok) setS(await r.json()); else setErr(t("dvoice.saveFail"));
   };
   if (!s) return null;
   return (
-    <label className="voice-col">Background &ldquo;Hey Orbit&rdquo; (any window)
-      <label className="voice-row"><input type="checkbox" checked={s.on} disabled={s.envOff} onChange={(e) => void save({ on: e.target.checked })} /> Listen in the background on this PC</label>
-      {s.on && <label className="voice-row"><input type="checkbox" checked={s.peripheral} onChange={(e) => void save({ peripheral: e.target.checked })} /> Peripheral: note the app + window title every {s.everySec} s (no screenshots) so ORBIT can offer help</label>}
-      <span className="muted text-[10px]">{s.envOff ? "Off by ORBIT_WAKE=0 in .env.local." : !s.helper ? "The helper isn't running: run tools\\voice\\setup.ps1 once, then tools\\voice\\start.ps1." : "Helper running. Audio stays on this PC; only words after “Hey Orbit” reach CORE. LIFE, password managers and banking windows are never captured."}</span>
+    <label className="voice-col">{t("dvoice.title")}
+      <label className="voice-row"><input type="checkbox" checked={s.on} disabled={s.envOff} onChange={(e) => void save({ on: e.target.checked })} /> {t("dvoice.listen")}</label>
+      {s.on && <label className="voice-row"><input type="checkbox" checked={s.peripheral} onChange={(e) => void save({ peripheral: e.target.checked })} /> {t("dvoice.peripheral", { n: s.everySec })}</label>}
+      <span className="muted text-[10px]">{s.envOff ? t("dvoice.envOff") : !s.helper ? t("dvoice.noHelper") : t("dvoice.running")}</span>
       {err && <span className="text-red-400 text-[10px]" role="alert">{err}</span>}
     </label>
   );
@@ -28,6 +30,7 @@ export function DeskVoiceToggle() {
 type Pending = { id: string; summary: string; click: boolean; at: number };
 
 export function PcConfirm() {
+  const { t } = useT();
   const [items, setItems] = useState<Pending[]>([]);
   const [msg, setMsg] = useState("");
   useEffect(() => {
@@ -38,8 +41,8 @@ export function PcConfirm() {
       if (!stop && j?.pending) setItems(j.pending);
     };
     void tick();
-    const t = setInterval(tick, 4000);
-    return () => { stop = true; clearInterval(t); };
+    const iv = setInterval(tick, 4000);
+    return () => { stop = true; clearInterval(iv); };
   }, []);
   const answer = async (id: string, allow: boolean) => {
     const r = await fetch("/api/pc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, allow }) });
@@ -49,13 +52,13 @@ export function PcConfirm() {
   };
   if (!items.length && !msg) return null;
   return (
-    <div className="glass fixed bottom-4 right-4 z-50 max-w-sm p-3 text-xs" role="alertdialog" aria-label="ORBIT wants to act on your PC">
+    <div className="glass fixed bottom-4 right-4 z-50 max-w-sm p-3 text-xs" role="alertdialog" aria-label={t("dvoice.actL")}>
       {items.map((p) => (
         <div key={p.id} className="mb-2">
-          <div className="font-semibold">ORBIT wants to {p.summary}</div>
+          <div className="font-semibold">{t("dvoice.wants", { s: p.summary })}</div>
           <div className="mt-1 flex gap-2">
-            <button type="button" className="chip" onClick={() => void answer(p.id, true)}>Allow once</button>
-            <button type="button" className="chip" onClick={() => void answer(p.id, false)}>Deny</button>
+            <button type="button" className="chip" onClick={() => void answer(p.id, true)}>{t("dvoice.allow")}</button>
+            <button type="button" className="chip" onClick={() => void answer(p.id, false)}>{t("dvoice.deny")}</button>
           </div>
         </div>
       ))}
