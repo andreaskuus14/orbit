@@ -7,16 +7,19 @@ import type { Boq } from "@/lib/arch-pure";
 import { loadLab, priceChanges, schemeTotals, SLOTS, type Layer, type Material, type PriceChange, type Scheme, type Slot } from "@/lib/arch-materials-pure";
 import { localDay } from "@/lib/morning-pure";
 import { useT } from "./i18n";
+import type { Key } from "@/lib/i18n-core-pure";
 
 const KEY = "orbit.arch.lab.v1";
 const eur = (n: number) => n.toLocaleString("et-EE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 const kg = (n: number) => `${Math.round(n).toLocaleString("en")} kg`;
 const SLOT_KEY = { wall: "amat.walls", slab: "amat.slabs", roof: "amat.roof", window: "amat.windows" } as const satisfies Record<Slot, string>;
 const today = () => localDay(new Date());
+const MAT_KEY: Record<string, string> = {timber: "amat.m.timber", frame: "amat.m.frame", clt: "amat.m.clt", brick: "amat.m.brick", aac: "amat.m.aac", concrete: "amat.m.concrete", mwool: "amat.m.mwool", eps: "amat.m.eps", clad: "amat.m.clad", steel: "amat.m.steel", glass3: "amat.m.glass3", glass2: "amat.m.glass2"};
 
 export function ArchMaterials({ q }: { q: Boq }) {
   const { t } = useT();
   const SLOT_LABEL = (x: Slot) => t(SLOT_KEY[x]);
+  const name = (m: { id: string; label: string }) => (MAT_KEY[m.id] ? t(MAT_KEY[m.id] as Key) : m.label); // lib defaults; ids are stable
   const [lab, setLab] = useState(() => loadLab(null));
   const [ready, setReady] = useState(false), [edit, setEdit] = useState(0);
   const [changes, setChanges] = useState<PriceChange[]>([]), [busy, setBusy] = useState(false), [msg, setMsg] = useState("");
@@ -39,12 +42,12 @@ export function ArchMaterials({ q }: { q: Boq }) {
       const c = priceChanges(mats, j.found ?? []);
       setChanges(c);
       const failed = (j.failed ?? []) as { id: string; error: string }[];
-      setMsg(`${c.length ? t("amat.changed", { n: c.length }) : t("amat.noChanges")}${failed.length ? ` ${t("amat.cantRead", { list: failed.map((f) => `${mats.find((m) => m.id === f.id)?.label} (${f.error})`).join("; ") })}` : ""}`);
+      setMsg(`${c.length ? t("amat.changed", { n: c.length }) : t("amat.noChanges")}${failed.length ? ` ${t("amat.cantRead", { list: failed.map((f) => `${(() => { const m = mats.find((x) => x.id === f.id); return m ? name(m) : f.id; })()} (${f.error})`).join("; ") })}` : ""}`);
     } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   }
   const accept = (c: PriceChange) => { setMat(c.id, { eur: c.next, priceSource: t("amat.readFrom", { host: new URL(c.url).hostname }), priceDate: today() }); setChanges((cs) => cs.filter((x) => x.id !== c.id)); };
 
-  const matOptions = (unitFilter?: (m: Material) => boolean) => mats.filter(unitFilter ?? (() => true)).map((m) => <option key={m.id} value={m.id}>{m.label}</option>);
+  const matOptions = (unitFilter?: (m: Material) => boolean) => mats.filter(unitFilter ?? (() => true)).map((m) => <option key={m.id} value={m.id}>{name(m)}</option>);
   const uCell = (u: number | null, target: number) => u === null ? <span className="muted">—</span>
     : <span className={u <= target ? "ok" : "error"} title={t("amat.target", { n: target })}>{u.toFixed(2)}{u <= target ? " ✓" : " ✗"}</span>;
 
@@ -86,8 +89,8 @@ export function ArchMaterials({ q }: { q: Boq }) {
         <table className="w-full text-xs"><thead><tr className="muted text-left"><th>{t("amat.material")}</th><th className="text-right">{t("amat.perUnit")}</th><th className="text-right">λ / U</th><th className="text-right">kgCO₂e</th></tr></thead>
           <tbody>{mats.map((m) => (
             <tr key={m.id}>
-              <td title={`${t("amat.price", { src: m.priceSource })}${m.priceDate ? ` · ${m.priceDate}` : ""}`}>{m.label}</td>
-              <td className="num text-right"><input className="field w-16 text-right" type="number" min={0} step={1} value={m.eur} aria-label={t("amat.priceAria", { label: m.label, unit: m.unit })}
+              <td title={`${t("amat.price", { src: m.priceSource })}${m.priceDate ? ` · ${m.priceDate}` : ""}`}>{name(m)}</td>
+              <td className="num text-right"><input className="field w-16 text-right" type="number" min={0} step={1} value={m.eur} aria-label={t("amat.priceAria", { label: name(m), unit: m.unit })}
                 onChange={(e) => { const v = Number(e.target.value); if (v >= 0) setMat(m.id, { eur: v, priceSource: t("amat.yourEdit"), priceDate: today() }); }} /> /{m.unit === "m3" ? "m³" : "m²"}</td>
               <td className="num text-right">{m.u ? `U ${m.u}` : m.lambda ? `λ ${m.lambda}` : "—"}</td>
               <td className="num text-right" title={m.carbonSource}>{m.co2}/{m.unit === "m3" ? "m³" : "m²"}</td>
@@ -95,9 +98,9 @@ export function ArchMaterials({ q }: { q: Boq }) {
         <p className="muted text-[11px]">{t("amat.seedNote", { d: mats[0].priceDate || "—" })}</p>
         <div className="text-xs font-semibold">{t("amat.pages")}</div>
         {mats.map((m) => <div key={m.id} className="flex items-center gap-1.5">
-          <span className="w-32 truncate text-[11px]" title={m.label}>{m.label}</span>
-          <input className="field flex-1" type="url" placeholder={t("amat.urlPh")} value={m.url ?? ""} aria-label={t("amat.urlAria", { label: m.label })} onChange={(e) => setMat(m.id, { url: e.target.value.trim() || undefined })} />
-          <input className="field w-16 text-right" type="number" min={0} step={0.001} value={m.per ?? 1} aria-label={t("amat.perAria", { label: m.label, unit: m.unit })} title={t("amat.perTip", { unit: m.unit })}
+          <span className="w-32 truncate text-[11px]" title={name(m)}>{name(m)}</span>
+          <input className="field flex-1" type="url" placeholder={t("amat.urlPh")} value={m.url ?? ""} aria-label={t("amat.urlAria", { label: name(m) })} onChange={(e) => setMat(m.id, { url: e.target.value.trim() || undefined })} />
+          <input className="field w-16 text-right" type="number" min={0} step={0.001} value={m.per ?? 1} aria-label={t("amat.perAria", { label: name(m), unit: m.unit })} title={t("amat.perTip", { unit: m.unit })}
             onChange={(e) => { const v = Number(e.target.value); if (v > 0) setMat(m.id, { per: v }); }} />
         </div>)}
       </details>
@@ -105,7 +108,7 @@ export function ArchMaterials({ q }: { q: Boq }) {
       {msg && <p className="text-xs" aria-live="polite">{msg}</p>}
       {changes.length > 0 && <ul className="space-y-1">
         {changes.map((c) => <li key={c.id} className="flex items-center justify-between gap-1.5 text-xs">
-          <span>{c.label}: {c.old} → <b>{c.next}</b> €/{c.unit === "m3" ? "m³" : "m²"}</span>
+          <span>{name(c)}: {c.old} → <b>{c.next}</b> €/{c.unit === "m3" ? "m³" : "m²"}</span>
           <span className="flex gap-1"><button className="chip ok" onClick={() => accept(c)}>{t("amat.accept")}</button><button className="chip" onClick={() => setChanges((cs) => cs.filter((x) => x.id !== c.id))}>{t("amat.skip")}</button></span></li>)}
         {changes.length > 1 && <li><button className="chip" onClick={() => changes.forEach(accept)}>{t("amat.acceptAll")}</button></li>}
       </ul>}

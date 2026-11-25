@@ -6,6 +6,7 @@ import { CALL_VAD, callVad, endSilenceMs, worthSending } from "@/lib/call-pure";
 import { MIC } from "./voice/voiceprint";
 import { CALL_ACTIVE } from "./voice/bus";
 import { useDialogFocus } from "./useDialogFocus";
+import { useT } from "./i18n";
 
 // "ORBIT wants to talk": the call screen (phone remote and PC). ORBIT speaks first; then push-to-talk or hands-free (VAD), with
 // barge-in: talking over ORBIT stops its voice and the reply in flight. Audio goes only to this ORBIT server (/api/remote/talk),
@@ -23,6 +24,7 @@ const SpeechRec = () => (typeof window === "undefined" ? undefined : ((window as
   ?? (window as unknown as { webkitSpeechRecognition?: new () => Rec }).webkitSpeechRecognition));
 
 export function RemoteCall({ compact = false }: { compact?: boolean }) {
+  const { t } = useT();
   const [phase, setPhase] = useState<Phase>("idle");
   const [allowed, setAllowed] = useState(false);
   const [checkin, setCheckin] = useState("");
@@ -238,23 +240,23 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
   if (!allowed) return null;
   if (phase === "idle") return compact ? null : (
     <section className="rm-sec" aria-labelledby="r-call">
-      <h2 id="r-call" className="rm-label">Talk to ORBIT</h2>
-      <p className="muted text-sm">ORBIT calls you when something needs you (max twice a day, never 23:00–08:00). Or call it now.</p>
-      <button className="btn w-full" style={{ minHeight: 48 }} onClick={() => void answer()}>Call ORBIT</button>
-      <button className="chip w-full" style={{ minHeight: 44 }} onClick={() => void answer(false, true)}>Call from you, a year out</button>
-      <p className="muted text-xs">A projection from your last 12 weeks of numbers, not a promise. It also rings once a month, in the evening.</p>
+      <h2 id="r-call" className="rm-label">{t("rcall.talk")}</h2>
+      <p className="muted text-sm">{t("rcall.help")}</p>
+      <button className="btn w-full" style={{ minHeight: 48 }} onClick={() => void answer()}>{t("rcall.call")}</button>
+      <button className="chip w-full" style={{ minHeight: 44 }} onClick={() => void answer(false, true)}>{t("rcall.future")}</button>
+      <p className="muted text-xs">{t("rcall.futureNote")}</p>
       <label className="flex items-center justify-between gap-2 text-sm">
-        <span className="muted">Daily check-in call</span>
-        <input type="time" className="field" value={checkin} onChange={(e) => void saveCheckin(e.target.value)} aria-label="Daily check-in time" />
+        <span className="muted">{t("rcall.checkin")}</span>
+        <input type="time" className="field" value={checkin} onChange={(e) => void saveCheckin(e.target.value)} aria-label={t("rcall.checkinTime")} />
       </label>
-      {checkin && <button className="chip" style={{ minHeight: 44 }} onClick={() => void saveCheckin("")}>No check-in</button>}
+      {checkin && <button className="chip" style={{ minHeight: 44 }} onClick={() => void saveCheckin("")}>{t("rcall.noCheckin")}</button>}
       {err && <p className="error" role="alert">{err}</p>}
     </section>
   );
 
-  const label = phase === "ringing" ? "ORBIT wants to talk" : phase === "connecting" ? "Connecting…" : state === "talking" ? "ORBIT is talking" : state === "thinking" ? "Thinking…" : ptt ? "Go ahead…" : handsFree ? "Listening" : "Hold to talk";
+  const label = phase === "ringing" ? t("rcall.ringing") : phase === "connecting" ? t("rcall.connecting") : state === "talking" ? t("rcall.talking") : state === "thinking" ? t("rcall.thinking") : ptt ? t("rcall.goAhead") : handsFree ? t("rcall.listening") : t("rcall.hold");
   return (
-    <div ref={box} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Call with ORBIT" className="fixed inset-0 z-[100] flex flex-col items-center justify-between px-4"
+    <div ref={box} tabIndex={-1} role="dialog" aria-modal="true" aria-label={t("rcall.dialog")} className="fixed inset-0 z-[100] flex flex-col items-center justify-between px-4"
       style={{ background: "radial-gradient(circle at 50% 30%, #0b2540 0%, var(--bg) 70%)", paddingTop: "max(2rem, env(safe-area-inset-top))", paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}>
       <div className="flex flex-col items-center gap-3 pt-6">
         <div aria-hidden className="rounded-full" style={{ width: 120, height: 120, border: "2px solid var(--cyan)", boxShadow: `0 0 ${state === "talking" && phase === "live" ? 60 : 20}px rgba(34,211,238,.5)`, transition: "box-shadow .3s" }} />
@@ -273,20 +275,20 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
       )}
       {phase === "ringing" ? (
         <div className="flex w-full max-w-md gap-3">
-          <button className="chip flex-1" style={{ minHeight: 56 }} onClick={() => { setPhase("idle"); if (location.hash === "#r-call") history.replaceState(null, "", location.pathname); }}>Not now</button>
-          <button className="btn flex-1" style={{ minHeight: 56 }} onClick={() => void answer()}>Answer</button>
+          <button className="chip flex-1" style={{ minHeight: 56 }} onClick={() => { setPhase("idle"); if (location.hash === "#r-call") history.replaceState(null, "", location.pathname); }}>{t("rcall.notNow")}</button>
+          <button className="btn flex-1" style={{ minHeight: 56 }} onClick={() => void answer()}>{t("rcall.answer")}</button>
         </div>
       ) : (
         <div className="flex w-full max-w-md flex-col items-center gap-3">
           <button className="btn w-full select-none" style={{ minHeight: 72, touchAction: "none", WebkitUserSelect: "none" }} disabled={phase !== "live"}
             onPointerDown={pttDown} onPointerUp={pttUp} onPointerCancel={pttUp} onPointerLeave={pttUp} aria-pressed={ptt}>
-            {ptt ? "Release to send" : "Hold to talk"}
+            {ptt ? t("rcall.release") : t("rcall.hold")}
           </button>
           <div className="flex w-full gap-3">
             <button className="chip flex-1" style={{ minHeight: 48 }} aria-pressed={handsFree} onClick={() => { const v = !handsFree; r.current.handsFree = v; setHandsFree(v); if (v && r.current.speech) listenSpeech(); }}>
-              Hands-free {handsFree ? "on" : "off"}
+              {handsFree ? t("rcall.handsOn") : t("rcall.handsOff")}
             </button>
-            <button className={`btn danger flex-1 ${car ? "text-2xl" : ""}`} style={{ minHeight: car ? 96 : 48 }} onClick={() => hangUp()}>Hang up</button>
+            <button className={`btn danger flex-1 ${car ? "text-2xl" : ""}`} style={{ minHeight: car ? 96 : 48 }} onClick={() => hangUp()}>{t("rcall.hangUp")}</button>
           </div>
         </div>
       )}
@@ -294,10 +296,11 @@ export function RemoteCall({ compact = false }: { compact?: boolean }) {
   );
 }
 
-const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAYS = ["rcall.d0", "rcall.d1", "rcall.d2", "rcall.d3", "rcall.d4", "rcall.d5", "rcall.d6"] as const;
 type Review = { on: boolean; day: number; at: string };
 /** Profile: the weekly review call (off until he turns it on). ORBIT rings once at this time; unanswered, it waits in the next morning's brief. */
 export function WeeklyReviewSetting() {
+  const { t } = useT();
   const [v, setV] = useState<Review | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => { fetch(API).then((r) => (r.ok ? r.json() : null)).then((j: { review?: Review } | null) => j?.review && setV(j.review), () => {}); }, []);
@@ -305,19 +308,19 @@ export function WeeklyReviewSetting() {
     setErr("");
     const res = await fetch(`${API}?op=settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ review: next }) }).catch(() => null);
     const j = (await res?.json().catch(() => ({}))) as { review?: Review; error?: string } | undefined;
-    if (res?.ok && j?.review) setV(j.review); else setErr("Could not save. Try again.");
+    if (res?.ok && j?.review) setV(j.review); else setErr(t("rcall.saveErr"));
   }
   if (!v) return null;
   return (
     <section className="card space-y-2" aria-labelledby="weekly-call">
-      <h2 id="weekly-call" className="text-sm font-semibold">Weekly review call</h2>
-      <p className="muted text-sm">ORBIT rings once and talks you through the week: what got done, what&apos;s waiting, one thing it noticed, and your top 3 for next week (saved as goals only after you say yes). It never approves anything on the call. Missed? It waits in the next morning&apos;s brief.</p>
-      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={v.on} onChange={(e) => void save({ ...v, on: e.target.checked })} /> Call me for a weekly review</label>
+      <h2 id="weekly-call" className="text-sm font-semibold">{t("rcall.weekly")}</h2>
+      <p className="muted text-sm">{t("rcall.weeklyHelp")}</p>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={v.on} onChange={(e) => void save({ ...v, on: e.target.checked })} /> {t("rcall.weeklyOn")}</label>
       <div className="flex flex-wrap gap-2">
-        <select className="field" value={v.day} disabled={!v.on} onChange={(e) => void save({ ...v, day: Number(e.target.value) })} aria-label="Review day">
-          {DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
+        <select className="field" value={v.day} disabled={!v.on} onChange={(e) => void save({ ...v, day: Number(e.target.value) })} aria-label={t("rcall.day")}>
+          {DAYS.map((d, i) => <option key={d} value={i}>{t(d)}</option>)}
         </select>
-        <input type="time" className="field" min="08:00" max="22:59" value={v.at} disabled={!v.on} onChange={(e) => e.target.value && void save({ ...v, at: e.target.value })} aria-label="Review time" />
+        <input type="time" className="field" min="08:00" max="22:59" value={v.at} disabled={!v.on} onChange={(e) => e.target.value && void save({ ...v, at: e.target.value })} aria-label={t("rcall.time")} />
       </div>
       {err && <p className="error" role="alert">{err}</p>}
     </section>

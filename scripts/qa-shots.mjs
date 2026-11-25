@@ -191,6 +191,12 @@ const API = (p, u) => ({
       variants: [{ option: "1 pot", qty: 1, price: 29, profit: 7.1, pct: 24, raised: false }, { option: "3 pots", qty: 3, price: 79, profit: 21.5, pct: 27, raised: true }] }],
     images: [{ label: "Hero", prompt: "A white pot with basil on a café table, morning light", aspect: "4:5" }],
     checklist: ["Import products.csv as draft", "Add photos"], plan: [{ day: 1, goal: "Say hello", channel: "Instagram", post: "Meet Potti: pots that water themselves." }] } } },
+  "/api/capsule": { configured: true, dir: "E:\\ORBIT backups", maxMB: 25, last: { at: ago(3e7), ok: true, bytes: 4200000 }, backups: [{ name: "b1", at: ago(3e7), kind: "nightly", files: 42, size: 4200000 }, { name: "b0", at: ago(2e8), kind: "pre-restore", files: 41, size: 4100000 }] },
+  "/api/authority": { policyVersion: "3", stopAll: false, modes: { "rule:morning-sort": "prepare" }, grants: [{ id: "g1", workflow: "rule:morning-sort", actions: ["rules.run"], limits: { count: 20 }, destinations: [], policyVersion: "3", revoked: false, paused: false, used: { count: 4, money: 0, calls: 0 }, createdAt: ago(9e8) }] },
+  "/api/remote/talk": { ringing: null, live: false, checkin: "19:30", review: { on: true, day: 0, at: "18:00" } },
+  "/api/studio/longform": { plans: [{ v: 1, id: "lf1", createdAt: ago(5e6), topic: "pet sim", minutes: 10, drafts: [], plan: { titles: ["How I built a pet sim in 30 days", "30 days, one Roblox game"], hook: "Day one, I had nothing.",
+    chapters: [{ title: "The idea", script: "Why pets.", sec: 120, shots: [{ type: "b-roll", desc: "Old sketches" }, { type: "screen", desc: "Studio empty place" }] }, { title: "First egg", script: "Hatching logic.", sec: 180, shots: [{ type: "graphic", desc: "Odds table" }] }],
+    thumbs: [{ concept: "Me holding a giant egg", text: "30 DAYS" }], shorts: [{ title: "The egg bug", chapter: 1, idea: "The egg that hatched twice" }] } }] },
   "/api/personas": { context: "", report: null, calibration: null, running: false },
   "/api/study": { cards: [], queue: [], lessons: [], log: [], stats: { due: 0, total: 0, streak: 2, retention: null, learned: 0, reviewedToday: 0 } },
 }[p]);
