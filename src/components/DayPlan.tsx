@@ -32,33 +32,33 @@ export function DayPlan({ onOpen }: { onOpen: (open: unknown) => void }) {
             <span className="num muted text-xs">{hhmm(b.start)}–{hhmm(b.end)}</span>
             <span className="min-w-0 flex-1">
               <b className={`block truncate ${b.done ? "muted line-through" : ""}`}>{b.title}</b>
-              <span className="muted block text-xs">{b.flexible ? "flexible · drag to reorder" : "fixed"} · {b.source.open ? <button className="link" onClick={() => onOpen(b.source.open)}>{b.source.label}</button> : b.source.label}</span>
+              <span className="muted block text-xs">{b.flexible ? t("dp.flex") : t("dp.fixed")} · {b.source.open ? <button className="link" onClick={() => onOpen(b.source.open)}>{b.source.label}</button> : b.source.label}</span>
             </span>
-            {accepted && <label className="text-xs"><input type="checkbox" checked={!!b.done} onChange={(e) => void run({ done: b.id, value: e.target.checked })} /> done</label>}
+            {accepted && <label className="text-xs"><input type="checkbox" checked={!!b.done} onChange={(e) => void run({ done: b.id, value: e.target.checked })} /> {t("dp.done")}</label>}
           </li>
         ))}
       </ul>
       {p.load?.overload && <p className="text-xs" role="status">{t("dayplan.overload", { demand: p.load.demandMin, cap: p.load.capMin, free: p.load.freeMin })}</p>}
       {p.carried?.length ? <p className="muted text-xs">{t("dayplan.carried", { list: p.carried.join(", ") })}</p> : null}
       {p.unplaced.some((u) => u.why === "cap") && <p className="muted text-xs">{t("dayplan.capped", { cap: p.load?.capMin ?? 0, list: p.unplaced.filter((u) => u.why === "cap").map((u) => u.title).join(", ") })}</p>}
-      {p.unplaced.some((u) => u.why !== "cap") && <p className="muted text-xs">Didn&apos;t fit today: {p.unplaced.filter((u) => u.why !== "cap").map((u) => u.title).join(", ")}</p>}
+      {p.unplaced.some((u) => u.why !== "cap") && <p className="muted text-xs">{t("dp.noFit", { list: p.unplaced.filter((u) => u.why !== "cap").map((u) => u.title).join(", ") })}</p>}
       <div className="flex gap-1">
-        {!accepted && <button className="btn" onClick={() => void run({ accept: true })}>Accept as today&apos;s list</button>}
-        <button className="chip" onClick={() => void load(true)}>Re-plan</button>
+        {!accepted && <button className="btn" onClick={() => void run({ accept: true })}>{t("dp.accept")}</button>}
+        <button className="chip" onClick={() => void load(true)}>{t("dp.replan")}</button>
       </div>
-      <h3 className="hud-title mt-2 text-xs">COMMITMENT INBOX</h3>
+      <h3 className="hud-title mt-2 text-xs uppercase">{t("dp.inbox")}</h3>
       <form className="flex gap-1" onSubmit={(e) => { e.preventDefault(); if (note.trim()) void run({ capture: note }).then(() => setNote("")); }}>
-        <input className="field flex-1" value={note} maxLength={5000} onChange={(e) => setNote(e.target.value)} placeholder="Paste a message or note: “I'll send it by Friday”" aria-label="Capture commitments" />
-        <button className="chip" type="submit">Find</button>
+        <input className="field flex-1" value={note} maxLength={5000} onChange={(e) => setNote(e.target.value)} placeholder={t("dp.notePh")} aria-label={t("dp.capture")} />
+        <button className="chip" type="submit">{t("dp.find")}</button>
       </form>
       <ul className="grid gap-1">
         {g.commitments.map((c) => (
           <li key={c.id} className="mb-item text-sm">
-            <span className="min-w-0 flex-1">{c.owner === "them" ? "They: " : ""}{c.text}{c.due ? ` · due ${c.due}` : ""}{c.missing.length ? <span className="muted"> · missing {c.missing.join(", ")}</span> : null}</span>
-            {c.status === "awaiting" ? <span className="flex gap-1"><span className="muted text-xs">awaiting confirmation</span>
-              <button className="chip" onClick={() => void run({ commitment: c.id, ok: true })}>Confirm</button>
-              <button className="chip" onClick={() => void run({ commitment: c.id, ok: false })}>Dismiss</button></span>
-              : <span className="muted text-xs">confirmed</span>}
+            <span className="min-w-0 flex-1">{c.owner === "them" ? t("dp.they") + " " : ""}{c.text}{c.due ? ` · ${t("dp.due", { d: c.due })}` : ""}{c.missing.length ? <span className="muted"> · {t("dp.missing", { list: c.missing.join(", ") })}</span> : null}</span>
+            {c.status === "awaiting" ? <span className="flex gap-1"><span className="muted text-xs">{t("dp.awaiting")}</span>
+              <button className="chip" onClick={() => void run({ commitment: c.id, ok: true })}>{t("dp.confirm")}</button>
+              <button className="chip" onClick={() => void run({ commitment: c.id, ok: false })}>{t("dp.dismiss")}</button></span>
+              : <span className="muted text-xs">{t("dp.confirmed")}</span>}
           </li>
         ))}
       </ul>

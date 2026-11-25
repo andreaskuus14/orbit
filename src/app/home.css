@@ -75,6 +75,8 @@ html[data-motion="on"] .orbit-shell .cmdbar[data-home] { box-shadow: 0 18px 50px
 .cmdbar .voice-wake.bad .voice-dot { background: var(--h-amber); animation: none; }
 /* Phones: the status pill is only its dot (globals.css); the rule above put the 12px text back and it covered "See all". */
 @media (max-width: 640px), (max-height: 520px) and (pointer: coarse) { .cmdbar .voice-wake.voice-status { font-size: 0; gap: 0; padding: 5px; } }
+/* phone drawer open: sit the hands-free dot on the bar's top edge, not above it over the panel text (it stays visible: it says the mic is listening) */
+@media (max-width: 640px) { body:has(.drawer, .pu-shell) .cmdbar .voice-wake.voice-status { bottom: calc(100% - 6px); left: 6px; } }
 .cmdbar .voice-heard { left: 14px; right: 14px; bottom: calc(100% + 36px); font: 12.5px/1.4 var(--h-font); color: var(--h-ink-2); }
 .cmdbar .voice-route { font: 12px/1.3 var(--h-font); letter-spacing: 0; text-transform: none; }
 @media (max-width: 640px) { .cmd-meter { display: none; } .orbit-shell .cmdbar .field.cmd-field { font-size: 16px; } }

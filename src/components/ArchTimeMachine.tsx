@@ -2,6 +2,7 @@
 // ARCH time machine: scrub the model's saved versions (kept in the data dir by /api/arch/versions) and restore one,
 // plus the sun study's shadow marker in the 3D view. Math in arch-time-pure.ts.
 import { useEffect, useRef, useState } from "react";
+import { useT } from "./i18n";
 import { Line } from "@react-three/drei";
 import { shadowOf, type Snapshot } from "@/lib/arch-time-pure";
 import type { Scene } from "@/lib/arch-pure";
@@ -11,6 +12,7 @@ const SAVE_AFTER_MS = 4000; // a burst of edits becomes one version
 
 /** History panel. `save` false (a lesson is open) = don't record; onPreview(null) = back to the live model. */
 export function ArchTimeMachine({ scene, save, onPreview, onRestore, project = null }: { scene: Scene; save: boolean; onPreview: (s: Scene | null) => void; onRestore: (s: Scene) => void; project?: string | null }) {
+  const { t } = useT();
   const endpoint = archUrl("versions", project);
   const [versions, setVersions] = useState<Snapshot[]>([]);
   const [i, setI] = useState<number | null>(null); // null = live model
@@ -33,21 +35,21 @@ export function ArchTimeMachine({ scene, save, onPreview, onRestore, project = n
   const pick = (n: number | null) => { setI(n); onPreview(n === null ? null : versions[n].scene); };
   const v = i === null ? null : versions[i];
   return (
-    <div className="card space-y-1.5" aria-label="Version history">
-      <div className="muted text-[12px] font-medium">Time machine · {versions.length} saved version{versions.length === 1 ? "" : "s"}</div>
+    <div className="card space-y-1.5" aria-label={t("atm.history")}>
+      <div className="muted text-[12px] font-medium">{t("atm.title", { n: versions.length })}</div>
       {versions.length ? <>
         <label className="flex items-center gap-2 text-xs">
-          <span className="num w-28">{v ? new Date(v.at).toLocaleString("et-EE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "Now (live)"}</span>
-          <input className="flex-1" type="range" min={0} max={versions.length} step={1} value={i ?? versions.length} aria-label="Scrub version history"
+          <span className="num w-28">{v ? new Date(v.at).toLocaleString("et-EE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : t("atm.now")}</span>
+          <input className="flex-1" type="range" min={0} max={versions.length} step={1} value={i ?? versions.length} aria-label={t("atm.scrub")}
             onChange={(e) => { const n = Number(e.target.value); pick(n >= versions.length ? null : n); }} /></label>
         <div className="flex flex-wrap gap-1.5">
-          <button className="chip" disabled={i === 0} onClick={() => pick(Math.max(0, (i ?? versions.length) - 1))}>← Older</button>
-          <button className="chip" disabled={i === null} onClick={() => pick(i! + 1 >= versions.length ? null : i! + 1)}>Newer →</button>
-          {v && <button className="chip" onClick={() => { onRestore(v.scene); pick(null); }} title="Make this version the live model (Undo brings the current one back)">Restore this version</button>}
-          {v && <button className="chip" onClick={() => pick(null)}>Back to now</button>}
+          <button className="chip" disabled={i === 0} onClick={() => pick(Math.max(0, (i ?? versions.length) - 1))}>{t("atm.older")}</button>
+          <button className="chip" disabled={i === null} onClick={() => pick(i! + 1 >= versions.length ? null : i! + 1)}>{t("atm.newer")}</button>
+          {v && <button className="chip" onClick={() => { onRestore(v.scene); pick(null); }} title={t("atm.restoreTip")}>{t("atm.restore")}</button>}
+          {v && <button className="chip" onClick={() => pick(null)}>{t("atm.back")}</button>}
         </div>
-        {v && <p className="muted text-[11px]" aria-live="polite">Viewing version {i! + 1} of {versions.length}: {v.scene.parts.length} parts, plot {v.scene.plot.w}×{v.scene.plot.d} m. The 3D view shows this version; the parts list and costs stay on the live model.</p>}
-      </> : <p className="muted text-xs">Every change is saved here a few seconds after you stop editing (last 60 kept on this PC).</p>}
+        {v && <p className="muted text-[11px]" aria-live="polite">{t("atm.viewing", { i: i! + 1, n: versions.length, p: v.scene.parts.length, w: v.scene.plot.w, d: v.scene.plot.d })}</p>}
+      </> : <p className="muted text-xs">{t("atm.empty")}</p>}
       {err && <p className="muted text-[11px]" aria-live="polite">{err}</p>}
     </div>
   );

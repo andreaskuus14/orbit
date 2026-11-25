@@ -55,17 +55,17 @@ export function AutonomySection() {
   return (
     <section className="space-y-3" aria-labelledby="autonomy-title">
       <h3 id="autonomy-title" className="text-sm font-semibold">{t("profile.autonomy")}</h3>
-      <p className="muted text-sm">How much ORBIT may do on its own, per area. The defaults are how ORBIT has always worked: nothing is sent, published or spent without your click.</p>
+      <p className="muted text-sm">{t("aut.help")}</p>
       <button className="btn w-full py-3 text-base" onClick={() => void pauseAll()} disabled={v?.stopAll} aria-describedby="autonomy-pause">
-        {v?.stopAll ? "All autonomy is paused (Stop-all is on)" : "Pause all autonomy"}
+        {v?.stopAll ? t("aut.paused") : t("aut.pause")}
       </button>
-      <p id="autonomy-pause" className="muted text-xs">Turns on Stop-all: running work stops and queued auto actions are cancelled. Resume from the Stop-all button.</p>
+      <p id="autonomy-pause" className="muted text-xs">{t("aut.pauseHelp")}</p>
       <PcPermissionsCard />
       <dl className="muted space-y-2 text-xs">
         {(["off", "ask", "do", "auto"] as const).map((l) => <div key={l} className="block"><dt className="block font-semibold">{t(`lvl.${l}`)}</dt><dd className="m-0 block">{t(`lvl.${l}.means`)}</dd></div>)}
       </dl>
       {v?.problem && <p className="error text-sm" role="alert">{v.problem}</p>}
-      {v?.push && <p className="muted text-xs">Auto with limits can't be turned on yet: it needs phone pushes so you hear about every action ({v.push}). Pair your phone below and set up pushes (docs/PHONE.md).</p>}
+      {v?.push && <p className="muted text-xs">{t("aut.needPush", { why: v.push })}</p>}
       {!!v?.trust?.length && (
         <div className="space-y-2" role="region" aria-labelledby="trust-title">
           <h4 id="trust-title" className="text-xs font-semibold">{t("trust.title")}</h4>
@@ -100,33 +100,33 @@ export function AutonomySection() {
       )}
       {limits && (
         <form className="flex flex-wrap items-end gap-3 text-sm" onSubmit={(e) => { e.preventDefault(); void call({ action: "limits", ...limits }); }}>
-          <label>Auto emails per day<input type="number" min={1} max={LIMIT_MAX.sendPerDay} className="field mt-1 block w-24" value={limits.sendPerDay} onChange={(e) => setLimitsDraft({ ...limits, sendPerDay: Number(e.target.value) })} /></label>
-          <label>Auto Shorts per day<input type="number" min={1} max={LIMIT_MAX.publishPerDay} className="field mt-1 block w-24" value={limits.publishPerDay} onChange={(e) => setLimitsDraft({ ...limits, publishPerDay: Number(e.target.value) })} /></label>
-          <button className="chip">Save limits</button>
+          <label>{t("aut.emails")}<input type="number" min={1} max={LIMIT_MAX.sendPerDay} className="field mt-1 block w-24" value={limits.sendPerDay} onChange={(e) => setLimitsDraft({ ...limits, sendPerDay: Number(e.target.value) })} /></label>
+          <label>{t("aut.shorts")}<input type="number" min={1} max={LIMIT_MAX.publishPerDay} className="field mt-1 block w-24" value={limits.publishPerDay} onChange={(e) => setLimitsDraft({ ...limits, publishPerDay: Number(e.target.value) })} /></label>
+          <button className="chip">{t("aut.saveLimits")}</button>
         </form>
       )}
       {!!v?.pending.length && (
         <div className="space-y-1">
-          <h4 className="text-xs font-semibold">Waiting to go out (cancel within 10 min; nothing goes out 23:00-08:00)</h4>
+          <h4 className="text-xs font-semibold">{t("aut.waiting")}</h4>
           <ul className="space-y-1">
             {v.pending.map((p) => (
               <li key={p.id} className="flex items-center justify-between gap-2 text-sm">
-                <span>{p.label} <span className="muted text-xs">{p.dueAt ? `at ${new Date(p.dueAt).toLocaleTimeString()}` : "held for quiet hours: 10-min window starts at 08:00"}</span></span>
-                <button className="chip" onClick={() => void call({ action: "cancel", id: p.id })}>Cancel</button>
+                <span>{p.label} <span className="muted text-xs">{p.dueAt ? t("aut.at", { at: new Date(p.dueAt).toLocaleTimeString() }) : t("aut.held")}</span></span>
+                <button className="chip" onClick={() => void call({ action: "cancel", id: p.id })}>{t("aut.cancel")}</button>
               </li>
             ))}
           </ul>
         </div>
       )}
       <div className="space-y-1">
-        <h4 className="text-xs font-semibold">Today&apos;s auto actions</h4>
+        <h4 className="text-xs font-semibold">{t("aut.today")}</h4>
         {v?.today.length ? (
           <ul className="space-y-1 text-sm">
-            {v.today.map((t, i) => <li key={i}>{new Date(t.at).toLocaleTimeString()}: {t.action === "send" ? "sent an email" : "scheduled a Short"} <span className="muted text-xs">({t.ref})</span></li>)}
+            {v.today.map((x, i) => <li key={i}>{new Date(x.at).toLocaleTimeString()}: {x.action === "send" ? t("aut.sent") : t("aut.scheduled")} <span className="muted text-xs">({x.ref})</span></li>)}
           </ul>
-        ) : <p className="muted text-xs">None today.</p>}
+        ) : <p className="muted text-xs">{t("aut.none")}</p>}
       </div>
-      {muted.length > 0 && <p className="muted text-xs">The twin stays quiet on {muted.map((k) => <button key={k} className="chip ml-1 text-xs" onClick={() => mute(k, false)} title="Let the twin argue on these again">{KIND_LABEL[k]} ✕</button>)}</p>}
+      {muted.length > 0 && <p className="muted text-xs">{t("aut.twinQuiet")} {muted.map((k) => <button key={k} className="chip ml-1 text-xs" onClick={() => mute(k, false)} title={t("aut.twinTip")}>{KIND_LABEL[k]} ✕</button>)}</p>}
       {err && <p className="error text-sm" role="alert">{err}</p>}
     </section>
   );

@@ -791,6 +791,7 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .memory-star-label span { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.18em; text-transform: uppercase; color: #7dd3fc; }
 /* PlanetWorld: zone names on the ground (piers, halls, kinds) and the scene line above the workspace panel */
 .planet-world-zone { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.14em; opacity: 0.75; white-space: nowrap; text-shadow: 0 0 8px rgba(2, 3, 8, 0.9); }
+@media (max-width: 640px) { body:has(.drawer, .pu-shell) .planet-world-zone { visibility: hidden; } } /* the phone drawer covers the world: its zone labels must not show through the glass */
 .planet-world-head { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 2px solid; font-size: 0.78rem; }
 .chronicle-caption { font-size: 1.05rem; letter-spacing: 0.02em; color: #e6f1ff; text-shadow: 0 0 14px rgba(125, 211, 252, 0.55), 0 0 4px rgba(2, 3, 8, 0.9); animation: chronicle-cap 0.6s ease-out; }
 @keyframes chronicle-cap { from { opacity: 0; transform: translateY(6px); } }

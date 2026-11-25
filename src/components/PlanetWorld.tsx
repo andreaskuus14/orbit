@@ -149,7 +149,7 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
           {groups.map((g) => <Group key={g.shape} {...g} reduced={reduced} onHover={setHover} onPick={setSel} />)}
           {scene?.zones.map((z) => (
             <Html key={z.label} position={z.at} center zIndexRange={[11, 0]} style={{ pointerEvents: "none" }}>
-              <span className="planet-world-zone" style={{ color: planet.color }}>{(id === "operations" && ZONE_WORDS[lang][z.label]) || z.label}</span>
+              <span className="planet-world-zone" style={{ color: planet.color }}>{(id === "operations" && ZONE_WORDS[lang][z.label]) || (id === "business" && t(`bz.stage.${z.label}` as Parameters<typeof t>[0])) || z.label}</span>
             </Html>
           ))}
           {shown !== null && flatPlaces[shown] && <Label p={flatPlaces[shown]} reduced={reduced} />}
