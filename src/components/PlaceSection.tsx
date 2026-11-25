@@ -15,7 +15,7 @@ export function PlaceSection() {
     const r = await fetch("/api/place", { method, ...(body && { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) }).catch(() => null);
     const j = r && (await r.json().catch(() => null));
     if (r?.ok && j) { setV(j); return true; }
-    setErr(j?.error ?? "Couldn't load location settings");
+    setErr("Couldn't load location settings. Try again.");
     return false;
   }, []);
   useEffect(() => { void call(); }, [call]);

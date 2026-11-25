@@ -17,6 +17,7 @@ import type { QualityMode } from "@/lib/quality-pure";
 import { planetById } from "@/lib/planets";
 import { placeAt, worldScene, WORLD_SOURCE, type Place, type PlanetWorldId, type Shape } from "@/lib/planet-worlds-pure";
 import { useT } from "./i18n";
+import { PlanetBoundary } from "./PlanetBoundary";
 import { SHELL_WORLDS, WorldShellContext, ZONE_WORDS } from "./world-shell";
 
 const BG = "#020308";
@@ -133,7 +134,7 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label={`${planet.name}: ${t(`planet.${id}.blurb`)}`} style={{ background: BG }}>
-      {!flat && later && (
+      {!flat && later && (<PlanetBoundary name={`${id}-scene`} quiet>
         <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : reduced ? "demand" : "always"} camera={{ position: [0, 9, 16], fov: 50, near: 0.1, far: 300 }}
           dpr={[1, q.dpr]} gl={{ antialias: false }} onPointerMissed={() => setSel(null)} style={{ cursor: hover !== null ? "pointer" : undefined }}>
           {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
@@ -161,7 +162,7 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
             </EffectComposer>
           )}
         </Canvas>
-      )}
+      </PlanetBoundary>)}
 
       {bare ? (
         <div className="world-shell absolute inset-x-3 bottom-32 z-[14] flex max-h-[45dvh] min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[27.5rem]">{children}</div>

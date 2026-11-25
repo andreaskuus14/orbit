@@ -127,3 +127,10 @@ export function timeoutSignal(ms: number, signal?: AbortSignal | null): AbortSig
   if (signal) { if (signal.aborted) c.abort(signal.reason); else signal.addEventListener("abort", () => c.abort(signal.reason), { once: true }); }
   return c.signal;
 }
+
+/** For screens: never the server's own words. Known failures (timeout, offline) get their plain sentence; anything else the
+ *  caller's title ("Couldn't save. Try again."). */
+export function plainError(e: unknown, title: string, env: Env = ENV()): string {
+  const kind = classifyError(e);
+  return kind === "internal" ? title : errorResponse(e, env).body.error;
+}

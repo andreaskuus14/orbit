@@ -187,14 +187,10 @@ summary.core-step::-webkit-details-marker { display: none; }
   .orbit-shell .logo img { width: 28px; height: 28px; }
   .orbit-shell .hud-bar-top > .hud-phone-menu { display: none; }
   .hud-menu .hud-menu-phone { display: flex; }
-  .orbit-shell .hud-bar-top > .chip:not(.quiet-pill) { flex-shrink: 0; }
+  .orbit-shell .hud-bar-top > .chip { flex-shrink: 0; }
+  .orbit-shell .hud-top .hud-bar-top > .chip.quiet-pill { display: none; } /* its items are in the "…" menu (PhoneReadyItems) */
   .orbit-shell .explore-trigger > span, .orbit-shell .alert-label { display: none; }
   .alert-count { display: inline; }
-}
-@media (max-width: 360px) {
-  /* The status menu already exposes the red alert's action. Fit both behind one visible trigger. */
-  .hud-bar-top:has(> .quiet-pill) > .hud-alert { display: none; }
-  .quiet-alert { display: inline; }
 }
 @media (max-width: 380px) {
   .explore-grid { grid-template-columns: 1fr; }

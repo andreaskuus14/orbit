@@ -867,7 +867,8 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 /* G05: workspace tabs and primary actions reach 44px on phones; G04 shared state line. */
 @media (max-width: 640px), (pointer: coarse) { .ws-tabs [role="tab"], .ws-more, .state-note .chip { min-height: 44px; min-width: 44px; } }
 /* Drawer chrome: the shell title names the planet once; tabs scroll in one row with fade edges; Herald toasts start below the drawer header. */
-.drawer .ws-title { display: none; }
+.drawer .ws-title, .pu-shell .ws-title { display: none; } /* the shell header already shows the planet name */
+.agents-log-title { font: 600 12px/1.4 var(--font-inter, Inter, sans-serif); color: rgba(236, 240, 247, 0.62); }
 .drawer .ws-head:not(:has(.ws-ctx, button, a, select)) { display: none; }
 .ws-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-inline: 0.75rem; margin-inline: -0.75rem;
   mask-image: linear-gradient(to right, transparent, #000 0.75rem, #000 calc(100% - 0.75rem), transparent); }

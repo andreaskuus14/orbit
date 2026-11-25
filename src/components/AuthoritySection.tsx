@@ -1,4 +1,5 @@
 "use client";
+import { plainError } from "@/lib/api-error-pure";
 import { useCallback, useState } from "react";
 import { pollMs } from "@/lib/poll-pure";
 import { usePoll } from "./use-poll";
@@ -25,14 +26,14 @@ export function AuthoritySection() {
     setErr("");
     const r = await fetch("/api/authority", body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : undefined).catch(() => null);
     const j = r && (await r.json().catch(() => null));
-    if (r?.ok && j) setV(j); else setErr(j?.error ?? "Couldn't load Authority");
+    if (r?.ok && j) setV(j); else setErr("Couldn't load Authority. Try again.");
   }, []);
   const poll = useCallback(() => void call(), [call]);
   usePoll(poll, pollMs(30_000));
 
   async function stopAll() {
     if (!(await askConfirm("Stop everything? Running work stops and nothing runs on its own until you resume on the PC."))) return;
-    try { await changeStopAll(true); await call(); } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't stop"); }
+    try { await changeStopAll(true); await call(); } catch (e) { setErr(plainError(e, "Couldn't stop")); }
   }
   function addGrant() {
     void call({ action: "grant", workflow: form.workflow, actions: form.actions.split(",").map((a) => a.trim()).filter(Boolean), limits: form.count ? { count: Number(form.count) } : {} });

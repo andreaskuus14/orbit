@@ -1,4 +1,5 @@
 "use client";
+import { plainError } from "@/lib/api-error-pure";
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "./i18n";
 import { askConfirm } from "./ui/Dialog";
@@ -33,7 +34,7 @@ export function TimeCapsuleSection() {
 
   const run = async (fn: () => Promise<string | void>) => {
     setBusy(true); setMsg("");
-    try { const m = await fn(); if (m) setMsg(m); } catch (e) { setMsg(e instanceof Error ? e.message : "Failed"); }
+    try { const m = await fn(); if (m) setMsg(m); } catch (e) { setMsg(plainError(e, "Failed")); }
     setBusy(false);
   };
   const setup = () => run(async () => {

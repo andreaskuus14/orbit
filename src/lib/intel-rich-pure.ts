@@ -20,7 +20,18 @@ export function ogImageOf(html: string, base: string): string | null {
   for (const k of order) { const t = find(k); const c = t && val(t, "content"); if (c) { raw = c; break; } }
   if (!raw) { const l = head.match(/<link\b[^>]*rel\s*=\s*["']?image_src["']?[^>]*>/i)?.[0]; raw = l ? val(l, "href") : null; }
   if (!raw) return null;
-  try { const u = new URL(raw, base); return /^https?:$/.test(u.protocol) ? u.toString() : null; } catch { return null; }
+  try { const u = new URL(raw, base); return /^https?:$/.test(u.protocol) && !looksLikeLogo(u.toString()) ? u.toString() : null; } catch { return null; }
+}
+
+/** A share picture that is only the site's logo (Yahoo's "yahoo_default_logo-1200x1200.png", "default-og.png", favicons):
+ *  no picture of the story, so the card shows the drawn source mark instead of a big logo. Matched on the file path only. */
+export function looksLikeLogo(url: string): boolean {
+  let p: string;
+  try { p = decodeURIComponent(new URL(url).pathname).toLowerCase(); } catch { return false; }
+  const file = p.split("/").pop() ?? "";
+  return /(^|[^a-z])(logo|logos|favicon|apple-touch-icon|brand-?mark|placeholder)([^a-z]|$)/.test(file)
+    || /(^|[-_.])default[-_]?(og|share|social|image|thumb)?([-_.]|$)/.test(file) && !/\d{6,}/.test(file)
+    || /\/(logos?|brand|favicons?)\//.test(p);
 }
 
 /** Picture types we pass to the browser. No SVG (it can carry script). */

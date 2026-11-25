@@ -4,7 +4,7 @@
 // (Research) and Sources live in a secondary sheet ("Sources & more"); deep links to those views open the sheet. No run counters
 // in the UI (the job log keeps them). The globe's search and region chips stay on: this panel switches the globe tools on.
 // Pure parts: lib/briefing-view-pure.ts.
-import { Fragment, useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { highlight } from "./Highlight";
 import { dedupe } from "@/lib/dashboard";
 import { packOrder } from "@/lib/source-packs-pure";
@@ -16,6 +16,7 @@ import { useManual } from "./planet-manual";
 import { Button, Empty, ErrorState, Loading, MoreMenu, Sheet, type MenuItem } from "./ui";
 import type { FeedHealth, Prefs, rankingGate, Vote } from "@/lib/news-intel-pure";
 import { schedState } from "@/lib/panel-states-pure";
+import { plainError } from "@/lib/api-error-pure";
 import { coverage, outletsOf, parseBriefing, runLine, storyKey, storyTrust, summaryOf, type Cite, type Story, type Trust } from "@/lib/briefing-view-pure";
 import css from "./IntelligencePanel.module.css";
 import { NearYou, PlaceChip, SourceIcon, Thumb, Ticker, MiniMap } from "./IntelRich";
@@ -77,6 +78,18 @@ function TrustMark({ trust, cites, all }: { trust: Trust; cites: Cite[]; all: Ci
   const [hover, setHover] = useState(false), [pinned, setPinned] = useState(false);
   const wrap = useRef<HTMLDivElement>(null), id = useId();
   const open = hover || pinned;
+  const [up, setUp] = useState(false), [dx, setDx] = useState<number | null>(null);
+  useLayoutEffect(() => { // no room below inside the scrolling panel: open upward instead of being cut off
+    const pop = wrap.current?.querySelector<HTMLElement>("[role=group]");
+    if (!open || !pop || !wrap.current) return;
+    let box: HTMLElement | null = wrap.current.parentElement;
+    while (box && !/(auto|scroll|hidden|clip)/.test(getComputedStyle(box).overflowY)) box = box.parentElement;
+    const bottom = box ? box.getBoundingClientRect().bottom : innerHeight, me = wrap.current.getBoundingClientRect();
+    setUp(me.bottom + pop.offsetHeight + 8 > bottom && me.top - pop.offsetHeight - 8 > (box ? box.getBoundingClientRect().top : 0));
+    const bb = box ? box.getBoundingClientRect() : { left: 0, right: innerWidth }; // and slid left/right so it stays inside the panel
+    const want = me.left - 4, fit = Math.max(bb.left + 8, Math.min(want, bb.right - 8 - pop.offsetWidth));
+    setDx(fit === want ? null : fit - me.left);
+  }, [open]);
   const word = trust.level === "confirmed" ? t("intel.tr.confirmed", { n: trust.outlets }) : trust.level === "single" ? t("intel.tr.single") : t("intel.tr.check");
   const flagged = trust.flags.filter((f) => f.kind !== "one_source"), notes = trust.flags.filter((f) => f.kind === "one_source");
   return (
@@ -87,7 +100,7 @@ function TrustMark({ trust, cites, all }: { trust: Trust; cites: Cite[]; all: Ci
         onClick={() => setPinned((p) => !p)}>
         <span className={css.bars} aria-hidden="true">{[1, 2, 3].map((k) => <i key={k} data-on={k <= Math.max(1, Math.min(3, trust.outlets)) ? "" : undefined} />)}</span><span aria-hidden="true">{t(`intel.tr.short.${trust.level}`)}</span>
       </button>
-      <div id={id} className={css.pop} role="group" aria-label={word} hidden={!open}>
+      <div id={id} className={css.pop} role="group" aria-label={word} hidden={!open} data-up={up || undefined} style={dx === null ? undefined : { left: dx }}>
         <b>{word}</b>
         {trust.cited > 0 && <span>{t("intel.tr.read", { r: trust.read, n: trust.cited })}</span>}
         {flagged.length > 0 && <div><span className={css.flag}>{t("intel.tr.flagged")}</span>
@@ -224,7 +237,8 @@ function SchedNote({ s, retry, quiet }: { s: ReturnType<typeof schedState>; retr
       <button className="chip mt-1" onClick={retry}>{t("state.retry")}</button>
     </div>
   );
-  return <p className="error text-xs" role="alert">{t(s === "unavailable" ? "intel.sched.unavailable" : "intel.sched.error")} <button className="chip" onClick={retry}>{t("state.retry")}</button></p>;
+  // Kit error pattern: what happened + what still works + Try again (no raw red line).
+  return <ErrorState title={t(s === "unavailable" ? "intel.sched.unavailable" : "intel.sched.error")} text={t("intel.sched.errorText")} retryLabel={t("state.retry")} onRetry={retry} />;
 }
 
 export function IntelligencePanel() {
@@ -258,7 +272,7 @@ export function IntelligencePanel() {
     } catch (e) {
       setSched((s) => (s.scheduled === undefined ? { failed: e instanceof TypeError ? "network" : "server" } : s)); // fetch throws TypeError when offline
       setBriefings((b) => { if (!b) setLoadFailed(true); return b ?? []; });
-      setErr(e instanceof Error ? e.message : "Could not load");
+      setErr(plainError(e, t("intel.partFailed")));
     }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -270,7 +284,7 @@ export function IntelligencePanel() {
     try {
       const r = await api<{ briefing: Briefing }>("/api/pulse", { method: "POST", body: JSON.stringify({ focus: f }) });
       setOpen(r.briefing.id); setView("today");
-    } catch (e) { setErr(e instanceof Error ? e.message : "Pulse failed"); }
+    } catch (e) { setErr(plainError(e, "Pulse failed")); }
     finally { setRunning(false); void load(); }
   }
   async function follow(e: React.FormEvent) {
@@ -280,23 +294,23 @@ export function IntelligencePanel() {
     try {
       await api("/api/feeds", { method: "POST", body: JSON.stringify(/^https?:\/\//i.test(v) ? { url: v } : { topic: v }) });
       setAdd(""); void load();
-    } catch (e2) { setErr(e2 instanceof Error ? e2.message : "Could not add"); }
+    } catch (e2) { setErr(plainError(e2, "Could not add")); }
   }
   async function addPack(pack: string, label: string) {
     try { const r = await api<{ added: number }>("/api/feeds", { method: "POST", body: JSON.stringify({ pack }) }); setErr(r.added ? "" : t("intel.src.has", { label })); void load(); }
-    catch (e) { setErr(e instanceof Error ? e.message : "Could not add"); }
+    catch (e) { setErr(plainError(e, "Could not add")); }
   }
   async function toggle(f: Feed) {
     try { await api("/api/feeds", { method: "PATCH", body: JSON.stringify({ id: f.id, enabled: !f.enabled }) }); void load(); }
-    catch (e) { setErr(e instanceof Error ? e.message : "Could not update"); }
+    catch (e) { setErr(plainError(e, "Could not update")); }
   }
   async function remove(f: Feed) {
     try { await api(`/api/feeds?id=${f.id}`, { method: "DELETE" }); void load(); }
-    catch (e) { setErr(e instanceof Error ? e.message : "Could not remove"); }
+    catch (e) { setErr(plainError(e, "Could not remove")); }
   }
   const post: Post = async (body) => {
     try { const r = await api<{ existing?: boolean }>("/api/news/intel", { method: "POST", body: JSON.stringify(body) }); setErr(r.existing ? t("intel.already") : ""); void load(); }
-    catch (e) { setErr(e instanceof Error ? e.message : "Could not save"); }
+    catch (e) { setErr(plainError(e, "Could not save")); }
   };
 
   const b = briefings?.find((x) => x.id === open) ?? briefings?.[0] ?? null;
@@ -327,7 +341,7 @@ export function IntelligencePanel() {
         </div>
         {/* two-voice audio of this briefing (local Kokoro voices; the first play takes a minute to make it) */}
         {listen && b && <audio key={b.id} className={css.audio} controls autoPlay preload="none" src={`/api/briefings/${b.id}/audio`} aria-label={`${t("intel.listen")}: ${b.title}`} />}
-        {s !== "configured" && s !== "checking" && <SchedNote s={s} retry={() => void load()} quiet />}
+        {s !== "configured" && s !== "checking" && !loadFailed && <SchedNote s={s} retry={() => void load()} quiet />}
         {err && !loadFailed && <p className={`${css.bad} text-sm`} role="alert">{err}</p>}
         {articles.length > 0 && <Ticker articles={articles} />}
       </div>

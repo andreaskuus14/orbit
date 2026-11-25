@@ -1,4 +1,5 @@
 "use client";
+import { plainError } from "@/lib/api-error-pure";
 import { useCallback, useEffect, useState } from "react";
 import { pollMs } from "@/lib/poll-pure";
 import { usePoll } from "./use-poll";
@@ -36,7 +37,7 @@ export function PluginsSection() {
   const call = useCallback(async (body?: object, label = "") => {
     if (body) { setErr(""); setBusy(label); } // a background poll never touches busy: it would re-enable Run on a call still running
     try { const j = await pluginsCall(body); setV(j); if (j.out !== undefined) setOut(j.out); if (j.tested !== undefined) setOut(`Connected: ${j.tested} tools.`); return true; }
-    catch (e) { setErr(e instanceof Error ? e.message : String(e)); return false; } finally { if (body) setBusy(""); }
+    catch (e) { setErr(plainError(e, "That didn\u2019t work. Try again.")); return false; } finally { if (body) setBusy(""); }
   }, []);
   const poll = useCallback(() => void call(), [call]);
   useEffect(() => { // the sign-in route comes back to /?plugins=<result>

@@ -8,7 +8,8 @@ import { isChunkError } from "@/lib/stale-build-pure";
 import { reloadOnce } from "./StaleBuildWatch";
 import { Button } from "./ui";
 
-type Props = { name: string; onBack?: () => void; children: ReactNode };
+// quiet: a decorative part (a 3D scene) that fails just drops out, so the planet's panel next to it keeps working (no GPU / no WebGL).
+type Props = { name: string; onBack?: () => void; quiet?: boolean; children: ReactNode };
 
 function Fallback({ name, onRetry, onBack }: { name: string; onRetry: () => void; onBack?: () => void }) {
   const { t } = useT();
@@ -35,6 +36,7 @@ export class PlanetBoundary extends Component<Props, { failed: boolean; n: numbe
     if (isChunkError(error)) reloadOnce();
   }
   render() {
+    if (this.state.failed && this.props.quiet) return null;
     if (this.state.failed) return <Fallback name={this.props.name} onBack={this.props.onBack} onRetry={() => this.setState((s) => ({ failed: false, n: s.n + 1 }))} />;
     return <Fragment key={this.state.n}>{this.props.children}</Fragment>; // Try again remounts the subtree with fresh state
   }

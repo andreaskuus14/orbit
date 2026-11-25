@@ -1,4 +1,5 @@
 "use client";
+import { plainError } from "@/lib/api-error-pure";
 import { useEffect, useState } from "react";
 import { useT } from "./i18n";
 import type { Persona, Slider } from "@/lib/persona-pure"; // types only: persona-pure pulls server code
@@ -15,9 +16,9 @@ export function PersonaSection() {
     setMsg("");
     fetch("/api/persona", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`); setV(j); setMsg(done); })
-      .catch((e) => setMsg(e instanceof Error ? e.message : "Could not save"));
+      .catch((e) => setMsg(plainError(e, "Could not save")));
   };
-  useEffect(() => { fetch("/api/persona", { cache: "no-store" }).then((r) => r.json()).then((j) => (j.error ? setMsg(j.error) : setV(j))).catch((e) => setMsg(e.message)); }, []);
+  useEffect(() => { fetch("/api/persona", { cache: "no-store" }).then((r) => r.json()).then((j) => (j.error ? setMsg("Couldn't load this. Try again.") : setV(j))).catch((e) => setMsg(plainError(e, "Couldn't load this. Try again."))); }, []);
   return (
     <section className="space-y-2" aria-labelledby="persona-h">
       <h3 id="persona-h" className="h3">{t("profile.persona")}</h3>

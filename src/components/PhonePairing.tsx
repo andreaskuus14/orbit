@@ -20,7 +20,7 @@ export function PhonePairing() {
     setErr("");
     const r = await fetch("/api/remote/owner", body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : undefined).catch(() => null);
     const j = r && (await r.json().catch(() => null));
-    if (r?.ok && j) { setV(j); setToken(j.token ?? ""); } else setErr(j?.error ?? "Couldn't load phone pairing");
+    if (r?.ok && j) { setV(j); setToken(j.token ?? ""); } else setErr("Couldn't load phone pairing. Try again.");
   }, []);
   useEffect(() => { void call(); }, [call]);
   useEffect(() => {
