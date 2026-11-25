@@ -1,7 +1,7 @@
 "use client";
 import { PLANETS, type PanelId } from "@/lib/planets";
 import { WorldEmblem } from "./WorldEmblem";
-import { useT } from "./i18n";
+import { tr, useT } from "./i18n";
 import { isPlanetWorld } from "@/lib/planet-worlds-pure";
 
 // Intent loading: share Next's module cache without downloading every world at startup.
@@ -17,7 +17,7 @@ export function warmWorld(id: PanelId) {
 }
 
 export function WorldLoading() {
-  return <div className="world-loading" role="status"><span className="world-loading-ring" aria-hidden="true" /><p>Opening planet…</p></div>;
+  return <div className="world-loading" role="status"><span className="world-loading-ring" aria-hidden="true" /><p>{tr("explore.opening")}</p></div>;
 }
 
 export function OrbitExplore({ selected, onSelect }: { selected: PanelId | null; onSelect: (id: PanelId) => void }) {

@@ -173,17 +173,17 @@ export function CommandPalette() {
 
   let n = -1;
   return (
-    <dialog ref={ref} aria-label="Warp: command palette" aria-describedby="pal-help"
+    <dialog ref={ref} aria-label={t("warp.aria")} aria-describedby="pal-help"
       className="glass warp mx-auto mt-[12vh] w-[calc(100vw-2rem)] max-w-xl p-0 text-[var(--ink)] backdrop:bg-black/50 backdrop:backdrop-blur-sm"
       onClose={() => { setQ(""); setActive(0); setIsOpen(false); setPool(null); }}
       onClick={(e) => { if (e.target === e.currentTarget) e.currentTarget.close(); }}>
       <div className="p-3">
         <div className="warp-head"><span className="h3">Warp</span><AlienScript text="WARP DRIVE" className="warp-script" /></div>
-        <input className="field w-full" autoFocus placeholder="Jump, search, act… or ask CORE"
+        <input className="field w-full" autoFocus placeholder={t("warp.placeholder")}
           value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKeyDown}
-          role="combobox" aria-expanded="true" aria-controls="pal-list" aria-autocomplete="list" aria-label="Warp to"
+          role="combobox" aria-expanded="true" aria-controls="pal-list" aria-autocomplete="list" aria-label={t("warp.to")}
           aria-activedescendant={cur >= 0 ? `pal-${cur}` : undefined} spellCheck={false} autoComplete="off" />
-        <div id="pal-list" role="listbox" aria-label="Results" className="mt-2 max-h-[55vh] overflow-y-auto">
+        <div id="pal-list" role="listbox" aria-label={t("warp.results")} className="mt-2 max-h-[55vh] overflow-y-auto">
           {groups.filter((g) => g.items.length).map((g, gi) => (
             <div key={g.name} role="group" aria-labelledby={`pal-g-${gi}`} className="mb-1">
               <div id={`pal-g-${gi}`} className="h3 px-2 pb-1 pt-2">{g.name}</div>
@@ -203,9 +203,9 @@ export function CommandPalette() {
             </div>
           ))}
         </div>
-        <p className="sr-only" aria-live="polite">{isOpen && term ? `${flat.length} results` : ""}</p>
+        <p className="sr-only" aria-live="polite">{isOpen && term ? t("warp.count", { n: flat.length }) : ""}</p>
         <div id="pal-help" className="muted mt-2 flex gap-3 border-t border-white/10 px-1 pt-2 text-xs">
-          <span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>Esc</kbd> close</span>
+          <span><kbd>↑</kbd> <kbd>↓</kbd> {t("warp.move")}</span><span><kbd>Enter</kbd> {t("warp.open")}</span><span><kbd>Esc</kbd> {t("warp.close")}</span>
         </div>
       </div>
     </dialog>

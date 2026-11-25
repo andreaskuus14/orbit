@@ -830,7 +830,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </button>
         <div className="hud-bar-top">
           {(live === "offline" || details) && <span className={"pill hidden sm:inline-flex " + (live === "live" ? "ok" : live === "offline" ? "bad" : "")} title={t("hud.liveTitle")}>{t(live === "live" ? "hud.live" : live === "offline" ? "hud.offline" : "hud.connecting")}</span>}
-          {process.env.NODE_ENV === "development" && <span className="pill hidden lg:inline-flex" title="Running the development server (slower). Start Orbital from the desktop shortcut for the production server.">DEV</span>}
+          {process.env.NODE_ENV === "development" && <span className="pill hidden lg:inline-flex" title={t("hud.devTitle")}>DEV</span>}
           <PresenceBeat />
           <NotificationCenter home={!shown && !approach} />
           <TimeDilation onSpan={setDilation} />

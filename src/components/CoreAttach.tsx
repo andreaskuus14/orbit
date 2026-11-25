@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useT } from "./i18n";
 import { MAX_FILES, MAX_IMAGE_BYTES, MAX_DOC_BYTES } from "@/lib/attach-pure";
 
 // CORE attachments in the browser: pick / drop / paste, downscale images, show chips. The server re-checks everything.
@@ -79,13 +80,14 @@ export function useAttachments() {
 /** Thumbnails / file chips with ✕, and "Save to memory" for documents (the normal MEMORY upload). */
 export function AttachChips({ items, error, onRemove }: { items: Pending[]; error: string; onRemove: (id: string) => void }) {
   const [saved, setSaved] = useState<Record<string, string>>({});
+  const { t } = useT();
   async function save(p: Pending) {
-    setSaved((s) => ({ ...s, [p.id]: "Saving…" }));
+    setSaved((s) => ({ ...s, [p.id]: t("attach.saving") }));
     const form = new FormData();
     form.append("file", p.file);
     const res = await fetch("/api/memories/upload", { method: "POST", body: form }).catch(() => null);
     const json = await res?.json().catch(() => ({}));
-    setSaved((s) => ({ ...s, [p.id]: res?.ok ? "✓ Saved" : json?.error || "Save failed" }));
+    setSaved((s) => ({ ...s, [p.id]: res?.ok ? t("attach.saved") : json?.error || t("attach.saveFailed") }));
   }
   if (!items.length && !error) return null;
   return (
@@ -96,8 +98,8 @@ export function AttachChips({ items, error, onRemove }: { items: Pending[]; erro
           <span className="max-w-[10rem] truncate" title={p.name}>{p.name}</span>
           {!p.image && (saved[p.id]
             ? <span className="muted" role="status">{saved[p.id]}</span>
-            : <button type="button" className="underline" onClick={() => void save(p)} title="Also save this document to MEMORY">Save to memory</button>)}
-          <button type="button" aria-label={`Remove ${p.name}`} onClick={() => onRemove(p.id)}>✕</button>
+            : <button type="button" className="underline" onClick={() => void save(p)} title={t("attach.saveTitle")}>{t("attach.save")}</button>)}
+          <button type="button" aria-label={t("attach.remove", { name: p.name })} onClick={() => onRemove(p.id)}>✕</button>
         </span>
       ))}
       {error && <span className="text-red-400" role="alert">{error}</span>}
