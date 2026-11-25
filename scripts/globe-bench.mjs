@@ -143,7 +143,7 @@ try {
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.addInitScript(probes);
-    await page.addInitScript((v) => { try { localStorage.setItem("orbit.newsWeather.view", v); } catch {} }, view);
+    await page.addInitScript((v) => { try { localStorage.setItem("orbit.intel.map", v); } catch {} }, view);
     const asked = [];
     await page.route("**/*", (route) => {
       const u = new URL(route.request().url());

@@ -25,7 +25,13 @@ import { REFRESH_MS } from "@/lib/follows-pure";
 import { useAlienEnv } from "./alien/env";
 import { useManual } from "./planet-manual";
 import NewsWeatherLayer from "./news-weather/NewsWeatherLayer";
-import EarthView, { earthWanted } from "./earth/EarthView";
+import EarthView from "./earth/EarthView";
+import IntelBar from "./intel/IntelBar";
+import { motionActive, useUiMotion } from "./motion/motion";
+import { escBack, readView, VIEW_KEY, type MapView, type Place, type Tab } from "@/lib/intel-view-pure";
+
+/** The saved map (Earth / News weather / Classic), read at first render (client only) so the old globe never flashes up first. */
+const savedView = (): MapView => { try { return readView((k) => localStorage.getItem(k)); } catch { return "earth"; } };
 
 // INTELLIGENCE → World Pulse: a holographic Earth where the news happens.
 // Country shapes come from world-atlas; each country in the news gets a cluster of twinkling city-light dots
@@ -970,8 +976,18 @@ function MapLegend({ d }: { d: Data }) {
 export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string; search?: string } | null; quality?: QualityMode; paused?: boolean }) {
   const { t } = useT();
   const q = worldQuality(quality);
-  const [earthOn, setEarthOn] = useState(earthWanted); // Planet Earth view showing: the old globe, pulse list and region chips step aside
+  // One map at a time, one bar for all of them (owner, 25 Nov: "no way back from Classic map"). Without UI motion: Classic only.
+  const motion = useUiMotion() || (typeof window !== "undefined" && motionActive());
+  const [view, setViewS] = useState<MapView>(() => (typeof window === "undefined" ? "earth" : savedView()));
+  const [place, setPlace] = useState<Place>("orbit");
+  const [shot, setShot] = useState<{ place: Place; n: number } | null>(null);
+  const setView = useCallback((v: MapView) => { setViewS(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* this tab only */ } }, []);
+  const [earthOn, setEarthOn] = useState(() => typeof window !== "undefined" && motionActive() && savedView() === "earth"); // the old globe, pulse list and region chips step aside
   const [weatherOn, setWeatherOn] = useState(false); // news weather showing: the 3D globe underneath stops drawing
+  const onTab = useCallback((id: Tab["id"]) => {
+    if (id === "weather" || id === "classic") { setView(id); return; }
+    setView("earth"); setPlace(id); setShot((s) => ({ place: id, n: (s?.n ?? 0) + 1 }));
+  }, [setView]);
   const glr = useGlRecovery();
   const later = useMountLater();
   // Simple page: the globe's own search, country list and regions are tools (behind More in the INTELLIGENCE panel); the public demo has no panel, so it keeps them.
@@ -1150,8 +1166,32 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
     return dedupe(all.sort((a, b) => (b.score ?? importance(b.title)) - (a.score ?? importance(a.title)))); // biggest stories first
   }, [stored, liveNews, selected]);
 
+  // Esc, one step back: a country card → the list; another map or a close-up → the whole Earth. From the whole Earth it falls
+  // through to ORBIT's own Esc (closes the planet). Not while typing, in a dialog, or in the weather tour (its own Esc).
+  const escRef = useRef({ selected, view, place });
+  escRef.current = { selected, view, place };
+  useEffect(() => {
+    if (!motion || paused) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return;
+      if (document.querySelector("dialog[open], :popover-open, [aria-modal=true], [data-news-weather][data-tour]")) return;
+      const c = escRef.current;
+      if (c.selected) { setSelected(null); } else {
+        const b = escBack(c.view, c.place);
+        if (!b) return;
+        onTab(b.place);
+      }
+      e.preventDefault(); e.stopImmediatePropagation();
+    };
+    addEventListener("keydown", onKey, true);
+    return () => removeEventListener("keydown", onKey, true);
+  }, [motion, paused, onTab]);
+
   return (
-    <div className={`absolute inset-0 globe-in${earthOn ? " earth-on" : ""}`} aria-label={t("ngx.aria")}>
+    <div className={`absolute inset-0 globe-in${earthOn ? " earth-on" : ""}${motion ? " intel-zoned" : ""}${manual && motion ? " intel-has-list" : ""}${motion && manual && !search && !earthOn ? " intel-chips" : ""}`} aria-label={t("ngx.aria")}>
+      {motion && <div className="intel-stage" aria-hidden />}
       {ready && later && !earthOn && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused || weatherOn ? "never" : "always"} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         {quality === "auto" && <PerformanceMonitor onDecline={() => setLean(true)} />}
         <WarmCompile world="intelligence" />
@@ -1290,9 +1330,10 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
         </nav>
       )}
 
-      <EarthView reduced={reduced} paused={paused} onActive={setEarthOn} />{/* ORBIT_UI_MOTION: Planet Earth view; "News weather" falls back to the layer below */}
-      {!earthOn && <NewsWeatherLayer reduced={reduced} paused={paused} onActive={setWeatherOn} />}{/* ORBIT_UI_MOTION: news weather over the paused globe */}
-      <button className="chip world-back absolute bottom-24 right-3 min-[900px]:right-[32rem]" onClick={onClose}>← {t("ngx.back")}</button>
+      <EarthView on={view === "earth"} shot={shot} reduced={reduced} paused={paused} onActive={setEarthOn} onPlace={setPlace} onFail={() => setView("weather")} />{/* ORBIT_UI_MOTION: Planet Earth view */}
+      <NewsWeatherLayer on={view === "weather"} reduced={reduced} paused={paused} onActive={setWeatherOn} />{/* ORBIT_UI_MOTION: news weather over the paused globe */}
+      {motion && <IntelBar view={view} place={place} onTab={onTab} />}
+      {!motion && <button className="chip world-back absolute bottom-24 right-3 min-[900px]:right-[32rem]" onClick={onClose}>← {t("ngx.back")}</button>}
     </div>
   );
 }

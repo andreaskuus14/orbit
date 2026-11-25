@@ -1,35 +1,30 @@
 "use client";
 // INTELLIGENCE → "News weather": the resting view as a weather map, and Play = a 60–75 s guided flythrough of today's briefing
-// with its Kokoro audio. Behind ORBIT_UI_MOTION (off → nothing here, the classic globe as before); "Classic map" switches back
-// per device. Drawing: weather-draw.ts · timing: news-weather-tour-pure.ts · data and rules: news-weather-pure.ts.
+// with its Kokoro audio. Behind ORBIT_UI_MOTION (off → nothing here, the classic globe as before). NewsGlobe owns which map
+// shows (one tab bar for all of them); this layer draws inside the free stage (.intel-stage) and never under the bars. Drawing: weather-draw.ts · timing: news-weather-tour-pure.ts · data and rules: news-weather-pure.ts.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUiMotion } from "../motion/motion";
 import { useT } from "../i18n";
 import type { Hotspot } from "@/lib/geo";
 import { parseSnapshot, shortTitle, shouldReplace, sinceLast, snapshotOf, storyCues, tourPlan, weather, type Briefing } from "@/lib/news-weather-pure";
-import { restView, safeFrame, storyView, subsolar, type Free, type View } from "@/lib/news-weather-motion-pure";
+import { restView, storyView, subsolar, type Free, type View } from "@/lib/news-weather-motion-pure";
 import { CTL0, frameAt, keyAction, nextClock, tourStartDelay, type Ctl } from "@/lib/news-weather-tour-pure";
 import { tourLength, wxText } from "@/lib/news-weather-text-pure";
 import { createWeatherDraw, TEXTURES, type TextureKind, type WeatherDraw, type WxModel } from "./weather-draw";
 
-const VIEW_KEY = "orbit.newsWeather.view", SNAP_KEY = "orbit.newsWeather.snap.v1";
+const SNAP_KEY = "orbit.newsWeather.snap.v1";
 const PANEL = 512;
 // The world's own controls over the map: measured as covered at rest, faded away for the tour and brought back after.
 const CHROME = ".globe-side, .globe-search, .globe-regions, .globe-country, .world-back, .cmdbar, nav[aria-label='Demo tour']";
 const chromeEls = (el: HTMLElement | null, sel = CHROME) => (el ? Array.from(document.querySelectorAll<HTMLElement>(sel)).filter((c) => !el.contains(c)) : []); // the Intelligence panel's width on wide screens (32rem): the guess until the real free frame is measured
 type Audio = { el: HTMLAudioElement; url: string; ms: number };
 
-export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduced: boolean; paused: boolean; onActive: (on: boolean) => void }) {
+export default function NewsWeatherLayer({ on, reduced, paused, onActive }: { on: boolean; reduced: boolean; paused: boolean; onActive: (on: boolean) => void }) {
   const motion = useUiMotion();
   const { lang } = useT();
   const text = wxText(lang);
-  const [classic, setClassic] = useState(false);
-  useEffect(() => { try { setClassic(localStorage.getItem(VIEW_KEY) === "classic"); } catch { /* no storage */ } }, []);
-  const active = motion && !classic;
+  const active = motion && on;
   useEffect(() => { onActive(active); }, [active, onActive]);
-  const [cover, setCover] = useState(false); // dark cover while the classic globe loads, so the galaxy's labels don't show through
-  useEffect(() => { if (!cover) return; const t = setTimeout(() => setCover(false), 1800); return () => clearTimeout(t); }, [cover]);
-  const pick = (c: boolean) => { if (c) setCover(true); setClassic(c); try { localStorage.setItem(VIEW_KEY, c ? "classic" : "weather"); } catch { /* this tab only */ } };
 
   // ---- data ----
   const [hs, setHs] = useState<Hotspot[] | null>(null);
@@ -98,8 +93,8 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
     ro.observe(el);
     return () => ro.disconnect();
   }, [active]);
-  // The free frame: what the panel, top bar, search box, region chips and command bar leave uncovered, measured by sampling the
-  // screen (elementFromPoint) at rest — on resize and every 2 s, since panels open and close. Kept still during the tour.
+  // The free frame: the stage box NewsGlobe reserves between the tab bar, the left list, the panel and the command bar (fixed
+  // zones, so nothing is guessed). Read on resize and every second (the panel opens and closes). Kept still during the tour.
   const guess: Free = useMemo(() => ({ x: 0, y: 0, w: size.w >= 900 ? size.w - PANEL : size.w, h: size.h }), [size]);
   const [free, setFree] = useState<Free>(guess);
   useEffect(() => { setFree(guess); }, [guess]);
@@ -109,19 +104,11 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
     if (!active || !el || !size.w) return;
     const measure = () => {
       if (modeRef.current !== "rest") return;
-      const r = el.getBoundingClientRect(), C = 32, Rw = 24;
-      // the panels by their boxes too: elementFromPoint misses anything with pointer-events: none or still fading in
-      const boxes = chromeEls(el).map((c) => c.getBoundingClientRect()).filter((b) => b.width > 0 && b.height > 0);
-      const covered = Array.from({ length: Rw }, (_, y) => Array.from({ length: C }, (_, x) => {
-        const px = r.left + ((x + 0.5) / C) * r.width, py = r.top + ((y + 0.5) / Rw) * r.height;
-        if (boxes.some((b) => px >= b.left && px <= b.right && py >= b.top && py <= b.bottom)) return true;
-        const hit = document.elementFromPoint(px, py);
-        return !!hit && !el.contains(hit);
-      }));
-      const f = safeFrame(covered, r.width, r.height, guess);
+      const r = el.getBoundingClientRect(), st = document.querySelector(".intel-stage")?.getBoundingClientRect();
+      const f: Free = st && st.width > 40 && st.height > 40 ? { x: Math.round(st.left - r.left), y: Math.round(st.top - r.top), w: Math.round(st.width), h: Math.round(st.height) } : guess;
       setFree((o) => (Math.abs(o.x - f.x) + Math.abs(o.y - f.y) + Math.abs(o.w - f.w) + Math.abs(o.h - f.h) < 4 ? o : f));
     };
-    const t0 = setTimeout(measure, 300), t = setInterval(measure, 2000);
+    const t0 = setTimeout(measure, 50), t = setInterval(measure, 1000);
     return () => { clearTimeout(t0); clearInterval(t); };
   }, [active, size, guess]);
   const drag = useRef({ dLon: 0, dLat: 0 });
@@ -237,7 +224,7 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
       if (f.i !== lastIdx) { lastIdx = f.i; setLive(st ? `${f.i + 1} / ${n}. ${st.headline}. ${st.lines.join(" ")}` : ""); }
       const p = st ? plan.current[f.i] : null;
       // during the tour the bottom bars are gone: the strap and timeline sit at the bottom of the screen
-      const ff = c.mode === "tour" && st ? { ...free, h: size.h - free.y } : free;
+      const ff = free; // the tour too stays inside the stage: its headline and timeline never run under the command bar
       d.draw(model, { W: size.w, H: size.h, dpr, free: ff, view: f.view, now, reduced, rest: f.rest, hover: hoverRef.current, sun: subsolar(Date.now()),
         tour: st && f.scene && p ? { stop: st, prev: f.i > 0 ? wx.stops[f.i - 1] : null, scene: f.scene, idx: f.i, n, from: f.from, paused: c.paused, voiced: k.voiced,
           dur: p.end - p.start, clock: k.t, chapters } : null });
@@ -263,16 +250,9 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
   const onUp = () => { down.current = null; };
 
   if (!motion) return null;
-  if (!active) return (
-    <>
-      {cover && <div className="nw-cover absolute inset-0 z-[13]" style={{ background: "#18191b", animation: "nw-cover-out 1800ms ease-in forwards" }} aria-hidden>
-        <style>{"@keyframes nw-cover-out { 0%, 60% { opacity: 1 } 100% { opacity: 0 } }"}</style>
-      </div>}
-      <button className="chip absolute bottom-36 left-3" onClick={() => pick(false)}>{text.weatherMap}</button>
-    </>
-  );
+  if (!active) return null;
   return (
-    <div ref={box} data-news-weather="" className="absolute inset-0 select-none" style={{ background: "#18191b", touchAction: "none", cursor: hover ? "pointer" : down.current ? "grabbing" : "grab" }}
+    <div ref={box} data-news-weather="" data-tour={mode === "tour" ? "" : undefined} className="absolute inset-0 select-none" style={{ background: "#18191b", touchAction: "none", cursor: hover ? "pointer" : down.current ? "grabbing" : "grab" }}
       onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} aria-label={text.title}>
       <canvas ref={cv} className="absolute inset-0 h-full w-full" aria-hidden />
       <p className="sr-only">{wx ? `${text.title}. ${wx.forecast} ${since.join(". ")}` : ""}</p>
@@ -281,7 +261,6 @@ export default function NewsWeatherLayer({ reduced, paused, onActive }: { reduce
         <>
           <button className="absolute rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" style={{ left: playRect.x, top: playRect.y, width: playRect.w, height: playRect.h, background: "transparent" }}
             onClick={play} onPointerDown={(e) => e.stopPropagation()} disabled={!wx?.stops.length} aria-label={wx?.stops.length ? text.play : text.noBriefing} />
-          <button className="chip absolute" style={{ left: playRect.x + playRect.w - 120, top: playRect.y - 44, width: 120 }} onPointerDown={(e) => e.stopPropagation()} onClick={() => pick(true)}>{text.classic}</button>
         </>
       )}
       {mode === "tour" && <button className="sr-only" onClick={back}>{text.keys}</button>}

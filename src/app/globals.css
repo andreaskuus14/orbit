@@ -1024,13 +1024,13 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 :root { --intel-w: min(26rem, max(22rem, 44vw)); }
 @media (min-width: 721px) { .drawer:has([data-intel-surface]) { width: var(--intel-w); } }
 @media (min-width: 721px) and (min-height: 521px) {
-  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) :is(.globe-search, .globe-regions) {
+  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) :is(.globe-search, .globe-regions):not(.intel-zoned *) {
     zoom: 1; transform: none; left: 0.75rem; right: calc(var(--intel-w) + 2.25rem); max-width: 34rem; margin-inline: auto; }
-  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) .globe-search { width: auto; }
-  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) .globe-regions { width: fit-content; max-width: 46rem; }
+  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) .globe-search:not(.intel-zoned *) { width: auto; }
+  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) .globe-regions:not(.intel-zoned *) { width: fit-content; max-width: 46rem; }
 }
 @media (min-width: 1101px) and (min-height: 521px) {
-  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) :is(.globe-search, .globe-regions) { left: 18.5rem; }
+  :root:has(.drawer:not(.drawer-out) [data-intel-surface]) :is(.globe-search, .globe-regions):not(.intel-zoned *) { left: 18.5rem; }
 }
 @media (max-width: 640px) {
   .drawer:has([data-intel-surface]) { height: 58dvh; }
@@ -1062,3 +1062,47 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .wchip-dot.warn { background: #c084fc; box-shadow: 0 0 6px #c084fc; } .wchip-dot.bad { background: #f87171; box-shadow: 0 0 6px #f87171; }
 @media (max-width: 640px) { .wchip { min-width: 0; font-size: 0.68rem; padding: 4px 8px; } .wchip-s { display: none; } body:has(.drawer, .pu-shell) .wchip-layer { visibility: hidden; } }
 @media (prefers-reduced-motion: reduce) { .wchip { transition: none; } }
+
+/* INTELLIGENCE layout (owner, 25 Nov: "things overlap", "no way back from Classic map"). Fixed zones, the same in every map
+   (Earth, News weather, Classic): the app header, then one tab bar (IntelBar), a left column (search + list or a country), the
+   briefing panel on the right, the command bar band at the bottom. Whatever is left is the stage (.intel-stage): the maps draw
+   their headline, timeline and cards only inside it. scripts/qa-shots.mjs QA_INTEL=1 checks every mode for overlaps. */
+.intel-zoned {
+  --iz-bar: 4rem; --iz-bar-h: 2.5rem; --iz-t: 7.25rem; --iz-l: 1rem; --iz-col: 19rem; --iz-b: 7.25rem; --iz-r: 1rem;
+  --iz-sl: var(--iz-l);
+}
+.intel-zoned.intel-has-list { --iz-sl: calc(var(--iz-l) + var(--iz-col) + 1rem); }
+:root:has(.drawer:not(.drawer-out) [data-intel-surface]) .intel-zoned { --iz-r: calc(var(--intel-w) + 1.75rem); }
+.globe-in.intel-zoned > .intel-stage { zoom: 1; position: absolute; pointer-events: none; top: var(--iz-t); left: var(--iz-sl); right: var(--iz-r); bottom: var(--iz-b); }
+.globe-in.intel-zoned > .intel-bar { zoom: 1; position: absolute; z-index: 16; top: var(--iz-bar); left: var(--iz-l); right: var(--iz-r); height: var(--iz-bar-h); display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 0 0.3rem; border-radius: 10px; background: rgba(4, 7, 14, 0.78); border: 1px solid rgba(255, 255, 255, 0.1); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.intel-tabs { display: flex; align-items: center; gap: 0.15rem; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.intel-tab { flex: none; font: 500 0.8rem/1 var(--font-inter, Inter, sans-serif); color: rgba(238, 242, 247, 0.72); background: transparent; border: 0; border-radius: 7px; padding: 0.55rem 0.7rem; cursor: pointer; white-space: nowrap; }
+.intel-tab:hover { color: #eef2f7; background: rgba(255, 255, 255, 0.06); }
+.intel-tab[aria-current="true"] { color: #0b0d12; background: #f2b35e; }
+.intel-tab:focus-visible { outline: 2px solid #67e8f9; outline-offset: 1px; }
+.intel-gap { margin-left: 0.6rem; position: relative; }
+.intel-gap::before { content: ""; position: absolute; left: -0.4rem; top: 25%; bottom: 25%; border-left: 1px solid rgba(255, 255, 255, 0.16); }
+.intel-status { display: flex; align-items: center; gap: 0.9rem; flex: none; padding-right: 0.5rem; font: 400 0.72rem/1 var(--font-jetbrains, ui-monospace, monospace); color: rgba(238, 242, 247, 0.7); white-space: nowrap; }
+.intel-live { display: inline-flex; align-items: center; gap: 0.35rem; color: #86efac; }
+.intel-live i { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; }
+@media (max-width: 1360px) { .intel-where { display: none; } }
+/* left column: search on top, the list (or a country) under it, never below the command bar band */
+.globe-in.intel-zoned :is(.earth-search, .globe-search) { top: var(--iz-t); left: var(--iz-l); right: auto; width: var(--iz-col); max-width: none; margin: 0; transform: none; zoom: 1; z-index: 15; }
+.globe-in.intel-zoned :is(.earth-side, .globe-side, .globe-country) { top: calc(var(--iz-t) + 4rem); left: var(--iz-l); width: var(--iz-col); max-height: none; bottom: var(--iz-b); zoom: 1; transform: none; }
+.globe-in.intel-zoned .globe-regions { top: auto; bottom: calc(var(--iz-b) + 0.25rem); left: var(--iz-sl); right: var(--iz-r); width: auto; max-width: none; margin: 0; transform: none; zoom: 1; justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.globe-in.intel-zoned.intel-chips > .intel-stage { bottom: calc(var(--iz-b) + 4.25rem); }
+/* Earth HUD inside the stage */
+.globe-in.intel-zoned .earth-host { --pr: 0px; }
+/* bottom of the stage, stacked: headline, then one row of the timeline, then the one-line credit */
+.globe-in.intel-zoned .earth-timeline { left: var(--iz-sl); right: var(--iz-r); bottom: calc(var(--iz-b) + 1.25rem); row-gap: 0; height: 2.6rem; }
+.globe-in.intel-zoned .earth-timeline > div { overflow: hidden; }
+.globe-in.intel-zoned .earth-lower { left: var(--iz-sl); bottom: calc(var(--iz-b) + 4.6rem); max-width: min(620px, calc(100% - var(--iz-sl) - var(--iz-r))); }
+.globe-in.intel-zoned .earth-lower b { font-size: clamp(22px, 2vw, 30px); }
+.globe-in.intel-zoned .earth-near { top: var(--iz-t); right: var(--iz-r); margin-right: 0; }
+.globe-in.intel-zoned .earth-credit { left: var(--iz-sl); right: var(--iz-r); bottom: var(--iz-b); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1100px) { .intel-zoned.intel-has-list { --iz-sl: var(--iz-l); } }
+@media (max-width: 720px), (max-height: 520px) {
+  .intel-zoned { --iz-bar: calc(var(--hdr, 3.4rem) + 0.25rem); --iz-t: calc(var(--iz-bar) + var(--iz-bar-h) + 0.5rem); --iz-l: 0.5rem; --iz-r: 0.5rem; --iz-b: var(--bar, 6.25rem); }
+  .intel-status { display: none; }
+}

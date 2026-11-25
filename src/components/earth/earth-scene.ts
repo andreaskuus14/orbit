@@ -9,14 +9,15 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { x2lon, y2lat, arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, tilesFor, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, lerpPose, moveMs, clampAlt, zoneFade, type Rect } from "@/lib/earth-pure";
+import { x2lon, y2lat, arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, tilesFor, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, lerpPose, moveMs, clampAlt, zoneFade, type Rect, MIN_ALT } from "@/lib/earth-pure";
+import { detailFor, detailStale } from "@/lib/intel-view-pure";
 
 import type { EarthData } from "@/lib/earth-data-pure";
 import { BUILDINGS_MAX_ALT, BZ, TOTAL as MAX_BUILDINGS, extrude, tilesAround, type Building } from "@/lib/earth-buildings-pure";
 import { LIGHT_GLSL } from "@/lib/earth-light-pure";
 import { GROUND_PX, GROUND_TILES, STYLE, buildingEdge, coverCircle, drawGround, edgeAlpha, groundFade, metresPerUnit, withOpenSea, EXT, type Ctx, type Ground } from "@/lib/earth-ground-pure";
 export type { EarthData };
-export type EarthOpts = { tileUrl: (k: TileKind, z: number, x: number, y: number) => string; sunMs?: number; dpr?: number; onTown?: (t: TownNews) => void; rightInset?: () => number; buildingsUrl?: (x: number, y: number) => string; home?: { lon: number; lat: number; name: string } };
+export type EarthOpts = { tileUrl: (k: TileKind, z: number, x: number, y: number) => string; sunMs?: number; dpr?: number; onTown?: (t: TownNews) => void; rightInset?: () => number; zones?: () => Rect[]; topLimit?: () => number; preserve?: boolean; buildingsUrl?: (x: number, y: number) => string; home?: { lon: number; lat: number; name: string } };
 
 const ACCENT = "#f2b35e"; // the one warm news accent; UI text is cool white
 const LOG = `#include <common>\n#include <logdepthbuf_pars_vertex>\n`;
@@ -39,7 +40,8 @@ async function mosaic(o: EarthOpts, kind: TileKind, box: Box, z: number) {
   return { canvas: c, z, x0: t.x0, y0: t.y0, nx: t.nx, ny: t.ny, box: t.box };
 }
 type Mosaic = Awaited<ReturnType<typeof mosaic>>;
-const tex = (c: HTMLCanvasElement, srgb = true) => { const t = new THREE.CanvasTexture(c); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; return t; };
+let ANISO = 8; // set from the GPU in createEarth (most do 16): sharp ground at a glancing view
+const tex = (c: HTMLCanvasElement, srgb = true) => { const t = new THREE.CanvasTexture(c); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = ANISO; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; return t; };
 
 /* ---------- shaders ---------- */
 
@@ -228,8 +230,14 @@ void main(){ \n#include <logdepthbuf_fragment>\n
 export function createEarth(host: HTMLElement, o: EarthOpts) {
   const W = () => host.clientWidth || 1280, H = () => host.clientHeight || 720;
   const inset = () => o.rightInset?.() ?? 0;
-  const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, preserveDrawingBuffer: true, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(o.dpr ?? devicePixelRatio ?? 1, 1.5));
+  // no canvas MSAA: everything is drawn through the composer's own targets, so it was paid for and never seen. The drawing
+  // buffer is kept only for the stills scripts (o.preserve).
+  const renderer = new THREE.WebGLRenderer({ antialias: false, logarithmicDepthBuffer: true, preserveDrawingBuffer: !!o.preserve, powerPreference: "high-performance" });
+  let pr = Math.min(o.dpr ?? devicePixelRatio ?? 1, 1.5);
+  renderer.setPixelRatio(pr);
+  // the GPU's best (16 on most); software GL (SwiftShader, the test box) stays at 8 or a frame takes seconds
+  { const gl = renderer.getContext(), d = gl.getExtension("WEBGL_debug_renderer_info"), name = d ? String(gl.getParameter(d.UNMASKED_RENDERER_WEBGL)) : "";
+    ANISO = Math.min(/swiftshader|llvmpipe|software/i.test(name) ? 8 : 16, renderer.capabilities.getMaxAnisotropy() || 8); }
   renderer.setSize(W(), H());
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
@@ -246,10 +254,12 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   const dof = new ShaderPass({ uniforms: { tDiffuse: { value: null }, uAmt: { value: 0 }, uRes: { value: new THREE.Vector2(W(), H()) } },
     vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }",
     fragmentShader: `uniform sampler2D tDiffuse; uniform float uAmt; uniform vec2 uRes; varying vec2 vUv;
-      void main(){ float k = smoothstep(.18, .5, abs(vUv.y - .52)) * uAmt; vec4 c = vec4(0.); float tot = 0.;
+      void main(){ float k = smoothstep(.18, .5, abs(vUv.y - .52)) * uAmt;
+        float vig = smoothstep(1.2, .35, length((vUv - .5) * vec2(1.2, 1.)));
+        if (k < .001) { vec4 b = texture2D(tDiffuse, vUv); gl_FragColor = vec4(b.rgb * mix(.55, 1., vig), b.a); return; } // no blur here: skip the 81 taps
+        vec4 c = vec4(0.); float tot = 0.;
         for (int i = -4; i <= 4; i++) for (int j = -4; j <= 4; j++) { vec2 o = vec2(float(i), float(j)) * k * 2.2 / uRes; float w = 1. / (1. + float(i*i + j*j) * .15); c += texture2D(tDiffuse, vUv + o) * w; tot += w; }
-        vec4 base = texture2D(tDiffuse, vUv); gl_FragColor = mix(base, c / tot, step(.001, k));
-        float vig = smoothstep(1.2, .35, length((vUv - .5) * vec2(1.2, 1.))); gl_FragColor.rgb *= mix(.55, 1., vig); }` });
+        gl_FragColor = c / tot; gl_FragColor.rgb *= mix(.55, 1., vig); }` });
   // one NaN pixel (a pow() of a tiny negative) gets smeared by bloom into black blocks: clean before bloom
   const clean = new ShaderPass({ uniforms: { tDiffuse: { value: null } }, vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }",
     fragmentShader: "uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv); bool bad = !(c.r == c.r && c.g == c.g && c.b == c.b && c.a == c.a) || any(greaterThan(abs(c), vec4(1e4))); gl_FragColor = bad ? vec4(0., 0., 0., 1.) : min(c, vec4(64.)); }" });
@@ -293,9 +303,9 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
 
   /* terrain patches */
   const gM = { uGC: { value: new THREE.Vector3() }, uGR: { value: 0 }, uGK: { value: 0 } }; // where the vector ground is (terrain tone match)
-  type Patch = { mesh: THREE.Mesh; u: { uOp: { value: number }; uNightK: { value: number }; uStyl: { value: number } }; lo: number; hi: number; box: Box; ground: (lon: number, lat: number) => number; sea: (lon: number, lat: number) => boolean };
+  type Patch = { z: number; mesh: THREE.Mesh; u: { uOp: { value: number }; uNightK: { value: number }; uStyl: { value: number } }; lo: number; hi: number; box: Box; ground: (lon: number, lat: number) => number; sea: (lon: number, lat: number) => boolean };
   const patches: Patch[] = [];
-  async function patch(box: Box, zi: number, ze: number, exag: number, lift: number, seg: number, lo: number, hi: number, haze: number, lakes = 0) {
+  async function patch(box: Box, zi: number, ze: number, exag: number, lift: number, seg: number, lo: number, hi: number, haze: number, lakes = 0, order?: number): Promise<Patch> {
     const [day, night, elev] = await Promise.all([mosaic(o, "day", box, zi), mosaic(o, "night", box, Math.min(zi, 8)), mosaic(o, "elev", box, ze)]);
     const eg = elev.canvas.getContext("2d")!, ed = eg.getImageData(0, 0, elev.canvas.width, elev.canvas.height).data, ew = elev.canvas.width, eh = elev.canvas.height;
     const rawAt = (lon: number, lat: number) => {
@@ -326,9 +336,38 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const nightT = tex(night.canvas); // same box, coarser zoom: its own uv would differ only slightly, so share uvM via a matched mosaic box
     const u = { uDay: { value: tex(day.canvas) as THREE.Texture }, uNight: { value: nightT as THREE.Texture }, uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 }, uHaze: { value: haze }, uNightK: { value: 1 }, uLand: { value: landT as THREE.Texture }, uLakes: { value: lakes }, uStyl: { value: 0 }, ...gM, uTexel: { value: new THREE.Vector2(1.5 / day.canvas.width, 1.5 / day.canvas.height) } };
     const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ vertexShader: terrVS, fragmentShader: terrFS, uniforms: u, transparent: true }));
-    mesh.renderOrder = 2 + patches.length;
+    mesh.renderOrder = order ?? 2 + patches.length;
     scene.add(mesh);
-    patches.push({ mesh, u, lo, hi, box, ground: (lon, lat) => hAt(lon, lat) * exag + lift, sea: (lon, lat) => rawAt(lon, lat) < -1.5 });
+    const q: Patch = { z: zi, mesh, u, lo, hi, box, ground: (lon, lat) => hAt(lon, lat) * exag + lift, sea: (lon, lat) => rawAt(lon, lat) < -1.5 };
+    patches.push(q);
+    return q;
+  }
+  const dropPatch = (q: Patch) => {
+    const i = patches.indexOf(q); if (i >= 0) patches.splice(i, 1);
+    scene.remove(q.mesh); q.mesh.geometry.dispose();
+    const m = q.mesh.material as THREE.ShaderMaterial;
+    for (const k of ["uDay", "uNight", "uLand"] as const) (m.uniforms[k].value as THREE.Texture).dispose();
+    m.dispose();
+  };
+  // Sharp ground for wherever the camera rests (it was the z4 world picture everywhere outside Estonia: "chunky"). One patch at a
+  // time, at the imagery zoom that gives about a tile pixel per screen pixel (intel-view-pure detailFor); built after the camera
+  // has rested 0.6 s, replaced when it moves a real distance. Drawn over the country patch, under the finer prebuilt ones.
+  let dyn: Patch | null = null, dynAt: { lon: number; lat: number; alt: number } | null = null, dynBusy = false, dynGen = 0;
+  async function updateDetail(p: Pose) {
+    if (dynBusy || !detailStale(dynAt, p.lon, p.lat, p.alt)) return;
+    const d = detailFor(p.lon, p.lat, p.alt, W());
+    const have = finest(p.lon, p.lat);
+    if (!d || (have && have !== dyn && have.z >= d.z && p.alt >= have.lo && p.alt <= have.hi)) { dynAt = { lon: p.lon, lat: p.lat, alt: p.alt }; return; }
+    dynBusy = true; const gen = ++dynGen, at = { lon: p.lon, lat: p.lat, alt: p.alt };
+    const [exag, lift] = p.alt >= 300 ? [3, 0] : p.alt >= 30 ? [6, 40] : [6, 260];
+    const haze = p.alt >= 1000 ? 0.0001 : p.alt >= 100 ? 0.00025 : 0.001;
+    try {
+      await terrainReady;
+      const q = await patch(d.box, d.z, d.ze, exag, lift, 160, Math.max(MIN_ALT, p.alt / 5), Math.min(7000, p.alt * 2.5), haze, 0, 2.5);
+      if (gen !== dynGen || disposed) { dropPatch(q); return; }
+      if (dyn) dropPatch(dyn);
+      dyn = q; dynAt = at;
+    } catch { dynAt = at; } finally { dynBusy = false; }
   }
   // Estonia (z8 imagery ≈ 600 m/px, z8 elevation) and central Tallinn (z14 imagery ≈ 5 m/px drawn, z12 elevation)
   const terrainReady = ready.then(() => Promise.all([
@@ -343,7 +382,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const key = `${lon.toFixed(2)},${lat.toFixed(2)}`;
     if (Math.abs(lon - 24.76) < 0.15 && Math.abs(lat - 59.44) < 0.06) return Promise.resolve();
     if (!focusCache.has(key)) {
-      while (patches.length > 4) { const old = patches.splice(3, 1)[0]; scene.remove(old.mesh); old.mesh.geometry.dispose(); }
+      for (let i = patches.findIndex((q, k) => k >= 3 && q !== dyn); patches.length > (dyn ? 5 : 4) && i >= 0; i = patches.findIndex((q, k) => k >= 3 && q !== dyn)) dropPatch(patches[i]);
       focusCache.set(key, patch({ w: lon - 0.3, e: lon + 0.3, s: lat - 0.12, n: lat + 0.12 }, 14, 12, 6, 260, 200, 0.5, 90, 0.004));
     }
     return focusCache.get(key)!;
@@ -519,7 +558,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     }
     layer.traverse((x) => { x.renderOrder = 10; }); // story light draws after the (transparent) terrain
     // the timeline of today's stories, and the "Near you" list
-    timeline.innerHTML = d.timeline.slice(0, 7).map((s) => `<div><time>${esc(s.time)}</time><span>${esc(cut(s.title, 40))}</span></div>`).join("");
+    timeline.innerHTML = d.timeline.slice(0, 7).map((s) => `<div><time>${esc(s.time)}</time><span title="${esc(s.title)}">${esc(cut(s.title, 40))}</span></div>`).join("");
     const home = o.home ?? { lon: 24.7536, lat: 59.437, name: "Tallinn" };
     const near = d.towns.filter((t) => Math.hypot((t.lon - home.lon) * Math.cos(home.lat * Math.PI / 180), t.lat - home.lat) * 111 < 40).slice(0, 6);
     nearEl.innerHTML = `<h4>Near you</h4>` + near.map((t) => `<div><b>${esc(t.name)}</b><span>${esc(cut(t.stories[0]?.title ?? "", 44))}</span><i>${t.count}</i></div>`).join("");
@@ -534,7 +573,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   const card = document.createElement("div"); card.className = "earth-card"; hud.appendChild(card);
   const lower = document.createElement("div"); lower.className = "earth-lower"; hud.appendChild(lower);
   const place = document.createElement("div"); place.className = "earth-place"; hud.appendChild(place);
-  const credit = document.createElement("div"); credit.className = "earth-credit"; credit.textContent = "Imagery: Sentinel-2 cloudless 2016 by EOX (Copernicus) · NASA Black Marble · AWS Terrain Tiles · GeoNames · Map and buildings © OpenStreetMap contributors"; hud.appendChild(credit);
+  const credit = document.createElement("div"); credit.className = "earth-credit"; credit.textContent = "Imagery: Sentinel-2 cloudless 2016 by EOX (Copernicus) · NASA Black Marble · AWS Terrain Tiles · GeoNames · Map and buildings © OpenStreetMap contributors"; credit.title = credit.textContent; hud.appendChild(credit);
   let cardAt: THREE.Vector3 | null = null;
   const ret = document.createElement("div"); ret.className = "earth-reticle"; ret.innerHTML = "<i></i><i></i><i></i><i></i><b></b>"; hud.appendChild(ret);
   const readout = document.createElement("div"); readout.className = "earth-readout"; hud.appendChild(readout);
@@ -542,14 +581,16 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
 
   /* camera */
   let pose: Pose = { lon: 18, lat: 38, alt: 16000, tilt: 0, heading: 0 };
+  // camera maths on kept vectors: nothing is allocated per frame
+  const T = new THREE.Vector3(), N = new THREE.Vector3(), E = new THREE.Vector3(), Nn = new THREE.Vector3(), F = new THREE.Vector3(), Y = new THREE.Vector3(0, 1, 0), tmp = new THREE.Vector3();
   function applyPose(p: Pose) {
-    const T = new THREE.Vector3(...toXYZ(p.lon, p.lat, p.alt < 80 ? groundAt(p.lon, p.lat) / (EARTH_KM * 1000) : 0)), n = T.clone().normalize(); // aim at the (raised) ground, not below it
-    const east = new THREE.Vector3(0, 1, 0).cross(n).normalize(), north = n.clone().cross(east);
+    T.set(...toXYZ(p.lon, p.lat, p.alt < 80 ? groundAt(p.lon, p.lat) / (EARTH_KM * 1000) : 0)); N.copy(T).normalize(); // aim at the (raised) ground, not below it
+    E.crossVectors(Y, N).normalize(); Nn.crossVectors(N, E);
     const h = (p.heading * Math.PI) / 180, tl = (p.tilt * Math.PI) / 180;
-    const fwd = north.clone().multiplyScalar(Math.cos(h)).add(east.clone().multiplyScalar(Math.sin(h)));
+    F.copy(Nn).multiplyScalar(Math.cos(h)).addScaledVector(E, Math.sin(h));
     const d = p.alt / EARTH_KM;
-    cam.position.copy(T).add(n.clone().multiplyScalar(d * Math.cos(tl))).add(fwd.clone().multiplyScalar(-d * Math.sin(tl)));
-    cam.up.copy(fwd.clone().multiplyScalar(Math.cos(tl)).add(n.clone().multiplyScalar(Math.sin(tl))));
+    cam.position.copy(T).addScaledVector(N, d * Math.cos(tl)).addScaledVector(F, -d * Math.sin(tl));
+    cam.up.copy(F).multiplyScalar(Math.cos(tl)).addScaledVector(N, Math.sin(tl));
     cam.lookAt(T);
     const off = band(p.alt, 3000, 1e9, 1.2) * W() * 0.12 - inset() / 2; // keep the planet in the free space left of the panel // from orbit, the planet sits right of the lower third
     if (Math.abs(off) > 0.5) cam.setViewOffset(W(), H(), -off, 0, W(), H()); else cam.clearViewOffset();
@@ -560,16 +601,21 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   const v = new THREE.Vector3();
   const names: Record<string, string> = { orbit: "Earth today", country: "Estonia", region: "Estonia, towns and villages", town: "Tallinn" };
   // HUD text boxes, in host px: rings, beams and labels stay out of them
+  // HUD boxes are read at most every 250 ms (reading them every frame, after the labels moved, forced a layout per frame)
+  let zCache: Rect[] = [], zAt = -1e9, zKey = "";
   const zonesNow = (nearOn: boolean, cardOn: boolean): Rect[] => {
-    const b = host.getBoundingClientRect(), out: Rect[] = [];
+    const now = performance.now(), key = `${nearOn}${cardOn}${+lower.style.opacity > 0}`;
+    if (now - zAt < 250 && key === zKey) return zCache;
+    zAt = now; zKey = key;
+    const b = host.getBoundingClientRect(), out: Rect[] = [...(o.zones?.() ?? [])];
     const add = (z: HTMLElement, pad: number) => { if (!z.offsetHeight) return; const r = z.getBoundingClientRect(); out.push([r.left - b.left - pad, r.top - b.top - pad, r.right - b.left + pad, r.bottom - b.top + pad]); };
     for (const z of [lower, timeline]) if (+z.style.opacity !== 0) add(z, 8);
     add(place, 10); add(readout, 10);
     if (nearOn) add(nearEl, 14);
     if (cardOn) add(card, 10);
-    return out;
+    return (zCache = out);
   };
-  const pv = new THREE.Vector3();
+  const pv = new THREE.Vector3(), fwdV = new THREE.Vector3();
   function screenRect(pts: THREE.Vector3[], fwd: THREE.Vector3): Rect | null {
     let r: Rect | null = null;
     for (const q of pts) {
@@ -592,7 +638,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     updateBuildings(p);
     bloom.strength = 0.45;
     const w = W(), h = H();
-    const fwd = new THREE.Vector3(); cam.getWorldDirection(fwd);
+    const fwd = cam.getWorldDirection(fwdV);
     timeline.style.opacity = String(band(alt, 3000, 1e9, 0.8));
     lower.style.opacity = String(band(alt, 3000, 1e9, 0.8));
     const nearA = band(alt, 0.5, 30, 0.8), cA = band(alt, 60, 700, 0.6);
@@ -610,11 +656,11 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       g.m.uniforms.uOp.value = a; g.m.uniforms.uT.value = t;
     }
     composer.render();
-    const taken: Rect[] = [...zones];
+    const taken: Rect[] = [...zones], topY = o.topLimit?.() ?? 70;
     if (edgeW !== w) { edgeW = w; const hb = host.getBoundingClientRect(), tb = timeline.getBoundingClientRect(); edgeR = tb.width ? Math.min(w, tb.right - hb.left + 32) : w; } // the panel's left edge: labels stay left of it
     for (const l of labels) {
       const a = band(alt, l.lo, l.hi, 0.6);
-      const facing = l.p.dot(cam.position) > l.p.lengthSq() * 0.999999 && l.p.clone().sub(cam.position).dot(fwd) > 0;
+      const facing = l.p.dot(cam.position) > l.p.lengthSq() * 0.999999 && tmp.copy(l.p).sub(cam.position).dot(fwd) > 0;
       v.copy(l.p).project(cam);
       let on = a > 0.02 && facing && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
       const x = ((v.x + 1) / 2) * w, y = ((1 - v.y) / 2) * h;
@@ -623,7 +669,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
         let r: [number, number, number, number] = [x + l.ox - 8, y + l.oy - 4, x + l.ox + l.w + 8, y + l.oy + l.h + 4];
         l.flip = r[2] > edgeR - 8 && x - l.ox - l.w - 8 >= 8; // no room on the right (panel edge): put it on the pin's left
         if (l.flip) r = [x - l.ox - l.w - 8, r[1], x - l.ox + 8, r[3]];
-        if (r[2] > edgeR - 8 || r[0] < 8 || r[1] < 70 || r[3] > h - 8) on = false;
+        if (r[2] > edgeR - 8 || r[0] < 8 || r[1] < topY || r[3] > h - 8) on = false;
         else if (taken.some((q) => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1])) on = false; else taken.push(r);
       }
       l.el.style.opacity = on ? String(a) : "0";
@@ -638,21 +684,32 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     place.textContent = lvl !== "orbit" && regionName ? regionName : names[lvl];
     nearEl.style.opacity = String(nearA);
     card.style.opacity = String(cA);
-    if (cardAt && cA > 0) { v.copy(cardAt).project(cam); card.style.transform = `translate(${Math.min(w - 312, Math.max(32, ((v.x + 1) / 2) * w + 24))}px, ${Math.min(h - 220, Math.max(80, ((1 - v.y) / 2) * h - 40))}px)`; }
+    if (cardAt && cA > 0) { v.copy(cardAt).project(cam); card.style.transform = `translate(${Math.min(w - inset() - 312, Math.max(32, ((v.x + 1) / 2) * w + 24))}px, ${Math.min(h - 220, Math.max(topY + 8, ((1 - v.y) / 2) * h - 40))}px)`; } // inside the free stage
   }
 
   /* live use: fly between shots, drag and wheel */
   let fly: { from: Pose; to: Pose; t0: number; ms: number } | null = null, raf = 0, t0 = performance.now(), path: Shot[] | null = null, pathT0 = 0;
   const flyTo = (to: Pose, ms?: number) => { path = null; fly = { from: { ...pose }, to, t0: performance.now(), ms: ms ?? moveMs(pose, to) }; };
   const playPath = (p: Shot[]) => { path = p; pathT0 = performance.now(); fly = null; };
+  // Live loop: full rate while the camera moves; at rest (only the rings' glow animates) about 30 fps. If moving frames stay slow
+  // (>28 ms over ~2 s) the pixel ratio steps down to 1 once. The sharp detail patch is checked twice a second once the camera rests.
+  let lastDraw = 0, lastMove = 0, slow = 0, slowN = 0, lastDetail = 0, disposed = false;
   function loop() {
     raf = requestAnimationFrame(loop);
     const now = performance.now();
     let p = pose;
+    const moving = !!(path || fly || drag) || now - lastMove < 300;
     if (path) p = poseAt(path, now - pathT0).pose;
     else if (fly) { const k = (now - fly.t0) / fly.ms; p = lerpPose(fly.from, fly.to, Math.min(1, k)); if (k >= 1) fly = null; }
     else if (p.alt > 5000) p = { ...p, lon: p.lon + 0.01 };
+    if (!moving && now - lastDraw < 31) return;
+    if (moving && lastDraw && pr > 1) {
+      slow += now - lastDraw; slowN++;
+      if (slowN >= 60) { if (slow / slowN > 28) { pr = 1; renderer.setPixelRatio(1); resize(); } slow = 0; slowN = 0; }
+    }
+    lastDraw = now;
     frame(p, now - t0);
+    if (!moving && !path && !fly && now - lastDetail > 500 && now - lastMove > 600) { lastDetail = now; void updateDetail(pose); }
   }
   let drag: { x: number; y: number } | null = null;
   const el = renderer.domElement;
@@ -660,12 +717,15 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   el.onpointermove = (e) => {
     if (!drag) return;
     const k = (pose.alt / EARTH_KM) * 40 / H();
+    lastMove = performance.now();
     pose = { ...pose, lon: pose.lon - (e.clientX - drag.x) * k / Math.max(.2, Math.cos(pose.lat * Math.PI / 180)), lat: Math.max(-80, Math.min(80, pose.lat + (e.clientY - drag.y) * k)) };
     drag = { x: e.clientX, y: e.clientY };
   };
-  addEventListener("pointerup", () => { drag = null; });
-  el.onwheel = (e) => { e.preventDefault(); path = null; fly = null; pose = { ...pose, alt: Math.max(clampAlt(0), Math.min(30000, pose.alt * Math.exp(e.deltaY * 0.0012))), tilt: Math.min(62, Math.max(0, 62 - Math.log2(Math.max(1, pose.alt / 8)) * 6)) }; };
-  const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => { renderer.setSize(W(), H()); composer.setSize(W(), H()); dof.uniforms.uRes.value.set(W(), H()); cam.aspect = W() / H(); cam.updateProjectionMatrix(); }) : null;
+  const up = () => { drag = null; };
+  addEventListener("pointerup", up);
+  el.onwheel = (e) => { e.preventDefault(); path = null; fly = null; lastMove = performance.now(); pose = { ...pose, alt: Math.max(clampAlt(0), Math.min(30000, pose.alt * Math.exp(e.deltaY * 0.0012))), tilt: Math.min(62, Math.max(0, 62 - Math.log2(Math.max(1, pose.alt / 8)) * 6)) }; };
+  const resize = () => { renderer.setSize(W(), H()); composer.setPixelRatio(pr); composer.setSize(W(), H()); dof.uniforms.uRes.value.set(W() * pr, H() * pr); cam.aspect = W() / H(); cam.updateProjectionMatrix(); };
+  const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(resize) : null;
   ro?.observe(host);
 
   return {
@@ -682,9 +742,9 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     stop() { cancelAnimationFrame(raf); },
     renderPathAt(p: Shot[], ms: number) { frame(poseAt(p, ms).pose, ms); const gl = renderer.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.finish(); },
     dispose() {
-      cancelAnimationFrame(raf); ro?.disconnect();
+      disposed = true; cancelAnimationFrame(raf); ro?.disconnect(); removeEventListener("pointerup", up);
       scene.traverse((x) => { const m = x as THREE.Mesh; m.geometry?.dispose(); const mat = m.material as THREE.ShaderMaterial | undefined; if (mat) { for (const u of Object.values(mat.uniforms ?? {})) (u.value as THREE.Texture)?.isTexture && (u.value as THREE.Texture).dispose(); mat.dispose(); } });
-      renderer.dispose(); el.remove(); hud.remove();
+      composer.dispose(); renderer.dispose(); renderer.forceContextLoss(); el.remove(); hud.remove(); // give the GPU memory back now, not at GC
     },
   };
 }
