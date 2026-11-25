@@ -40,16 +40,16 @@ export default function ContractsPanel({ prospects }: { prospects: Prospect[] })
   const c = st?.contracts.find((x) => x.id === open);
   const { t } = useT();
   return (
-    <section className="card space-y-2" aria-label="Contracts">
-      <h3 className="text-[12px] font-medium muted">Contracts</h3>
-      <p className="muted text-xs">{NOT_LEGAL_ADVICE} ORBIT never signs for you: you sign with your own click, and nothing is sent until you approve the email.</p>
+    <section className="card space-y-2" aria-label={t("ctp.title")}>
+      <h3 className="text-[12px] font-medium muted">{t("ctp.title")}</h3>
+      <p className="muted text-xs">{NOT_LEGAL_ADVICE} {t("ctp.neverSigns")}</p>
       <NewContract prospects={prospects} deals={deals} busy={busy} onCreate={async (b) => { const n = await act("create", { action: "create", ...b }); if (n) setOpen(n.id); return !!n; }} />
       {err && <p className="error" role="alert">{err}</p>}
-      {st && !st.contracts.length && <p className="muted text-xs">No contracts yet.</p>}
+      {st && !st.contracts.length && <p className="muted text-xs">{t("ctp.empty")}</p>}
       <ul className="space-y-1">
         {st?.contracts.map((x) => (
           <li key={x.id}><button className="flex w-full flex-wrap items-baseline justify-between gap-2 text-left" aria-expanded={open === x.id} onClick={() => setOpen(open === x.id ? "" : x.id)}>
-            <span><b>{x.title}</b><span className="muted"> · {current(x).fields.partyName || x.source?.label || "no party yet"} · v{current(x).n}</span></span>
+            <span><b>{x.title}</b><span className="muted"> · {current(x).fields.partyName || x.source?.label || t("ctp.noParty")} · v{current(x).n}</span></span>
             <span className={`chip ${statusTone(x.status)}`}>{statusText(x, t)}</span></button></li>))}
       </ul>
       {c && st && <Detail key={c.id + current(c).hash + c.updatedAt} c={c} canSend={st.canSend} busy={busy} act={act} />}
@@ -62,27 +62,28 @@ function NewContract({ prospects, deals, busy, onCreate }: { prospects: Prospect
   const [tpl, setTpl] = useState<TemplateId>("service");
   const [src, setSrc] = useState("");
   const [fields, setFields] = useState<Fields>({});
-  if (!show) return <button className="chip" onClick={() => setShow(true)}>📄 New contract</button>;
+  const { t: tr } = useT();
+  if (!show) return <button className="chip" onClick={() => setShow(true)}>📄 {tr("ctp.new")}</button>;
   const t = TEMPLATES[tpl];
   const source = src ? { kind: src.split(":")[0], id: src.slice(src.indexOf(":") + 1) } : undefined;
   const go = (ai: boolean) => onCreate({ template: tpl, fields, source, ai }).then((ok) => ok && (setShow(false), setFields({})));
   return (
-    <form className="space-y-1.5 rounded-md border border-white/10 p-2" aria-label="New contract" onSubmit={(e) => { e.preventDefault(); void go(true); }}>
+    <form className="space-y-1.5 rounded-md border border-white/10 p-2" aria-label={tr("ctp.new")} onSubmit={(e) => { e.preventDefault(); void go(true); }}>
       <div className="flex flex-wrap gap-1.5">
-        <select className="chip" aria-label="Template" value={tpl} onChange={(e) => setTpl(e.target.value as TemplateId)}>
+        <select className="chip" aria-label={tr("ctp.template")} value={tpl} onChange={(e) => setTpl(e.target.value as TemplateId)}>
           {TEMPLATE_IDS.map((id) => <option key={id} value={id}>{TEMPLATES[id].title}</option>)}</select>
-        <select className="chip" aria-label="From" value={src} onChange={(e) => { setSrc(e.target.value); if (e.target.value.startsWith("deal:")) setTpl("purchase"); }}>
-          <option value="">From: nothing (type it in)</option>
-          {prospects.map((p) => <option key={p.id} value={`prospect:${p.id}`}>Client: {p.name}</option>)}
-          {deals.map((d) => <option key={d.id} value={`deal:${d.id}`}>Deal: {d.label.slice(0, 70)}</option>)}
+        <select className="chip" aria-label={tr("ctp.from")} value={src} onChange={(e) => { setSrc(e.target.value); if (e.target.value.startsWith("deal:")) setTpl("purchase"); }}>
+          <option value="">{tr("ctp.fromNothing")}</option>
+          {prospects.map((p) => <option key={p.id} value={`prospect:${p.id}`}>{tr("ctp.client", { name: p.name })}</option>)}
+          {deals.map((d) => <option key={d.id} value={`deal:${d.id}`}>{tr("ctp.deal", { label: d.label.slice(0, 70) })}</option>)}
         </select>
       </div>
-      <p className="muted text-xs">{t.blurb} Fill what you know; ORBIT fills only the blanks from the client or deal and may suggest clause wording (highlighted for you to check).</p>
+      <p className="muted text-xs">{t.blurb} {tr("ctp.fillHelp")}</p>
       <FieldGrid t={tpl} f={fields} set={setFields} />
       <div className="flex flex-wrap gap-1.5">
-        <button className="btn" disabled={!!busy}>{busy === "create" ? "ORBIT is drafting…" : "✍ Draft with ORBIT"}</button>
-        <button type="button" className="chip" disabled={!!busy} onClick={() => void go(false)}>Use the template as is</button>
-        <button type="button" className="chip" onClick={() => setShow(false)}>Close</button>
+        <button className="btn" disabled={!!busy}>{busy === "create" ? tr("ctp.drafting") : `✍ ${tr("ctp.draft")}`}</button>
+        <button type="button" className="chip" disabled={!!busy} onClick={() => void go(false)}>{tr("ctp.asIs")}</button>
+        <button type="button" className="chip" onClick={() => setShow(false)}>{tr("common.close")}</button>
       </div>
     </form>
   );
@@ -102,12 +103,13 @@ function FieldGrid({ t, f, set, disabled }: { t: TemplateId; f: Fields; set: (f:
 }
 
 function ClauseView({ c, i }: { c: VClause; i: number }) {
+  const { t } = useT();
   return (
     <div className={changed(c) ? "rounded border-l-2 border-amber-400 pl-2" : ""}>
-      <p className="font-semibold">{i + 1}. {c.heading}{changed(c) && <span className="chip ml-1 !text-[10px]">{c.by === "orbit" ? "ORBIT suggested" : "You changed"}</span>}</p>
+      <p className="font-semibold">{i + 1}. {c.heading}{changed(c) && <span className="chip ml-1 !text-[10px]">{c.by === "orbit" ? t("ctp.orbitSuggested") : t("ctp.youChanged")}</span>}</p>
       <p className="whitespace-pre-wrap">{changed(c) ? diffWords(c.base, c.text).map((p, k) => p.op === "same" ? <span key={k}>{p.text}</span>
         : p.op === "add" ? <ins key={k} className="bg-emerald-500/20 no-underline">{p.text}</ins> : <del key={k} className="bg-rose-500/20">{p.text}</del>) : c.text}</p>
-      {c.why && <p className="muted text-[11px]">Why: {c.why}</p>}
+      {c.why && <p className="muted text-[11px]">{t("rq.why", { reason: c.why })}</p>}
     </div>
   );
 }
@@ -133,10 +135,10 @@ function Detail({ c, canSend, busy, act }: { c: Contract; canSend: boolean; busy
     <div className="space-y-2 rounded-md border border-white/10 p-2">
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
         <span className={`chip ${statusTone(c.status)}`}>{statusText(c, t)}</span>
-        <label className="flex items-center gap-1"><span className="muted">Version</span>
+        <label className="flex items-center gap-1"><span className="muted">{t("rq.version")}</span>
           <select className="chip" value={viewN} onChange={(e) => setViewN(Number(e.target.value))}>
-            {[...c.versions].reverse().map((x) => <option key={x.n} value={x.n}>v{x.n} · {x.by === "orbit" ? "ORBIT" : "you"} · {x.at.slice(0, 16).replace("T", " ")} · {x.hash.slice(0, 10)}</option>)}</select></label>
-        <code className="muted break-all" title="SHA-256 of this version's text">SHA-256 {shown.hash}</code>
+            {[...c.versions].reverse().map((x) => <option key={x.n} value={x.n}>v{x.n} · {x.by === "orbit" ? "ORBIT" : t("ctp.you")} · {x.at.slice(0, 16).replace("T", " ")} · {x.hash.slice(0, 10)}</option>)}</select></label>
+        <code className="muted break-all" title={t("ctp.shaTitle")}>SHA-256 {shown.hash}</code>
       </div>
       {rev && prev && (
         <div className={`space-y-0.5 rounded-md border p-2 text-xs ${rev.scope ? "border-amber-400/50" : "border-white/10"}`} aria-label={t("ct.rev.title", { n: shown.n, p: prev.n })}>
@@ -150,18 +152,18 @@ function Detail({ c, canSend, busy, act }: { c: Contract; canSend: boolean; busy
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="space-y-2">
           <FieldGrid t={c.template} f={fields} set={setFields} disabled={!editable || viewN !== v.n} />
-          {gaps.length > 0 && <p className="error text-xs">Still missing: {gaps.map((g) => g.label).join(", ")}</p>}
+          {gaps.length > 0 && <p className="error text-xs">{t("ctp.missing", { list: gaps.map((g) => g.label).join(", ") })}</p>}
           {editable && viewN === v.n && (
-            <details><summary className="cursor-pointer text-xs">Edit clause wording</summary>
+            <details><summary className="cursor-pointer text-xs">{t("ctp.editClauses")}</summary>
               <div className="mt-1 space-y-1.5">{v.clauses.map((cl) => (
                 <label key={cl.id} className="grid gap-0.5 text-xs"><span className="muted">{cl.heading}</span>
                   <textarea className="field" rows={3} maxLength={3000} value={edits[cl.id] ?? cl.text} onChange={(e) => setEdits({ ...edits, [cl.id]: e.target.value })} />
-                  {changed(cl) && <button type="button" className="chip justify-self-start" onClick={() => setEdits({ ...edits, [cl.id]: null })}>Back to the template</button>}
+                  {changed(cl) && <button type="button" className="chip justify-self-start" onClick={() => setEdits({ ...edits, [cl.id]: null })}>{t("ctp.backTemplate")}</button>}
                 </label>))}</div></details>)}
           {editable && viewN === v.n && <button className="btn" disabled={!!busy || !dirty} onClick={() => void act("edit", { action: "edit", id: c.id, seen: v.hash, fields, clauses: edits })}>
-            {busy === "edit" ? "Saving…" : "Save as new version"}</button>}
+            {busy === "edit" ? t("attach.saving") : t("ctp.saveVersion")}</button>}
         </div>
-        <article className="space-y-2 rounded bg-white/5 p-2 text-xs leading-relaxed" aria-label="Contract text">
+        <article className="space-y-2 rounded bg-white/5 p-2 text-xs leading-relaxed" aria-label={t("ctp.text")}>
           <h4 className="text-sm font-semibold">{c.title}</h4>
           {shown.clauses.map((cl, i) => <ClauseView key={cl.id} c={cl} i={i} />)}
         </article>
@@ -170,33 +172,33 @@ function Detail({ c, canSend, busy, act }: { c: Contract; canSend: boolean; busy
       <div className="space-y-1">
         {c.comments.map((m, i) => <p key={i} className="text-xs"><span className="muted">v{m.n} · {m.at.slice(0, 16).replace("T", " ")}:</span> {m.text}</p>)}
         <form className="flex gap-1.5" onSubmit={async (e) => { e.preventDefault(); if (await act("comment", { action: "comment", id: c.id, text: comment })) setComment(""); }}>
-          <input className="field flex-1" aria-label="Comment" placeholder="Note to self: what to ask, what to check…" maxLength={1000} value={comment} onChange={(e) => setComment(e.target.value)} />
-          <button className="chip" disabled={!!busy || !comment.trim()}>Comment</button></form>
+          <input className="field flex-1" aria-label={t("ctp.comment")} placeholder={t("ctp.commentPh")} maxLength={1000} value={comment} onChange={(e) => setComment(e.target.value)} />
+          <button className="chip" disabled={!!busy || !comment.trim()}>{t("ctp.comment")}</button></form>
       </div>
 
       {c.status === "review" && !dirty && <SignBox name={v.fields.ownerName ?? ""} hash={v.hash} n={v.n} busy={busy === "sign"} onSign={(signature) => act("sign", { action: "sign", id: c.id, seen: v.hash, signature })} />}
-      {c.status === "review" && dirty && <p className="muted text-xs">Save your changes first; you sign the saved version.</p>}
+      {c.status === "review" && dirty && <p className="muted text-xs">{t("ctp.saveFirst")}</p>}
 
       {c.signed && (
         <div className="space-y-1.5 text-xs">
-          <p>Signed by you on {c.signed.at.slice(0, 16).replace("T", " ")} UTC (v{c.signed.n}). <a className="underline" href={signedHref(c.signed)} target="_blank" rel="noreferrer">Open the signed PDF</a> <span className="muted">(in VAULT; print it for the other party to sign and return)</span></p>
+          <p>{t("ctp.signedOn", { at: c.signed.at.slice(0, 16).replace("T", " "), n: c.signed.n })} <a className="underline" href={signedHref(c.signed)} target="_blank" rel="noreferrer">{t("ctp.openSigned")}</a> <span className="muted">{t("ctp.inVault")}</span></p>
           {c.status === "signed" && (<>
-            <textarea className="field w-full" rows={6} aria-label="Email to the other party" maxLength={4000} value={cover} onChange={(e) => setCover(e.target.value)} onBlur={() => { if (cover !== c.cover) void act("cover", { action: "cover", id: c.id, text: cover }); }} />
+            <textarea className="field w-full" rows={6} aria-label={t("ctp.emailOther")} maxLength={4000} value={cover} onChange={(e) => setCover(e.target.value)} onBlur={() => { if (cover !== c.cover) void act("cover", { action: "cover", id: c.id, text: cover }); }} />
             <div className="flex flex-wrap items-center gap-1.5">
               {canSend && to ? <button className={`chip ${sure === "send" ? "ok" : ""}`} disabled={!!busy || cover !== c.cover} onClick={() => twice("send", () => void contentHash(contractSendContent(c)).then((seen) => act("send", { action: "send", id: c.id, seen })))}>
-                {busy === "send" ? "Sending…" : sure === "send" ? `Click again to email the signed PDF to ${to}` : `✉ Approve & send to ${to}`}</button>
-                : <span className="muted">{to ? "Sending from ORBIT isn't set up: download the PDF and email it yourself." : "Add the other party's email to send it from ORBIT, or email the PDF yourself."}</span>}
+                {busy === "send" ? t("ctp.sending") : sure === "send" ? t("ctp.sendAgain", { to }) : `✉ ${t("ctp.approveSend", { to })}`}</button>
+                : <span className="muted">{to ? t("ctp.noSend") : t("ctp.noEmail")}</span>}
               {proposal && COVER_LANGS.map((l) => <button key={l} className="chip" disabled={!!busy} onClick={() => { const text = coverEmail(c, v.fields, l); setCover(text); void act("cover", { action: "cover", id: c.id, text }); }}>{t(l === "Estonian" ? "ct.coverEt" : "ct.coverEn")}</button>)}
-              <button className="chip" disabled={!!busy} onClick={() => twice("unsign", () => void act("unsign", { action: "unsign", id: c.id }))}>{sure === "unsign" ? "Click again to take your signature back" : "Take signature back"}</button>
+              <button className="chip" disabled={!!busy} onClick={() => twice("unsign", () => void act("unsign", { action: "unsign", id: c.id }))}>{sure === "unsign" ? t("ctp.unsignAgain") : t("ctp.unsign")}</button>
             </div></>)}
-          {c.sent && <p>Sent to {c.sent.to} on {c.sent.at.slice(0, 10)}.{c.sent.note && <span className="error"> {c.sent.note}</span>}</p>}
+          {c.sent && <p>{t("ctp.sentTo", { to: c.sent.to, at: c.sent.at.slice(0, 10) })}{c.sent.note && <span className="error"> {c.sent.note}</span>}</p>}
           {(c.status === "sent" || c.status === "signed") && <button className="chip" disabled={!!busy} onClick={() => twice("cs", () => void act("countersign", { action: "countersign", id: c.id, note: "" }))}>
-            {sure === "cs" ? "Click again: they signed and you have their copy" : proposal ? t("ct.markAccepted", { n: c.signed.n }) : "Mark countersigned"}</button>}
-          {c.countersigned && <p className="ok">{proposal ? t("ct.agreed", { n: c.signed.n }) : <>Countersigned, marked by you on {c.countersigned.at.slice(0, 10)}. Save their signed copy in VAULT.</>}</p>}
+            {sure === "cs" ? t("ctp.csAgain") : proposal ? t("ct.markAccepted", { n: c.signed.n }) : t("ctp.cs")}</button>}
+          {c.countersigned && <p className="ok">{proposal ? t("ct.agreed", { n: c.signed.n }) : <>{t("ctp.csDone", { at: c.countersigned.at.slice(0, 10) })}</>}</p>}
         </div>)}
-      {c.status !== "countersigned" && c.status !== "cancelled" && <button className="chip" disabled={!!busy} onClick={() => twice("cancel", () => void act("cancel", { action: "cancel", id: c.id }))}>{sure === "cancel" ? "Click again to cancel this contract" : "Cancel contract"}</button>}
+      {c.status !== "countersigned" && c.status !== "cancelled" && <button className="chip" disabled={!!busy} onClick={() => twice("cancel", () => void act("cancel", { action: "cancel", id: c.id }))}>{sure === "cancel" ? t("ctp.cancelAgain") : t("ctp.cancel")}</button>}
       <ShareLinks id={c.id} />
-      <p className="muted text-[11px]">E-signature by the other party (a provider such as Dokobit or Smart-ID signing) is a future step and not connected: for now they sign the PDF and send it back.</p>
+      <p className="muted text-[11px]">{t("ctp.esign")}</p>
     </div>
   );
 }
@@ -208,6 +210,7 @@ function SignBox({ name, hash, n, busy, onSign }: { name: string; hash: string; 
   const strokes = useRef<number[][]>([]);
   const cv = useRef<HTMLCanvasElement>(null);
   const [, redraw] = useState(0);
+  const { t } = useT();
   const pos = (e: React.PointerEvent<HTMLCanvasElement>) => { const r = e.currentTarget.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; };
   const paint = () => {
     const ctx = cv.current?.getContext("2d"), w = cv.current?.width ?? 0, h = cv.current?.height ?? 0;
@@ -218,24 +221,24 @@ function SignBox({ name, hash, n, busy, onSign }: { name: string; hash: string; 
   const sig: Signature = mode === "type" ? { kind: "typed", name: typed } : { kind: "drawn", strokes: strokes.current };
   const empty = mode === "type" ? typed.trim().length < 2 : strokes.current.reduce((a, s) => a + s.length / 2, 0) < 8;
   return (
-    <div className="space-y-1.5 rounded-md border border-amber-400/40 p-2 text-xs" aria-label="Sign">
-      <p><b>Sign version {n}</b> <span className="muted">· only you can sign; ORBIT never does.</span></p>
-      <div className="flex gap-1" role="group" aria-label="Signature type">
-        <button className="chip" aria-pressed={mode === "draw"} onClick={() => setMode("draw")}>Draw</button>
-        <button className="chip" aria-pressed={mode === "type"} onClick={() => setMode("type")}>Type</button></div>
+    <div className="space-y-1.5 rounded-md border border-amber-400/40 p-2 text-xs" aria-label={t("ctp.sign")}>
+      <p><b>{t("ctp.signV", { n })}</b> <span className="muted">· {t("ctp.onlyYou")}</span></p>
+      <div className="flex gap-1" role="group" aria-label={t("ctp.sigType")}>
+        <button className="chip" aria-pressed={mode === "draw"} onClick={() => setMode("draw")}>{t("ctp.drawBtn")}</button>
+        <button className="chip" aria-pressed={mode === "type"} onClick={() => setMode("type")}>{t("ctp.typeBtn")}</button></div>
       {mode === "draw" ? (
         <div className="space-y-1">
-          <canvas ref={cv} width={440} height={130} aria-label="Draw your signature here" className="w-full max-w-[440px] touch-none rounded border border-white/20 bg-white/5"
+          <canvas ref={cv} width={440} height={130} aria-label={t("ctp.drawHere")} className="w-full max-w-[440px] touch-none rounded border border-white/20 bg-white/5"
             onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); strokes.current.push(pos(e)); }}
             onPointerMove={(e) => { if (e.buttons !== 1 || !strokes.current.length) return; const s = strokes.current[strokes.current.length - 1]; if (s.length < 1200) s.push(...pos(e)); paint(); }}
             onPointerUp={() => redraw((x) => x + 1)} />
-          <button className="chip" onClick={() => { strokes.current = []; paint(); redraw((x) => x + 1); }}>Clear</button>
+          <button className="chip" onClick={() => { strokes.current = []; paint(); redraw((x) => x + 1); }}>{t("ctp.clear")}</button>
         </div>
-      ) : <input className="field font-serif italic" aria-label="Your name as signature" maxLength={80} value={typed} onChange={(e) => setTyped(e.target.value)} />}
+      ) : <input className="field font-serif italic" aria-label={t("ctp.nameSig")} maxLength={80} value={typed} onChange={(e) => setTyped(e.target.value)} />}
       <label className="flex items-start gap-1.5"><input type="checkbox" checked={read} onChange={(e) => setRead(e.target.checked)} />
-        <span>I have read version {n} (SHA-256 {hash.slice(0, 12)}…) and I sign it.</span></label>
+        <span>{t("ctp.readSign", { n, hash: hash.slice(0, 12) })}</span></label>
       <button className="btn" disabled={busy || !read || empty} onClick={() => void onSign({ ...sig, ...(sig.kind === "drawn" && { strokes: sig.strokes.filter((s) => s.length >= 4) }) } as Signature)}>
-        {busy ? "Signing…" : "✍ Sign"}</button>
+        {busy ? t("ctp.signing") : `✍ ${t("ctp.sign")}`}</button>
     </div>
   );
 }

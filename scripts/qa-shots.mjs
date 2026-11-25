@@ -143,7 +143,21 @@ const API = (p, u) => ({
   "/api/higgsfield": { used: 3, cap: 20 }, "/api/goals": { cards: [], goals: [] }, "/api/research": { cards: [] }, "/api/insights": { items: [] },
   "/api/presence": { ok: true }, "/api/health": { ok: true }, "/api/speak-first": { approvals: [], incidents: [], meetings: [], loops: [] }, "/api/stop-all": { stop: { on: false, at: null }, host: { busy: false } }, "/api/morning": {}, "/api/focus": { block: null },
   "/api/core/chats": u.searchParams.get("id") ? { messages: [{ role: "user", content: "Is a plant shop for cafés in Tallinn a good idea?" }, { role: "assistant", content: REPLY, citations: [{ id: "00000000-0000-4000-8000-0000000000c1", title: "Café list, Tallinn (saved note)", kind: "memory" }] }] } : { chats: [{ id: "c-0", title: "Plant shop ideas", updated_at: ago(86400000) }, { id: "c-00", title: "Pet sim egg odds", updated_at: ago(2 * 86400000) }], projects: [], map: {} },
-  "/api/notifications": { items: [] }, "/api/studio/clips": { clips: [] }, "/api/plans": { plans: [] }, "/api/playbook": { items: [] },
+  "/api/notifications": { items: [] }, "/api/studio/clips": { clips: [], jobs: [], root: "", tools: { ffmpeg: true, transcriber: true }, inbox: [], downloads: [] }, "/api/plans": { plans: [] }, "/api/playbook": { items: [] },
+  // BUSINESS / Profile / OPERATIONS panels: made-up, mostly empty states so Money, Invoices, Contracts, Plugins and Local AI open (text-fit checks).
+  "/api/business": { prospects: [], funnel: { counts: { lead: 0, contacted: 0, replied: 0, pilot: 0, paying: 0, lost: 0 }, monthly: 0, total: 0 }, nightDrafts: [], canSend: false },
+  "/api/business/money": u.searchParams.get("split") ? undefined : { today: "2026-11-25", settings: { form: "FIE", vatRegistered: true, vatBasis: "invoice", eurPerUsd: 0, eurPerCredit: 0 },
+    deadlines: [{ day: "2026-12-22", title: "KMD", note: "VAT return", source: "https://www.emta.ee", daysLeft: 27 }],
+    expenses: [{ id: "e1", day: "2026-11-20", category: "Software", note: "Hosting", gross: 1240, vat: 240, receipt: false }],
+    pnl: { period: "2026-11", margin: 40, byCategory: [{ category: "Software", cents: 1000 }],
+      rows: [{ month: "2026-11", income: 50000, incomeVat: 12000, costs: 1000, orbitApi: 0, orbitHf: 0, profit: 49000, outVat: 12000, inVat: 240, vatOwed: 11760, vatPaid: 0 }],
+      sum: { month: "2026-11", income: 50000, incomeVat: 12000, costs: 1000, orbitApi: 0, orbitHf: 0, profit: 49000, outVat: 12000, inVat: 240, vatOwed: 11760, vatPaid: 0 } } },
+  "/api/business/invoices": { seller: null, invoices: [], today: "2026-11-25", dashboard: { open: 50000, overdue: 12000, paid30: 30000, refunds30: 0, byBuyer: [{ buyer: "Kask café", count: 1, open: 12000, overdue: 12000, oldestDue: "2026-11-01" }] } },
+  "/api/business/contracts": { contracts: [], canSend: false },
+  "/api/plugins": { plugins: [{ name: "files", command: "npx", args: ["-y", "server-filesystem"], env: {}, enabled: true, local: true, settings: {}, cache: null, tools: [] }], pending: [], suggested: [{ title: "Blender", about: "3D scenes", install: "Blender 4", plugin: {} }], vault: "", stopAll: false },
+  "/api/kaggle": { on: false, setup: { ok: false, hint: "Run the setup script." }, quota: null, hoursLeft: 30, job: null, offers: [] }, "/api/gpu-jobs": { jobs: [] },
+  "/api/local-brain": { brain: { state: "ok", text: "qwen3 is ready." }, autostart: { on: false, text: "ORBIT does not start with Windows.", command: "npm run autostart" } },
+  "/api/local-ai": { ok: true, service: "local-ai", gpu: { name: "RTX 5060 Laptop", vramGb: 8 }, busy: false, tools: { image3d: true, removebg: true, tts: true, clone: false, captions: true, ifc: true, docs: true, dub: false, scan: false } },
 }[p]);
 
 const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--disable-dev-shm-usage"] });
