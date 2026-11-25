@@ -10,6 +10,7 @@ import { clock } from "@/lib/terminal-pure";
 import { createClient } from "@/lib/supabase/client";
 import { PinnedSkills } from "./PinnedSkills";
 import { OpenLoops } from "./OpenLoops";
+import { useT } from "./i18n";
 import type { PanelId } from "@/lib/planets";
 
 const get = (url: string) => fetch(url, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
@@ -37,6 +38,7 @@ function Panel({ label, code, children }: { label: string; code: string; childre
 }
 
 export function MissionControl() {
+  const { t } = useT();
   const ref = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
   const [d, setD] = useState<Data>({});
@@ -64,8 +66,8 @@ export function MissionControl() {
       if (alive) setD((p) => ({ tasks, proposals, usage, studio, doctor: doctor ?? p.doctor, events: ev ?? p.events }));
     };
     void poll(true);
-    const h = setInterval(() => { if (!document.hidden) void poll(false); }, 5000), t = setInterval(() => setNow(Date.now()), 1000);
-    return () => { alive = false; clearInterval(h); clearInterval(t); };
+    const h = setInterval(() => { if (!document.hidden) void poll(false); }, 5000), tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => { alive = false; clearInterval(h); clearInterval(tick); };
   }, [open, sb]);
 
   const close = () => ref.current?.close();
@@ -78,70 +80,70 @@ export function MissionControl() {
   const bad = checks.filter((c) => c.status !== "ok");
 
   return (
-    <dialog ref={ref} className="mc" aria-label="Mission control" onClose={() => setOpen(false)}>
+    <dialog ref={ref} className="mc" aria-label={t("msn.aria")} onClose={() => setOpen(false)}>
       {open && <>
         <div className="mc-top">
-          <span className="mc-title">MISSION CONTROL</span>
-          <span className="mc-code">{clock(now)} · POLL 5S</span>
-          <button className="chip" onClick={close} autoFocus aria-label="Close mission control (Esc)">ESC</button>
+          <span className="mc-title">{t("msn.title")}</span>
+          <span className="mc-code">{clock(now)} · {t("msn.poll")}</span>
+          <button className="chip" onClick={close} autoFocus aria-label={t("msn.close")}>ESC</button>
         </div>
         <div className="mc-grid">
-          <Panel label="Agent tasks" code={`${tasks.length} RUNNING`}>
-            {tasks.length ? <ul>{tasks.map((t) => (
-              <li key={t.id}><div className="mc-row"><b>{t.agent.toUpperCase() || "AGENT"}</b><span className="mc-num">T+{t.elapsed}</span></div>
-                <div className="mc-sub">{t.title}</div><div className="mc-sub mc-dim">▸ {t.step} · <span className="mc-num">{t.steps}</span> steps</div></li>))}</ul>
-              : <p className="mc-dim">No agent is running.</p>}
+          <Panel label={t("msn.tasks")} code={t("msn.running", { n: tasks.length })}>
+            {tasks.length ? <ul>{tasks.map((k) => (
+              <li key={k.id}><div className="mc-row"><b>{k.agent.toUpperCase() || t("msn.agent").toUpperCase()}</b><span className="mc-num">T+{k.elapsed}</span></div>
+                <div className="mc-sub">{k.title}</div><div className="mc-sub mc-dim">▸ {k.step} · <span className="mc-num">{k.steps}</span> {t("msn.steps")}</div></li>))}</ul>
+              : <p className="mc-dim">{t("msn.noAgent")}</p>}
           </Panel>
 
-          <Panel label="Approvals waiting" code={`${waiting.length} PENDING`}>
+          <Panel label={t("msn.approvals")} code={t("msn.pending", { n: waiting.length })}>
             <div className="mc-big mc-num" data-hot={waiting.length > 0 || undefined}>{String(waiting.length).padStart(2, "0")}</div>
             {waiting.length > 0 && <ul>{waiting.slice(0, 6).map((w) => <li key={w.where + w.id} className="mc-sub">{w.title}</li>)}</ul>}
             <div className="mc-actions">
-              {waiting.some((w) => w.where === "operations") && <button className="chip" onClick={() => go("operations")}>Review tasks in OPERATIONS</button>}
-              {waiting.some((w) => w.where === "agents") && <button className="chip" onClick={() => go("agents")}>Review proposals in AGENTS</button>}
+              {waiting.some((w) => w.where === "operations") && <button className="chip" onClick={() => go("operations")}>{t("msn.reviewOps")}</button>}
+              {waiting.some((w) => w.where === "agents") && <button className="chip" onClick={() => go("agents")}>{t("msn.reviewAgents")}</button>}
             </div>
           </Panel>
 
-          <Panel label="Claude usage" code="5H WINDOW">
+          <Panel label={t("msn.usage")} code={t("msn.window")}>
             {u.h5 ? <>
-              <div className="mc-row"><span className="mc-label">CALLS</span><span className="mc-num">{num(h5.calls)} / {num(set.calls5h)} · {callPct}%</span></div>
+              <div className="mc-row"><span className="mc-label">{t("msn.calls")}</span><span className="mc-num">{num(h5.calls)} / {num(set.calls5h)} · {callPct}%</span></div>
               <Bar pct={callPct} warn={lvl.heavy === true} />
-              {num(set.tokens5h) > 0 && <><div className="mc-row"><span className="mc-label">TOKENS</span><span className="mc-num">{num(h5.tokens).toLocaleString("en-US")} / {num(set.tokens5h).toLocaleString("en-US")} · {tokPct}%</span></div><Bar pct={tokPct} warn={lvl.heavy === true} /></>}
-              <div className="mc-row"><span className="mc-label">7 DAYS</span><span className="mc-num">{num(d7.calls)} calls · {num(d7.tokens).toLocaleString("en-US")} tok</span></div>
-              {typeof limit.until === "number" && <div className="mc-row mc-warn"><span className="mc-label">LIMIT RESET</span><span className="mc-num">{countdown(new Date(limit.until).toISOString(), now)}</span></div>}
+              {num(set.tokens5h) > 0 && <><div className="mc-row"><span className="mc-label">{t("msn.tokens")}</span><span className="mc-num">{num(h5.tokens).toLocaleString("en-US")} / {num(set.tokens5h).toLocaleString("en-US")} · {tokPct}%</span></div><Bar pct={tokPct} warn={lvl.heavy === true} /></>}
+              <div className="mc-row"><span className="mc-label">{t("msn.days7")}</span><span className="mc-num">{t("msn.d7", { calls: num(d7.calls), tok: num(d7.tokens).toLocaleString("en-US") })}</span></div>
+              {typeof limit.until === "number" && <div className="mc-row mc-warn"><span className="mc-label">{t("msn.reset")}</span><span className="mc-num">{countdown(new Date(limit.until).toISOString(), now)}</span></div>}
               {typeof u.hold === "string" && u.hold && <p className="mc-sub mc-warn">{u.hold}</p>}
-            </> : <p className="mc-dim">Usage meter unavailable.</p>}
+            </> : <p className="mc-dim">{t("msn.noUsage")}</p>}
           </Panel>
 
-          <Panel label="Studio" code={`${studio.jobs.length} RENDERING`}>
+          <Panel label={t("msn.studio")} code={t("msn.rendering", { n: studio.jobs.length })}>
             {studio.jobs.length ? <ul>{studio.jobs.map((j) => (
               <li key={j.id}><div className="mc-row"><span className="mc-sub">{j.name}</span><span className="mc-num">{j.pct}%</span></div><Bar pct={j.pct} /><div className="mc-sub mc-dim">▸ {j.step}</div></li>))}</ul>
-              : <p className="mc-dim">No jobs rendering.</p>}
-            <div className="mc-row"><span className="mc-label">NEXT SHORT</span><span className="mc-num">{studio.next ? countdown(studio.next.at, now) : "—"}</span></div>
-            {studio.next && <div className="mc-sub mc-dim">{studio.next.title} · {studio.scheduled} scheduled</div>}
+              : <p className="mc-dim">{t("msn.noJobs")}</p>}
+            <div className="mc-row"><span className="mc-label">{t("msn.nextShort")}</span><span className="mc-num">{studio.next ? countdown(studio.next.at, now) : "—"}</span></div>
+            {studio.next && <div className="mc-sub mc-dim">{studio.next.title} · {t("msn.scheduled", { n: studio.scheduled })}</div>}
           </Panel>
 
-          <Panel label="System health" code={`BOOT ${typeof rep.at === "string" ? clock(rep.at) : "--:--:--"}`}>
+          <Panel label={t("msn.health")} code={`${t("msn.boot")} ${typeof rep.at === "string" ? clock(rep.at) : "--:--:--"}`}>
             {rep.status ? <>
-              <div className="mc-row"><span className="mc-label">STATUS</span><span className={`mc-num mc-st-${String(rep.status)}`}>{String(rep.status).toUpperCase()}</span></div>
+              <div className="mc-row"><span className="mc-label">{t("msn.status")}</span><span className={`mc-num mc-st-${String(rep.status)}`}>{String(rep.status).toUpperCase()}</span></div>
               <div className="mc-sub">{String(rep.headline ?? "")}</div>
-              <div className="mc-row"><span className="mc-label">CHECKS</span><span className="mc-num">{checks.length - bad.length}/{checks.length} OK</span></div>
+              <div className="mc-row"><span className="mc-label">{t("msn.checks")}</span><span className="mc-num">{checks.length - bad.length}/{checks.length} OK</span></div>
               {bad.length > 0 && <ul>{bad.slice(0, 5).map((c) => <li key={String(c.id)} className={`mc-sub mc-st-${String(c.status)}`}>{String(c.label ?? c.id)}: {String(c.detail ?? "")}</li>)}</ul>}
-            </> : <p className="mc-dim">Self-test not ready.</p>}
+            </> : <p className="mc-dim">{t("msn.noTest")}</p>}
           </Panel>
 
-          <Panel label="Pinned skills" code="CORE"><PinnedSkills onRun={close} tasks={d.tasks} /></Panel>
+          <Panel label={t("msn.pinned")} code="CORE"><PinnedSkills onRun={close} tasks={d.tasks} /></Panel>
 
           <OpenLoops go={go} />
 
-          <Panel label="Event log" code="TAIL">
+          <Panel label={t("msn.log")} code={t("msn.tail")}>
             <ol className="mc-log" aria-live="off">
               {(d.events ?? []).map((e, i) => { const l = eventLabel(e.type); return <li key={i}><span className="mc-num mc-dim">{clock(e.created_at)}</span> {l.label}</li>; })}
-              {!d.events?.length && <li className="mc-dim">Nothing yet.</li>}
+              {!d.events?.length && <li className="mc-dim">{t("msn.nothing")}</li>}
             </ol>
           </Panel>
         </div>
-        <p className="mc-foot mc-dim">SKILLS RUN IN CORE WITH THE EXISTING APPROVAL RULES</p>
+        <p className="mc-foot mc-dim">{t("msn.foot")}</p>
       </>}
     </dialog>
   );

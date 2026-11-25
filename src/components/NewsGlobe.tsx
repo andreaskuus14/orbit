@@ -968,6 +968,7 @@ function MapLegend({ d }: { d: Data }) {
 }
 
 export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "auto", paused = false }: { onClose: () => void; reduced: boolean; focus?: { country?: string; region?: string; search?: string } | null; quality?: QualityMode; paused?: boolean }) {
+  const { t } = useT();
   const q = worldQuality(quality);
   const [earthOn, setEarthOn] = useState(earthWanted); // Planet Earth view showing: the old globe, pulse list and region chips step aside
   const [weatherOn, setWeatherOn] = useState(false); // news weather showing: the 3D globe underneath stops drawing
@@ -1150,7 +1151,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
   }, [stored, liveNews, selected]);
 
   return (
-    <div className={`absolute inset-0 globe-in${earthOn ? " earth-on" : ""}`} aria-label="World news globe">
+    <div className={`absolute inset-0 globe-in${earthOn ? " earth-on" : ""}`} aria-label={t("ngx.aria")}>
       {ready && later && !earthOn && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused || weatherOn ? "never" : "always"} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         {quality === "auto" && <PerformanceMonitor onDecline={() => setLean(true)} />}
         <WarmCompile world="intelligence" />
@@ -1194,17 +1195,17 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
 
       {manual && <form onSubmit={runSearch} className={earthOn ? "earth-search" : "glass globe-search"} role="search">
         <input className="field w-full" value={query} onChange={(e) => setQuery(e.target.value)} maxLength={120}
-          placeholder="Search world news… e.g. elections, oil prices, AI chips" aria-label="Search world news" />
+          placeholder={t("ngx.searchPh")} aria-label={t("ngx.search")} />
         <button className="btn shrink-0" disabled={searching || query.trim().length < 2}>{searching ? "Searching…" : "Search"}</button>
-        {search && <button type="button" className="chip shrink-0" onClick={() => { searchSeq.current++; setSearching(false); setSearch(null); setQuery(""); setSelected(null); }}>Clear</button>}
+        {search && <button type="button" className="chip shrink-0" onClick={() => { searchSeq.current++; setSearching(false); setSearch(null); setQuery(""); setSelected(null); }}>{t("ngx.clear")}</button>}
       </form>}
 
       {/* Simple page (INTELLIGENCE panel, not More): the globe stays as a calm picture; search, country list and regions are the tools behind More. */}
       {manual && !selected && (!earthOn || search) && <section className={earthOn ? "earth-side panel-in" : "glass hud-panel globe-side panel-in"} key={mode}>
         {search ? (
           <>
-            <div className="hud-title" style={{ color: "#e9d5ff" }}>SEARCH · {search.q.toUpperCase()}</div>
-            <p className="muted text-xs">{search.results.length} stories · {search.hotspots.length} countries · your feeds + live Google News</p>
+            <div className="hud-title" style={{ color: "#e9d5ff" }}>{t("ngx.searchHead")} · {search.q.toUpperCase()}</div>
+            <p className="muted text-xs">{t("ngx.searchStats", { s: search.results.length, c: search.hotspots.length })}</p>
             <ol className="mt-3 space-y-1">
               {search.hotspots.slice(0, 8).map((h) => (
                 <li key={h.name}><HotRow h={h} max={search.hotspots[0]?.count || 1} on={h.name === selected} onClick={() => setSelected(h.name === selected ? null : h.name)} accent="#c084fc" /></li>
@@ -1213,29 +1214,29 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
             <ul className="mt-3 space-y-2">
               {searchList.map((s) => <StoryCard key={s.url} s={s} onCountry={setSelected} />)}
             </ul>
-            {!search.results.length && <p className="mt-3 text-sm">Nothing found for “{search.q}”.</p>}
+            {!search.results.length && <p className="mt-3 text-sm">{t("ngx.nothing", { q: search.q })}</p>}
           </>
         ) : (
           <>
             <div className="flex items-center justify-between gap-2">
-              <div className="hud-title">WORLD PULSE</div>
+              <div className="hud-title">{t("ngx.pulse")}</div>
               <div className="flex gap-1">
                 {WINDOWS.map((w) => <button key={w.h} className="chip" aria-pressed={hours === w.h} onClick={() => setHours(w.h)}>{w.label}</button>)}
               </div>
             </div>
-            <p className="muted text-xs">{data ? `${data.total} stories · ${hs.length} countries${region ? ` · showing ${region}` : ""}` : err ? "" : "Loading…"}</p>
+            <p className="muted text-xs">{data ? `${t("ngx.stats", { s: data.total, c: hs.length })}${region ? ` · ${t("ngx.showing", { r: region })}` : ""}` : err ? "" : t("ngx.loading")}</p>
             {data && <MapLegend d={data} />}
-            <form onSubmit={pickCountry} className="mt-2 flex gap-1" role="search" aria-label="Open any country">
+            <form onSubmit={pickCountry} className="mt-2 flex gap-1" role="search" aria-label={t("ngx.openAny")}>
               <input className="field w-full" list="globe-countries" value={pick} onChange={(e) => setPick(e.target.value)} maxLength={60}
-                placeholder={`Any country… (${PICKABLE.length})`} aria-label="Country name" />
-              <button className="chip shrink-0" disabled={!pick.trim()}>Open</button>
+                placeholder={t("ngx.anyPh", { n: PICKABLE.length })} aria-label={t("ngx.country")} />
+              <button className="chip shrink-0" disabled={!pick.trim()}>{t("ngx.open")}</button>
               <datalist id="globe-countries">{countryOptions}</datalist>
             </form>
-            {data && !hs.length && <p className="mt-3 text-sm">No placed stories yet. Run a <b>World brief</b> in the panel on the right and the globe lights up.</p>}
+            {data && !hs.length && <p className="mt-3 text-sm">{t("ngx.empty1")} <b>{t("ngx.brief")}</b> {t("ngx.empty2")}</p>}
             {hs.length > 0 && (
-              <div className="mt-2 flex gap-1" role="group" aria-label="List view">
-                <button className="chip" aria-pressed={tab === "countries"} onClick={() => setTab("countries")}>Countries</button>
-                <button className="chip" aria-pressed={tab === "stories"} onClick={() => setTab("stories")}>Top stories</button>
+              <div className="mt-2 flex gap-1" role="group" aria-label={t("ngx.listView")}>
+                <button className="chip" aria-pressed={tab === "countries"} onClick={() => setTab("countries")}>{t("ngx.countries")}</button>
+                <button className="chip" aria-pressed={tab === "stories"} onClick={() => setTab("stories")}>{t("ngx.top")}</button>
               </div>
             )}
             {tab === "countries" ? (
@@ -1246,7 +1247,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
               </ol>
             ) : (
               <>
-                <p className="muted mt-2 text-xs">Hover, click or press Enter on a story to light up the countries it mentions.</p>
+                <p className="muted mt-2 text-xs">{t("ngx.hoverHelp")}</p>
                 {/* StoryCard renders the <li>; delegate hover/click from the list so it stays untouched. */}
                 <div className="mt-2"
                   onMouseOver={(e) => setHotStory(storyAt(e))} onFocus={(e) => setHotStory(storyAt(e))}
@@ -1260,10 +1261,10 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
                     </div>
                   ))}
                 </div>
-                {!topStories.length && <p className="mt-3 text-sm">No stories here yet.</p>}
+                {!topStories.length && <p className="mt-3 text-sm">{t("ngx.noStories")}</p>}
               </>
             )}
-            {data && data.untagged > 0 && <p className="muted mt-2 text-xs">{data.untagged} stories don&apos;t name a country. Click any country for its live headlines.</p>}
+            {data && data.untagged > 0 && <p className="muted mt-2 text-xs">{t("ngx.untagged", { n: data.untagged })}</p>}
           </>
         )}
         {err && <ErrorNote error={err} />}
@@ -1278,8 +1279,8 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
       )}
 
       {manual && !search && !earthOn && (
-        <nav className="globe-regions glass" aria-label="World regions">
-          <button className={`region${!region ? " on" : ""}`} onClick={() => { setRegion(null); setSelected(null); }}>World</button>
+        <nav className="globe-regions glass" aria-label={t("ngx.regions")}>
+          <button className={`region${!region ? " on" : ""}`} onClick={() => { setRegion(null); setSelected(null); }}>{t("ngx.world")}</button>
           {regionTotals.map(({ r, n }) => (
             <button key={r} className={`region${region === r ? " on" : ""}`} style={{ ["--accent" as string]: REGION_COLOR[r] }}
               onClick={() => { setSelected(null); setRegion(region === r ? null : r); }}>
@@ -1291,7 +1292,7 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
 
       <EarthView reduced={reduced} paused={paused} onActive={setEarthOn} />{/* ORBIT_UI_MOTION: Planet Earth view; "News weather" falls back to the layer below */}
       {!earthOn && <NewsWeatherLayer reduced={reduced} paused={paused} onActive={setWeatherOn} />}{/* ORBIT_UI_MOTION: news weather over the paused globe */}
-      <button className="chip world-back absolute bottom-24 right-3 min-[900px]:right-[32rem]" onClick={onClose}>← Back to galaxy</button>
+      <button className="chip world-back absolute bottom-24 right-3 min-[900px]:right-[32rem]" onClick={onClose}>← {t("ngx.back")}</button>
     </div>
   );
 }
