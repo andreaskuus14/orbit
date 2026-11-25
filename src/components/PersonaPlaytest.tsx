@@ -7,6 +7,7 @@ import type { DevWorld as World } from "@/lib/devworld-pure";
 import type { Calibration, PersonaReport } from "@/lib/personas";
 import { PINK } from "./RobloxBuild";
 import PersonaCalibration from "./PersonaCalibration";
+import { useT } from "./i18n";
 
 type View = { context: string; report: PersonaReport | null; calibration: Calibration | null; running: boolean };
 const HEAT = ["transparent", "rgba(251,191,36,0.25)", "rgba(249,115,22,0.45)", "rgba(244,63,94,0.7)"];
@@ -20,6 +21,7 @@ async function api(body?: unknown): Promise<View> {
 
 /** GAME DEV → Personas: 20 simulated player types vs the pet sim. Shows what was measured in Studio apart from what the model simulated. */
 export default function PersonaPlaytest({ world, commit, gameId }: { world: World | null; commit: (w: World) => boolean; gameId: string | null }) {
+  const { t, tn } = useT();
   const [v, setV] = useState<View | null>(null);
   const [ctx, setCtx] = useState("");
   const [busy, setBusy] = useState("");
@@ -39,46 +41,44 @@ export default function PersonaPlaytest({ world, commit, gameId }: { world: Worl
   const add = (p: Proposal) => {
     if (!world || !target) return;
     const out = importDrafts(world, target, [{ title: p.title, detail: p.detail, kind: p.kind, priority: p.priority, severity: p.severity, status: "open" }], new Date().toISOString(), () => crypto.randomUUID());
-    if (!out.added) { setAdded((a) => [...a, p.title]); setErr(`"${p.title}" is already in the backlog (or it is full).`); return; }
+    if (!out.added) { setAdded((a) => [...a, p.title]); setErr(t("pp.dup", { title: p.title })); return; }
     if (commit(out.world)) setAdded((a) => [...a, p.title]);
   };
   const f = r ? funnel(r.results) : [];
   const measuredRuns = r?.measured.filter((m) => m.done).length ?? 0;
 
   return (
-    <section className="glass rounded-xl p-3 text-sm" style={{ borderColor: `${PINK}44` }} aria-label="Persona playtest">
-      <h3 className="brand mb-1 text-sm" style={{ color: PINK }}>Persona playtest</h3>
-      <p className="muted text-xs">20 player types (new player, impatient kid, collector, grinder, spender…) play your pet sim each night. <b>Measured</b> = a real look-only
-        Studio run (spawn, walk, look, console); the bridge can&apos;t click, press keys or run code. <b>Simulated</b> = a model walkthrough of your game notes, bugs,
-        pasted UI text and Studio log, scored by each persona&apos;s patience. Treat simulated results as hypotheses, not player data.</p>
+    <section className="glass rounded-xl p-3 text-sm" style={{ borderColor: `${PINK}44` }} aria-label={t("pp.title")}>
+      <h3 className="brand mb-1 text-sm" style={{ color: PINK }}>{t("pp.title")}</h3>
+      <p className="muted text-xs">{t("pp.help1")} <b>{t("pp.measured")}</b> {t("pp.help2")} <b>{t("pp.simulated")}</b> {t("pp.help3")}</p>
 
       <div aria-live="polite" className="mt-2 grid gap-3">
-        {!r ? <p className="muted text-xs">{v ? "No persona playtest yet. It runs in the night shift, or run a simulated one now." : "Loading…"}</p> : (
+        {!r ? <p className="muted text-xs">{v ? t("pp.none") : t("common.loading")}</p> : (
           <>
-            <p className="text-xs"><b>{r.game}</b> · {new Date(r.at).toLocaleString()} · <span style={{ color: measuredRuns ? "var(--mint)" : undefined }}>{measuredRuns} measured Studio run{measuredRuns === 1 ? "" : "s"}</span>
+            <p className="text-xs"><b>{r.game}</b> · {new Date(r.at).toLocaleString()} · <span style={{ color: measuredRuns ? "var(--mint)" : undefined }}>{tn("pp.runs", measuredRuns)}</span>
               <span className="muted"> · {r.studio}</span></p>
 
-            <div aria-label="Funnel">
-              <b className="text-xs">Funnel (simulated{measuredRuns ? ", join step informed by real Studio runs" : ""})</b>
+            <div aria-label={t("pp.funnelL")}>
+              <b className="text-xs">{measuredRuns ? t("pp.funnelReal") : t("pp.funnel")}</b>
               {f.map((s) => (
                 <div key={s.stage} className="mt-1 flex items-center gap-2 text-xs">
                   <span className="w-24 shrink-0">{STAGE_LABEL[s.stage]}</span>
                   <span className="h-3 rounded" style={{ width: `${(s.reached / r.results.length) * 60}%`, minWidth: 2, background: PINK }} />
                   <span>{s.reached}/{r.results.length}</span>
-                  {s.quit > 0 && <span className="muted">−{s.quit} quit before it</span>}
+                  {s.quit > 0 && <span className="muted">{t("pp.quitBefore", { n: s.quit })}</span>}
                 </div>
               ))}
             </div>
 
-            <div className="overflow-x-auto" aria-label="Friction heatmap">
-              <b className="text-xs">Where it hurts (friction vs patience; ✕ = quit there)</b>
+            <div className="overflow-x-auto" aria-label={t("pp.heatmap")}>
+              <b className="text-xs">{t("pp.hurts")}</b>
               <table className="mt-1 w-full text-[11px]">
-                <thead><tr><th className="text-left">Persona</th>{STAGES.map((s) => <th key={s}>{STAGE_LABEL[s]}</th>)}</tr></thead>
+                <thead><tr><th className="text-left">{t("pp.persona")}</th>{STAGES.map((s) => <th key={s}>{STAGE_LABEL[s]}</th>)}</tr></thead>
                 <tbody>
                   {r.results.map((x) => {
                     const p = PERSONAS.find((q) => q.id === x.persona);
                     return (
-                      <tr key={x.persona} title={x.quitAt ? `Quit before ${STAGE_LABEL[x.quitAt].toLowerCase()}: ${x.why}` : x.why}>
+                      <tr key={x.persona} title={x.quitAt ? t("pp.quitTip", { stage: STAGE_LABEL[x.quitAt].toLowerCase(), why: x.why }) : x.why}>
                         <td className="whitespace-nowrap">{p ? `${p.name} · ${p.type}` : x.persona}</td>
                         {STAGES.map((s) => {
                           const past = x.quitAt && STAGES.indexOf(s) > STAGES.indexOf(x.quitAt);
@@ -95,24 +95,24 @@ export default function PersonaPlaytest({ world, commit, gameId }: { world: Worl
             <PersonaCalibration results={r.results} real={world?.retention?.find((x) => x.game === target)} saved={v?.calibration ?? null} busy={!!busy} onSave={() => act("cal", { action: "calibrate", gameId: target })} />
 
             <details>
-              <summary className="text-xs cursor-pointer">Why each persona quit</summary>
+              <summary className="text-xs cursor-pointer">{t("pp.whyQuit")}</summary>
               <ul className="mt-1 grid gap-0.5 text-xs">
                 {r.results.map((x) => { const p = PERSONAS.find((q) => q.id === x.persona); return (
-                  <li key={x.persona}><b>{p?.name ?? x.persona}</b> ({p?.type}): {x.quitAt ? `quit before ${STAGE_LABEL[x.quitAt].toLowerCase()}, ${x.why}` : x.why}
+                  <li key={x.persona}><b>{p?.name ?? x.persona}</b> ({p?.type}): {x.quitAt ? t("pp.quitLine", { stage: STAGE_LABEL[x.quitAt].toLowerCase(), why: x.why }) : x.why}
                     <span className="muted"> · {x.source}</span></li>); })}
               </ul>
             </details>
 
             {r.proposals.length > 0 && (
               <div>
-                <b className="text-xs">Backlog proposals</b> <span className="muted text-xs">(nothing is added until you click)</span>
+                <b className="text-xs">{t("pp.proposals")}</b> <span className="muted text-xs">{t("pp.untilClick")}</span>
                 <ul className="mt-1 grid gap-1">
                   {r.proposals.map((p) => (
                     <li key={p.title} className="rounded-md border p-1 text-xs" style={{ borderColor: `${PINK}33` }}>
                       <div className="flex items-start gap-2">
                         <span><b>{p.title}</b> <span className="muted">· {p.kind} · {p.priority} · {p.source}</span></span>
-                        <button className="chip ml-auto shrink-0" onClick={() => add(p)} disabled={!world || !target || added.includes(p.title)} aria-label={`Add ${p.title} to the backlog`}>
-                          {added.includes(p.title) ? "Added" : "Add to backlog"}</button>
+                        <button className="chip ml-auto shrink-0" onClick={() => add(p)} disabled={!world || !target || added.includes(p.title)} aria-label={t("pp.addAria", { title: p.title })}>
+                          {added.includes(p.title) ? t("pp.added") : t("pp.add")}</button>
                       </div>
                       <p className="muted mt-0.5">{p.detail}</p>
                     </li>
@@ -120,30 +120,30 @@ export default function PersonaPlaytest({ world, commit, gameId }: { world: Worl
                 </ul>
               </div>
             )}
-            {r.walk.notes && <p className="muted text-xs">Walkthrough: {r.walk.notes}</p>}
+            {r.walk.notes && <p className="muted text-xs">{t("pp.walk")} {r.walk.notes}</p>}
           </>
         )}
 
         <details>
-          <summary className="text-xs cursor-pointer">Persona plans (what is measured vs simulated)</summary>
-          <select className="field mt-1 py-1 text-xs" value={plan} onChange={(e) => setPlan(e.target.value)} aria-label="Persona">
-            <option value="">Pick a persona…</option>
-            {PERSONAS.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.type} (patience {p.patience}, reads {["", "little", "some", "everything"][p.reading]})</option>)}
+          <summary className="text-xs cursor-pointer">{t("pp.plans")}</summary>
+          <select className="field mt-1 py-1 text-xs" value={plan} onChange={(e) => setPlan(e.target.value)} aria-label={t("pp.persona")}>
+            <option value="">{t("pp.pick")}</option>
+            {PERSONAS.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.type} ({t("pp.patience", { n: p.patience, r: t((["pp.read1", "pp.read1", "pp.read2", "pp.read3"] as const)[p.reading]) })})</option>)}
           </select>
           {plan && <ol className="mt-1 grid gap-0.5 text-xs">{personaPlan(PERSONAS.find((p) => p.id === plan)!).map((s) => (
             <li key={s.stage}><b>{STAGE_LABEL[s.stage]}</b> <span style={{ color: s.how === "measured" ? "var(--mint)" : undefined }}>[{s.how}]</span> {s.action}</li>))}</ol>}
         </details>
 
-        <label className="grid gap-1 text-xs">Your game&apos;s UI text and key scripts (optional, makes the simulation much better; the bridge can&apos;t read StarterGui)
+        <label className="grid gap-1 text-xs">{t("pp.ctx")}
           <textarea className="field min-h-[5rem] w-full font-mono text-[11px]" maxLength={MAX_CONTEXT} value={ctx} onChange={(e) => setCtx(e.target.value)} disabled={!!busy}
-            placeholder="Paste button labels, tutorial text, egg prices, upgrade costs, or script excerpts…" />
+            placeholder={t("pp.ctxPh")} />
         </label>
         <div className="flex flex-wrap gap-2">
-          <button className="chip" onClick={() => act("save", { action: "context", context: ctx })} disabled={!!busy || ctx === (v?.context ?? "")}>{busy === "save" ? "Saving…" : "Save text"}</button>
+          <button className="chip" onClick={() => act("save", { action: "context", context: ctx })} disabled={!!busy || ctx === (v?.context ?? "")}>{busy === "save" ? t("pp.saving") : t("pp.save")}</button>
           <button className="btn" style={{ background: `linear-gradient(90deg, ${PINK}, #db2777)` }} onClick={() => act("run", { action: "run", gameId: target })} disabled={!!busy || v?.running}>
-            {busy === "run" ? "Simulating (about a minute)…" : v?.running ? "Running…" : "Run simulated playtest now"}</button>
+            {busy === "run" ? t("pp.simulating") : v?.running ? t("pp.running") : t("pp.run")}</button>
         </div>
-        <p className="muted text-[11px]">Real Studio runs (two personas a night) only happen in the night shift, with Studio open on your PC.</p>
+        <p className="muted text-[11px]">{t("pp.foot")}</p>
         {err && <p className="error" role="alert">{err}</p>}
       </div>
     </section>
