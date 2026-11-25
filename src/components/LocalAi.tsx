@@ -11,6 +11,8 @@ import RobloxBuild, { PINK } from "./RobloxBuild";
 import { KaggleBurst } from "./KaggleBurst";
 import { ProgressCard } from "./ProgressCard";
 import type { Progress } from "@/lib/progress-pure";
+import { ErrorState } from "./ui/State";
+import { isComfyView, isHealthView, isPcView, okJson } from "@/lib/json-guard-pure";
 
 // Local AI tools (tools/local-ai on his PC): Picture to 3D and Text to 3D (GAME DEV → Assets), Voiceover (STUDIO → Produce),
 // Captions (STUDIO → Produce), Read document (VAULT), Open IFC model (ARCH) and the tool list (OPERATIONS → Local AI). Every result is saved in VAULT; nothing is uploaded. Data: /api/local-ai.
@@ -33,7 +35,7 @@ async function post(body: FormData | object): Promise<string> {
 
 function useHealth() {
   const [h, setH] = useState<Health | null>(null);
-  const check = useCallback(() => { void fetch("/api/local-ai", { cache: "no-store" }).then((r) => r.json()).then(setH, () => setH(null)); }, []);
+  const check = useCallback(() => { void fetch("/api/local-ai", { cache: "no-store" }).then((r) => okJson<Health>(r, isHealthView)).then(setH, () => setH(null)); }, []);
   useEffect(check, [check]);
   return [h, check] as const;
 }
@@ -324,9 +326,10 @@ type Pc = { brain: LocalStatus & { using?: string }; autostart: Autostart };
 function ThisPc() {
   const { t } = useT();
   const [pc, setPc] = useState<Pc | null>(null);
+  const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const check = useCallback(() => { void fetch("/api/local-brain", { cache: "no-store" }).then((r) => r.json()).then(setPc, () => setPc(null)); }, []);
+  const check = useCallback(() => { void fetch("/api/local-brain", { cache: "no-store" }).then((r) => okJson<Pc>(r, isPcView)).then((v) => { setPc(v); setFailed(!v); }, () => { setPc(null); setFailed(true); }); }, []);
   useEffect(check, [check]);
   const toggle = async (on: boolean) => {
     setBusy(true); setErr("");
@@ -338,7 +341,7 @@ function ThisPc() {
       setPc((p) => (p ? { ...p, autostart: j.autostart! } : p));
     } catch (e) { setErr(msg(e)); } finally { setBusy(false); }
   };
-  if (!pc) return null;
+  if (!pc) return failed ? <ErrorState title={t("common.cantLoad", { what: t("la.brain") })} retryLabel={t("common.tryAgain")} onRetry={check} /> : null;
   const a = pc.autostart, b = pc.brain;
   return (
     <div className="grid gap-2">
@@ -362,7 +365,7 @@ function ThisPc() {
 export function LocalAiTools() {
   const [h, checkAi] = useHealth();
   const [comfy, setComfy] = useState<(ComfyHealth & { model: ComfyModel }) | null>(null); // ComfyUI is its own service (tools/comfyui)
-  const check = useCallback(() => { checkAi(); void fetch("/api/local-ai?service=comfy", { cache: "no-store" }).then((r) => r.json()).then(setComfy, () => setComfy(null)); }, [checkAi]);
+  const check = useCallback(() => { checkAi(); void fetch("/api/local-ai?service=comfy", { cache: "no-store" }).then((r) => okJson<ComfyHealth & { model: ComfyModel }>(r, isComfyView)).then(setComfy, () => setComfy(null)); }, [checkAi]);
   useEffect(check, [check]);
   const { lang, t } = useT();
   return (

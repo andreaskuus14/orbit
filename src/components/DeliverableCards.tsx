@@ -5,6 +5,7 @@ import type { WriteEvidence } from "@/lib/completion-pure";
 import { deliverables } from "@/lib/core-workspace-pure";
 import { useT } from "./i18n";
 import { cleanReceipt, receiptLine } from "@/lib/receipt-pure";
+import { isServerView, okJson } from "@/lib/json-guard-pure";
 
 const q = (ws: string, file?: string) => `/api/workspace?ws=${encodeURIComponent(ws)}${file ? `&file=${encodeURIComponent(file)}` : ""}`;
 const size = (n = 0) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
@@ -55,7 +56,7 @@ type Srv = { running: boolean; url?: string; routes: string[]; note: string; err
 function ServerCard({ ws }: { ws: string }) {
   const { t } = useT();
   const [s, setS] = useState<Srv | null>(null);
-  useEffect(() => { void fetch(`${q(ws)}&server=1`).then((r) => r.json()).then(setS, () => {}); }, [ws]);
+  useEffect(() => { void fetch(`${q(ws)}&server=1`).then((r) => okJson<Srv>(r, isServerView)).then(setS, () => {}); }, [ws]);
   const op = async (o: "start" | "stop") => setS(await fetch("/api/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "server", ws, op: o }) }).then((r) => r.json()).catch(() => ({ error: t("deliv.failed") })));
   if (!s) return null;
   return <div className="text-xs" aria-live="polite">

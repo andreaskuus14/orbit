@@ -70,9 +70,9 @@ function NewContract({ prospects, deals, busy, onCreate }: { prospects: Prospect
   return (
     <form className="space-y-1.5 rounded-md border border-white/10 p-2" aria-label={tr("ctp.new")} onSubmit={(e) => { e.preventDefault(); void go(true); }}>
       <div className="flex flex-wrap gap-1.5">
-        <select className="chip" aria-label={tr("ctp.template")} value={tpl} onChange={(e) => setTpl(e.target.value as TemplateId)}>
+        <select className="chip min-w-0 max-w-full truncate" aria-label={tr("ctp.template")} value={tpl} onChange={(e) => setTpl(e.target.value as TemplateId)}>
           {TEMPLATE_IDS.map((id) => <option key={id} value={id}>{TEMPLATES[id].title}</option>)}</select>
-        <select className="chip" aria-label={tr("ctp.from")} value={src} onChange={(e) => { setSrc(e.target.value); if (e.target.value.startsWith("deal:")) setTpl("purchase"); }}>
+        <select className="chip min-w-0 max-w-full truncate" aria-label={tr("ctp.from")} value={src} onChange={(e) => { setSrc(e.target.value); if (e.target.value.startsWith("deal:")) setTpl("purchase"); }}>
           <option value="">{tr("ctp.fromNothing")}</option>
           {prospects.map((p) => <option key={p.id} value={`prospect:${p.id}`}>{tr("ctp.client", { name: p.name })}</option>)}
           {deals.map((d) => <option key={d.id} value={`deal:${d.id}`}>{tr("ctp.deal", { label: d.label.slice(0, 70) })}</option>)}

@@ -5,6 +5,7 @@ import type { DevWorld as World } from "@/lib/devworld-pure";
 import { PINK } from "./RobloxBuild";
 import { useT } from "./i18n";
 import { compareEconomies, impactLines, impactText, type Metric, type Playtest } from "@/lib/economy-impact-pure";
+import { isEconomyView, okJson } from "@/lib/json-guard-pure";
 
 // GAME DEV → Economy: the game dev copilot. Balancer + economy personas run here in the browser (pure, seeded); the notes drafter is one
 // fast-model call on his click. Proposals only: nothing is changed in Studio or published to Roblox.
@@ -43,8 +44,10 @@ export default function GameCopilot({ world, gameId }: { world: World | null; ga
   };
 
   useEffect(() => {
-    fetch("/api/economy", { cache: "no-store" }).then((r) => r.json()).then((v: View) => { setSaved(v); setTable(v.table || SAMPLE_TABLE); setVoice(v.voice); },
-      () => { setTable(SAMPLE_TABLE); setMsg("Couldn't load your saved table; showing the sample."); });
+    fetch("/api/economy", { cache: "no-store" }).then((r) => okJson<View>(r, isEconomyView)).then((v) => v, () => null).then((v) => {
+      if (!v) { setTable(SAMPLE_TABLE); setMsg("Couldn't load your saved table; showing the sample."); return; }
+      setSaved(v); setTable(v.table || SAMPLE_TABLE); setVoice(v.voice);
+    });
   }, []);
 
   const game = world?.games.find((g) => g.id === gameId) ?? world?.games.find((g) => g.id === "pet-sim");

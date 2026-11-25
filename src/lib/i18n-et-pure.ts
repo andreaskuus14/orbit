@@ -87,6 +87,7 @@ export const ET: Partial<Record<Key, string>> = {
   "common.close": "Sulge", "common.open": "Ava", "common.approve": "Kinnita", "common.reject": "Lükka tagasi",
   "common.approved": "Kinnitatud", "common.rejected": "Tagasi lükatud", "common.copy": "Kopeeri", "common.on": "sees", "common.off": "väljas",
   "common.failed": "See ei õnnestunud",
+  "common.cantLoad": "Ei saanud laadida: {what}", "common.tryAgain": "Proovi uuesti",
   "state.loading": "Laadin…", "state.empty": "Siin pole veel midagi.", "state.partial": "Laadis ainult osa.", "state.stale": "See võib olla aegunud.",
   "state.offline": "Võrguühenduseta: ORBIT pole kättesaadav.", "state.blocked": "Blokeeritud: enne on vaja midagi muud.", "state.saving": "Salvestan…", "state.saved": "Salvestatud.",
   "state.failed": "See ei õnnestunud.", "state.timeout": "See võtab liiga kaua, lõpetasin ootamise.", "state.what": "Mis ebaõnnestus: {what}.", "state.kept": "Alles jäi: {kept}.", "state.retry": "Proovi uuesti", "state.keptScreen": "kõik, mis on juba ekraanil",

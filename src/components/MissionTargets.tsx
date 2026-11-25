@@ -4,6 +4,7 @@
 import { useState } from "react";
 import type { Target, TargetId } from "@/lib/daily-mission-pure";
 import { useT } from "./i18n";
+import { isMissionCat, okJson } from "@/lib/json-guard-pure";
 
 type Cat = { targets: Target[]; defaults: Target[]; max: number; catalogue: { id: TargetId; def: number; max: number }[] };
 
@@ -13,7 +14,7 @@ export default function MissionTargets() {
   const [picked, setPicked] = useState<Target[]>([]);
   const [err, setErr] = useState("");
   const [saved, setSaved] = useState(false);
-  const open = () => fetch("/api/daily-mission", { cache: "no-store" }).then((r) => r.json()).then((j: Cat) => { setCat(j); setPicked(j.targets.length ? j.targets : j.defaults); }, () => setErr(t("common.failed")));
+  const open = () => fetch("/api/daily-mission", { cache: "no-store" }).then((r) => okJson<Cat>(r, isMissionCat)).then((j) => { if (!j) { setErr(t("common.failed")); return; } setCat(j); setPicked(j.targets.length ? j.targets : j.defaults); }, () => setErr(t("common.failed")));
   const save = (targets: Target[]) => fetch("/api/daily-mission", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ targets }) })
     .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error); setCat(null); setSaved(true); }).catch((e: Error) => setErr(e.message || t("common.failed")));
 
