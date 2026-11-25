@@ -102,7 +102,7 @@ export default function MorningBriefBody({ home, onOpenTask, onOpenGoal, onClose
             <div className="mt-4 grid gap-3" aria-label="Today">
               {b.today.map((g) => (
                 <section key={g.key} aria-labelledby={`mb-today-${g.key}`}>
-                  <h3 id={`mb-today-${g.key}`} className="muted text-xs uppercase tracking-wide">{g.label}</h3>
+                  <h3 id={`mb-today-${g.key}`} className="muted text-xs">{g.label}</h3>
                   {g.failed ? <p className="error text-xs" role="status">{g.failed}</p> : (
                     <ul className="mt-1 grid gap-1">
                       {g.rows.map((r: TodayRow) => (

@@ -39,7 +39,7 @@ export default function DealCards() {
   return (
     <section className="space-y-2" aria-label="Deal hunter">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-[11px] uppercase tracking-widest muted">Wishlist · deal hunter</h3>
+        <h3 className="text-[12px] font-medium muted">Wishlist · deal hunter</h3>
         <button className="chip" disabled={any || !b?.wishes.length} onClick={() => void act("hunt", { action: "hunt" })}>{b?.busy ? "Hunting… (a few minutes)" : "Hunt now"}</button>
       </div>
       {b && <p className="muted text-xs">Checks public listings and shops every 6 h in the daytime and once at night (read-only, {b.callsLeft} searches left today). Last hunt {when(b.lastHunt)}. Only pages ORBIT really opened count; it never contacts sellers or buys.</p>}

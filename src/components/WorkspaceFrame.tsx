@@ -66,7 +66,7 @@ export default function WorkspaceFrame<V extends string>({ planet, title, contex
   return (
     <div className="ws space-y-3 text-sm" data-ws={planet} style={tone}>
       <header className="ws-head flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0"><h2 className="ws-title text-[11px] uppercase tracking-widest muted">{title}</h2>{context && <div className="ws-ctx muted text-[12px]">{context}</div>}</div>
+        <div className="min-w-0"><h2 className="ws-title text-[12px] font-medium muted">{title}</h2>{context && <div className="ws-ctx muted text-[12px]">{context}</div>}</div>
         {action}
       </header>
       <div ref={moreRef} className="space-y-1.5" onKeyDown={(e) => { if (e.key === "Escape" && menu) { e.stopPropagation(); setMenu(false); document.getElementById(`${planet}-more`)?.focus(); } }}>

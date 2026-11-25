@@ -51,7 +51,7 @@ export function DaylightPanel({ parts, site, d, onChange }: { parts: Part[]; sit
 
   return (
     <div className="card space-y-1.5" aria-label="Daylight study">
-      <div className="muted text-[10px] uppercase tracking-widest">Daylight study · {site.name} · {t("arch.studyEstimate")}</div>
+      <div className="muted text-[12px] font-medium">Daylight study · {site.name} · {t("arch.studyEstimate")}</div>
       <div className="flex flex-wrap items-center gap-1.5">
         <button className="btn" disabled={busy !== null} onClick={() => void run()}>{busy !== null ? `Sampling ${MONTHS[busy]}… ${busy + 1}/12` : d ? "Run again" : "☀ Study daylight"}</button>
         {d && <button className="chip" onClick={() => onChange(null)}>Clear</button>}

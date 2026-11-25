@@ -87,7 +87,7 @@ export function PortfolioPanel({ grab, caption }: { grab: () => HTMLCanvasElemen
 
   return (
     <details className="card space-y-2" aria-label="Portfolio builder" onToggle={(e) => { if ((e.target as HTMLDetailsElement).open) void load(); }}>
-      <summary className="muted cursor-pointer text-[10px] uppercase tracking-widest">Portfolio · captures → PDF and web page</summary>
+      <summary className="muted cursor-pointer text-[12px] font-medium">Portfolio · captures → PDF and web page</summary>
       {!p ? <p className="muted text-xs">{msg || "Loading…"}</p> : <>
         <div className="flex flex-wrap gap-1.5">
           <input className="field flex-1" value={p.title} maxLength={PMAX.title} onChange={(e) => edit((x) => ({ ...x, title: e.target.value }))} aria-label="Portfolio title" placeholder="Portfolio" />

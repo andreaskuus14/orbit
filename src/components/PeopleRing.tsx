@@ -196,7 +196,7 @@ export function PeoplePanel({ st }: { st: PeopleState }) {
           </form>
         : <button className="btn" disabled={!!busy} onClick={() => void act("keep", { action: "keep", prospectId: p.prospectId }, (j) => { if (j.person) setSel(j.person.id); })}>Keep as a person</button>}
       <div>
-        <div className="muted text-[10px] uppercase tracking-widest">Timeline</div>
+        <div className="muted text-[12px] font-medium">Timeline</div>
         {detail.timeline.length ? <ul className="space-y-0.5 text-xs">{detail.timeline.slice(0, 12).map((t, i) =>
           <li key={i} className="flex gap-2"><span className="muted num w-20 shrink-0">{t.at.slice(0, 10)}</span><span className="truncate">{t.what}</span><span className="muted ml-auto">{t.via}</span></li>)}</ul>
           : <p className="muted text-xs">No contact found yet. Log one above.</p>}

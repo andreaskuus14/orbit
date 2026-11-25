@@ -63,7 +63,7 @@ export function SitePanel({ site, set, parts, sun }: { site: Site; set: SetSite;
 
   return (
     <div className="card space-y-2" aria-label="Site: model city">
-      <div className="muted text-[10px] uppercase tracking-widest">Site · your building among neighbours</div>
+      <div className="muted text-[12px] font-medium">Site · your building among neighbours</div>
       <div className="flex flex-wrap gap-1">{PRESETS.map((p) => <button key={p.key} className="chip" onClick={() => set((s) => ({ ...s, ...p.site, draft: null }))}>{p.label}</button>)}</div>
       <div className="flex flex-wrap items-center gap-2">
         <Num label="Plot W" value={bw} min={5} on={(w) => set((s) => ({ ...s, plot: rect(0, 0, w, bd) }))} />

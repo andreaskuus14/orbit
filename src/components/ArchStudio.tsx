@@ -142,17 +142,17 @@ export function ArchStudio({ worker, lesson, lessonKey, onScan, onScanNote, onTe
 
   return (
     <details className="card space-y-2" aria-label="ARCH studio">
-      <summary className="muted cursor-pointer text-[10px] uppercase tracking-widest">Studio · scans · sketch critique · precedents</summary>
+      <summary className="muted cursor-pointer text-[12px] font-medium">Studio · scans · sketch critique · precedents</summary>
 
       {digest && <div className="space-y-1" aria-label="This week in the studio">
-        <div className="muted text-[10px] uppercase tracking-widest">Week of {digest.week}</div>
+        <div className="muted text-[12px] font-medium">Week of {digest.week}</div>
         <p className="text-xs">{digest.lessons} lesson{digest.lessons === 1 ? "" : "s"}{digest.precedents.length ? ` (${digest.precedents.join(", ")})` : ""} · {digest.critiques} critique{digest.critiques === 1 ? "" : "s"} · {digest.scans} scan{digest.scans === 1 ? "" : "s"}</p>
         {digest.weak.length > 0 && <p className="text-xs">Recurring: {digest.weak.map((w) => `${w.aspect} ${w.count}×`).join(", ")}</p>}
         <p className="text-xs"><span className="font-semibold">Focus next week. </span>{digest.focus}</p>
       </div>}
 
       <div className="space-y-1.5">
-        <div className="muted text-[10px] uppercase tracking-widest">Scan</div>
+        <div className="muted text-[12px] font-medium">Scan</div>
         <label className={`chip inline-flex cursor-pointer${scanBusy ? " opacity-50" : ""}`} title="A Gaussian-splat export (.ply or .splat) from Scaniverse or Polycam">
           ◍ Import scan (.ply / .splat)
           <input type="file" accept=".ply,.splat" className="sr-only" disabled={scanBusy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void importScan(f); }} />
@@ -177,7 +177,7 @@ export function ArchStudio({ worker, lesson, lessonKey, onScan, onScanNote, onTe
       </div>
 
       <div className="space-y-1.5">
-        <div className="muted text-[10px] uppercase tracking-widest">Sketch critique</div>
+        <div className="muted text-[12px] font-medium">Sketch critique</div>
         <div className="flex flex-wrap items-center gap-1.5">
           <label className="chip inline-flex cursor-pointer">✎ {photo ? photo.name.slice(0, 28) : "Photo of a sketch"}
             <input type="file" accept="image/*" className="sr-only" onChange={(e) => { setPhoto(e.target.files?.[0] ?? null); setCrit(null); setCritMsg(""); }} />
@@ -197,7 +197,7 @@ export function ArchStudio({ worker, lesson, lessonKey, onScan, onScanNote, onTe
       </div>
 
       <div className="space-y-1.5">
-        <div className="muted text-[10px] uppercase tracking-widest">Precedent library · {items.length}</div>
+        <div className="muted text-[12px] font-medium">Precedent library · {items.length}</div>
         <input className="field w-full" type="search" placeholder="Search lessons, scans, critiques…" value={q} maxLength={200} onChange={(e) => setQ(e.target.value)} aria-label="Search the precedent library" />
         {libMsg && <p className="muted text-xs">{libMsg}</p>}
         {!items.length && !libMsg && <p className="muted text-xs">Saved lessons, imported scans and sketch critiques land here, linked by building.</p>}

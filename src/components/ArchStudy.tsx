@@ -37,7 +37,7 @@ export function ArchStudy() {
   const due = v?.cards.filter((c) => v.queue.includes(c.id)) ?? [];
   return (
     <div className="card space-y-1.5 text-xs" aria-label="Study">
-      <div className="muted text-[10px] uppercase tracking-widest">Study{v && ` · ${v.stats.due} due today`}</div>
+      <div className="muted text-[12px] font-medium">Study{v && ` · ${v.stats.due} due today`}</div>
       {queue ? (card ? <div className="space-y-1.5" aria-live="polite">
         <div className="muted">{quiz ? `Quiz ${total - queue.length + 1}/${total}` : `${queue.length} left`} <button className="link ml-2" onClick={end}>End</button></div>
         <p className="font-medium">{card.front}</p>

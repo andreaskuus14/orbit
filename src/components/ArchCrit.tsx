@@ -38,7 +38,7 @@ export default function ArchCrit({ scene, prices, shoot }: { scene: Scene; price
 
   return (
     <details className="card space-y-2" aria-label="Studio crit">
-      <summary className="muted cursor-pointer text-[10px] uppercase tracking-widest">🎓 Studio crit · model {version}</summary>
+      <summary className="muted cursor-pointer text-[12px] font-medium">🎓 Studio crit · model {version}</summary>
       <p className="muted text-[11px]">Learning aid: a tutor&apos;s opinion on numbers computed from your model, not a code or engineering check.</p>
       <ol className="space-y-0.5 text-xs">{facts.map((f) => <li key={f.id}><span className="num">{f.id}</span> {f.text}</li>)}</ol>
       <div className="flex flex-wrap items-center gap-2">

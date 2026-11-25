@@ -26,7 +26,7 @@ export default function StudioBrand() {
     try { const x = await call("PUT", body); setR(x); setKit(x.kit); setMsg(t("bk.saved")); } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't save"); } finally { setBusy(false); }
   };
   const cap = (k: keyof BrandKit["caption"], v: string | number) => setKit({ ...kit, caption: { ...kit.caption, [k]: v } });
-  const field = "field w-full !px-2 !py-1 !text-xs", label = "muted mb-0.5 block text-[10px] uppercase tracking-widest";
+  const field = "field w-full !px-2 !py-1 !text-xs", label = "muted mb-0.5 block text-[12px] font-medium";
   const colour = (text: string, value: string, on: (v: string) => void) => (
     <label><span className={label}>{text}</span><input type="color" className="h-7 w-full cursor-pointer rounded border border-white/10 bg-transparent" value={value} onChange={(e) => on(e.target.value)} /></label>
   );

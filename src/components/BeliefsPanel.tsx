@@ -91,7 +91,7 @@ export function BeliefsView({ facts, missing = "", error = "", busy = false, edi
       <ul className="space-y-2">
         {groups.map(({ subject, current, earlier }) => (
           <li key={subject} className="card text-sm">
-            <div className="muted text-xs uppercase tracking-wide">{subject}</div>
+            <div className="muted text-xs">{subject}</div>
             {current.map(show)}
             {!current.length && <p className="muted text-xs">No current fact on this subject.</p>}
             {!!earlier.length && (

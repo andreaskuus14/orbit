@@ -51,7 +51,7 @@ export default function StudioCalendar({ jobs, waiting, scheduleAll, onOpen, liv
           const name = `${i === 0 ? "Today · " : ""}${dayName.format(Date.UTC(d.y, d.m - 1, d.d, 12))}`;
           return (
             <li key={d.key} className="min-w-0 rounded-xl border border-white/10 p-1.5" style={i === 0 ? { borderColor: "#f43f5e88" } : undefined}>
-              <h4 className="muted mb-1 truncate text-[11px] font-semibold uppercase tracking-wide">{name}</h4>
+              <h4 className="muted mb-1 truncate text-[12px] font-semibold">{name}</h4>
               {!entries.length && <p className="muted text-[11px]">Nothing</p>}
               <ul className="space-y-1" aria-label={name}>
                 {entries.map(({ at, it }) => it ? (

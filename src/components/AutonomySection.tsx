@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { pollMs } from "@/lib/poll-pure";
 import { usePoll } from "./use-poll";
 import { useT } from "./i18n";
-import { AREAS, AREA_INFO, AUTO_CONFIRM, LEVEL_TEXT, LIMIT_MAX, type Area, type Level, type Levels, type Limits, type Pending } from "@/lib/autonomy-pure";
+import { AREAS, AREA_INFO, AUTO_CONFIRM, LIMIT_MAX, type Area, type Level, type Levels, type Limits, type Pending } from "@/lib/autonomy-pure";
 import { changeStopAll } from "./nav-command";
 import { TwinCard } from "./TwinCard";
 import { PcPermissionsCard } from "./PcPermissionsCard";
@@ -61,8 +61,8 @@ export function AutonomySection() {
       </button>
       <p id="autonomy-pause" className="muted text-xs">Turns on Stop-all: running work stops and queued auto actions are cancelled. Resume from the Stop-all button.</p>
       <PcPermissionsCard />
-      <dl className="muted space-y-1 text-xs">
-        {(["off", "ask", "do", "auto"] as const).map((l) => <div key={l}><dt className="inline font-semibold">{LEVEL_TEXT[l].label}: </dt><dd className="inline">{LEVEL_TEXT[l].means}</dd></div>)}
+      <dl className="muted space-y-2 text-xs">
+        {(["off", "ask", "do", "auto"] as const).map((l) => <div key={l} className="block"><dt className="block font-semibold">{t(`lvl.${l}`)}</dt><dd className="m-0 block">{t(`lvl.${l}.means`)}</dd></div>)}
       </dl>
       {v?.problem && <p className="error text-sm" role="alert">{v.problem}</p>}
       {v?.push && <p className="muted text-xs">Auto with limits can't be turned on yet: it needs phone pushes so you hear about every action ({v.push}). Pair your phone below and set up pushes (docs/PHONE.md).</p>}
@@ -89,11 +89,11 @@ export function AutonomySection() {
               <span className="flex gap-1" role="radiogroup" aria-label={AREA_INFO[a].label}>
                 {AREA_INFO[a].levels.map((l) => (
                   <button key={l} role="radio" aria-checked={v.levels[a] === l} className={v.levels[a] === l ? "btn" : "chip"} disabled={l === "auto" && !!v.push && v.levels[a] !== "auto"} onClick={() => v.levels[a] !== l && pick(a, l)}>
-                    {LEVEL_TEXT[l].label}{l === AREA_INFO[a].def ? " (default)" : ""}
+                    {t(`lvl.${l}`)}{l === AREA_INFO[a].def ? t("lvl.default") : ""}
                   </button>
                 ))}
               </span>
-              {twin?.area === a && <div className="w-full"><TwinCard decision={{ kind: "autonomy", ref: `${a}.${twin.to}`, title: `${AREA_INFO[a].label}: ${LEVEL_TEXT[twin.from].label} → ${LEVEL_TEXT[twin.to].label}`, detail: AREA_INFO[a].what, from: twin.from, to: twin.to }} /></div>}
+              {twin?.area === a && <div className="w-full"><TwinCard decision={{ kind: "autonomy", ref: `${a}.${twin.to}`, title: `${AREA_INFO[a].label}: ${t(`lvl.${twin.from}`)} → ${t(`lvl.${twin.to}`)}`, detail: AREA_INFO[a].what, from: twin.from, to: twin.to }} /></div>}
             </li>
           ))}
         </ul>

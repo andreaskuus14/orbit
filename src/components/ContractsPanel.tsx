@@ -41,7 +41,7 @@ export default function ContractsPanel({ prospects }: { prospects: Prospect[] })
   const { t } = useT();
   return (
     <section className="card space-y-2" aria-label="Contracts">
-      <h3 className="text-[11px] uppercase tracking-widest muted">Contracts</h3>
+      <h3 className="text-[12px] font-medium muted">Contracts</h3>
       <p className="muted text-xs">{NOT_LEGAL_ADVICE} ORBIT never signs for you: you sign with your own click, and nothing is sent until you approve the email.</p>
       <NewContract prospects={prospects} deals={deals} busy={busy} onCreate={async (b) => { const n = await act("create", { action: "create", ...b }); if (n) setOpen(n.id); return !!n; }} />
       {err && <p className="error" role="alert">{err}</p>}

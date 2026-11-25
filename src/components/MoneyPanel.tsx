@@ -22,7 +22,7 @@ const KINDS = { month: "Month", quarter: "Quarter", year: "Year" } as const;
 const periodOf = (kind: keyof typeof KINDS, day: string) =>
   kind === "year" ? day.slice(0, 4) : kind === "quarter" ? `${day.slice(0, 4)}-Q${Math.ceil(Number(day.slice(5, 7)) / 3)}` : day.slice(0, 7);
 const Card = ({ label, cents, warn }: { label: string; cents: number | string; warn?: boolean }) => (
-  <div className="card !p-2"><div className="muted text-[10px] uppercase tracking-widest">{label}</div><div className={`num text-lg font-semibold ${warn ? "warn" : ""}`}>{typeof cents === "number" ? euro(cents) : cents}</div></div>
+  <div className="card !p-2"><div className="muted text-[12px] font-medium">{label}</div><div className={`num text-lg font-semibold ${warn ? "warn" : ""}`}>{typeof cents === "number" ? euro(cents) : cents}</div></div>
 );
 
 export default function MoneyPanel() {

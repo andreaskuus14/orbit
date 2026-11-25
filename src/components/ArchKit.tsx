@@ -17,7 +17,7 @@ export function ArchKit({ scene, sel, onSelect, hidden, onHidden, onScene, newId
   const toggle = (g: Group) => { const h = new Set(hidden); if (h.has(g)) h.delete(g); else h.add(g); onHidden(h); };
   return (
     <div className="card space-y-1.5 text-xs" aria-label={tr("arch.kit")}>
-      <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.kit")}</div>
+      <div className="muted text-[12px] font-medium">{tr("arch.kit")}</div>
       <div className="flex flex-wrap gap-1.5">
         <button className="chip" onClick={() => onScene(kitHouse())}>🏠 {tr("arch.kitHouse")}</button>
         <button className="chip" onClick={() => onScene({ ...scene, parts: [] })}>{tr("arch.kitBlank")}</button>

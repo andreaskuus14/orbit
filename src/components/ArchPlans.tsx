@@ -31,7 +31,7 @@ export function ArchPlans({ plot, onPick }: { plot: { w: number; d: number }; on
 
   return (
     <div className="card space-y-1.5" aria-label="Floor-plan generator">
-      <div className="muted text-[10px] uppercase tracking-widest">Floor plans · from a brief</div>
+      <div className="muted text-[12px] font-medium">Floor plans · from a brief</div>
       <div className="flex flex-wrap gap-2">{num("Plot W", pw, setPw, 5, 200)}{num("D", pd, setPd, 5, 200)}{num("Floors", floors, setFloors, 1, 3)}</div>
       <label className="block text-xs">Rooms, one per line: name, m², optional @floor
         <textarea className="field w-full font-mono text-xs" rows={5} value={rooms} onChange={(e) => setRooms(e.target.value)} /></label>

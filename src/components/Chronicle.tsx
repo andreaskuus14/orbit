@@ -280,7 +280,7 @@ export default function Chronicle({ reduced, quality = "auto", paused = false, s
         <label className="muted flex items-center gap-1.5"><input type="checkbox" checked={priv} onChange={togglePriv} />Include private (journal, on this device only)</label>
       </div>
       {lastYear && <div className="card space-y-1 text-xs">
-        <div className="muted text-[10px] uppercase tracking-widest">This day last year</div>
+        <div className="muted text-[12px] font-medium">This day last year</div>
         {lastYear.length ? <ul className="space-y-0.5">{lastYear.map((x) => <li key={x.id}><button className="chip w-full justify-between text-left" onClick={() => { go(dayIndex(data.from, x.day)); setSel(data.moments.indexOf(x)); }}>
           <span className="truncate">{x.title}</span><span className="muted">{x.day.slice(5)}</span></button></li>)}</ul> : <p className="muted">Nothing a year ago around this day.</p>}
       </div>}
@@ -290,7 +290,7 @@ export default function Chronicle({ reduced, quality = "auto", paused = false, s
         {m.links.length > 0 && <div className="flex flex-wrap gap-1.5">{m.links.map((l) => <button key={l.id} className="btn" onClick={() => open(l)}>Open {l.kind === "memory" ? "memory" : l.kind.replace("week:", "")}</button>)}</div>}
       </div>}
       {data.streaks.length > 0 && <div className="text-xs">
-        <div className="muted text-[10px] uppercase tracking-widest">Streaks</div>
+        <div className="muted text-[12px] font-medium">Streaks</div>
         <ul>{data.streaks.map((s) => <li key={s.what + s.from}><button className="chip mt-1" onClick={() => go(dayIndex(data.from, s.from))}>{s.what}: {s.days} days · {s.from.slice(5)} → {s.to.slice(5)}</button></li>)}</ul>
       </div>}
       {lanes.length > 0 && <ul className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]" aria-label="Legend">

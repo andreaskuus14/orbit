@@ -288,7 +288,7 @@ export function IfcOpen() {
   const m = s?.summary;
   return (
     <div className="card space-y-1.5 text-xs" aria-label="Open IFC model">
-      <div className="muted text-[10px] uppercase tracking-widest">Open IFC model</div>
+      <div className="muted text-[12px] font-medium">Open IFC model</div>
       <State h={h} id="ifc" onCheck={check} />
       <input type="file" accept=".ifc" disabled={busy || !toolState(h, "ifc").ok} aria-label="IFC file" onChange={(e) => void open(e.target.files?.[0])} />
       {busy && <p className="muted">Reading the model…</p>}

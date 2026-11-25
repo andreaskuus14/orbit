@@ -62,7 +62,7 @@ export function TeamStatusView() {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {SECTIONS.map((s) => (
             <section key={s} aria-label={t(`team.${s}`)} className={`space-y-2 ${PHONE_ORDER[s]}`}>
-              <h4 className="text-xs uppercase tracking-wider" style={{ color: ACCENT[s] ?? "var(--muted)" }}>{t(`team.${s}`)} · {data.board[s].length}</h4>
+              <h4 className="text-xs" style={{ color: ACCENT[s] ?? "var(--muted)" }}>{t(`team.${s}`)} · {data.board[s].length}</h4>
               {data.board[s].length
                 ? <ul className="space-y-2" style={ACCENT[s] ? { borderLeft: `2px solid ${ACCENT[s]}`, paddingLeft: "0.5rem" } : undefined}>{data.board[s].map((it) => <Item key={`${it.agent}:${it.pr ?? "-"}`} it={it} />)}</ul>
                 : <p className="muted text-xs">{t("team.none")}</p>}
