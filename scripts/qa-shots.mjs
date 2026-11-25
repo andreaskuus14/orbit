@@ -19,6 +19,8 @@ const ROOT = resolve(".");
 const OUT = resolve(process.env.QA_OUT || "smoke-shots/qa"), TAG = process.env.QA_TAG || "after";
 const SIZES = (process.env.QA_SIZES || "1440x900,390x844").split(",").map((s) => s.split("x").map(Number));
 const LANG = process.env.HOME_LANG || "en";
+// QA_FAIL=/api/kaggle,/api/local-brain → those endpoints answer 500 { error }: the planet must still render (error-as-data check).
+const FAIL = new Set((process.env.QA_FAIL || "").split(",").filter(Boolean));
 mkdirSync(OUT, { recursive: true });
 const ORIGIN = "http://orbit.test";
 const fails = [], notes = [], unknown = new Set();
@@ -183,6 +185,7 @@ async function open(w, h, { reduced = false, galaxy = true, motion = "on", phone
     if (!p.startsWith("/api/") && pub.startsWith(resolve("public")) && existsSync(pub)) return route.fulfill({ body: readFileSync(pub) });
     if (p === "/api/core" && r.method() === "POST") { await new Promise((ok) => setTimeout(ok, 400)); return route.fulfill({ contentType: "application/x-ndjson", body: coreStream() }); }
     const j = API(p, u);
+    if (FAIL.has(p)) return route.fulfill({ status: 500, json: { error: "forced 500 (QA_FAIL)" } });
     if (j !== undefined) return route.fulfill({ json: j ?? {} });
     if (p.startsWith("/api/")) { unknown.add(p); return route.fulfill({ status: 404, json: { error: "not in harness" } }); }
     return route.fulfill({ status: 404, body: "" });
@@ -216,7 +219,7 @@ try {
   for (const [w, h] of SIZES) for (const s of SCREENS) {
     if (s === "m" && w > 640) continue; // /m is the phone home
     const { ctx, page, errors, calls } = await open(w, h, { galaxy: !process.env.QA_NOGL, stubGalaxy: true, phone: s === "m" });
-    if (s !== "home" && s !== "m") { await page.evaluate((s) => { location.hash = `o=${s}`; dispatchEvent(new HashChangeEvent("hashchange")); }, s); }
+    if (s !== "home" && s !== "m") { await page.evaluate(([s, v]) => { location.hash = `o=${s}${v ? `&v=${v}` : ""}`; dispatchEvent(new HashChangeEvent("hashchange")); }, [s, process.env.QA_V || ""]); }
     await page.waitForTimeout(s === "home" ? 3500 : 5000);
     // LIFE / journal: never in a picture. Blur anything marked private before the shot.
     await page.addStyleTag({ content: "[data-private],[data-private] *{filter:blur(14px)!important;color:transparent!important;text-shadow:0 0 12px #888!important}" });
@@ -232,6 +235,7 @@ try {
       check(st.bar && st.root > 0, `${s} ${w}: top bar still there after a crash`);
       if (THROW.length) check(st.card, `${s} ${w}: crash card shown`);
     }
+    if (FAIL.size && s !== "home" && s !== "m") check(!(await page.evaluate(() => !!document.querySelector("[data-boundary]"))), `${s} ${w}: no crash card with QA_FAIL`);
     report[`${s}-${w}`] = { errors: [...new Set(errors)], issues, missingApi: [...unknown] };
     console.log(`\n## ${s} ${w}x${h}\n` + [...new Set(errors)].map((e) => "  ERR " + e).join("\n") + "\n" + issues.map((i) => "  " + i).join("\n"));
     unknown.clear(); await ctx.close();

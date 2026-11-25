@@ -2,6 +2,7 @@
 // STUDIO → Production track (Y2): his staged method on one page. Stages 4 and 5 wait for his click on the exact version shown.
 import { useCallback, useEffect, useState } from "react";
 import type { Stage, Track } from "@/lib/clips/track-pure";
+import { isTrackView, okJson } from "@/lib/json-guard-pure";
 
 type Row = { track: Track; state: { current: string; gate: string; waiting: { stage: string; ref: string; hash: string }[] } };
 const link = (ref: string) => (/^https?:\/\//.test(ref) ? ref : `/api/studio/clips/media?f=${encodeURIComponent(ref)}`);
@@ -15,7 +16,7 @@ export default function StudioTrack() {
   const [data, setData] = useState<{ stages: Stage[]; tracks: Row[] } | null>(null);
   const [err, setErr] = useState("");
   const [form, setForm] = useState({ title: "", ref: "", note: "", sec: "6" });
-  const load = useCallback(() => fetch("/api/studio/track", { cache: "no-store" }).then((r) => r.json()).then(setData, (e: Error) => setErr(e.message)), []);
+  const load = useCallback(() => fetch("/api/studio/track", { cache: "no-store" }).then(async (r) => { const j = await okJson<{ stages: Stage[]; tracks: Row[] }>(r, isTrackView); if (j) { setData(j); setErr(""); } else setErr(`Couldn't load the tracks (${r.status})`); }, (e: Error) => setErr(e.message)), []);
   useEffect(() => { void load(); }, [load]);
   const act = (b: unknown) => post(b).then(() => { setErr(""); return load(); }, (e: Error) => setErr(e.message));
   if (!data) return <p className="text-sm opacity-70">{err || "Loading…"}</p>;

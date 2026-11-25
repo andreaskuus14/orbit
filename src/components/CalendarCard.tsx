@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { eventDay, eventTime, type CalEvent } from "@/lib/gcal-pure";
 import { useT } from "./i18n";
 import { askConfirm } from "./ui/Dialog";
+import { isCalView, okJson } from "@/lib/json-guard-pure";
 
 type CalState = { configured: boolean; connected: boolean; expired?: boolean; events?: CalEvent[]; error?: string; timetable?: { url: string | null } };
 const dayLabel = (k: string) => new Date(`${k}T12:00`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
@@ -11,7 +12,7 @@ const dayLabel = (k: string) => new Date(`${k}T12:00`).toLocaleDateString([], { 
 export default function CalendarCard() {
   const { t } = useT();
   const [s, setS] = useState<CalState | null>(null);
-  const load = useCallback(() => fetch("/api/life/calendar").then((r) => r.json()).then(setS, () => setS(null)), []);
+  const load = useCallback(() => fetch("/api/life/calendar").then((r) => okJson<CalState>(r, isCalView)).then(setS, () => setS(null)), []);
   useEffect(() => { void load(); }, [load]);
   const disconnect = async () => {
     if (!(await askConfirm(t("cal.disconnectAsk"), { ok: t("lf.cal.disconnect"), danger: true }))) return;

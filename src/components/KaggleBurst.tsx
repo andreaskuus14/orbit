@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { contentHash } from "@/lib/approval-pure";
 import { isLive, kaggleContent, type Job, type Offer, type Quota } from "@/lib/kaggle-pure";
 import { useT } from "./i18n";
+import { ErrorState } from "./ui/State";
+import { isKaggleView, okJson } from "@/lib/json-guard-pure";
 
 // OPERATIONS → Local AI → Kaggle burst (lib/kaggle.ts, /api/kaggle). Each upload is his own two clicks on one offer whose exact script he can read.
 type View = { on: boolean; setup: { ok: boolean; hint: string }; quota: Quota | null; hoursLeft: number; job: Job | null; offers: Offer[] };
@@ -10,10 +12,11 @@ type View = { on: boolean; setup: { ok: boolean; hint: string }; quota: Quota | 
 export function KaggleBurst() {
   const { t } = useT();
   const [v, setV] = useState<View | null>(null);
+  const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState("");
   const [sure, setSure] = useState("");
   const [err, setErr] = useState("");
-  const load = useCallback(() => { void fetch("/api/kaggle", { cache: "no-store" }).then((r) => r.json()).then(setV, () => setV(null)); }, []);
+  const load = useCallback(() => { void fetch("/api/kaggle", { cache: "no-store" }).then((r) => okJson<View>(r, isKaggleView)).then((x) => { setV(x); setFailed(!x); }, () => { setV(null); setFailed(true); }); }, []);
   useEffect(load, [load]);
   const live = isLive(v?.job);
   useEffect(() => { if (!live) return; const i = setInterval(load, 30_000); return () => clearInterval(i); }, [live, load]);
@@ -30,7 +33,7 @@ export function KaggleBurst() {
     setSure("");
     void contentHash(kaggleContent(o)).then((seen) => act(o.id, { action: "approve", id: o.id, seen }));
   };
-  if (!v) return null;
+  if (!v) return failed ? <ErrorState title={t("common.cantLoad", { what: t("kag.title") })} retryLabel={t("common.tryAgain")} onRetry={load} /> : null;
   const j = v.job;
   return (
     <div className="glass grid gap-1 rounded-lg p-2 text-xs" aria-label={t("kag.title")}>
