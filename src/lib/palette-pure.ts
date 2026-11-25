@@ -90,3 +90,6 @@ export function rowsOf(body: unknown, max = 6): { id: string; title: string }[] 
   }
   return out;
 }
+
+/** Hints come from data in capitals ("GOAL", "BUSINESS · lead", "Task waiting · OPERATIONS"). Show them in sentence case; CORE stays as the name. */
+export const sentenceHint = (h: string): string => h.replace(/\b[A-Z]{3,}\b/g, (w) => (w === "CORE" ? w : w[0] + w.slice(1).toLowerCase()));

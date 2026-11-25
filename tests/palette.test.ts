@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { score, rank, fold, pushRecent, parseRecent, prospectRows, rowsOf } from "../src/lib/palette-pure.ts";
+import { score, rank, fold, pushRecent, parseRecent, prospectRows, rowsOf, sentenceHint } from "../src/lib/palette-pure.ts";
 
 test("tiers: prefix > word start > substring > subsequence > none", () => {
   const p = score("mem", "Memory"), w = score("mem", "Go to memory"), s = score("emo", "Memory"), q = score("mmy", "Memory");
@@ -77,4 +77,12 @@ test("rowsOf accepts array or wrapped bodies, skips junk", () => {
 test("rowsOf reads VAULT file rows by name", async () => {
   const { rowsOf } = await import("../src/lib/palette-pure.ts");
   assert.deepEqual(rowsOf({ files: [{ name: "taxes.pdf", size: 1 }] }), [{ id: "taxes.pdf", title: "taxes.pdf" }]);
+});
+
+test("sentenceHint: capitals become sentence case, CORE stays", () => {
+  assert.equal(sentenceHint("GOAL"), "Goal");
+  assert.equal(sentenceHint("BUSINESS · lead"), "Business · lead");
+  assert.equal(sentenceHint("Task waiting · OPERATIONS"), "Task waiting · Operations");
+  assert.equal(sentenceHint("CORE · chat"), "CORE · chat");
+  assert.equal(sentenceHint("Acme Oy"), "Acme Oy");
 });

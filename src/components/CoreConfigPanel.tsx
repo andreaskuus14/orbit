@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useT } from "./i18n";
+import "@/app/planet-ui.css";
 import type { CoreConfig } from "@/lib/core-capability-pure";
 
 /** DEV world: the effective CORE setup (GET /api/core), so a weaker model or a low cap is visible, never silent. */
@@ -24,7 +25,7 @@ export default function CoreConfigPanel() {
   ];
   return (
     <section aria-label={t("coreCfg.aria")}>
-      <div className="hud-title uppercase">{t("ccfg.title")}</div>
+      <h3 className="pu-kicker">{t("ccfg.title")}</h3>
       <dl className="mt-2 space-y-1 text-xs">
         {rows.map(([k, v]) => <div key={k}><dt className="muted inline">{k}: </dt><dd className="inline">{v}</dd></div>)}
       </dl>
