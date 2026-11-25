@@ -51,7 +51,7 @@
   box-shadow: 0 30px 70px -30px #000e, inset 0 0 30px #7ae3ff0a, 0 0 22px -12px #9fdcff59;
   transition: --edge 2.4s cubic-bezier(.3, .7, .2, 1), --scan 1.8s cubic-bezier(.4, 0, .2, 1), box-shadow .4s; }
 /* Reading surfaces: denser fill so long text stays AA over a bright planet. */
-.orbit-shell :is(.drawer, .morning-card, .work-sheet, .world-panel, .hud-menu, .keys-overlay).glass, .orbit-shell .continue-work-float { background-color: var(--hud-fill-solid); }
+.orbit-shell :is(.drawer, .morning-card, .work-sheet, .world-panel, .hud-menu).glass, .orbit-shell .continue-work-float { background-color: var(--hud-fill-solid); }
 /* Glyph serials on fixed (non-scrolling) frames; the `/ ""` alt text keeps them out of the accessibility tree. */
 .orbit-shell :is(.drawer, .status-hud)::after { content: "◬ ORB·7F3A // LINK" / ""; position: absolute; right: .6rem; bottom: .3rem; pointer-events: none;
   font-family: var(--font-mono); font-size: 8px; line-height: 1; letter-spacing: .3em; color: #9fe8ff70; }
@@ -106,7 +106,7 @@
     50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, 50% 100%, -60px -60px); }
 }
 @keyframes hud-fold { 0% { clip-path: inset(-60px); opacity: 1; } 55% { clip-path: inset(calc(50% - 1px) 0); opacity: 1; } 100% { clip-path: inset(calc(50% - 1px) 50%); opacity: 0; } }
-.orbit-shell .drawer.glass:not(.drawer-out), .orbit-shell :is(.panel-in, .morning-card, .status-hud, .studio-rail, .continue-work-float, .work-sheet, .keys-overlay[open], .hud-menu:popover-open) {
+.orbit-shell .drawer.glass:not(.drawer-out), .orbit-shell :is(.panel-in, .morning-card, .status-hud, .studio-rail, .continue-work-float, .work-sheet, .hud-menu:popover-open) {
   animation-name: hud-unfold; animation-duration: .22s; animation-timing-function: linear; animation-fill-mode: both; }
 .orbit-shell .drawer.glass.drawer-out { animation: hud-fold .18s cubic-bezier(.6, 0, .8, .3) forwards; }
 .orbit-shell .status-hud dl > div { border: 0; padding-bottom: .1rem; }
