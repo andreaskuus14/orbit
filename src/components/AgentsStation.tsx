@@ -575,7 +575,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
       {/* Kit shell (design-language.md): one header (dot, name, status, "…", close), plain words, kit states. */}
       <div className="world-shell-slot panel-in absolute z-[14] inset-x-3 bottom-32 flex h-[55dvh] flex-col min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:top-[4.5rem] min-[900px]:right-3 min-[900px]:h-[calc(100dvh-11rem)] min-[900px]:w-[30rem]">
       <PlanetShell planet="agents" className="agents-shell" title={t("agt.title")} onClose={onClose} closeLabel={t("common.close")} closeClassName="world-back"
-        status={agents ? t("agt.context", { n: list.length, w: list.filter((a) => status[a.slug] === "working").length, a: list.filter((a) => status[a.slug] === "waiting").length }) : undefined}
+        status={agents ? (() => { const w = list.filter((x) => status[x.slug] === "working").length, a = list.filter((x) => status[x.slug] === "waiting").length; return t("agt.status", { n: list.length, w }) + (a ? ` · ${t("agt.statusWait", { a })}` : ""); })() : undefined /* short: a phone header fits it */}
         menuLabel={t("agt.more")} menu={[{ label: t("agt.manual"), onSelect: () => { setSelected(null); setManage(false); setManual(true); } }, { label: t("agt.manage"), onSelect: () => { setSelected(null); setManage(true); } }]}>
         {!agents ? (
           err ? <ErrorState title={t("agt.loadFailed")} text={t("agt.loadFailedText")} retryLabel={t("state.retry")} onRetry={loadAgents} /> : <Loading label={t("agt.loading")} />
@@ -626,7 +626,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
       </PlanetShell>
       </div>
 
-      <div role="log" aria-label="Agent activity" aria-relevant="additions" className="glass agents-log absolute z-[14] inset-x-3 bottom-[6.25rem] flex gap-4 overflow-x-auto whitespace-nowrap rounded-full px-4 py-1.5 text-xs min-[900px]:right-[32rem]">
+      <div role="log" aria-label="Agent activity" aria-relevant="additions" className="pu agents-log absolute z-[14] inset-x-3 bottom-[7.75rem] flex gap-4 overflow-x-auto whitespace-nowrap px-4 py-1.5 text-xs min-[900px]:right-[32rem]">
         <span className="agents-log-title shrink-0">{t("agt.activity")}</span>
         {feed.map((e) => (
           <span key={e.key} className="shrink-0">
