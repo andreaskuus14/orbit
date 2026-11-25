@@ -75,14 +75,14 @@ export default function NegotiatorBox({ refKey, title, hint }: { refKey: string;
       )}
       {n && n.turns.length > 0 && (
         <ol className="max-h-40 space-y-1 overflow-auto">{n.turns.map((u, i) => (
-          <li key={i} className={u.from === "me" ? "pl-4" : ""}><span className="muted">{u.from === "me" ? `${t("neg.you")}${u.via === "email" ? ` ${t("neg.emailed")}` : u.via === "unknown" ? ` ${t("neg.emailUnknown")}` : ""}` : `${t("neg.them")}${u.intent ? ` · ${u.intent}` : ""}`}:</span> <span className="whitespace-pre-wrap">{u.text}</span></li>
+          <li key={i} className={u.from === "me" ? "pl-4" : ""}><span className="muted">{u.from === "me" ? `${t("neg.you")}${u.via === "email" ? ` ${t("neg.emailed")}` : u.via === "unknown" ? ` ${t("neg.emailUnknown")}` : ""}` : `${t("neg.them")}${u.intent ? ` · ${t(`neg.i.${u.intent}`)}` : ""}`}:</span> <span className="whitespace-pre-wrap">{u.text}</span></li>
         ))}</ol>
       )}
       {n?.state === "talking" && (
         <div className="space-y-1">
           <textarea className="field w-full" rows={2} aria-label={t("neg.theirReply")} placeholder={t("neg.pastePh")} maxLength={3000} value={reply} onChange={(e) => setReply(e.target.value)} />
           <div className="flex flex-wrap items-center gap-1.5">
-            <select className="chip" aria-label={t("neg.intentAria")} value={intent} onChange={(e) => setIntent(e.target.value as Intent | "auto")}><option value="auto">{t("neg.intentAuto")}</option>{INTENTS.map((i) => <option key={i} value={i}>{t("neg.intent", { i })}</option>)}</select>
+            <select className="chip" aria-label={t("neg.intentAria")} value={intent} onChange={(e) => setIntent(e.target.value as Intent | "auto")}><option value="auto">{t("neg.intentAuto")}</option>{INTENTS.map((i) => <option key={i} value={i}>{t("neg.intent", { i: t(`neg.i.${i}`) })}</option>)}</select>
             <select className="chip" aria-label={t("neg.lang")} value={lang} onChange={(e) => setLang(e.target.value)}>{LANGS.map((l) => <option key={l}>{l}</option>)}</select>
             <button className="chip" disabled={any || !reply.trim()} onClick={() => void act("reply", { action: "reply", id: n.id, text: reply, lang, ...(intent !== "auto" && { intent }) }, () => setReply(""))}>{busy === "reply" ? t("neg.writing") : t("neg.readDraft")}</button>
             <button className="chip" disabled={any} onClick={() => void act("redraft", { action: "redraft", id: n.id, lang, ...(intent !== "auto" && { intent }) })}>{busy === "redraft" ? t("neg.writing") : n.turns.length ? t("neg.redraft") : t("neg.opening")}</button>

@@ -42,6 +42,8 @@ function Num({ label, value, on, min = 0, step = 0.5 }: { label: string; value: 
     <input className="field w-16" type="number" step={step} min={min} value={Math.round(value * 100) / 100} aria-label={label}
       onChange={(e) => { const v = Number(e.target.value); if (e.target.value !== "" && Number.isFinite(v) && v >= min) on(v); }} /></label>;
 }
+const NB_KEY = { "5-floor block": "asite.nb5", "9-floor block": "asite.nb9", "Across the street": "asite.nbAcross", "Shed": "asite.nbShed", "Tallinn house, 3 floors": "asite.nbTallinn", "Wooden house, 2 floors": "asite.nbWood" } as const; // preset neighbour names, translated when a preset is applied
+const PRESET_KEY = { tallinn: "asite.pTallinn", kalamaja: "asite.pKalamaja", soviet: "asite.pSoviet" } as const; // lib preset labels by stable key
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 let seq = Date.now();
 
@@ -66,7 +68,7 @@ export function SitePanel({ site, set, parts, sun }: { site: Site; set: SetSite;
   return (
     <div className="card space-y-2" aria-label={t("asite.aria")}>
       <div className="muted text-[12px] font-medium">{t("asite.head")}</div>
-      <div className="flex flex-wrap gap-1">{PRESETS.map((p) => <button key={p.key} className="chip" onClick={() => set((s) => ({ ...s, ...p.site, draft: null }))}>{p.label}</button>)}</div>
+      <div className="flex flex-wrap gap-1">{PRESETS.map((p) => <button key={p.key} className="chip" onClick={() => set((s) => ({ ...s, ...p.site, neighbours: p.site.neighbours.map((b) => ({ ...b, name: b.name in NB_KEY ? t(NB_KEY[b.name as keyof typeof NB_KEY]) : b.name })), draft: null }))}>{p.key in PRESET_KEY ? t(PRESET_KEY[p.key as keyof typeof PRESET_KEY]) : p.label}</button>)}</div>
       <div className="flex flex-wrap items-center gap-2">
         <Num label={t("asite.plotW")} value={bw} min={5} on={(w) => set((s) => ({ ...s, plot: rect(0, 0, w, bd) }))} />
         <Num label={t("asite.plotD")} value={bd} min={5} on={(d) => set((s) => ({ ...s, plot: rect(0, 0, bw, d) }))} />
