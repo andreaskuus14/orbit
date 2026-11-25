@@ -2,34 +2,35 @@
 // "?" (when not typing) opens a list of ORBIT's keyboard shortcuts. Also opened by the header menu via SHORTCUTS_EVENT.
 import { useEffect, useRef } from "react";
 import { useT } from "./i18n";
+import type { Key } from "@/lib/i18n-en-pure";
 
 export const SHORTCUTS_EVENT = "orbit:shortcuts";
 
 // Gathered from the handlers: Orbit.tsx, EveningCapture.tsx, voice/VoiceControls.tsx, ReviewQueue.tsx, ClipFactory.tsx. Keep in sync when adding keys.
-const GROUPS: [string, [string, string][]][] = [
-  ["Everywhere", [
-    ["Ctrl/⌘ K (or P)", "Warp: jump to any place, search memories, goals, approvals, people, files; quick actions"],
-    ["Ctrl M", "Start / stop voice input"],
-    ["Alt W", "Work: tasks, routines, saved workflows, goals (skips the galaxy)"],
-    ["Ctrl/⌘ Shift E", "Today in a minute: a short evening note"],
-    ["Esc (CORE answering)", "Stop the answer"],
-    ["↑ (empty CORE input)", "Bring back your last question"],
-    ["Enter", "While listening: done talking"],
-    ["Esc", "Cancel listening · close a popover or panel"],
-    ["← →", "Fly to the previous / next planet"],
-    ["?", "Show this list"],
-    ["` (key left of 1)", "fsociety terminal: live read-only feed (same key or Esc closes)"],
+const GROUPS: [Key, [string, Key][]][] = [
+  ["keys.d20", [
+    ["keys.k.ctrlK", "keys.d1"],
+    ["Ctrl M", "keys.d2"],
+    ["Alt W", "keys.d3"],
+    ["Ctrl/⌘ Shift E", "keys.d4"],
+    ["keys.k.escCore", "keys.d5"],
+    ["keys.k.upEmpty", "keys.d6"],
+    ["Enter", "keys.d7"],
+    ["Esc", "keys.d8"],
+    ["← →", "keys.d9"],
+    ["?", "keys.d10"],
+    ["keys.k.backtick", "keys.d11"],
   ]],
-  ["Studio · review queue", [
-    ["A", "Approve clip"],
-    ["R", "Reject (then 1–9 for a reason, Enter to confirm)"],
-    ["V", "Versions"],
-    ["T", "Edit title"],
-    ["M", "Mute / unmute"],
-    ["← →", "Previous / next clip"],
-    ["Esc", "Back out / close the queue"],
+  ["keys.d21", [
+    ["A", "keys.d12"],
+    ["R", "keys.d13"],
+    ["V", "keys.d14"],
+    ["T", "keys.d15"],
+    ["M", "keys.d16"],
+    ["← →", "keys.d17"],
+    ["Esc", "keys.d18"],
   ]],
-  ["Studio · clip factory", [["← →", "Switch tabs (when a tab is focused)"]]],
+  ["keys.d22", [["← →", "keys.d19"]]],
 ];
 
 export function ShortcutsOverlay() {
@@ -57,9 +58,9 @@ export function ShortcutsOverlay() {
       </div>
       {GROUPS.map(([name, rows]) => (
         <section key={name} className="mb-3 last:mb-0">
-          <h3 className="h3 mb-1.5">{name}</h3>
+          <h3 className="h3 mb-1.5">{t(name)}</h3>
           <dl className="keys-list">
-            {rows.map(([k, what]) => <div key={name + k}><dt><kbd>{k}</kbd></dt><dd>{what}</dd></div>)}
+            {rows.map(([k, what]) => <div key={name + k}><dt><kbd>{k.startsWith("keys.") ? t(k as Key) : k}</kbd></dt><dd>{t(what)}</dd></div>)}
           </dl>
         </section>
       ))}
