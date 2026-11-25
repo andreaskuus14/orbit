@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import * as pure from "../src/lib/facts-pure.ts";
 import * as entityPure from "../src/lib/entity-memory-pure.ts";
+import { translate } from "../src/lib/i18n-pure.ts";
 
 const require = createRequire(import.meta.url);
 const fact = (id: string, patch: Partial<pure.Fact> = {}) => ({ id, user_id: "owner", subject: "shorts", statement: "I prefer short Shorts", status: "current", source: "user_said", source_ref: "msg",
@@ -145,7 +146,7 @@ test("CORE reads only current facts and linked superseded owner facts, never wro
 
 const uiModule = { exports: {} as any };
 runInNewContext(compile("components/BeliefsPanel.tsx"), { module: uiModule, exports: uiModule.exports,
-  require: (name: string) => name.endsWith("facts-pure") ? pure : name.endsWith("nav-pure") ? {} : require(name),
+  require: (name: string) => name.endsWith("facts-pure") ? pure : name.endsWith("nav-pure") ? {} : name === "./i18n" ? { useT: () => ({ lang: "en", t: (k: never, v?: never) => translate("en", k, v) }) } : require(name),
 });
 const callbacks = { onBack() {}, onEdit() {}, onSave() {}, onWrong() {}, onRestore() {} };
 
