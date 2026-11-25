@@ -47,7 +47,7 @@ export function ArchMaterials({ q }: { q: Boq }) {
 
   return (
     <div className="card space-y-2" aria-label="Materials lab">
-      <div className="muted text-[10px] uppercase tracking-widest">Materials lab · two schemes on this model</div>
+      <div className="muted text-[12px] font-medium">Materials lab · two schemes on this model</div>
       <table className="w-full text-xs"><thead><tr className="muted text-left"><th>Part</th><th className="text-right">m²</th>
         {schemes.map((sc, i) => <th key={i} className="text-right" colSpan={3}>{sc.name}</th>)}</tr>
         <tr className="muted text-[10px]"><th /><th />{schemes.map((_, i) => <Fragment key={i}><th className="text-right">€</th><th className="text-right">kgCO₂e</th><th className="text-right">U</th></Fragment>)}</tr></thead>

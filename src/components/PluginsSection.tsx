@@ -62,7 +62,7 @@ export function PluginsSection() {
       {v?.stopAll && <p className="text-sm text-amber-400">Stop-all is on: plugin calls are paused.</p>}
 
       {!!v?.pending.length && <div className="space-y-2" aria-label="Waiting for your click">
-        <div className="muted text-[10px] uppercase tracking-widest">Waiting for your click</div>
+        <div className="muted text-[12px] font-medium">Waiting for your click</div>
         {v.pending.map((q) => (
           <div key={q.id} className="rounded border border-amber-400/40 p-2 text-sm">
             <div><b>{q.server}</b> → {q.tool} <span className="muted text-xs">· {new Date(q.at).toLocaleString()}</span></div>

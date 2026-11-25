@@ -100,8 +100,7 @@ export function GenUiFrame({ block, onAction }: GenUiFrameProps) {
               borderRadius: 999,
               background: "rgba(56, 189, 248, 0.14)",
               color: "#7dd3fc",
-              letterSpacing: "0.03em",
-              textTransform: "uppercase",
+
             }}
           >
             {block.streaming ? "Building…" : `Offline · ${block.kind}`}

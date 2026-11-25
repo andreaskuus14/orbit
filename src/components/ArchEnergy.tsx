@@ -17,7 +17,7 @@ export function ArchEnergy({ parts, site, north }: { parts: Part[]; site: { lat:
   const sum = (k: "peakW" | "kWh") => (rows ?? []).reduce((s, r) => s + r[k], 0);
   return (
     <div className="card space-y-1.5" aria-label={t("arch.energyHead", { site: site.name })}>
-      <div className="muted text-[10px] uppercase tracking-widest">{t("arch.energyHead", { site: site.name })}</div>
+      <div className="muted text-[12px] font-medium">{t("arch.energyHead", { site: site.name })}</div>
       <details className="text-xs"><summary className="cursor-pointer">{t("arch.energyInputs")}</summary>
         <div className="grid grid-cols-2 gap-1 pt-1">{(Object.keys(ENERGY_INPUTS) as (keyof EnergyInputs)[]).map((k) => (
           <label key={k} className="flex items-center justify-between gap-1"><span className="muted text-[11px]">{t(`arch.ein.${k}`)}</span>

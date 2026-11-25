@@ -34,7 +34,7 @@ export function ArchTimeMachine({ scene, save, onPreview, onRestore, project = n
   const v = i === null ? null : versions[i];
   return (
     <div className="card space-y-1.5" aria-label="Version history">
-      <div className="muted text-[10px] uppercase tracking-widest">Time machine · {versions.length} saved version{versions.length === 1 ? "" : "s"}</div>
+      <div className="muted text-[12px] font-medium">Time machine · {versions.length} saved version{versions.length === 1 ? "" : "s"}</div>
       {versions.length ? <>
         <label className="flex items-center gap-2 text-xs">
           <span className="num w-28">{v ? new Date(v.at).toLocaleString("et-EE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "Now (live)"}</span>

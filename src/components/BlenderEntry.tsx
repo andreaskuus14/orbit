@@ -22,7 +22,7 @@ export function MakeInBlender() {
   const [name, setName] = useState("");
   return (
     <div className="card space-y-1.5 text-xs" aria-label="Make in Blender">
-      <div className="muted text-[10px] uppercase tracking-widest">Make in Blender</div>
+      <div className="muted text-[12px] font-medium">Make in Blender</div>
       <p className="muted">CORE models it in your Blender and exports .fbx + .glb to VAULT for Roblox&apos;s Import 3D. Code runs only after your Run click in Profile → Plugins.</p>
       {b.known && !b.ready && <p className="text-amber-400">{SETUP}</p>}
       <textarea className="field h-16 w-full" maxLength={1500} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="a low-poly wooden treasure chest with gold trim" aria-label="Model description" />
@@ -40,7 +40,7 @@ export function OpenInBlender() {
   const prompt = openIfcPrompt(file, action, b.vault);
   return (
     <div className="card space-y-1.5 text-xs" aria-label="Open in Blender/Bonsai">
-      <div className="muted text-[10px] uppercase tracking-widest">Open in Blender / Bonsai</div>
+      <div className="muted text-[12px] font-medium">Open in Blender / Bonsai</div>
       {b.known && !b.ready && <p className="text-amber-400">{SETUP}</p>}
       <input className="field w-full" value={file} onChange={(e) => setFile(e.target.value)} placeholder="full path of the .ifc on this PC, e.g. C:\Users\you\Documents\house.ifc" aria-label="IFC file path" />
       <select value={action} onChange={(e) => setAction(e.target.value as IfcAction)} aria-label="What to do">

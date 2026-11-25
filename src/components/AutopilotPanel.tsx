@@ -97,7 +97,7 @@ export default function AutopilotPanel({ active: tabOn, rev = 0, onChanged, onRe
                 strokeDasharray={`${cap ? Math.min(1, used / cap) * 144.5 : 0} 144.5`} style={{ filter: "drop-shadow(0 0 4px rgba(255,46,99,0.7))", transition: "stroke-dasharray 0.6s" }} />
               <text x="28" y="32" textAnchor="middle" className="num" fill="#ffe5ec" fontSize="13" fontWeight="700">{used}/{cap}</text>
             </svg>
-            <span className="leading-tight"><span className="muted block text-[10px] uppercase tracking-widest">{tr("ap.today")}</span><b className="num">{used}/{cap}</b> {tr("ap.videos")}</span>
+            <span className="leading-tight"><span className="muted block text-[12px] font-medium">{tr("ap.today")}</span><b className="num">{used}/{cap}</b> {tr("ap.videos")}</span>
           </div>
 
           <p className="min-w-[12rem] flex-1 text-sm font-semibold" role="status" aria-live="polite">
@@ -244,7 +244,7 @@ function Bars({ title, dim, rec }: { title: string; dim: "creator" | "length" | 
   const { bars, one } = multBars(dim, rec);
   return (
     <figure className="rounded-lg border border-white/10 p-2">
-      <figcaption className="muted mb-1 text-[10px] uppercase tracking-widest">{title}</figcaption>
+      <figcaption className="muted mb-1 text-[12px] font-medium">{title}</figcaption>
       {!bars.length ? <p className="muted">{tr("ap.noData")}</p> : <ul className="space-y-1">{bars.map((b) => (
         <li key={b.label} className="grid grid-cols-[minmax(0,5rem)_1fr_2rem_3.6rem] items-center gap-1.5" aria-label={`${b.label}: ${b.mult.toFixed(2)}× usual views, ${b.n} Shorts, ${b.badge} signal`}>
           <span className="truncate" title={b.label}>{b.label}</span>

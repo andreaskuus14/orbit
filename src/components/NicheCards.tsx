@@ -35,7 +35,7 @@ export default function NicheCards() {
   return (
     <section className="space-y-2" aria-label="Webshop niche ideas">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-[11px] uppercase tracking-widest muted">Webshop niches · weekly scout</h3>
+        <h3 className="text-[12px] font-medium muted">Webshop niches · weekly scout</h3>
         <button className="chip" disabled={any} onClick={() => void act("scout", { action: "scout" })}>{b?.busy === "scout" ? "Scouting the web… (a few minutes)" : "Scout now"}</button>
       </div>
       <ChatsBox />

@@ -80,7 +80,7 @@ export default function ShortsBoard({ jobs, active, reduced, onOpen, onPickTitle
           const list = byStage.get(stage)!, shown = all[stage] ? list : list.slice(0, PER_STAGE), id = `sb-${stage}`;
           return (
             <section key={stage} className="min-w-0 rounded-xl border border-white/10 p-1.5" aria-labelledby={id}>
-              <h4 id={id} className="muted mb-1 flex justify-between text-[10px] font-semibold uppercase tracking-widest"><span className="truncate">{LABEL[stage]}</span><span className="num">{list.length}</span></h4>
+              <h4 id={id} className="muted mb-1 flex justify-between text-[12px] font-semibold"><span className="truncate">{LABEL[stage]}</span><span className="num">{list.length}</span></h4>
               {!list.length && <p className="muted text-[11px]">—</p>}
               <ul className="space-y-1">
                 {shown.map((c) => (

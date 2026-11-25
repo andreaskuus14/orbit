@@ -37,7 +37,7 @@ export default function BusinessOverview({ onClient, onMoney }: { onClient: (id:
           return (
             <button key={k} className={`card !p-1.5 text-left ${notCash ? "border-dashed opacity-80" : ""}`} aria-pressed={open === k} onClick={() => setOpen(open === k ? "" : k)}
               title={m.stale && m.at ? t("bov.updated", { t: time(m.at) }) : undefined}>
-              <div className="muted text-[9px] uppercase tracking-widest leading-tight">{t(`bov.${k}` as "bov.paid")}</div>
+              <div className="muted text-[12px] font-medium leading-tight">{t(`bov.${k}` as "bov.paid")}</div>
               <div className={`num text-sm font-semibold ${notCash ? "muted" : k === "overdue" && m.n ? "warn" : ""}`}>
                 {m.n === null ? <span className="muted text-[10px] font-normal">{t("bov.noData")}</span> : money ? euro(m.cents ?? 0) : m.n}</div>
               {notCash && <div className="muted text-[9px]">{t("biz.split.notCash")}</div>}

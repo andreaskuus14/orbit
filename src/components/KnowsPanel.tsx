@@ -57,7 +57,7 @@ export function KnowsPanel({ onBack, onBeliefs }: { onBack: () => void; onBelief
       {view && !view.groups.length && <p className="muted text-sm">{t("knows.empty")}</p>}
       {view?.groups.map((g) => (
         <section key={g.group} aria-label={t(`knows.g.${g.group}` as Key)} className="space-y-1.5">
-          <h4 className="text-xs font-semibold uppercase tracking-wide opacity-70">{t(`knows.g.${g.group}` as Key)} · {g.items.length}</h4>
+          <h4 className="text-xs font-semibold opacity-70">{t(`knows.g.${g.group}` as Key)} · {g.items.length}</h4>
           {g.group === "journal" && <p className="muted text-xs">{t("knows.journalNote")}</p>}
           <ul className="space-y-1">
             {g.items.map((i) => (

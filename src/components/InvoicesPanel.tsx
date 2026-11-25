@@ -59,9 +59,9 @@ export default function InvoicesPanel({ prospects }: { prospects: { id: string; 
 
       {d && (
         <div className="grid grid-cols-3 gap-2">
-          <div className="card !p-2"><div className="muted text-[10px] uppercase tracking-widest">Owed to you</div><div className="num text-lg font-semibold">{euro(d.open)}</div></div>
-          <div className="card !p-2"><div className="muted text-[10px] uppercase tracking-widest">Overdue</div><div className={`num text-lg font-semibold ${d.overdue ? "warn" : ""}`}>{euro(d.overdue)}</div></div>
-          <div className="card !p-2"><div className="muted text-[10px] uppercase tracking-widest">Paid, 30 days</div><div className="num text-lg font-semibold">{euro(d.paid30)}</div>
+          <div className="card !p-2"><div className="muted text-[12px] font-medium">Owed to you</div><div className="num text-lg font-semibold">{euro(d.open)}</div></div>
+          <div className="card !p-2"><div className="muted text-[12px] font-medium">Overdue</div><div className={`num text-lg font-semibold ${d.overdue ? "warn" : ""}`}>{euro(d.overdue)}</div></div>
+          <div className="card !p-2"><div className="muted text-[12px] font-medium">Paid, 30 days</div><div className="num text-lg font-semibold">{euro(d.paid30)}</div>
             {d.refunds30 > 0 && <div className="muted text-[10px]">{t("inv.refunds30")} {euro(d.refunds30)}</div>}</div>
         </div>
       )}

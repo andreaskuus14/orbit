@@ -13,6 +13,19 @@ test("every Estonian key exists in English, with the same placeholders", () => {
   }
 });
 
+test("every English key has an Estonian key and vice versa", () => {
+  const missingEt = Object.keys(EN).filter((k) => !(k in ET));
+  const missingEn = Object.keys(ET).filter((k) => !(k in EN));
+  assert.deepEqual(missingEt, [], `EN keys with no ET: ${missingEt.join(", ")}`);
+  assert.deepEqual(missingEn, [], `ET keys with no EN: ${missingEn.join(", ")}`);
+});
+
+test("no shouted ALL-CAPS labels (sentence case); acronyms and planet names allowed", () => {
+  const ok = /^(planet\.|sys\.title$)/;
+  const bad = Object.entries({ ...EN, ...ET } as Record<string, string>).filter(([k, v]) => !ok.test(k) && /[A-ZÕÄÖÜ]{3,} [A-ZÕÄÖÜ]{2,}/.test(v) && v === v.toUpperCase());
+  assert.deepEqual(bad.map(([k]) => k), []);
+});
+
 test("every planet has an English and an Estonian name and blurb", () => {
   for (const p of PLANETS) {
     assert.equal(EN[`planet.${p.id}`], p.name);

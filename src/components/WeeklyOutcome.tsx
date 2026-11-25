@@ -18,13 +18,13 @@ export default function WeeklyOutcome() {
   const show = (k: (typeof KEYS)[number], m: WeekMetric) => m.value === null ? null : k === "revenueCents" ? euro(m.value) : m.value;
   return (
     <section className="card !p-2 space-y-1.5" aria-label={t("wk.title")}>
-      <div className="muted text-[10px] uppercase tracking-widest">{t("wk.title")} · {t("wk.window", { a: w.start, b: w.end })}</div>
+      <div className="muted text-[12px] font-medium">{t("wk.title")} · {t("wk.window", { a: w.start, b: w.end })}</div>
       <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
         {KEYS.map((k) => {
           const m = w[k], v = show(k, m);
           return (
             <div key={k} className="card !p-1.5">
-              <div className="muted text-[9px] uppercase tracking-widest leading-tight">{t(LABEL[k])}</div>
+              <div className="muted text-[12px] font-medium leading-tight">{t(LABEL[k])}</div>
               <div className="num text-sm font-semibold">{v === null ? <span className="muted text-[10px] font-normal">{t("wk.notConnected")}</span> : v}</div>
               {"of" in m && m.of && <div className="muted text-[9px]">{m.of}</div>}
               <a className="link text-[9px]" href={m.source.link}>{t("wk.source")}: {m.source.label}</a>

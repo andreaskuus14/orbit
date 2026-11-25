@@ -214,7 +214,7 @@ export function MemoryReview({ onChanged }: { onChanged: () => void }) {
   if (!list?.length && !err) return null;
   return (
     <div className="card space-y-2" aria-label={t("memrev.title")}>
-      <div className="muted text-[10px] uppercase tracking-widest">{t("memrev.title")}</div>
+      <div className="muted text-[12px] font-medium">{t("memrev.title")}</div>
       {err && <p className="error" role="alert">{err}</p>}
       <ul className="space-y-3">{(list ?? []).map((it) => (
         <li key={it.key} className="space-y-1">

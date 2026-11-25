@@ -304,7 +304,7 @@ function Kpi({ label, value, cur, prev, spark, few }: { label: string; value: st
   const d = few ? { dir: 0, text: "—" } : delta(cur, prev); // few views: a % change would be noise
   return (
     <div className="card !p-2.5">
-      <dt className="muted text-[10px] uppercase tracking-widest">{label}</dt>
+      <dt className="muted text-[12px] font-medium">{label}</dt>
       <dd className="num text-xl font-semibold">{value}</dd>
       <dd className="num text-[11px] !text-shadow-none" style={{ color: d.dir > 0 ? C.rose : "var(--muted)" }}>
         {d.text} <span className="sr-only">{tr(few ? "ss.tooFewPrev" : "ss.vsPrevLong")}</span><span aria-hidden className="muted">{tr("ss.vsPrev")}</span>
@@ -669,7 +669,7 @@ function TopVideos({ rows, titleOf, onPick, selected }: { rows: NonNullable<Live
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
-        <thead className="muted text-[10px] uppercase tracking-widest">
+        <thead className="muted text-[12px] font-medium">
           <tr><th scope="col" className="w-6 text-left">#</th><th scope="col" className="text-left">{tr("ss.video")}</th><th scope="col" className="text-right">{tr("ss.views")}</th><th scope="col" className="text-right">{tr("ss.watchH")}</th><th scope="col" className="text-right">{tr("ss.avg")}</th></tr>
         </thead>
         <tbody>

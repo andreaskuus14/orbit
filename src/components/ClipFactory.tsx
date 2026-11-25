@@ -382,7 +382,7 @@ export default function ClipFactory({ reduced, onClose, review, failed }: { redu
       {data && (
         <div className="mt-3 space-y-3">
           <section className="card flex min-h-[3.25rem] flex-wrap items-center gap-x-3 gap-y-1.5" aria-label={tr("cf.nextStep")}>
-            <span className="muted text-[10px] uppercase tracking-widest">{tr("cf.next")}</span>
+            <span className="muted text-[12px] font-medium">{tr("cf.next")}</span>
             {next}
             {workText && next !== workNext && <span className="muted num text-[11px]">{workText}</span>}
             <span className="sr-only" aria-live="polite">{active ? tr("cf.working") : ""}</span>{/* no % here: it would be re-announced every poll */}
@@ -818,7 +818,7 @@ function ScoutSettingsForm({ s, busy, Note, onSave, onOpenAuto }: { s: ScoutSett
   onSave: (key: string, body: ScoutPatch) => Promise<boolean>; onOpenAuto: () => void }) {
   const { t: tr } = useT();
   const [f, setF] = useState({ keywords: s.keywords.join("\n"), maxAgeHours: s.maxAgeHours, creatorMaxAgeDays: s.creatorMaxAgeDays, minMinutes: s.minMinutes, dailyAuto: s.dailyAuto, runAt: s.runAt });
-  const label = "muted mb-0.5 block text-[10px] uppercase tracking-widest";
+  const label = "muted mb-0.5 block text-[12px] font-medium";
   const says = tr("cf.scoutSays", { d: s.creatorMaxAgeDays, h: s.maxAgeHours, m: s.minMinutes, hh: String(s.runAt).padStart(2, "0"), a: s.dailyAuto }); // the saved values
   const numField = (k: "maxAgeHours" | "creatorMaxAgeDays" | "minMinutes" | "dailyAuto" | "runAt", name: string, min: number, max: number) => (
     <label className="w-28"><span className={label}>{name}</span>
@@ -920,7 +920,7 @@ function AddFromLink({ tools, opts, setOpts, busy, onSubmit }: {
     <form className="mt-3 space-y-2 rounded-xl border border-white/10 p-2 text-xs" aria-label={tr("cf.addLink")} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       <b className="block text-sm">🔗 {tr("cf.addLink")}</b>
       <label className="block">
-        <span className="muted mb-1 block text-[10px] uppercase tracking-widest">{tr("cf.linkLabel")}</span>
+        <span className="muted mb-1 block text-[12px] font-medium">{tr("cf.linkLabel")}</span>
         <input className="field w-full !px-2 !py-1 !text-xs" type="text" inputMode="url" maxLength={2000} placeholder={tr("cf.linkPh")} value={url}
           onChange={(e) => setUrl(e.target.value)} aria-invalid={!!url.trim() && !okUrl} />
       </label>
@@ -958,7 +958,7 @@ function Conflict({ onAgain, busy }: { onAgain: () => void; busy?: boolean }) {
 function Choice<T extends string | number>({ legend, values, value, fmt, onChange, hint }: { legend: string; values: T[]; value: T; fmt: (v: T) => string; onChange: (v: T) => void; hint?: string }) {
   return (
     <fieldset>
-      <legend className="muted mb-1 text-[10px] uppercase tracking-widest">{legend}</legend>
+      <legend className="muted mb-1 text-[12px] font-medium">{legend}</legend>
       <div className="flex flex-wrap gap-1">
         {values.map((v) => <button key={v} type="button" className="chip num" aria-pressed={value === v} onClick={() => onChange(v)}>{fmt(v)}</button>)}
       </div>
@@ -1128,7 +1128,7 @@ function AskChange({ clip: c, jobId, base }: { clip: Clip; jobId?: string; base:
   };
   return (
     <div className="flex flex-col gap-1">
-      <label><span className="muted mb-0.5 block text-[10px] uppercase tracking-widest">{tr("ft.change")}</span>
+      <label><span className="muted mb-0.5 block text-[12px] font-medium">{tr("ft.change")}</span>
         <textarea className="field w-full !px-2 !py-1 !text-xs" rows={2} maxLength={400} value={text} placeholder={tr("ft.changePh")}
           onChange={(e) => { setText(e.target.value); setSent(false); }} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } }} /></label>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -1415,7 +1415,7 @@ export function VersionBox({ clip: c, base, busy, onVersion, note, onDraft, jobI
     const body: VersionBody = { ...rest, suggest, ...(!suggest && title.trim() && title.trim() !== c.title ? { title: title.trim() } : {}), ...(!suggest && hook.trim() !== c.hook ? { hook: hook.trim() } : {}) };
     if (await onVersion(c.id, body)) setF(null);
   };
-  const label = "muted mb-0.5 block text-[10px] uppercase tracking-widest";
+  const label = "muted mb-0.5 block text-[12px] font-medium";
   const nudgeRow = (k: "start" | "end", name: string) => ( // a plain function, not a component: re-renders keep button focus
     <div className="flex items-center gap-1">
       <span className="w-8 text-[10px]">{name}</span>
@@ -1535,7 +1535,7 @@ function PublishBox({ jobId, devlog, clip: c, yt, reduced, busy, stale, onPublis
     );
   }
   const set = (patch: Partial<PublishBody>) => setForm((f) => f && { ...f, ...patch });
-  const label = "muted mb-0.5 block text-[10px] uppercase tracking-widest";
+  const label = "muted mb-0.5 block text-[12px] font-medium";
   const tooSoon = mode === "pick" && !!at && new Date(at).getTime() < Date.now() + MIN_LEAD;
   return (
     <form className="flex flex-col gap-1.5 rounded-md border border-white/10 p-1.5" aria-label={`Publish ${c.title} to YouTube`} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
@@ -1611,7 +1611,7 @@ function SlotSettings({ sched, onSaved }: { sched: Schedule; onSaved: (s: Schedu
     finally { setBusy(false); }
   };
   const enter = (e: { key: string; preventDefault: () => void }) => { if (e.key === "Enter") { e.preventDefault(); void save(); } }; // inside the publish form: don't upload
-  const field = "field w-full !px-2 !py-1 !text-xs", label = "muted mb-0.5 block text-[10px] uppercase tracking-widest";
+  const field = "field w-full !px-2 !py-1 !text-xs", label = "muted mb-0.5 block text-[12px] font-medium";
   return (
     <fieldset className="flex flex-col gap-1 rounded-md border border-white/10 p-1.5">
       <legend className={label}>{tr("cf.pubSlots")}</legend>

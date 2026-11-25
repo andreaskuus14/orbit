@@ -72,7 +72,7 @@ export function ScreenApp() {
         </Card>
         <Card title="Agents now">
           {view.agents.length ? <ul className="space-y-2">{view.agents.map((a) => (
-            <li key={a.id}><span style={{ color: a.status === "running" ? "var(--mint)" : "var(--muted)" }}>{a.status === "running" ? "●" : "○"}</span> <b className="uppercase">{a.step ?? a.agent}</b> {a.title}</li>
+            <li key={a.id}><span style={{ color: a.status === "running" ? "var(--mint)" : "var(--muted)" }}>{a.status === "running" ? "●" : "○"}</span> <b>{a.step ?? a.agent}</b> {a.title}</li>
           ))}</ul> : <p className="muted">All quiet.</p>}
         </Card>
         <Card title={`Waiting for you (${view.approvals.length})`}>
@@ -98,7 +98,7 @@ export function ScreenApp() {
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="card" style={{ padding: "1.25rem" }}>
-      <h2 className="muted mb-3 text-sm uppercase tracking-widest" style={{ fontFamily: "var(--font-display)" }}>{title}</h2>
+      <h2 className="muted mb-3 text-sm" style={{ fontFamily: "var(--font-display)" }}>{title}</h2>
       {children}
     </section>
   );

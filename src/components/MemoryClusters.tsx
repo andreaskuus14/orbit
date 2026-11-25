@@ -47,7 +47,7 @@ export function ClusterList({ graph, items, onFly, onSelect }: {
   if (!hs.length) return null;
   return (
     <details className="space-y-1.5">
-      <summary className="muted cursor-pointer text-[10px] uppercase tracking-widest">Clusters · {hs.length}</summary>
+      <summary className="muted cursor-pointer text-[12px] font-medium">Clusters · {hs.length}</summary>
       <ul className="flex flex-wrap gap-1.5">{[...hs].sort((a, b) => b.size - a.size).map((h) => (
         <li key={h.id}><button className="chip" title={graph.clusters.find((c) => c.id === h.id)?.keywords.join(", ")} onClick={() => onFly(h.at, Math.min(48, Math.max(9, h.r * 3)))}>
           <i aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 9, background: hue(h.id) }} />{h.name} <span className="muted num">{h.size}</span></button></li>

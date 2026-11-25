@@ -42,7 +42,7 @@ export function PhonePairing() {
       <p className="muted text-sm">Approvals, Stop-all, Studio queue and CORE from your phone over Tailscale. On the phone open <b>/remote</b> on your Tailscale address (docs/PHONE.md).</p>
       {v?.problem ? <p className="error text-sm">{v.problem}</p> : (
         <div className="flex items-center gap-3">
-          <button className="btn" onClick={() => void call({ action: "pair" })}>Pair phone</button>
+          <button className="btn" onClick={() => void call({ action: "pair" })}>{t("rm.pair.phone")}</button>
           {v?.pair?.locked && <span className="error text-sm" aria-live="polite">{t("profile.phoneLocked")}</span>}
           {v?.pair?.code && left > 0 && <span className="text-2xl font-semibold tracking-[0.3em]" aria-live="polite">{v.pair.code} <span className="muted text-xs tracking-normal">{left}s</span></span>}
         </div>

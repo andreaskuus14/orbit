@@ -163,7 +163,7 @@ export default function ReviewQueue({ reduced, onClose, start }: { reduced: bool
   }, [paused]);
 
   const count = (s: Clip["status"]) => items?.filter((x) => x.clip.status === s).length ?? 0;
-  const label = "muted mb-0.5 block text-[10px] uppercase tracking-widest";
+  const label = "muted mb-0.5 block text-[12px] font-medium";
   const Kbd = ({ k }: { k: string }) => <kbd className="num ml-1 rounded border border-white/20 px-1 text-[10px] opacity-70">{k}</kbd>;
 
   return (
@@ -308,7 +308,7 @@ function PlanBox({ p, slots, busy, approved, added, onAdded, onTitle, onSlot, on
   const [text, setText] = useState(added);
   return (
     <section className="space-y-2 rounded-xl border border-[#ff8fab]/30 bg-[#ff2e63]/5 p-2 text-xs" aria-label={tr("rq.plan")}>
-      <b className="block text-[10px] uppercase tracking-widest">🤖 {tr("rq.plan")}</b>
+      <b className="block text-[12px] font-medium">🤖 {tr("rq.plan")}</b>
       {approved && <p className="ok">{tr("rq.planOnly")}</p>}
       <div><p className="font-semibold">{p.title}</p><p className="muted">{p.titleWhy}</p></div>
       {!!p.alts?.length && <div className="flex flex-wrap items-center gap-1" role="group" aria-label={tr("ap.runnerUps")}>

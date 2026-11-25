@@ -21,7 +21,7 @@ export function OperatorCard({ r }: { r: OperatorReport }) {
         <span className="mc-hero-t">{r.nights ? `${r.nights} night shift${r.nights === 1 ? "" : "s"} · ` : ""}{r.from} → {r.to}</span>
       </div>
       {stats.length > 0 && <div className="grid grid-cols-3 gap-1.5">{stats.map(([v, k]) => (
-        <div key={k} className="rounded border border-white/10 px-2 py-1"><div className="num text-base font-semibold">{v}</div><div className="muted text-[10px] uppercase tracking-wider">{k}</div></div>))}</div>}
+        <div key={k} className="rounded border border-white/10 px-2 py-1"><div className="num text-base font-semibold">{v}</div><div className="muted text-[12px]">{k}</div></div>))}</div>}
       {r.did.length > 0 && <ul className="grid gap-1">{r.did.map((d) => (
         <li key={d.key} className="grid grid-cols-[1fr_auto] items-center gap-x-2 text-xs">
           <span>{d.label} <b className="num">{d.count}</b></span><span className="muted num">{d.minutes} min</span>
