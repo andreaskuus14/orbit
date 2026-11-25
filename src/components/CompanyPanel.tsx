@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useState } from "react";
+import { useT } from "./i18n";
 import { StatusPill, api, usePoll } from "./AgentMission";
 import { COMPANY, planCompany, type OrgSeat } from "@/lib/company-pure";
 import type { ChainView } from "@/lib/chains-pure";
@@ -20,6 +21,7 @@ export default function CompanyPanel({ names, visible, onOpenTask }: { names: Re
   const live = v?.chains.some((c) => c.status === "running") ?? false;
   usePoll(load, live ? 5_000 : 30_000, visible);
   const plan = goal.trim().length >= 3 ? planCompany(goal) : null;
+  const { t } = useT();
   const who = (agent: string) => names[agent] ?? agent;
 
   async function start(e: React.FormEvent, tonight = false) {
@@ -32,37 +34,37 @@ export default function CompanyPanel({ names, visible, onOpenTask }: { names: Re
 
   return (
     <div className="space-y-3">
-      <form onSubmit={start} className="space-y-1.5" aria-label="Give the company a goal">
-        <input className="field w-full" value={goal} maxLength={291} onChange={(e) => setGoal(e.target.value)} placeholder="One goal, e.g. research Roblox pet sim trends and write a plan" aria-label="Goal" />
-        {plan && <p className="muted text-xs">{typeof plan === "string" ? plan : `CEO plan: ${plan.roles.slice(1).map((r) => COMPANY[r].title).join(" → ")} · at most ${plan.steps.reduce((n, s) => n + (s.calls ?? 0), 0)} Claude calls`}</p>}
+      <form onSubmit={start} className="space-y-1.5" aria-label={t("comp.give")}>
+        <input className="field w-full" value={goal} maxLength={291} onChange={(e) => setGoal(e.target.value)} placeholder={t("comp.goalPh")} aria-label={t("comp.goal")} />
+        {plan && <p className="muted text-xs">{typeof plan === "string" ? plan : t("comp.plan", { roles: plan.roles.slice(1).map((r) => COMPANY[r].title).join(" → "), n: plan.steps.reduce((n, s) => n + (s.calls ?? 0), 0) })}</p>}
         <div className="flex gap-1">
-          <button className="chip" disabled={busy || !plan || typeof plan === "string"}>{busy ? "Starting…" : "Start"}</button>
+          <button className="chip" disabled={busy || !plan || typeof plan === "string"}>{busy ? t("comp.starting") : t("comp.start")}</button>
           <button type="button" className="chip" disabled={busy || !plan || typeof plan === "string"} onClick={(e) => void start(e, true)}
-            title="The night shift starts it and runs its steps within tonight's budget">🌙 Tonight</button>
+            title={t("comp.tonightTip")}>{t("comp.tonight")}</button>
         </div>
-        <p className="muted text-xs">Nothing is sent, published or bought: saves and automations wait for your approval on the step.</p>
+        <p className="muted text-xs">{t("comp.safe")}</p>
       </form>
       {msg && <p className="error text-xs" role="alert">{msg}</p>}
       {v && <>
-        {v.tonight.length > 0 && <ul className="space-y-1" aria-label="Queued for tonight">
-          {v.tonight.map((t) => (
-            <li key={t.id} className="card text-xs flex justify-between gap-2"><span className="truncate">🌙 {t.goal}</span>
-              <button className="chip" onClick={() => void api(`/api/company?tonight=${encodeURIComponent(t.id)}`, { method: "DELETE" }).then(load, (e) => setMsg(e.message))}
-                aria-label={`Remove "${t.goal}" from tonight`}>Remove</button></li>
+        {v.tonight.length > 0 && <ul className="space-y-1" aria-label={t("comp.queued")}>
+          {v.tonight.map((x) => (
+            <li key={x.id} className="card text-xs flex justify-between gap-2"><span className="truncate">🌙 {x.goal}</span>
+              <button className="chip" onClick={() => void api(`/api/company?tonight=${encodeURIComponent(x.id)}`, { method: "DELETE" }).then(load, (e) => setMsg(e.message))}
+                aria-label={t("comp.removeTip", { goal: x.goal })}>{t("comp.remove")}</button></li>
           ))}
         </ul>}
-        <ul className="space-y-1" aria-label="Org chart">
+        <ul className="space-y-1" aria-label={t("comp.org")}>
           {v.seats.map((s) => (
             <li key={s.role} className="card text-xs space-y-0.5" style={s.role === "ceo" ? undefined : { marginLeft: "0.75rem" }}>
               <div className="flex justify-between gap-2">
-                <span><b>{s.title}</b> · {who(s.agent)}{s.calls ? <span className="muted"> · ≤{s.calls} calls/step</span> : null}</span>
-                <span title="Monthly agent scorecard grade">{s.grade ?? <span className="muted">no grade</span>} · {s.done} done</span>
+                <span><b>{s.title}</b> · {who(s.agent)}{s.calls ? <span className="muted"> · {t("comp.calls", { n: s.calls })}</span> : null}</span>
+                <span title={t("comp.gradeTip")}>{s.grade ?? <span className="muted">{t("comp.noGrade")}</span>} · {t("comp.done", { n: s.done })}</span>
               </div>
-              {s.last ? <p className="muted truncate" title={s.last.output || s.last.title}>{ago(s.last.at)} · {s.last.status.replace("_", " ")} · {s.last.title}{s.last.output ? ` — ${s.last.output}` : ""}</p> : <p className="muted">No work yet</p>}
+              {s.last ? <p className="muted truncate" title={s.last.output || s.last.title}>{ago(s.last.at)} · {s.last.status.replace("_", " ")} · {s.last.title}{s.last.output ? ` — ${s.last.output}` : ""}</p> : <p className="muted">{t("comp.noWork")}</p>}
             </li>
           ))}
         </ul>
-        {v.chains.length > 0 && <ul className="space-y-1.5" aria-label="Recent company runs">
+        {v.chains.length > 0 && <ul className="space-y-1.5" aria-label={t("comp.runs")}>
           {v.chains.map((c) => (
             <li key={c.chainId} className="card text-xs space-y-1">
               <div className="flex justify-between gap-2"><span className="truncate">{c.goal.replace(/^Company: /, "")}</span><StatusPill status={c.status} /></div>

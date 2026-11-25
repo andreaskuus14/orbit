@@ -9,6 +9,7 @@ import type { Need } from "@/lib/needs-you-pure";
 import { parseBriefing, type Cite } from "@/lib/briefing-view-pure";
 import { putAsk, needHref, PHONE_LINKS, topStories } from "@/lib/phone-pwa-pure";
 import { Thumb } from "./IntelRich";
+import { RemoteCall } from "./RemoteCall";
 import { useT } from "./i18n";
 
 type InstallEvent = Event & { prompt: () => Promise<void> };
@@ -91,6 +92,8 @@ export function PhoneHome() {
             : !work.length ? <Empty title={t("m.workNone")} />
             : <ul className="m-list">{work.map((p) => <WorkCard key={p.id} p={p} onAction={(a) => go(a.open.startsWith("#") ? "/" + a.open : a.open)} />)}</ul>}
         </Section>
+
+        <RemoteCall />
 
         <Section id="m-brief" title={t("m.brief")} action={<Button variant="ghost" size="sm" onClick={() => go("/#o=intelligence")}>{t("m.seeAll")}</Button>}>
           {brief === null ? <Loading rows={3} label={t("needs.loading")} />
