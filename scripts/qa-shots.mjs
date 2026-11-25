@@ -160,6 +160,27 @@ const API = (p, u) => ({
   "/api/kaggle": { on: false, setup: { ok: false, hint: "Run the setup script." }, quota: null, hoursLeft: 30, job: null, offers: [] }, "/api/gpu-jobs": { jobs: [] },
   "/api/local-brain": { brain: { state: "ok", text: "qwen3 is ready." }, autostart: { on: false, text: "ORBIT does not start with Windows.", command: "npm run autostart" } },
   "/api/local-ai": { ok: true, service: "local-ai", gpu: { name: "RTX 5060 Laptop", vramGb: 8 }, busy: false, tools: { image3d: true, removebg: true, tts: true, clone: false, captions: true, ifc: true, docs: true, dub: false, scan: false } },
+  // Made-up data for panels translated in the i18n batches, so their real layout can be checked on screen (QA_EVAL opens them).
+  "/api/people": { people: [
+    { id: "pp1", name: "Mari Kask", relation: "client, Kask café", affinity: "business", notes: "", cares: "", next: "", importance: 4, remindDays: 14, prospectId: null, log: [], draft: "", created_at: ago(9e8), updated_at: ago(2e9), local: true, last: ago(2e9), overdue: true },
+    { id: "pp2", name: "Tom", relation: "collaborator", affinity: "roblox", notes: "", cares: "", next: "", importance: 3, remindDays: 30, prospectId: null, log: [], draft: "", created_at: ago(9e8), updated_at: ago(3e8), local: true, last: ago(3e8), overdue: false }] },
+  "/api/markets/deals": { wishes: [{ id: "w1", item: "RTX 4070", maxPrice: 400, targetPrice: 350, condition: "used", region: "Estonia / EU", deadline: null, notes: "12 GB", created: ago(9e8) }],
+    offers: { w1: [{ id: "o1", title: "MSI RTX 4070 Ventus 12GB, lightly used", url: "https://example.com/o1", site: "osta.ee", seller: "kalle", price: 389, currency: "EUR", eur: 389, condition: "used", score: 82, great: true, why: ["under target median"], risks: ["no receipt"], seenAt: ago(4e6) }] },
+    drafts: { o1: "Tere! Kas kaart on veel saadaval?" }, history: {}, hunted: { w1: ago(4e6) }, lastHunt: ago(4e6), lastError: null, busy: false, callsLeft: 12 },
+  "/api/business/niches": { niches: [{ id: "n1", title: "Eco plant pots for cafés", product: "Self-watering pots", audience: "cafés in Tallinn", score: 74, demandScore: 4, demand: "steady searches", competitionScore: 3, competition: "a few shops",
+    margin: { price: 29, cogs: 9, shipping: 4, feePct: 0.03, cac: 6 }, assumptions: "", risks: ["breakage in shipping"], fit: "you know café owners", evidence: [{ url: "https://example.com/e1", title: "Market note", opened: true }], status: "new" }],
+    kits: {}, lastOk: ago(4e8), lastAttempt: ago(4e8), lastError: null, busy: null, dir: "C:\\Users\\you\\ORBIT" },
+  "/api/rojo": { root: "C:\\Users\\you\\Documents\\RobloxProjects", projects: [{ name: "PetSim", dir: "C:\\Users\\you\\Documents\\RobloxProjects\\PetSim", at: ago(8e7), connected: true }],
+    serve: { port: 34872, running: false, ours: null, log: "", state: "off", text: "Sync is off." } },
+  "/api/economy": { table: "", voice: "", notesAt: "" },
+  "/api/studio/clips/learn": { checkedAt: ago(3e6), warnings: [], published: 14, scored: 9, top: [{ videoId: "v1", title: "He found the secret egg", views72: 18200, score: 2.4, avgViewPct: 81 }], over: [], under: [],
+    judged: 9, winners: [], flops: [], decided: 22, rejects: [{ reason: "boring start", n: 3 }], liked: [], disliked: [], versions: [], study: null, model: null },
+  "/api/devtools": u.searchParams.get("trends") ? { source: "Roblox explore", at: Date.now(), tried: [], sorts: [{ id: "top", name: "Top playing", games: [{ universeId: 1, placeId: 1, name: "Pet Simulator 99", players: 182000, upvotePct: 91, icon: "", genre: "Simulation" }] }], risers: [], yt: { risers: [], topics: [], region: "US", hint: "Add a YouTube key to see YouTube risers." } }
+    : u.searchParams.get("viral") ? { videos: [], queries: ["pet sim"], units: 101, at: Date.now() } : undefined,
+  "/api/portfolio": { portfolio: { title: "Portfolio", name: "", projects: [{ id: "pr1", kind: "arch", title: "Lake sauna", year: "2026", text: "", shots: [] }] } },
+  "/api/devworld": { world: { v: 1, games: [{ id: "pet-sim", name: "Pet Simulator", platform: "roblox", stage: "alpha", pitch: "Hatch and trade pets", notes: "" }], bugs: [] }, updatedAt: ago(9e6), seeded: false },
+  "/api/personas": { context: "", report: null, calibration: null, running: false },
+  "/api/study": { cards: [], queue: [], lessons: [], log: [], stats: { due: 0, total: 0, streak: 2, retention: null, learned: 0, reviewedToday: 0 } },
 }[p]);
 
 const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--disable-dev-shm-usage"] });
