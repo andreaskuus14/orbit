@@ -159,7 +159,7 @@ function Vault({ m, reduced }: { m: ReturnType<typeof vaultScene>; reduced: bool
       </group>);
     }))}
     <mesh position={[0, 2.6, 0]} material={stone}><cylinderGeometry args={[8.3, 8.3, 5.4, 96, 1, true, Math.PI * 0.25, Math.PI * 1.5]} /></mesh>
-    <Crystals items={items} reduced={reduced} intensity={0.55} />
+    <Crystals items={items} reduced={reduced} intensity={0.3} />
     {/* pillars */}
     {[-1, 1].map((s) => <mesh key={s} position={[s * 6, 2.8, -4.6]} material={gold}><cylinderGeometry args={[0.35, 0.45, 5.6, 16]} /></mesh>)}
     {/* the vault door emblem and the core crystal under a skylight */}

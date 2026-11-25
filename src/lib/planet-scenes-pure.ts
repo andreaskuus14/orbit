@@ -53,7 +53,7 @@ export function podAngle(p: Pod, n: number): number {
 
 /* ---------- VAULT: file crystals on shelves round the vault, one arc per kind ---------- */
 
-export const VAULT_KIND_COLOR: Record<string, string> = { image: "#ffb86b", video: "#ff8f5a", audio: "#ffd27a", pdf: "#ffcf8a", text: "#ffe2a8", doc: "#f6c177", other: "#d9a066" };
+export const VAULT_KIND_COLOR: Record<string, string> = { image: "#ff9f2e", video: "#ff7a3d", audio: "#ffc14d", pdf: "#ffb347", text: "#ffd36b", doc: "#e8a33c", other: "#c98a3a" };
 export type VaultKind = { kind: string; count: number; bytes: number; from: number; to: number };
 export type VaultCrystal = { key: string; name: string; kind: string; at: [number, number, number]; h: number; fresh: boolean };
 export function vaultScene(json: unknown, now: number) {

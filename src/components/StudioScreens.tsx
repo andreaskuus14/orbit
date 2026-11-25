@@ -8,7 +8,7 @@ import { loadImage } from "./texture-cache";
 import type { Video } from "@/lib/youtube-pure";
 import type { Chip } from "./world-kit";
 
-export const WALL_R = 6.2, WALL_Y = 0.9;
+export const WALL_R = 5.3, WALL_Y = 0.8;
 /** Up to 7 screens on an arc behind the planet; index 0 (most viewed of the latest) in the middle, bigger. */
 export function wallSlots(videos: Video[]) {
   const list = [...videos].slice(0, 7).sort((a, b) => b.views - a.views);
@@ -25,7 +25,7 @@ function Screen({ s }: { s: ReturnType<typeof wallSlots>[number] }) {
     return () => { live = false; made?.dispose(); };
   }, [s.v.thumb]);
   return (
-    <group position={[s.x, s.y, s.z]} rotation-y={-s.a - Math.PI / 2}>
+    <group position={[s.x, s.y, s.z]} rotation={[-0.12, -s.a - Math.PI / 2, 0, "YXZ"]}>
       <mesh position={[0, 0, -0.06]}><boxGeometry args={[s.w + 0.14, s.h + 0.14, 0.1]} /><meshStandardMaterial color="#0b0c10" metalness={0.9} roughness={0.3} /></mesh>
       <mesh position={[0, -s.h / 2 - 0.08, -0.005]}><boxGeometry args={[s.w + 0.14, 0.025, 0.02]} /><meshBasicMaterial color={new THREE.Color("#ff2d3d").multiplyScalar(2)} toneMapped={false} /></mesh>
       <mesh>

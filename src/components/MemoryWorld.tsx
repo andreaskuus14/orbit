@@ -141,11 +141,11 @@ const sparkFrag = /* glsl */ `
 /** v2: the memories as crystal clusters growing on a planet under the star map, one per kind (counts in the chips). */
 function MemoryGround({ items, reduced }: { items: Star[]; reduced: boolean }) {
   const { clusters, ground } = useMemo(() => memoryClusters(items), [items]);
-  const crystals = useMemo(() => clusters.flatMap((c) => { const col = new THREE.Color(kindColor(c.kind)).lerp(new THREE.Color("#b08cff"), 0.45).getStyle();
+  const crystals = useMemo(() => clusters.flatMap((c) => { const col = new THREE.Color(kindColor(c.kind)).lerp(new THREE.Color("#8b5cf6"), 0.6).getStyle();
     return c.crystals.map((k, i) => ({ at: k.at, h: k.h * 0.7, w: k.h * 0.26, tilt: k.tilt, color: col, glow: i ? 0.9 : 1.5 })); }), [clusters]);
   return (<group>
     <group position={[0, ground, 0]}><PlanetGround glow="#8b5cf6" a="#07050f" b="#1a1230" R={140} /></group>
-    <Crystals items={crystals} reduced={reduced} intensity={0.8} />
+    <Crystals items={crystals} reduced={reduced} intensity={0.5} />
     <group position={[0, ground, 0]}><Motes count={reduced ? 120 : 320} color="#c4b5fd" spread={30} height={10} reduced={reduced} /></group>
   </group>);
 }

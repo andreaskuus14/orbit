@@ -71,6 +71,7 @@ for (const id of IDS) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   await ctx.route(`${ORIGIN}/**`, (route) => {
     const u = new URL(route.request().url()), p = u.pathname;
+    if (process.env.WV_DEBUG && p.startsWith("/ui/")) console.log(`  [req] ${p}`);
     if (p === "/") return route.fulfill({ contentType: "text/html", body: `<!doctype html><html class="dark" lang="en"><meta charset="utf-8"><link rel="stylesheet" href="/app.css"><style>:root{--font-inter:"Inter";--font-jetbrains:monospace}</style><body><div id="root"></div><script>window.process={env:{NODE_ENV:"production"}};window.__nofx=!!${JSON.stringify(!!process.env.WV_NOFX)};window.__m=${Number(process.env.WV_M || 63)}</script><script type="module" src="/app.js"></script></body></html>` });
     if (p === "/app.css") return route.fulfill({ contentType: "text/css", body: css + "\n" + b.css });
     if (p === "/app.js") return route.fulfill({ contentType: "text/javascript", body: b.js });
