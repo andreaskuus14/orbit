@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { ladderRead } from "@/lib/web-ladder";
 import { requireUser } from "@/lib/supabase/server";
 import { captureMemory, searchMemories, fetchPage, KINDS, MEMORY_COLUMNS, type Kind } from "@/lib/memory";
@@ -18,7 +19,7 @@ export async function GET(req: Request) {
     if (error) throw error;
     return Response.json({ results: (data ?? []).map(redactJournalRow), mode: "list" });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Search failed" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Search failed") }, { status: 500 });
   }
 }
 
@@ -64,6 +65,6 @@ export async function POST(req: Request) {
     }, { vault: vault || null, onDuplicate });
     return Response.json(out, { status: "preview" in out ? 409 : 201 });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Could not save" }, { status: 502 });
+    return Response.json({ error: safeMessage(e, "Could not save") }, { status: 502 });
   }
 }

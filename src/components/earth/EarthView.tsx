@@ -3,6 +3,7 @@
 // local news. Behind ORBIT_UI_MOTION; "News weather" switches back to the previous view per device (and WebGL trouble does too).
 // Scene: earth-scene.ts · data: earth-data-pure.ts · places/camera: earth-pure.ts · tiles: /api/earth/tile · local news: /api/earth/local.
 import { useEffect, useRef, useState } from "react";
+import { useT } from "../i18n";
 import { motionActive, useUiMotion } from "../motion/motion";
 import type { Hotspot } from "@/lib/geo";
 import { earthData } from "@/lib/earth-data-pure";
@@ -17,6 +18,7 @@ const weatherPicked = () => { try { return localStorage.getItem(VIEW_KEY) === "w
 export const earthWanted = () => typeof window !== "undefined" && motionActive() && !weatherPicked();
 
 export default function EarthView({ reduced, paused, onActive }: { reduced: boolean; paused: boolean; onActive?: (on: boolean) => void }) {
+  const { t } = useT();
   const motion = useUiMotion() || motionActive();
   const [off, setOff] = useState(() => typeof window === "undefined" || weatherPicked());
   const active = motion && !off;
@@ -50,7 +52,7 @@ export default function EarthView({ reduced, paused, onActive }: { reduced: bool
       hs = (g?.hotspots ?? []) as Hotspot[]; ee = (l?.towns ?? []) as TownNews[]; draw();
     };
     void load();
-    const t = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 15 * 60_000);
+    const iv = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 15 * 60_000);
     // local news for the region in view outside Estonia: asked for only once the camera has rested 1.2 s below 2,500 km, and
     // only when it moved a real distance since the last ask (the server caches each region for 30 min as well)
     const names = typeof Intl !== "undefined" && "DisplayNames" in Intl ? new Intl.DisplayNames(["en"], { type: "region" }) : null;
@@ -69,22 +71,22 @@ export default function EarthView({ reduced, paused, onActive }: { reduced: bool
         draw();
       }).catch(() => { last = ""; });
     }, 400);
-    return () => { on = false; clearInterval(t); clearInterval(watch); e.dispose(); earth.current = null; };
+    return () => { on = false; clearInterval(iv); clearInterval(watch); e.dispose(); earth.current = null; };
   }, [active, reduced]);
   useEffect(() => { const e = earth.current; if (!e) return; if (paused) e.stop(); else e.start(); }, [paused]);
 
   if (!motion) return null;
-  if (!active || failed) return off ? <button className="chip absolute top-3 left-3 z-[6]" onClick={() => pick(false)}>Planet view</button> : null;
+  if (!active || failed) return off ? <button className="chip absolute top-3 left-3 z-[6]" onClick={() => pick(false)}>{t("earth.planet")}</button> : null;
   const go = (p: Pose, place?: { lon: number; lat: number }) => { if (place) void earth.current?.focusPlace(place.lon, place.lat); earth.current?.flyTo(p, reduced ? 1 : undefined); };
   return (
     <div className="earth-host z-[5]" ref={host}>
       <style>{EARTH_CSS}{`.earth-nav{position:absolute;left:32px;top:72px;display:flex;gap:6px;z-index:2}.earth-nav button{font:500 12px/1 var(--font-inter,Inter,sans-serif);color:#eef2f7;background:rgba(2,4,10,.55);border:1px solid rgba(238,242,247,.22);border-radius:6px;padding:7px 10px;cursor:pointer}.earth-nav button:hover{border-color:#f2b35e}`}</style>
-      <nav className="earth-nav" aria-label="Places">
-        <button onClick={() => go(SHOTS.orbit)}>Earth</button>
-        <button onClick={() => go(SHOTS.country)}>Estonia</button>
-        <button onClick={() => go(SHOTS.region)}>Towns</button>
+      <nav className="earth-nav" aria-label={t("earth.places")}>
+        <button onClick={() => go(SHOTS.orbit)}>{t("earth.earth")}</button>
+        <button onClick={() => go(SHOTS.country)}>{t("earth.estonia")}</button>
+        <button onClick={() => go(SHOTS.region)}>{t("earth.towns")}</button>
         <button onClick={() => go(SHOTS.town)}>Tallinn</button>
-        <button onClick={() => pick(true)}>News weather</button>
+        <button onClick={() => pick(true)}>{t("earth.weather")}</button>
       </nav>
     </div>
   );

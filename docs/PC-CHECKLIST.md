@@ -16,7 +16,7 @@ npm run dev
 
 Open http://127.0.0.1:3000. (Dev mode is slower than the installed build. For the perf test in step 4, use `npm run app:rebuild` instead.)
 
-**Database migrations.** Open Doctor → **Database migrations**. It lists every file still missing. Apply each one in the Supabase SQL editor (supabase.com → your project → SQL Editor → New query → paste the whole file → Run), oldest first. Running a file twice is harmless.
+**Database migrations.** Open Doctor → **Database migrations**. It lists every file still missing. Apply each one in the Supabase SQL editor (supabase.com → your project → SQL Editor → New query → paste the whole file → Run), oldest first. Running a file twice never changes data. Some older files just stop with an "already exists" error (see docs/MIGRATIONS.md).
 
 | File | Needed for |
 |---|---|

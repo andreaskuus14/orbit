@@ -9,7 +9,7 @@ import { linkToHash } from "@/lib/deeplink-pure";
 import { MIN_SAMPLE, nightBudget, nightCompare, routes, scorecards, workerCard, type Outcome, type Planned } from "@/lib/roster-pure";
 import { pct, units, type Rate } from "@/lib/analytics-outcomes-pure";
 import { useOutcomeData } from "./AnalyticsOutcomes";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import type { NightRun, NightSettings } from "@/lib/night-pure";
 import type { NightPick } from "@/lib/night-plan-pure";
 

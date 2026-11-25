@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError, askClaude } from "@/lib/claude";
@@ -27,6 +28,6 @@ export async function POST(req: Request) {
     return ops.length ? Response.json({ ops, say: parseSay(r.text) }) : fail("CORE didn't find a change to make; try other words", 502);
   } catch (e) {
     if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
-    return fail(`Couldn't edit: ${e instanceof Error ? e.message : "unknown error"}`, 502);
+    return fail(`Couldn't edit: ${safeMessage(e, "unknown error")}`, 502);
   }
 }

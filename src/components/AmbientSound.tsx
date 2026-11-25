@@ -25,12 +25,12 @@ export function AmbientSoundMenu() {
   const [on, setOn] = useState(false), [vol, setVol] = useState(0.5), [muted, setMute] = useState(false), { t } = useT();
   useEffect(() => { setOn(ambientEnabled()); setVol(ambientVolume()); setMute(audioState().muted); }, []);
   return (
-    <div className="hud-menu-group" role="group" aria-label="Ambient sound">
+    <div className="hud-menu-group" role="group" aria-label={t("amb.title")}>
       <button className="hud-menu-item" aria-pressed={muted} title={t("menu.muteTitle")} onClick={() => { setMuted(!muted); setMute(!muted); }}>
         {t("menu.mute", { state: t(muted ? "common.on" : "common.off") })}</button>
       <button className="hud-menu-item" aria-pressed={on} onClick={() => { setAmbient(!on); setOn(!on); }}
-        title="Each planet hums from where it is; real events chime from their planet. Quieter 23:00–08:00.">Ambient sound: {on ? "on" : "off"}</button>
-      {on && <input type="range" min={0} max={1} step={0.05} value={vol} aria-label="Ambient volume"
+        title={t("amb.tip")}>{t("amb.state", { state: t(on ? "common.on" : "common.off") })}</button>
+      {on && <input type="range" min={0} max={1} step={0.05} value={vol} aria-label={t("amb.vol")}
         onChange={(e) => { const v = Number(e.target.value); setVol(v); setAmbientVolume(v); }} />}
     </div>
   );

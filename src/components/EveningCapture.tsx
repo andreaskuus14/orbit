@@ -83,11 +83,11 @@ export function EveningCapture() {
     try {
       const r = await fetch("/api/evening", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || "Couldn't save it");
+      if (!r.ok) throw new Error(j.error || tr("eve.saveFail"));
       setText("");
-      setMsg({ ok: true, text: "Saved. Sleep well." });
+      setMsg({ ok: true, text: tr("eve.saved") });
       setTimeout(() => ref.current?.close(), 1500);
-    } catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : "Couldn't save it" }); } // the text stays, so nothing is lost
+    } catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : tr("eve.saveFail") }); } // the text stays, so nothing is lost
     finally { setBusy(false); }
   };
 
@@ -96,24 +96,24 @@ export function EveningCapture() {
       onClick={(e) => { if (e.target === e.currentTarget) e.currentTarget.close(); }}>
       <form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); void save(); }}>
         <div className="flex items-center justify-between gap-4">
-          <h2 id="evening-title" className="hud-title">TODAY IN A MINUTE</h2>
-          <button type="button" className="chip" onClick={() => ref.current?.close()}>Close</button>
+          <h2 id="evening-title" className="hud-title uppercase">{tr("eve.title")}</h2>
+          <button type="button" className="chip" onClick={() => ref.current?.close()}>{tr("eve.close")}</button>
         </div>
-        {review && <p className="text-sm" aria-label="Today's plan">{review}</p>}
-        <label htmlFor="evening-text" className="muted text-xs">What happened, what mattered, what&apos;s next? A few lines is plenty. Private: kept as a journal memory.</label>
+        {review && <p className="text-sm" aria-label={tr("eve.plan")}>{review}</p>}
+        <label htmlFor="evening-text" className="muted text-xs">{tr("eve.prompt")}</label>
         <textarea id="evening-text" className="field evening-text" autoFocus maxLength={ENTRY_MAX} value={text} disabled={busy}
           onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void save(); } }} />
         <div className="flex items-center gap-2">
-          <button type="submit" className="btn" disabled={busy || !text.trim()}>{busy ? "Saving…" : "Save"}</button>
+          <button type="submit" className="btn" disabled={busy || !text.trim()}>{busy ? tr("eve.saving") : tr("eve.save")}</button>
           {canVoice && (
             <button type="button" className="chip" aria-pressed={listening} onClick={listening ? stopVoice : startVoice} disabled={busy}>
-              {listening ? "■ Stop dictating" : "🎙 Dictate"}
+              {listening ? `■ ${tr("eve.stopDict")}` : `🎙 ${tr("eve.dict")}`}
             </button>
           )}
           {noLocal && <span className="muted text-xs">{tr("evening.noLocal")}</span>}
           <span className="num muted ml-auto text-xs" aria-hidden>{text.length}/{ENTRY_MAX}</span>
         </div>
-        <p className="muted text-xs">Ctrl/⌘ Enter saves · Esc closes</p>
+        <p className="muted text-xs">{tr("eve.keys")}</p>
         {msg && <p className={`text-xs ${msg.ok ? "ok" : "error"}`} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
       </form>
     </dialog>

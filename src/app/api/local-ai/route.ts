@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/activity";
 import { cloneVoice, cutOut, ifcSummary, localHealth, makeCaptions, makeModelAny, makeVoice, readDocument } from "@/lib/local-ai";
@@ -77,6 +78,6 @@ export async function POST(req: Request) {
     logActivity({ area: "system", title: `Local AI made a ${what}: ${saved}`, detail: "Saved in VAULT on this PC" });
     return Response.json({ saved });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Local AI failed" }, { status: 502 });
+    return Response.json({ error: safeMessage(e, "Local AI failed") }, { status: 502 });
   }
 }

@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { BusyError } from "@/lib/claude";
 import { SessionError, devSessionIdea, endDevSession, listDevSessions, readSessionShot, summarizeDevSession } from "@/lib/dev-session";
@@ -18,7 +19,7 @@ export async function GET(req: Request) {
       : Response.json({ error: "Screenshot not found" }, { status: 404 });
   }
   try { return Response.json({ sessions: await listDevSessions(sb, user.id) }); }
-  catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Couldn't read the session log" }, { status: 500 }); }
+  catch (e) { return Response.json({ error: safeMessage(e, "Couldn't read the session log") }, { status: 500 }); }
 }
 
 export async function POST(req: Request) {
@@ -34,6 +35,6 @@ export async function POST(req: Request) {
     return Response.json({ error: "action must be end, summarize or idea" }, { status: 400 });
   } catch (e) {
     const status = e instanceof SessionError ? (/not found/i.test(e.message) ? 404 : 409) : e instanceof BusyError ? 429 : 500;
-    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status });
+    return Response.json({ error: safeMessage(e, "Failed") }, { status });
   }
 }

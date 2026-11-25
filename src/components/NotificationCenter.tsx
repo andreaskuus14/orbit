@@ -112,31 +112,31 @@ export function NotificationCenter({ home = false }: { home?: boolean }) {
         <StudioNotifier inMenu />
         <details className="px-2 py-1 text-xs">
           <summary className="cursor-pointer">{t("notify.settings")}</summary>
-          <p className="muted my-1">Dismiss the same kind twice in a week to quiet it. It stays quiet until you unmute it; red alerts remain visible.</p>
+          <p className="muted my-1">{t("notify.muteHelp")}</p>
           {judgment.muted.length ? judgment.muted.map((kind) => <div key={kind} className="flex items-center justify-between gap-2 py-1">
-            <span>{LABELS[kind]} · quiet</span><button className="chip" onClick={() => saveJudgment(unmuteKind(loadJudgment(), kind))}>Unmute {LABELS[kind]}</button>
-          </div>) : <p className="muted">No kinds muted.</p>}
+            <span>{LABELS[kind]} · {t("notify.quiet")}</span><button className="chip" onClick={() => saveJudgment(unmuteKind(loadJudgment(), kind))}>{t("notify.unmute", { kind: LABELS[kind] })}</button>
+          </div>) : <p className="muted">{t("notify.noneMuted")}</p>}
         </details>
-        {updates > 0 && <p className="muted px-2 py-1 text-xs" aria-live="polite">{updates} {updates === 1 ? "update" : "updates"} · grouped in your bell</p>}
+        {updates > 0 && <p className="muted px-2 py-1 text-xs" aria-live="polite">{t(updates === 1 ? "notify.updates.one" : "notify.updates.other", { n: updates })}</p>}
         {items.length ? (
-          <ul className="flex flex-col gap-0.5 overflow-y-auto" aria-label="Notification history">
+          <ul className="flex flex-col gap-0.5 overflow-y-auto" aria-label={t("notify.history")}>
             {items.map((it) => (
               <li key={it.id}>
                 <button className="hud-menu-item w-full !items-start !justify-start" popoverTarget="notify-menu" popoverTargetAction="hide" onClick={() => open(it)}
-                  aria-label={`${it.read ? "" : "Unread: "}${it.title}`}>
+                  aria-label={it.read ? it.title : t("notify.unread", { title: it.title })}>
                   <span aria-hidden>{KIND_ICON[it.kind]}</span>
                   <span className="min-w-0 flex-1">
                     <span className={"block truncate " + (it.read ? "muted" : "font-semibold")}>{it.title}</span>
                     <span className="muted block text-xs">{reasonLine(it)}</span>
-                    <span className="muted block text-[10px]">{classify(it, judgment)}{it.resolved ? " · Resolved" : ""}</span>
+                    <span className="muted block text-[10px]">{classify(it, judgment)}{it.resolved ? ` · ${t("notify.resolved")}` : ""}</span>
                     <span className="muted block text-[10px]">{relTime(it.at, now || it.at)}</span>
                   </span>
                   {!it.read && <span aria-hidden className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-cyan-400" />}
                 </button>
                 {it.herald?.actions.map((a) => <button key={a.label} className="chip ml-2 text-xs" onClick={() => dispatchEvent(new CustomEvent("orbit:herald-action", { detail: { card: it.herald, action: a } }))}>{a.label}</button>)}
                 {isProblem(it) && !it.resolved && <div className="flex gap-1 px-2 pb-1">
-                  <button className="chip" onClick={() => fix(it)}>{it.fixLabel ?? "Open fix"}</button>
-                  <button className="chip" onClick={() => commit(load().map((x) => x.id === it.id ? { ...x, resolved: true } : x))}>Mark resolved</button>
+                  <button className="chip" onClick={() => fix(it)}>{it.fixLabel ?? t("notify.openFix")}</button>
+                  <button className="chip" onClick={() => commit(load().map((x) => x.id === it.id ? { ...x, resolved: true } : x))}>{t("notify.markResolved")}</button>
                 </div>}
               </li>
             ))}
@@ -145,4 +145,12 @@ export function NotificationCenter({ home = false }: { home?: boolean }) {
       </div>
     </>
   );
+}
+
+/** Phones: the top bar has no room for the status pill ("What'" was all that showed), so its items live in the "…" menu instead. */
+export function PhoneReadyItems() {
+  const { t } = useT();
+  const ready = useReady();
+  return <>{ready.map((r) => <button key={r} className="hud-menu-item hud-menu-phone" popoverTarget="hud-menu" popoverTargetAction="hide"
+    onClick={() => dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: r }))}>{t(`quiet.${r}`)}{r === "tour" && <span className="quiet-new">{t("quiet.dot")}</span>}</button>)}</>;
 }

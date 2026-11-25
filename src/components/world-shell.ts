@@ -4,7 +4,7 @@
 import { createContext, useContext } from "react";
 import type { PlanetWorldId } from "@/lib/planet-worlds-pure";
 
-export const SHELL_WORLDS: readonly PlanetWorldId[] = ["operations"];
+export const SHELL_WORLDS: readonly PlanetWorldId[] = ["operations", "life", "analytics", "business"]; // vault is "bare"
 export const WorldShellContext = createContext<{ onClose: () => void; summary: string | null } | null>(null);
 export const useWorldShell = () => useContext(WorldShellContext);
 /** The OPERATIONS world's hall names in his language (the scene builder names them in English). */

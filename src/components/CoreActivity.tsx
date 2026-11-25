@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useT } from "./i18n";
 import { SITE_LABEL_KEYS } from "@/lib/site-pipeline-pure";
 import { coreRunPhase, fmtMs, liveSummary, type LiveRow } from "@/lib/core-live-pure";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 
 const SHOWN = 6; // running: the newest steps; older ones fold into "N earlier"
 

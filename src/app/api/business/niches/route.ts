@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError } from "@/lib/claude";
@@ -13,7 +14,7 @@ const fail = (error: string, status = 400) => Response.json({ error }, { status 
 export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
-  try { return Response.json(await nicheBoard()); } catch (e) { return fail(e instanceof Error ? e.message : "Couldn't read the niche board", 500); }
+  try { return Response.json(await nicheBoard()); } catch (e) { return fail(safeMessage(e, "Couldn't read the niche board"), 500); }
 }
 
 export async function POST(req: Request) {
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
     case "build":
       try { return Response.json({ kit: await buildShop(b.id, req.signal) }); } catch (e) {
         if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
-        return fail(`Couldn't build the shop: ${e instanceof Error ? e.message : "unknown error"}`, 502);
+        return fail(`Couldn't build the shop: ${safeMessage(e, "unknown error")}`, 502);
       }
     default: return fail("action must be scout, keep, dismiss or build");
   }

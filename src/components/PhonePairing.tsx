@@ -20,7 +20,7 @@ export function PhonePairing() {
     setErr("");
     const r = await fetch("/api/remote/owner", body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : undefined).catch(() => null);
     const j = r && (await r.json().catch(() => null));
-    if (r?.ok && j) { setV(j); setToken(j.token ?? ""); } else setErr(j?.error ?? "Couldn't load phone pairing");
+    if (r?.ok && j) { setV(j); setToken(j.token ?? ""); } else setErr("Couldn't load phone pairing. Try again.");
   }, []);
   useEffect(() => { void call(); }, [call]);
   useEffect(() => {
@@ -39,10 +39,10 @@ export function PhonePairing() {
   return (
     <section className="space-y-3" aria-labelledby="phone-title">
       <h3 id="phone-title" className="text-sm font-semibold">{t("profile.phone")}</h3>
-      <p className="muted text-sm">Approvals, Stop-all, Studio queue and CORE from your phone over Tailscale. On the phone open <b>/remote</b> on your Tailscale address (docs/PHONE.md).</p>
+      <p className="muted text-sm">{t("phone.help1")} <b>/remote</b> {t("phone.help2")}</p>
       {v?.problem ? <p className="error text-sm">{v.problem}</p> : (
         <div className="flex items-center gap-3">
-          <button className="btn" onClick={() => void call({ action: "pair" })}>Pair phone</button>
+          <button className="btn" onClick={() => void call({ action: "pair" })}>{t("rm.pair.phone")}</button>
           {v?.pair?.locked && <span className="error text-sm" aria-live="polite">{t("profile.phoneLocked")}</span>}
           {v?.pair?.code && left > 0 && <span className="text-2xl font-semibold tracking-[0.3em]" aria-live="polite">{v.pair.code} <span className="muted text-xs tracking-normal">{left}s</span></span>}
         </div>
@@ -51,28 +51,28 @@ export function PhonePairing() {
         <ul className="space-y-1">
           {v.devices.map((d) => (
             <li key={d.id} className="flex items-center justify-between gap-2 text-sm">
-              <span>{d.name} <span className="muted text-xs">paired {d.createdAt.slice(0, 10)}{d.lastSeen ? `, last used ${new Date(d.lastSeen).toLocaleString()}` : ""}</span></span>
-              <button className="chip" onClick={async () => (await askConfirm(`Revoke ${d.name}? It stops working at once.`)) && void call({ action: "revoke", id: d.id })}>Revoke</button>
+              <span>{d.name} <span className="muted text-xs">{t("phone.paired", { d: d.createdAt.slice(0, 10) })}{d.lastSeen ? `, ${t("phone.lastUsed", { at: new Date(d.lastSeen).toLocaleString() })}` : ""}</span></span>
+              <button className="chip" onClick={async () => (await askConfirm(t("phone.revokeQ", { name: d.name }))) && void call({ action: "revoke", id: d.id })}>{t("phone.revoke")}</button>
             </li>
           ))}
         </ul>
-      ) : <p className="muted text-xs">No phones paired.</p>}
+      ) : <p className="muted text-xs">{t("phone.none")}</p>}
       {!v?.problem && (
         <div className="space-y-2">
-          <h4 className="text-sm font-semibold">Shortcuts &amp; Watch</h4>
-          <p className="muted text-xs">One token per Shortcut, each allowed one action. Recipes: docs/PHONE.md "Shortcuts &amp; Watch".</p>
+          <h4 className="text-sm font-semibold">{t("phone.sc")}</h4>
+          <p className="muted text-xs">{t("phone.scHelp")}</p>
           <div className="flex items-center gap-2">
-            <select className="field py-1" aria-label="Shortcut action" value={kind} onChange={(e) => setKind(e.target.value)}>
+            <select className="field py-1" aria-label={t("phone.scAction")} value={kind} onChange={(e) => setKind(e.target.value)}>
               {KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
-            <button className="btn" onClick={() => void call({ action: "shortcut", kind, name: KINDS.find(([k]) => k === kind)?.[1] })}>New token</button>
+            <button className="btn" onClick={() => void call({ action: "shortcut", kind, name: KINDS.find(([k]) => k === kind)?.[1] })}>{t("phone.newToken")}</button>
           </div>
           {token && (
             <div className="space-y-1">
-              <p className="text-xs">Copy it into the Shortcut's Authorization header now: it isn't shown again.</p>
+              <p className="text-xs">{t("phone.copyNow")}</p>
               <div className="flex items-center gap-2">
-                <code className="text-xs break-all select-all">Bearer {token}</code>
-                <button className="chip" onClick={() => void navigator.clipboard?.writeText(`Bearer ${token}`)}>Copy</button>
+                <code className="text-xs break-all select-all">{`Bearer ${token}`}</code>
+                <button className="chip" onClick={() => void navigator.clipboard?.writeText(`Bearer ${token}`)}>{t("phone.copy")}</button>
               </div>
             </div>
           )}
@@ -80,12 +80,12 @@ export function PhonePairing() {
             <ul className="space-y-1">
               {v.shortcuts.map((s) => (
                 <li key={s.id} className="flex items-center justify-between gap-2 text-sm">
-                  <span>{s.name} <span className="muted text-xs">made {s.createdAt.slice(0, 10)}{s.lastSeen ? `, last used ${new Date(s.lastSeen).toLocaleString()}` : ""}</span></span>
-                  <button className="chip" onClick={async () => (await askConfirm(`Revoke the ${s.name} token? That Shortcut stops working at once.`)) && void call({ action: "revokeShortcut", id: s.id })}>Revoke</button>
+                  <span>{s.name} <span className="muted text-xs">{t("phone.made", { d: s.createdAt.slice(0, 10) })}{s.lastSeen ? `, ${t("phone.lastUsed", { at: new Date(s.lastSeen).toLocaleString() })}` : ""}</span></span>
+                  <button className="chip" onClick={async () => (await askConfirm(t("phone.revokeTokQ", { name: s.name }))) && void call({ action: "revokeShortcut", id: s.id })}>{t("phone.revoke")}</button>
                 </li>
               ))}
             </ul>
-          ) : <p className="muted text-xs">No Shortcut tokens.</p>}
+          ) : <p className="muted text-xs">{t("phone.noTokens")}</p>}
         </div>
       )}
       {err && <p className="error text-sm" role="alert">{err}</p>}

@@ -1,8 +1,9 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { decideLesson, editLesson, lessonsView, mineLessons } from "@/lib/lessons";
 import { emit } from "@/lib/claude";
 
-const fail = (e: unknown) => Response.json({ error: e instanceof Error ? e.message : "Lessons failed" }, { status: 500 });
+const fail = (e: unknown) => Response.json({ error: safeMessage(e, "Lessons failed") }, { status: 500 });
 
 /** "What I learned about you": proposed lessons, kept ones, how many were rejected, when ORBIT last looked. */
 export async function GET() {

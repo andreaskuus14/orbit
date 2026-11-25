@@ -12,6 +12,7 @@ import * as leadPure from "../src/lib/lead-loop-pure.ts";
 import * as regPure from "../src/lib/registry-pure.ts";
 import { nightFollowupDraft, type NightReport } from "../src/lib/night-pure.ts";
 
+import * as apiErrorPure from "../src/lib/api-error-pure.ts";
 const req = createRequire(import.meta.url);
 const report = (draft: string, ref = "11111111-1111-4111-8111-111111111111") => ({ approvals: [
   { kind: "research", ref: "x", label: "Other", status: "approval", at: "", draft: "Not a follow-up" },
@@ -54,6 +55,7 @@ function route(o: { stage?: string; night?: unknown; stopAll?: boolean } = {}) {
     if (name === "@/lib/registry") return { peopleBlock: async () => "" };
     if (name === "@/lib/night-pure") return nightPure;
     if (name === "@/lib/night") return { getNightReport: async () => night };
+    if (name === "@/lib/api-error-pure") return apiErrorPure;
     return req(name);
   };
   runInNewContext(code, { module: m, exports: m.exports, Response, Date, require: stub, process, Promise });

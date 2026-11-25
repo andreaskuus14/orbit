@@ -10,7 +10,7 @@ import { usageHardHold, usageHold } from "./usage-meter";
 import { addSources, applyCheck, assembleCitations, budgetFrom, linksIn, mayStart, msLeft, newState, nextToRead, noteBatches, notesPrompt, pace, parseNotes, parsePlan,
   patchSrc, queryOrder, readSources, reportClaims, reportDoc, reportName, researchCard, shrink, statusText, toPhase, writePrompt, NOTES_SYSTEM, PLAN_SYSTEM, WRITE_SYSTEM,
   type Phase, type RState } from "./research-pure";
-import type { Lang } from "./i18n-pure";
+import type { Lang } from "./i18n-core-pure";
 import type { Progress } from "./progress-pure";
 
 type Job = { s: RState; ctl: AbortController; doing?: string };

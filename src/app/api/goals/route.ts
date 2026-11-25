@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { advance, createGoal, getGoal, goalAction, listGoals, type GoalAction, type GoalRow } from "@/lib/goals";
 import { isLive, planningActive, progress, runsLeft, today } from "@/lib/goals-pure";
@@ -6,7 +7,7 @@ import { trackGoals, type GoalTrack } from "@/lib/goal-autopilot";
 import { fromPilot } from "@/lib/pilot-pure";
 import { stopAllOn } from "@/lib/stop-all";
 import { usageHold } from "@/lib/usage-meter";
-import { parseLang, type Lang } from "@/lib/i18n-pure";
+import { parseLang, type Lang } from "@/lib/i18n-core-pure";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ export async function GET(req: Request) {
     if (id) return rows[0] ? Response.json(view(rows[0], tracks, lang)) : Response.json({ error: "Not found" }, { status: 404 });
     return Response.json({ goals: rows.map((r) => view(r, tracks, lang)) });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Failed") }, { status: 500 });
   }
 }
 
@@ -56,6 +57,6 @@ export async function POST(req: Request) {
     if (r.error) return Response.json({ error: r.error }, { status: 409 });
     return Response.json(r.row ? view(r.row, await trackGoals(sb, user.id, [r.row]).catch(() => undefined)) : { ok: true });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Failed") }, { status: 500 });
   }
 }

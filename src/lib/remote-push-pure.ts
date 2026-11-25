@@ -3,7 +3,7 @@
 // Policy: fixed labels only (never item titles, email text, journal or memory), max 1 per kind per 2 min, quiet hours 23-08 Tallinn.
 // Server glue: remote-push.ts; route: /api/remote/push; service worker: /remote/sw.js.
 import { createCipheriv, createECDH, createPrivateKey, hkdfSync, randomBytes, sign } from "node:crypto";
-import { ET, type Key, type Lang } from "./i18n-pure.ts";
+import { translate, type Key, type Lang } from "./i18n-pure.ts";
 
 // ---- What gets sent ---------------------------------------------------------
 
@@ -40,7 +40,8 @@ export function pushLabel(kind: PushKind, n = 1): PushMessage {
 
 /** The label in the phone's language (set when it subscribed). Kinds without `push.<kind>.*` Estonian keys stay as they are. */
 export function pushFor(msg: PushMessage, lang: Lang | undefined): PushMessage {
-  const title = lang === "et" && ET[`push.${msg.tag}.title` as Key], body = lang === "et" && ET[`push.${msg.tag}.body` as Key];
+  const etOnly = (k: Key) => { const v = translate("et", k); return v !== k && v; }; // has an Estonian line for this tag
+  const title = lang === "et" && etOnly(`push.${msg.tag}.title` as Key), body = lang === "et" && etOnly(`push.${msg.tag}.body` as Key);
   return title && body ? { ...msg, title, body } : msg;
 }
 

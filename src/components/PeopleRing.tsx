@@ -11,6 +11,8 @@ import { useGlRecovery } from "./useGlRecovery";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { AFFINITIES, AFFINITY_COLOR, daysSince, moonSize, recency, ringLayout, type Affinity, type Person, type Touch } from "@/lib/people-pure";
 import { askConfirm } from "./ui/Dialog";
+import { tr, useT } from "./i18n";
+import type { Key, Vars } from "@/lib/i18n-core-pure";
 
 type View = Person & { local: boolean; last: string | null; overdue: boolean };
 const API = "/api/people";
@@ -20,7 +22,7 @@ const post = async (body: object) => {
   if (!r.ok) throw new Error(j.error || `Failed (${r.status})`);
   return j;
 };
-const ago = (at: string | null) => { const d = daysSince(at, Date.now()); return d === null ? "never" : d === 0 ? "today" : `${d}d ago`; };
+const ago = (at: string | null, t: (k: Key, v?: Vars) => string = tr) => { const d = daysSince(at, Date.now()); return d === null ? t("ppl.never") : d === 0 ? t("ppl.today") : t("ppl.daysAgo", { n: d }); };
 
 /** People list shared by the ring and the panel; loads while `on`. */
 export function usePeople(on: boolean) {
@@ -110,7 +112,7 @@ function Moons({ people, sel, onPick, reduced }: { people: View[]; sel: string |
       </instancedMesh>
     </group>
     {label && lp && <Html position={lp} style={{ pointerEvents: "none", transform: "translate(14px, -50%)" }} zIndexRange={[12, 0]}>
-      <div className="memory-star-label"><b>{label.name}</b><span>{label.relation || label.affinity} · {ago(label.last)}{label.overdue ? " · check in" : ""}</span></div>
+      <div className="memory-star-label"><b>{label.name}</b><span>{label.relation || label.affinity} · {ago(label.last)}{label.overdue ? ` · ${tr("ppl.checkIn")}` : ""}</span></div>
     </Html>}
   </>;
 }
@@ -134,6 +136,7 @@ const BLANK = { name: "", relation: "", affinity: "life" as Affinity, importance
 /** List, add form and the person card with timeline and check-in draft. */
 export function PeoplePanel({ st }: { st: PeopleState }) {
   const { people, err, sel, setSel, reload } = st;
+  const { t } = useT();
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState(BLANK);
   const [busy, setBusy] = useState("");
@@ -156,70 +159,70 @@ export function PeoplePanel({ st }: { st: PeopleState }) {
 
   return <div className="space-y-3">
     {err && <p className="error" role="alert">{err}</p>}
-    {!people && !err && <p className="muted" role="status">Finding your people…</p>}
+    {!people && !err && <p className="muted" role="status">{t("ppl.finding")}</p>}
     <div className="flex items-center justify-between gap-2">
-      <span className="muted text-xs">{people ? `${people.length} people${people.some((x) => x.overdue) ? ` · ${people.filter((x) => x.overdue).length} to check in with` : ""}` : ""}</span>
-      <button className="chip" aria-expanded={adding} onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "Add person"}</button>
+      <span className="muted text-xs">{people ? `${t("ppl.count", { n: people.length })}${people.some((x) => x.overdue) ? ` · ${t("ppl.toCheck", { n: people.filter((x) => x.overdue).length })}` : ""}` : ""}</span>
+      <button className="chip" aria-expanded={adding} onClick={() => setAdding(!adding)}>{adding ? t("common.cancel") : t("ppl.add")}</button>
     </div>
     {adding && <form className="card space-y-1.5" onSubmit={(e) => { e.preventDefault(); void act("add", { action: "add", ...f }, (j) => { setF(BLANK); setAdding(false); if (j.person) setSel(j.person.id); }); }}>
-      <input className="field" aria-label="Name" placeholder="Name" required maxLength={80} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-      <input className="field" aria-label="Relation" placeholder="Relation (client, friend, collaborator…)" maxLength={60} value={f.relation} onChange={(e) => setF({ ...f, relation: e.target.value })} />
+      <input className="field" aria-label={t("ppl.name")} placeholder={t("ppl.name")} required maxLength={80} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+      <input className="field" aria-label={t("ppl.relation")} placeholder={t("ppl.relationPh")} maxLength={60} value={f.relation} onChange={(e) => setF({ ...f, relation: e.target.value })} />
       <div className="flex flex-wrap gap-1.5">
-        <select className="chip" aria-label="Planet" value={f.affinity} onChange={(e) => setF({ ...f, affinity: e.target.value as Affinity })}>{AFFINITIES.map((a) => <option key={a}>{a}</option>)}</select>
-        <select className="chip" aria-label="Importance" value={f.importance} onChange={(e) => setF({ ...f, importance: Number(e.target.value) })}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>importance {n}</option>)}</select>
+        <select className="chip" aria-label={t("ppl.planet")} value={f.affinity} onChange={(e) => setF({ ...f, affinity: e.target.value as Affinity })}>{AFFINITIES.map((a) => <option key={a}>{a}</option>)}</select>
+        <select className="chip" aria-label={t("ppl.importance")} value={f.importance} onChange={(e) => setF({ ...f, importance: Number(e.target.value) })}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{t("ppl.importanceN", { n })}</option>)}</select>
       </div>
-      <textarea className="field" aria-label="Notes" placeholder="Your notes" maxLength={2000} rows={2} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
-      <button className="btn" disabled={!!busy || !f.name.trim()}>Add</button>
+      <textarea className="field" aria-label={t("ppl.notes")} placeholder={t("ppl.notesPh")} maxLength={2000} rows={2} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
+      <button className="btn" disabled={!!busy || !f.name.trim()}>{t("common.add")}</button>
     </form>}
     {msg && <p className="error" role="alert">{msg}</p>}
 
     {p && <div className="card space-y-2" aria-label={`${p.name}`}>
       <div className="flex items-center justify-between gap-2">
-        <div><div className="font-medium">{p.name}</div><div className="muted text-xs">{p.relation || "—"} · {p.affinity} · last contact {ago(detail.timeline[0]?.at ?? null)}</div></div>
-        <button className="chip" onClick={() => setSel(null)} aria-label="Close card">×</button>
+        <div><div className="font-medium">{p.name}</div><div className="muted text-xs">{p.relation || "—"} · {p.affinity} · {t("ppl.lastContact", { ago: ago(detail.timeline[0]?.at ?? null, t) })}</div></div>
+        <button className="chip" onClick={() => setSel(null)} aria-label={t("ppl.closeCard")}>×</button>
       </div>
-      {!p.local && <p className="muted text-xs">From BUSINESS. Keep them as a person to add your own notes, importance and reminders.</p>}
-      {field("relation", "Relation", 60)}
-      {field("cares", "What they care about (your words)", 500)}
-      {field("next", "Next step", 300)}
-      <textarea className="field" aria-label="Notes" placeholder="Your notes" maxLength={2000} rows={3} value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} disabled={!p.local} />
+      {!p.local && <p className="muted text-xs">{t("ppl.fromBiz")}</p>}
+      {field("relation", t("ppl.relation"), 60)}
+      {field("cares", t("ppl.cares"), 500)}
+      {field("next", t("ppl.next"), 300)}
+      <textarea className="field" aria-label={t("ppl.notes")} placeholder={t("ppl.notesPh")} maxLength={2000} rows={3} value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} disabled={!p.local} />
       {p.local && <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <select className="chip" aria-label="Planet" value={edit.affinity} onChange={(e) => setEdit({ ...edit, affinity: e.target.value as Affinity })}>{AFFINITIES.map((a) => <option key={a}>{a}</option>)}</select>
-        <select className="chip" aria-label="Importance" value={edit.importance} onChange={(e) => setEdit({ ...edit, importance: Number(e.target.value) })}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>importance {n}</option>)}</select>
-        <label className="muted flex items-center gap-1">remind after <input className="field w-16" type="number" min={1} max={365} value={edit.remindDays} onChange={(e) => setEdit({ ...edit, remindDays: Number(e.target.value) })} /> days</label>
-        <button className="btn" disabled={!!busy} onClick={() => void act("save", { action: "update", id: p.id, ...edit })}>Save</button>
+        <select className="chip" aria-label={t("ppl.planet")} value={edit.affinity} onChange={(e) => setEdit({ ...edit, affinity: e.target.value as Affinity })}>{AFFINITIES.map((a) => <option key={a}>{a}</option>)}</select>
+        <select className="chip" aria-label={t("ppl.importance")} value={edit.importance} onChange={(e) => setEdit({ ...edit, importance: Number(e.target.value) })}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{t("ppl.importanceN", { n })}</option>)}</select>
+        <label className="muted flex items-center gap-1">{t("ppl.remindAfter")} <input className="field w-16" type="number" min={1} max={365} value={edit.remindDays} onChange={(e) => setEdit({ ...edit, remindDays: Number(e.target.value) })} /> {t("ppl.days")}</label>
+        <button className="btn" disabled={!!busy} onClick={() => void act("save", { action: "update", id: p.id, ...edit })}>{t("ppl.save")}</button>
       </div>}
       {p.local
         ? <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); void act("log", { action: "log", id: p.id, note }, () => setNote("")); }}>
-            <input className="field flex-1" aria-label="Log a contact" placeholder="Log a contact: called about the pilot…" maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} />
-            <button className="chip" disabled={!!busy || !note.trim()}>Log</button>
+            <input className="field flex-1" aria-label={t("ppl.log")} placeholder={t("ppl.logPh")} maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} />
+            <button className="chip" disabled={!!busy || !note.trim()}>{t("ppl.logBtn")}</button>
           </form>
-        : <button className="btn" disabled={!!busy} onClick={() => void act("keep", { action: "keep", prospectId: p.prospectId }, (j) => { if (j.person) setSel(j.person.id); })}>Keep as a person</button>}
+        : <button className="btn" disabled={!!busy} onClick={() => void act("keep", { action: "keep", prospectId: p.prospectId }, (j) => { if (j.person) setSel(j.person.id); })}>{t("ppl.keep")}</button>}
       <div>
-        <div className="muted text-[10px] uppercase tracking-widest">Timeline</div>
-        {detail.timeline.length ? <ul className="space-y-0.5 text-xs">{detail.timeline.slice(0, 12).map((t, i) =>
-          <li key={i} className="flex gap-2"><span className="muted num w-20 shrink-0">{t.at.slice(0, 10)}</span><span className="truncate">{t.what}</span><span className="muted ml-auto">{t.via}</span></li>)}</ul>
-          : <p className="muted text-xs">No contact found yet. Log one above.</p>}
+        <div className="muted text-[12px] font-medium">{t("ppl.timeline")}</div>
+        {detail.timeline.length ? <ul className="space-y-0.5 text-xs">{detail.timeline.slice(0, 12).map((x, i) =>
+          <li key={i} className="flex gap-2"><span className="muted num w-20 shrink-0">{x.at.slice(0, 10)}</span><span className="truncate">{x.what}</span><span className="muted ml-auto">{x.via}</span></li>)}</ul>
+          : <p className="muted text-xs">{t("ppl.noContact")}</p>}
       </div>
       {p.local && <div className="space-y-1">
-        <button className="btn" disabled={!!busy} onClick={() => void act("checkin", { action: "checkin", id: p.id })}>{busy === "checkin" ? "Drafting…" : p.draft ? "Redraft check-in" : "Draft a check-in"}</button>
+        <button className="btn" disabled={!!busy} onClick={() => void act("checkin", { action: "checkin", id: p.id })}>{busy === "checkin" ? t("ppl.drafting") : p.draft ? t("ppl.redraft") : t("ppl.draft")}</button>
         {p.draft && <>
-          <textarea className="field" readOnly rows={4} aria-label="Check-in draft" value={p.draft} />
-          <p className="muted text-[11px]">A draft only: ORBIT doesn&apos;t send it.{p.prospectId ? " For a business contact, send through BUSINESS's own approve & send." : " Copy it into your own chat."}</p>
+          <textarea className="field" readOnly rows={4} aria-label={t("ppl.draftLabel")} value={p.draft} />
+          <p className="muted text-[11px]">{t("ppl.draftOnly")} {p.prospectId ? t("ppl.draftBiz") : t("ppl.draftCopy")}</p>
           <div className="flex gap-1.5">
-            <button className="chip" onClick={() => void navigator.clipboard?.writeText(p.draft).catch(() => {})}>Copy</button>
-            {p.prospectId && <button className="chip" onClick={() => dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: "business" } }))}>Open in BUSINESS</button>}
+            <button className="chip" onClick={() => void navigator.clipboard?.writeText(p.draft).catch(() => {})}>{t("common.copy")}</button>
+            {p.prospectId && <button className="chip" onClick={() => dispatchEvent(new CustomEvent<NavTarget>(NAV_EVENT, { detail: { panel: "business" } }))}>{t("ppl.openBiz")}</button>}
           </div>
         </>}
       </div>}
-      {p.local && <button className="chip text-xs" disabled={!!busy} onClick={async () => { if ((await askConfirm(`Remove ${p.name} from People? Your notes about them go too.`))) void act("delete", { action: "delete", id: p.id }, () => setSel(null)); }}>Remove</button>}
+      {p.local && <button className="chip text-xs" disabled={!!busy} onClick={async () => { if ((await askConfirm(t("ppl.removeAsk", { name: p.name })))) void act("delete", { action: "delete", id: p.id }, () => setSel(null)); }}>{t("common.remove")}</button>}
     </div>}
 
-    {!!sorted.length && <ul className="space-y-0.5" aria-label="People">{sorted.map((x) =>
+    {!!sorted.length && <ul className="space-y-0.5" aria-label={t("ppl.people")}>{sorted.map((x) =>
       <li key={x.id}><button className="chip w-full justify-between text-left" aria-pressed={sel === x.id} onClick={() => setSel(x.id)}>
         <span className="flex min-w-0 items-center gap-1.5"><i aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 9, flex: "none", background: AFFINITY_COLOR[x.affinity] }} /><span className="truncate">{x.name}</span><span className="muted truncate">{x.relation}</span></span>
-        <span className={x.overdue ? "text-amber-300" : "muted"}>{x.overdue ? "check in · " : ""}{ago(x.last)}</span></button></li>)}</ul>}
-    {people && !people.length && <p className="muted text-xs">No one yet. Add the people you work with; contacted BUSINESS clients appear here on their own.</p>}
-    <p className="muted text-[11px]">Moons glow brighter the more recently you were in touch; size is the importance you set; an amber halo means someone important is due a check-in. People stay on this PC; CORE only sees a name, relation and last contact when you mention them.</p>
+        <span className={x.overdue ? "text-amber-300" : "muted"}>{x.overdue ? `${t("ppl.checkIn")} · ` : ""}{ago(x.last, t)}</span></button></li>)}</ul>}
+    {people && !people.length && <p className="muted text-xs">{t("ppl.empty")}</p>}
+    <p className="muted text-[11px]">{t("ppl.legend")}</p>
   </div>;
 }

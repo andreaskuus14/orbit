@@ -4,39 +4,41 @@ import type { Insights } from "@/lib/clips/learn-pure";
 import type { Lesson, Playbook } from "@/lib/clips/study-pure";
 import type { ModelStatus } from "@/lib/clips/score";
 import StudyButton from "./StudyButton";
+import { useT } from "./i18n";
+import type { Key } from "@/lib/i18n-core-pure";
 
 type Data = Insights & { study?: { playbook: Playbook; recent: Lesson[]; busy: string | null; min: number; rules?: string[] } | null; model?: ModelStatus | null };
 
-const SIGNAL: Record<ModelStatus["top"][number]["key"], string> = { claude: "Editor's rating", hypePeak: "Hype spike", hypeSharp: "Sudden hype", chat: "Chat burst", audio: "Loud reaction",
-  hook: "First 2 seconds", length: "Length fit", creator: "Creator", kind: "Moment type", playbook: "Viral playbook", novelty: "Freshness" };
+const SIGNAL = (k: ModelStatus["top"][number]["key"]) => `lc.sig.${k}` as Key;
 
 /** Virality model status + how the score works. */
 function ScoreModel({ m }: { m: ModelStatus }) {
-  const top = m.top.slice(0, 5), max = Math.max(...top.map((t) => Math.abs(t.w)), 0.01);
+  const { t } = useT();
+  const top = m.top.slice(0, 5), max = Math.max(...top.map((x) => Math.abs(x.w)), 0.01);
   return (
     <div>
-      <h4 className="muted mb-1">🎯 Virality score · {m.learned ? `model learned from ${m.n} of your Shorts (${m.conf} confidence)` : `learning: ${m.n} of ${m.min} Shorts needed`}</h4>
+      <h4 className="muted mb-1">🎯 {t("lc.virality")} · {m.learned ? t("lc.learnedFrom", { n: m.n, conf: m.conf }) : t("lc.learning", { n: m.n, min: m.min })}</h4>
       {!m.learned && (
-        <div className="mb-1.5 h-1 overflow-hidden rounded-full" style={{ background: "rgba(255,214,224,0.08)" }} role="progressbar" aria-label="Shorts the score has learned from"
+        <div className="mb-1.5 h-1 overflow-hidden rounded-full" style={{ background: "rgba(255,214,224,0.08)" }} role="progressbar" aria-label={t("lc.learnedBar")}
           aria-valuemin={0} aria-valuemax={m.min} aria-valuenow={m.n}>
           <div className="h-full rounded-full" style={{ width: `${(m.n / m.min) * 100}%`, background: "linear-gradient(90deg,#a855f7,#ff2e63,#ffb347)" }} />
         </div>
       )}
-      <ul className="space-y-1" aria-label={m.learned ? "What predicts views on your channel" : "Starting weights"}>
-        {top.map((t) => (
-          <li key={t.key} className="score-factor">
-            <span>{SIGNAL[t.key]}{t.w < 0 ? " (hurts)" : ""}</span>
-            <span className="num muted">{m.learned && Math.abs(t.w - t.prior) >= 0.1 ? (t.w > t.prior ? "↑ learned" : "↓ learned") : ""}</span>
-            <span className="score-bar" aria-hidden><i style={{ width: `${(Math.abs(t.w) / max) * 100}%`, background: t.w >= 0 ? "linear-gradient(90deg,#ff2e63,#ffb347)" : "linear-gradient(90deg,#a855f7,#c084fc)" }} /></span>
+      <ul className="space-y-1" aria-label={m.learned ? t("lc.predicts") : t("lc.startWeights")}>
+        {top.map((x) => (
+          <li key={x.key} className="score-factor">
+            <span>{t(SIGNAL(x.key))}{x.w < 0 ? ` ${t("lc.hurts")}` : ""}</span>
+            <span className="num muted">{m.learned && Math.abs(x.w - x.prior) >= 0.1 ? (x.w > x.prior ? `↑ ${t("lc.learnedTag")}` : `↓ ${t("lc.learnedTag")}`) : ""}</span>
+            <span className="score-bar" aria-hidden><i style={{ width: `${(Math.abs(x.w) / max) * 100}%`, background: x.w >= 0 ? "linear-gradient(90deg,#ff2e63,#ffb347)" : "linear-gradient(90deg,#a855f7,#c084fc)" }} /></span>
           </li>
         ))}
       </ul>
       <details className="score-why mt-1.5">
-        <summary>How scoring works</summary>
+        <summary>{t("lc.how")}</summary>
         <div className="muted mt-1 space-y-1 leading-snug">
-          <p>Each clip gets a score from 0 to 100. 50 means a typical Short for your channel; 75 means about twice your usual views.</p>
-          <p>It looks at the stream around the clip (chat speed, emote spam, subs, how loud and sudden the reaction is), the first 2 seconds, the length, the creator and moment type, the viral playbook and whether you posted something similar lately.</p>
-          <p>Until {m.min} of your published Shorts have 72-hour stats, it uses starting weights and says “learning”. After that it re-learns the weights from your own views and like rate every time stats update. New clips use the latest model.</p>
+          <p>{t("lc.how1")}</p>
+          <p>{t("lc.how2")}</p>
+          <p>{t("lc.how3", { n: m.min })}</p>
         </div>
       </details>
     </div>
@@ -45,10 +47,11 @@ function ScoreModel({ m }: { m: ModelStatus }) {
 
 // "What ORBIT learned" (Clip Factory): top clips by performance, patterns and the owner's reject reasons. Data: /api/studio/clips/learn.
 
-const when = (iso?: string) => { const t = iso ? Date.parse(iso) : NaN; return Number.isFinite(t) ? new Date(t).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "never"; };
+const when = (iso: string | undefined, never: string) => { const ms = iso ? Date.parse(iso) : NaN; return Number.isFinite(ms) ? new Date(ms).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : never; };
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
 export default function LearnedCard({ defaultOpen }: { defaultOpen?: boolean }) {
+  const { t } = useT();
   const [d, setD] = useState<Data | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => {
@@ -58,62 +61,62 @@ export default function LearnedCard({ defaultOpen }: { defaultOpen?: boolean }) 
       setD(j as Data);
     }).catch((e: Error) => setErr(e.message));
   }, []);
-  const none = <p className="muted">Not enough data yet.</p>;
+  const none = <p className="muted">{t("lc.notEnough")}</p>;
   const pb = d?.study?.playbook;
   const row = (label: string, items: string[]) => <li><span className="muted">{label}:</span> {items.join(", ")}</li>;
   return (
-    <details className="card text-xs" aria-label="What ORBIT learned" open={defaultOpen}>
-      <summary className="hud-title studio-title cursor-pointer !text-[0.7rem]">WHAT ORBIT LEARNED <span className="muted normal-case">· updated {when(d?.checkedAt)}</span></summary>
+    <details className="card text-xs" aria-label={t("lc.title")} open={defaultOpen}>
+      <summary className="hud-title studio-title cursor-pointer !text-[0.7rem]">{t("lc.titleHead")} <span className="muted normal-case">· {t("lc.updated", { at: when(d?.checkedAt, t("lc.never")) })}</span></summary>
       <div className="mt-2 space-y-2">
         {err && <p className="error" role="alert">{err}</p>}
-        {!d && !err && <div className="space-y-2" role="status" aria-label="Loading"><span className="sr-only">Loading…</span>{[0, 1, 2].map((k) => <div key={k} aria-hidden className="h-10 animate-pulse rounded-lg bg-white/5" />)}</div>}
+        {!d && !err && <div className="space-y-2" role="status" aria-label={t("common.loading")}><span className="sr-only">{t("common.loading")}</span>{[0, 1, 2].map((k) => <div key={k} aria-hidden className="h-10 animate-pulse rounded-lg bg-white/5" />)}</div>}
         {d && (<>
           <div>
-            <h4 className="muted mb-1">Top clips ({d.scored} of {d.published} published have 72 h stats)</h4>
-            {d.top.length ? <ol className="list-decimal pl-4">{d.top.map((t) => (
-              <li key={t.videoId}><a href={`https://youtube.com/shorts/${t.videoId}`} target="_blank" rel="noreferrer" className="underline">{t.title}</a>{" "}
-                <span className="muted">{t.views72.toLocaleString()} views at 72 h · {t.score}× median{t.avgViewPct ? ` · ${t.avgViewPct}% viewed` : ""}</span></li>))}</ol> : none}
+            <h4 className="muted mb-1">{t("lc.top", { n: d.scored, of: d.published })}</h4>
+            {d.top.length ? <ol className="list-decimal pl-4">{d.top.map((x) => (
+              <li key={x.videoId}><a href={`https://youtube.com/shorts/${x.videoId}`} target="_blank" rel="noreferrer" className="underline">{x.title}</a>{" "}
+                <span className="muted">{t("lc.topLine", { v: x.views72.toLocaleString(), s: x.score })}{x.avgViewPct ? ` · ${t("lc.viewed", { n: x.avgViewPct })}` : ""}</span></li>))}</ol> : none}
           </div>
           <div>
-            <h4 className="muted mb-1">Winners vs flops ({d.judged ?? 0} Shorts with 24 h/72 h stats, vs your median)</h4>
+            <h4 className="muted mb-1">{t("lc.winFlop", { n: d.judged ?? 0 })}</h4>
             {d.winners?.length || d.flops?.length ? <ul className="space-y-1">
-              {([["🏆 Winners", d.winners ?? [], d.why?.winners], ["📉 Flops", d.flops ?? [], d.why?.flops]] as const).map(([label, list, why]) => !!list.length && (
+              {([[`🏆 ${t("lc.winners")}`, d.winners ?? [], d.why?.winners], [`📉 ${t("lc.flops")}`, d.flops ?? [], d.why?.flops]] as const).map(([label, list, why]) => !!list.length && (
                 <li key={label}><span className="muted">{label}:</span>{why && <span> {why}</span>}
                   <ol className="list-decimal pl-4">{list.map((j) => (
                     <li key={j.videoId}><a href={`https://youtube.com/shorts/${j.videoId}`} target="_blank" rel="noreferrer" className="underline">{j.title}</a>{" "}
-                      <span className="muted">{j.views.toLocaleString()} views at {j.snap} · {j.perf}× median · {(j.likeRate * 100).toFixed(1)}% likes · {(j.commentRate * 100).toFixed(1)}% comments</span>
-                      {j.verdict === "winner" && <StudyButton id={j.videoId} title={j.title} channel="your channel" views={j.views} source="own" />}</li>))}</ol>
+                      <span className="muted">{t("lc.judgeLine", { v: j.views.toLocaleString(), snap: j.snap, perf: j.perf, likes: (j.likeRate * 100).toFixed(1), comments: (j.commentRate * 100).toFixed(1) })}</span>
+                      {j.verdict === "winner" && <StudyButton id={j.videoId} title={j.title} channel={t("lc.yourChannel")} views={j.views} source="own" />}</li>))}</ol>
                 </li>))}
-              {!!d.editHints?.length && row("Editing", d.editHints)}
+              {!!d.editHints?.length && row(t("lc.editing"), d.editHints)}
             </ul> : none}
           </div>
           <div>
-            <h4 className="muted mb-1">📚 Viral playbook ({pb?.n ?? 0} Shorts studied{pb && d?.study && pb.n < d.study.min ? ` · edits adapt from ${d.study.min}` : pb ? " · tuning your edits" : ""})</h4>
+            <h4 className="muted mb-1">📚 {t("lc.playbook", { n: pb?.n ?? 0 })}{pb && d?.study && pb.n < d.study.min ? ` · ${t("lc.adaptFrom", { n: d.study.min })}` : pb ? ` · ${t("lc.tuning")}` : ""})</h4>
             {pb?.n ? <ul>
-              {row("Typical", [`${pb.lengthSec} s long`, `${pb.shotSec} s per shot`, `payoff at ~${Math.round(pb.payoffAt * 100)}%`])}
-              {!!pb.hooks.length && row("Hooks", pb.hooks.slice(0, 3).map((c) => `${c.label} (${c.n})`))}
-              {!!pb.effects.length && row("Effects in most", pb.effects.slice(0, 5).map((c) => `${c.label} (${c.n})`))}
-              {!!pb.thumbs.length && row("Thumbnails", pb.thumbs.slice(0, 2).map((c) => `${c.label} (${c.n})`))}
-              {!!pb.titlePatterns.length && row("Title formulas", pb.titlePatterns.map((c) => `${c.label} (${c.n})`))}
-              {!!pb.lessons.length && row("Lessons", pb.lessons.slice(0, 3))}
-            </ul> : <p className="muted">Nothing studied yet: press 📚 Study on a Short blowing up in your niche (Trend Radar → Rising) or on one of your winners.</p>}
-            {!!d.study?.rules?.length && <ul>{row("Your rules (from post-mortems)", d.study.rules)}</ul>}
+              {row(t("lc.typical"), [t("lc.long", { n: pb.lengthSec }), t("lc.perShot", { n: pb.shotSec }), t("lc.payoff", { n: Math.round(pb.payoffAt * 100) })])}
+              {!!pb.hooks.length && row(t("lc.hooks"), pb.hooks.slice(0, 3).map((c) => `${c.label} (${c.n})`))}
+              {!!pb.effects.length && row(t("lc.effects"), pb.effects.slice(0, 5).map((c) => `${c.label} (${c.n})`))}
+              {!!pb.thumbs.length && row(t("lc.thumbs"), pb.thumbs.slice(0, 2).map((c) => `${c.label} (${c.n})`))}
+              {!!pb.titlePatterns.length && row(t("lc.titles"), pb.titlePatterns.map((c) => `${c.label} (${c.n})`))}
+              {!!pb.lessons.length && row(t("lc.lessons"), pb.lessons.slice(0, 3))}
+            </ul> : <p className="muted">{t("lc.nothingStudied")}</p>}
+            {!!d.study?.rules?.length && <ul>{row(t("lc.rules"), d.study.rules)}</ul>}
           </div>
           {d.model && <ScoreModel m={d.model} />}
           <div>
-            <h4 className="muted mb-1">Channel patterns</h4>
+            <h4 className="muted mb-1">{t("lc.patterns")}</h4>
             {d.over.length || d.under.length ? <ul>
-              {!!d.over.length && row("Over-perform", d.over.slice(0, 4).map((b) => `${b.text} (${b.value}×, ${b.n})`))}
-              {!!d.under.length && row("Under-perform", d.under.slice(0, 4).map((b) => `${b.text} (${b.value}×, ${b.n})`))}
+              {!!d.over.length && row(t("lc.over"), d.over.slice(0, 4).map((b) => `${b.text} (${b.value}×, ${b.n})`))}
+              {!!d.under.length && row(t("lc.under"), d.under.slice(0, 4).map((b) => `${b.text} (${b.value}×, ${b.n})`))}
             </ul> : none}
           </div>
           <div>
-            <h4 className="muted mb-1">Your reviews ({d.decided} decided)</h4>
+            <h4 className="muted mb-1">{t("lc.reviews", { n: d.decided })}</h4>
             {d.rejects.length || d.liked.length || d.disliked.length || d.versions.length ? <ul>
-              {!!d.rejects.length && row("Rejected for", d.rejects.map((r) => `${r.reason} (${r.n})`))}
-              {!!d.liked.length && row("Approve more", d.liked.slice(0, 4).map((b) => `${b.text} (${pct(b.value)} of ${b.n})`))}
-              {!!d.disliked.length && row("Approve less", d.disliked.slice(0, 4).map((b) => `${b.text} (${pct(b.value)} of ${b.n})`))}
-              {!!d.versions.length && row("Re-rendered with", d.versions.map((v) => `${v.change} (${v.n})`))}
+              {!!d.rejects.length && row(t("lc.rejected"), d.rejects.map((r) => `${r.reason} (${r.n})`))}
+              {!!d.liked.length && row(t("lc.approveMore"), d.liked.slice(0, 4).map((b) => `${b.text} (${t("lc.pctOf", { p: pct(b.value), n: b.n })})`))}
+              {!!d.disliked.length && row(t("lc.approveLess"), d.disliked.slice(0, 4).map((b) => `${b.text} (${t("lc.pctOf", { p: pct(b.value), n: b.n })})`))}
+              {!!d.versions.length && row(t("lc.rerendered"), d.versions.map((v) => `${v.change} (${v.n})`))}
             </ul> : none}
           </div>
           {d.warnings.map((w) => <p key={w} className="muted">⚠ {w}</p>)}

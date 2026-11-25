@@ -17,7 +17,10 @@ import type { QualityMode } from "@/lib/quality-pure";
 import { planetById } from "@/lib/planets";
 import { placeAt, worldScene, WORLD_SOURCE, type Place, type PlanetWorldId, type Shape } from "@/lib/planet-worlds-pure";
 import { useT } from "./i18n";
+import { PlanetBoundary } from "./PlanetBoundary";
 import { SHELL_WORLDS, WorldShellContext, ZONE_WORDS } from "./world-shell";
+const VAULT_KINDS = new Set(["image", "video", "audio", "pdf", "text", "doc", "other"]);
+const ACT_ZONES = new Set(["agents", "chains", "goals", "automations", "autopilot", "clips", "core", "operator", "system", "other"]);
 
 const BG = "#020308";
 const FRESH = new THREE.Color("#ffe6b0"); // the galaxy's "work" white-gold: new in the last 24 h
@@ -126,6 +129,9 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
   }, [scene]);
   const flatPlaces = useMemo(() => groups.flatMap((g) => g.items), [groups]); // indexes match each group's base
   useEffect(() => { setSel(null); setHover(null); }, [scene]);
+  // Zone labels go into this fixed layer. Left to itself, drei <Html> moves its label once R3F connects pointer events, remaking its inner
+  // React root; React 19 unmounts the old root a moment later and wipes the label just drawn (the first zone label stayed empty until a hover).
+  const labelLayer = useRef<HTMLDivElement>(null!);
   const shown = hover ?? sel;
   const fresh = flatPlaces.filter((p) => p.fresh).length;
   const shell = SHELL_WORLDS.includes(id);
@@ -133,7 +139,7 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label={`${planet.name}: ${t(`planet.${id}.blurb`)}`} style={{ background: BG }}>
-      {!flat && later && (
+      {!flat && later && (<PlanetBoundary name={`${id}-scene`} quiet>
         <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : reduced ? "demand" : "always"} camera={{ position: [0, 9, 16], fov: 50, near: 0.1, far: 300 }}
           dpr={[1, q.dpr]} gl={{ antialias: false }} onPointerMissed={() => setSel(null)} style={{ cursor: hover !== null ? "pointer" : undefined }}>
           {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
@@ -147,8 +153,8 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
           <gridHelper args={[40, 40, planet.color, "#13202f"]} position={[0, 0.001, 0]} />
           {groups.map((g) => <Group key={g.shape} {...g} reduced={reduced} onHover={setHover} onPick={setSel} />)}
           {scene?.zones.map((z) => (
-            <Html key={z.label} position={z.at} center zIndexRange={[11, 0]} style={{ pointerEvents: "none" }}>
-              <span className="planet-world-zone" style={{ color: planet.color }}>{(id === "operations" && ZONE_WORDS[lang][z.label]) || z.label}</span>
+            <Html key={z.label} portal={labelLayer} position={z.at} center zIndexRange={[11, 0]} style={{ pointerEvents: "none" }}>
+              <span className="planet-world-zone" style={{ color: planet.color }}>{(id === "operations" && ZONE_WORDS[lang][z.label]) || (id === "business" && t(`bz.stage.${z.label}` as Parameters<typeof t>[0])) || (id === "vault" && VAULT_KINDS.has(z.label) && t(`pw.kind.${z.label}` as Parameters<typeof t>[0])) || (id === "analytics" && ACT_ZONES.has(z.label) && t(`pw.area.${z.label}` as Parameters<typeof t>[0])) || z.label}</span>
             </Html>
           ))}
           {shown !== null && flatPlaces[shown] && <Label p={flatPlaces[shown]} reduced={reduced} />}
@@ -161,7 +167,8 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
             </EffectComposer>
           )}
         </Canvas>
-      )}
+        <div ref={labelLayer} className="pointer-events-none absolute inset-0 overflow-hidden" />
+      </PlanetBoundary>)}
 
       {bare ? (
         <div className="world-shell absolute inset-x-3 bottom-32 z-[14] flex max-h-[45dvh] min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[27.5rem]">{children}</div>

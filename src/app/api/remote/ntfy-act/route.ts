@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { adminClient } from "@/lib/supabase/admin";
 import { ConflictError, kickQueue, resolvePending } from "@/lib/agents";
 import { outputClash } from "@/lib/tasks-recovery-pure";
@@ -39,6 +40,6 @@ export async function POST(req: Request) {
     void import("@/lib/missions").then((m) => m.resumeMissions(sb, v.u)).catch(() => {});
     return Response.json({ ok: true, action });
   } catch (e) {
-    return fail(e instanceof Error ? e.message : "Failed", e instanceof ConflictError ? 409 : 400);
+    return fail(safeMessage(e, "Failed"), e instanceof ConflictError ? 409 : 400);
   }
 }

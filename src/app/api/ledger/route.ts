@@ -1,10 +1,11 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { fromRows, isoMs, stateAt } from "@/lib/ledger-pure";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/ledger?at=<ISO date-time> → the ledger snapshot at that moment (default now), from the owner's newest 5000 events up to it.
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { sb, res } = await requireUser();
   if (res) return res;
   const q = new URL(req.url).searchParams.get("at");
@@ -16,3 +17,4 @@ export async function GET(req: Request) {
   if (r.error) return Response.json({ error: r.error.message }, { status: 500 });
   return Response.json({ at: new Date(t).toISOString(), snapshot: stateAt(fromRows(r.data ?? []), t) });
 }
+export const GET = guard("ledger", GET_);

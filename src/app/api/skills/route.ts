@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { emit } from "@/lib/claude";
@@ -14,7 +15,7 @@ const isId = (v: unknown): v is string => typeof v === "string" && v.length > 0 
 export async function GET() {
   const { res } = await requireUser();
   if (res) return res;
-  try { return Response.json(await skillsView()); } catch (e) { return fail(e instanceof Error ? e.message : "Skills failed", 500); }
+  try { return Response.json(await skillsView()); } catch (e) { return fail(safeMessage(e, "Skills failed"), 500); }
 }
 
 export async function POST(req: Request) {
@@ -40,5 +41,5 @@ export async function POST(req: Request) {
     if (err) return fail(err, 409);
     if (b.action !== "scan") void emit(sb, user.id, `skill.${b.action}`, "agents", { id: b.id as string }); // id only, never skill text
     return Response.json(await skillsView());
-  } catch (e) { return fail(e instanceof Error ? e.message : "Skills failed", 500); }
+  } catch (e) { return fail(safeMessage(e, "Skills failed"), 500); }
 }

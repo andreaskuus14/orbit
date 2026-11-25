@@ -7,4 +7,4 @@ const e = createEarth(host, { tileUrl: (k, z, x, y) => `/tile?k=${k}&z=${z}&x=${
 (window as any).earthReady = (async () => { e.setData(await fetch("/data.json").then((r) => r.json())); await e.ready; return true; })();
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // frame until every tile around the pose has loaded (the scene throttles tile requests to every 400 ms, two at a time)
-(window as any).shot = async (p: Pose) => { e.setPlaceName("Tallinn"); for (let i = 0; i < 200; i++) { e.frame(p, 5000); await wait(450); if (i > 3 && !e.loading()) break; } e.frame(p, 5000); e.frame(p, 5034); };
+(window as any).shot = async (p: Pose & { sun?: number }) => { if (p.sun) e.setSun(p.sun); e.setPlaceName("Tallinn"); for (let i = 0; i < 200; i++) { e.frame(p, 5000); await wait(450); if (i > 3 && !e.loading()) break; } e.frame(p, 5000); e.frame(p, 5034); };

@@ -1,7 +1,7 @@
 // Long CORE work (owner report: "Claude Code timed out because CORE didn't finish in 2 min"). Pure; tests in tests/long-work.test.ts.
 // One CLI call gets a limit by purpose: quick chat stays short, generation-heavy steps (site files, research, agents) get minutes.
 // A timed-out call is retried once with the work split; if the interactive turn still can't finish, the rest runs in the background.
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 import { siteWriteLabel } from "./site-pipeline-pure.ts";
 
 export const CHAT_MS = 120_000;

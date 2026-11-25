@@ -6,7 +6,7 @@ import * as THREE from "three";
 import type { RootState } from "@react-three/fiber";
 import type { IfcAPI } from "web-ifc";
 import { useT } from "./i18n";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { checkIfcSize, GROUP_COLOR, IFC_GROUPS, shadowStudyTimes } from "@/lib/arch-ifc-import-pure";
 import type { IfcModel } from "@/lib/arch-ifc-read";
 import { sunDirection } from "@/lib/sun-pure";
@@ -95,7 +95,7 @@ export function IfcPanel({ ifc, onOpen, onClose, view, sun }: { ifc: OpenIfc | n
   const i = ifc?.model.info;
   return (
     <div className="card space-y-1.5 text-xs" aria-label={tr("arch.ifc3d")}>
-      <div className="muted text-[10px] uppercase tracking-widest">{tr("arch.ifc3d")}{ifc ? ` · ${ifc.name}` : ""}</div>
+      <div className="muted text-[12px] font-medium">{tr("arch.ifc3d")}{ifc ? ` · ${ifc.name}` : ""}</div>
       {!ifc && <label className="block">{tr("arch.ifc3dOpen")}<input className="block" type="file" accept=".ifc" disabled={!!busy} aria-label={tr("arch.ifc3dOpen")} onChange={(e) => { void open(e.target.files?.[0]); e.target.value = ""; }} /></label>}
       {busy === "read" && <p className="muted" role="status">{tr("arch.ifc3dReading")}</p>}
       {i && <>

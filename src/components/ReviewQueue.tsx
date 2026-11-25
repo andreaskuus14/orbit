@@ -163,16 +163,16 @@ export default function ReviewQueue({ reduced, onClose, start }: { reduced: bool
   }, [paused]);
 
   const count = (s: Clip["status"]) => items?.filter((x) => x.clip.status === s).length ?? 0;
-  const label = "muted mb-0.5 block text-[10px] uppercase tracking-widest";
+  const label = "muted mb-0.5 block text-[12px] font-medium";
   const Kbd = ({ k }: { k: string }) => <kbd className="num ml-1 rounded border border-white/20 px-1 text-[10px] opacity-70">{k}</kbd>;
 
   return (
-    <div className={`review-queue studio-clips glass flex h-full w-full flex-col overflow-y-auto p-3 sm:p-4 ${reduced ? "" : "panel-in"}`} role="region" aria-label="Morning review" aria-busy={!items && !err}>
+    <div className={`review-queue studio-clips glass flex h-full w-full flex-col overflow-y-auto p-3 sm:p-4 ${reduced ? "" : "panel-in"}`} role="region" aria-label={tr("rq.aria")} aria-busy={!items && !err}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="hud-title studio-title truncate">☀ MORNING REVIEW</h2>
+        <h2 className="hud-title studio-title truncate">☀ {tr("rq.title")}</h2>
         <div className="flex items-center gap-2">
-          {items && n > 0 && <span className="num text-sm" aria-label={`Clip ${Math.min(i + 1, n)} of ${n}`}>{Math.min(i + 1, n)} / {n}</span>}
-          <button className="chip" onClick={onClose} aria-label="Close review (Esc)">×</button>
+          {items && n > 0 && <span className="num text-sm" aria-label={tr("rq.clipOf", { i: Math.min(i + 1, n), n })}>{Math.min(i + 1, n)} / {n}</span>}
+          <button className="chip" onClick={onClose} aria-label={tr("rq.close")}>×</button>
         </div>
       </div>
       {items && n > 0 && (
@@ -183,46 +183,46 @@ export default function ReviewQueue({ reduced, onClose, start }: { reduced: bool
       <p className="ok mt-1 min-h-[1.25rem] truncate text-xs" role="status" aria-live="polite">{said}</p>
 
       {err && <p className="error mt-3" role="alert">{err}</p>}
-      {!items && !err && <div className="mt-3 grid flex-1 gap-4 min-[700px]:grid-cols-[auto_1fr]" role="status" aria-label="Loading new clips"><span className="sr-only">Loading new clips…</span><div aria-hidden className={`mx-auto aspect-[9/16] h-[min(36rem,calc(100vh-17rem))] max-w-full rounded-xl bg-white/5 ${reduced ? "" : "animate-pulse"}`} /><div aria-hidden className="space-y-2">{[60, 24, 24, 40].map((h, k) => <div key={k} className={`rounded-lg bg-white/5 ${reduced ? "" : "animate-pulse"}`} style={{ height: h }} />)}</div></div>}
+      {!items && !err && <div className="mt-3 grid flex-1 gap-4 min-[700px]:grid-cols-[auto_1fr]" role="status" aria-label={tr("rq.loading")}><span className="sr-only">{tr("rq.loading")}…</span><div aria-hidden className={`mx-auto aspect-[9/16] h-[min(36rem,calc(100vh-17rem))] max-w-full rounded-xl bg-white/5 ${reduced ? "" : "animate-pulse"}`} /><div aria-hidden className="space-y-2">{[60, 24, 24, 40].map((h, k) => <div key={k} className={`rounded-lg bg-white/5 ${reduced ? "" : "animate-pulse"}`} style={{ height: h }} />)}</div></div>}
 
       {cur && c && (
         <div className="mt-2 grid flex-1 gap-4 min-[700px]:grid-cols-[auto_1fr]">
           <div className="relative mx-auto aspect-[9/16] h-[min(36rem,calc(100vh-17rem))] max-w-full overflow-hidden rounded-xl bg-black/60">
             {c.video ? (
               <video key={c.id} className="h-full w-full object-cover" src={media(c.video)} poster={c.thumb ? media(c.thumb) : undefined}
-                autoPlay muted={muted} loop playsInline aria-label={`Clip: ${c.title}`} />
-            ) : <div className="muted grid h-full place-items-center p-3 text-center text-sm">{c.status === "rejected" ? "✕ Rejected (files deleted)" : "No video file"}</div>}
+                autoPlay muted={muted} loop playsInline aria-label={tr("rq.clip", { title: c.title })} />
+            ) : <div className="muted grid h-full place-items-center p-3 text-center text-sm">{c.status === "rejected" ? tr("rq.rejectedGone") : tr("rq.noVideo")}</div>}
             {c.video && (
-              <button className="chip absolute bottom-2 right-2" onClick={() => setMuted((m) => !m)} aria-pressed={!muted} aria-label={muted ? "Unmute (M)" : "Mute (M)"}>
-                {muted ? "🔇 Unmute" : "🔊 Mute"}
+              <button className="chip absolute bottom-2 right-2" onClick={() => setMuted((m) => !m)} aria-pressed={!muted} aria-label={muted ? tr("rq.unmuteKey") : tr("rq.muteKey")}>
+                {muted ? `🔇 ${tr("rq.unmute")}` : `🔊 ${tr("rq.mute")}`}
               </button>
             )}
           </div>
 
           <div className="flex min-w-0 flex-col gap-2 text-sm">
-            <p className="muted truncate text-xs" title={cur.source}>From {cur.source}</p>
-            {c.retryOf && <p className="text-xs">Retry of {c.retryOf.title}. Approving allows the old Short to become private after this retry is published publicly. You can restore it from Last Shorts.</p>}
-            {c.status !== "ready" && !plan && <p className={c.status === "approved" ? "ok" : "error"}>{c.status === "approved" ? "✓ Approved" : c.status === "rejected" ? "✕ Rejected" : c.status}</p>}
+            <p className="muted truncate text-xs" title={cur.source}>{tr("rq.from", { source: cur.source })}</p>
+            {c.retryOf && <p className="text-xs">{tr("rq.retryOf", { title: c.retryOf.title })}</p>}
+            {c.status !== "ready" && !plan && <p className={c.status === "approved" ? "ok" : "error"}>{c.status === "approved" ? `✓ ${tr("common.approved")}` : c.status === "rejected" ? `✕ ${tr("common.rejected")}` : c.status}</p>}
 
             {mode === "title" ? (
               <form className="flex flex-wrap gap-1" onSubmit={(e) => { e.preventDefault(); saveTitle(); }}>
-                <label className="sr-only" htmlFor="review-title">Clip title</label>
+                <label className="sr-only" htmlFor="review-title">{tr("rq.clipTitle")}</label>
                 <input id="review-title" className="field min-w-0 flex-1 !px-2 !py-1" value={title} maxLength={70} autoFocus onChange={(e) => setTitle(e.target.value)} />
-                <button type="submit" className="chip" disabled={busy || !title.trim()}>{busy ? "Saving…" : "Save"}</button>
-                <button type="button" className="chip" onClick={() => setMode("idle")}>Cancel</button>
+                <button type="submit" className="chip" disabled={busy || !title.trim()}>{busy ? tr("attach.saving") : tr("chats.save")}</button>
+                <button type="button" className="chip" onClick={() => setMode("idle")}>{tr("common.cancel")}</button>
               </form>
             ) : (
               <div className="flex items-start gap-2">
                 <b className="min-w-0 flex-1 text-lg leading-snug">{c.title}</b>
-                {c.status !== "rejected" && <button className="chip shrink-0" onClick={() => open("title")} aria-label={`Edit title (T): ${c.title}`}>✎<Kbd k="T" /></button>}
+                {c.status !== "rejected" && <button className="chip shrink-0" onClick={() => open("title")} aria-label={tr("rq.editTitle", { title: c.title })}>✎<Kbd k="T" /></button>}
               </div>
             )}
             {c.status !== "rejected" && <ClipPicks clip={c} busy={busy} big onPick={(body) => void patch(body, () => {})} onMore={() => void moreTitles()} moreBusy={writing} />}
             {c.hook && <p className="leading-snug">“{c.hook}”</p>}
             {c.dub && <p className="muted text-xs" role="note">{tr("dub.note", { lang: tr(c.dub.lang === "et" ? "dub.et" : "dub.en") })}</p>}
             {c.virality && <div className="flex items-start gap-3 rounded-xl border border-white/10 p-2"><ScoreRing key={c.id} v={c.virality} reduced={reduced} size={56} /><div className="min-w-0 flex-1"><ScoreWhy key={c.id} v={c.virality} open /></div></div>}
-            <p className="muted num text-xs">{c.virality ? "editor" : "score"} {score(c.score)}/100 · {mmss(c.start)}–{mmss(c.end)} · {mmss(Math.max(0, c.end - c.start))}</p>
-            {c.reason && <p className="muted text-xs leading-snug">Why: {c.reason}</p>}
+            <p className="muted num text-xs">{c.virality ? tr("rq.editor") : tr("rq.score")} {score(c.score)}/100 · {mmss(c.start)}–{mmss(c.end)} · {mmss(Math.max(0, c.end - c.start))}</p>
+            {c.reason && <p className="muted text-xs leading-snug">{tr("rq.why", { reason: c.reason })}</p>}
             {(() => { const w = publishWarnings(c, kit); return w.length > 0 && <div className="rounded-lg border border-white/10 p-2 text-xs" role="note"><b>{tr("sp.warnings")}</b>
               <ul className="list-disc pl-4">{w.map((x) => <li key={x}>{x}</li>)}</ul></div>; })()}
 
@@ -230,68 +230,68 @@ export default function ReviewQueue({ reduced, onClose, start }: { reduced: bool
               onTitle={(title) => void apAct({ action: "edit", key, title })} onSlot={(slot) => void apAct({ action: "edit", key, slot })}
               onCritics={() => void apAct({ action: "review", key })} onApprove={approvePlan} />}
             <div className="mt-1 flex flex-wrap gap-1.5">
-              <button className="chip" onClick={() => void approve()} disabled={busy || c.status !== "ready"} aria-label={`Approve ${c.title}${c.retryOf ? " and replace original after publication" : ""} (A)`}>✓ {c.retryOf ? "Approve & replace after publication" : "Approve"}<Kbd k="A" /></button>
-              <button className="chip" onClick={() => setMode((m) => (m === "reject" ? "idle" : "reject"))} disabled={busy || c.status === "rejected"} aria-expanded={mode === "reject"} aria-label={`Reject ${c.title} (R)`}>✕ Reject<Kbd k="R" /></button>
+              <button className="chip" onClick={() => void approve()} disabled={busy || c.status !== "ready"} aria-label={tr(c.retryOf ? "rq.approveReplaceAria" : "rq.approveAria", { title: c.title })}>✓ {c.retryOf ? tr("rq.approveReplace") : tr("common.approve")}<Kbd k="A" /></button>
+              <button className="chip" onClick={() => setMode((m) => (m === "reject" ? "idle" : "reject"))} disabled={busy || c.status === "rejected"} aria-expanded={mode === "reject"} aria-label={tr("rq.rejectAria", { title: c.title })}>✕ {tr("common.reject")}<Kbd k="R" /></button>
               {c.status === "approved" && !c.dub && <button className="chip" onClick={() => void dub()} disabled={busy} title={tr("dub.why")}>🌐 {tr("dub.button")}</button>}
-              <button className="chip" onClick={() => (mode === "version" ? setMode("idle") : open("version"))} disabled={busy || c.status === "rejected"} aria-expanded={mode === "version"} aria-label={`Another version of ${c.title} (V)`}>↻ Version<Kbd k="V" /></button>
-              <button className="chip" onClick={() => go(i - 1)} disabled={i === 0} aria-label="Previous clip (←)">←</button>
-              <button className="chip" onClick={() => go(i + 1)} aria-label="Next clip (→)">Skip →</button>
+              <button className="chip" onClick={() => (mode === "version" ? setMode("idle") : open("version"))} disabled={busy || c.status === "rejected"} aria-expanded={mode === "version"} aria-label={tr("rq.versionAria", { title: c.title })}>↻ {tr("rq.version")}<Kbd k="V" /></button>
+              <button className="chip" onClick={() => go(i - 1)} disabled={i === 0} aria-label={tr("rq.prev")}>←</button>
+              <button className="chip" onClick={() => go(i + 1)} aria-label={tr("rq.next")}>{tr("rq.skip")} →</button>
             </div>
 
             {mode === "reject" && (
-              <div role="group" aria-label="Reject reason" className="flex flex-wrap items-center gap-1 rounded-xl border border-white/10 p-2" style={{ borderColor: "#fb7185" }}>
-                <span className="muted text-[11px]">Why? (optional)</span>
+              <div role="group" aria-label={tr("rq.reason")} className="flex flex-wrap items-center gap-1 rounded-xl border border-white/10 p-2" style={{ borderColor: "#fb7185" }}>
+                <span className="muted text-[11px]">{tr("rq.whyOptional")}</span>
                 {REJECT_REASONS.map((r, k) => (
-                  <button key={r} className="chip !px-2 !py-0.5 !text-[11px]" onClick={() => void reject(r)} disabled={busy} aria-label={`Reject: ${r} (${k + 1})`}>
+                  <button key={r} className="chip !px-2 !py-0.5 !text-[11px]" onClick={() => void reject(r)} disabled={busy} aria-label={tr("rq.rejectWith", { reason: r, n: k + 1 })}>
                     <span className="num opacity-70">{k + 1}</span> {r}
                   </button>
                 ))}
-                <button className="chip !px-2 !py-0.5 !text-[11px]" onClick={() => void reject()} disabled={busy} aria-label="Reject without a reason (Enter)">No reason ↵</button>
+                <button className="chip !px-2 !py-0.5 !text-[11px]" onClick={() => void reject()} disabled={busy} aria-label={tr("rq.noReasonAria")}>{tr("rq.noReason")} ↵</button>
               </div>
             )}
 
             {mode === "version" && (
-              <form className="flex flex-col gap-2 rounded-xl border border-white/10 p-2 text-xs" aria-label={`Another version of ${c.title}`} onSubmit={(e) => { e.preventDefault(); void version(); }}>
-                <fieldset><legend className={label}>Layout</legend>
+              <form className="flex flex-col gap-2 rounded-xl border border-white/10 p-2 text-xs" aria-label={tr("rq.versionOf", { title: c.title })} onSubmit={(e) => { e.preventDefault(); void version(); }}>
+                <fieldset><legend className={label}>{tr("rq.layout")}</legend>
                   <div className="flex flex-wrap gap-1">{LAYOUTS.map((l) => <button key={l} type="button" className="chip" aria-pressed={ver.layout === l} onClick={() => setVer((v) => ({ ...v, layout: l }))}>{LAYOUT_NAME[l]}</button>)}</div>
                 </fieldset>
                 {ver.layout === "split" && (
-                  <fieldset><legend className={label}>Facecam</legend>
+                  <fieldset><legend className={label}>{tr("rq.facecam")}</legend>
                     <div className="flex flex-wrap gap-1">{CAM_SIDES.map((k) => <button key={k} type="button" className="chip" aria-pressed={ver.camSide === k} onClick={() => setVer((v) => ({ ...v, camSide: k }))}>{CAM_NAME[k]}</button>)}</div>
                   </fieldset>
                 )}
-                <fieldset><legend className={label}>Captions</legend>
+                <fieldset><legend className={label}>{tr("rq.captions")}</legend>
                   <div className="flex flex-wrap gap-1">{CAPTION_STYLES.map((s) => <button key={s} type="button" className="chip" aria-pressed={ver.captions === s} onClick={() => setVer((v) => ({ ...v, captions: s }))}>{s}</button>)}</div>
                 </fieldset>
-                <label className="flex items-center gap-1.5"><input type="checkbox" checked={ver.suggest} onChange={(e) => setVer((v) => ({ ...v, suggest: e.target.checked }))} /> ✨ New title &amp; hook by Claude</label>
-                <p className="muted text-[11px]">Trim, cam box size and more: “Another version” in the clip list.</p>
+                <label className="flex items-center gap-1.5"><input type="checkbox" checked={ver.suggest} onChange={(e) => setVer((v) => ({ ...v, suggest: e.target.checked }))} /> ✨ {tr("rq.newHook")}</label>
+                <p className="muted text-[11px]">{tr("rq.moreInList")}</p>
                 <div className="flex gap-1">
-                  <button type="submit" className="chip" disabled={busy}>{busy ? "Starting…" : "↻ Render"}</button>
-                  <button type="button" className="chip" onClick={() => setMode("idle")}>Cancel</button>
+                  <button type="submit" className="chip" disabled={busy}>{busy ? tr("rq.starting") : `↻ ${tr("rq.render")}`}</button>
+                  <button type="button" className="chip" onClick={() => setMode("idle")}>{tr("common.cancel")}</button>
                 </div>
               </form>
             )}
 
             {note && <p className="error text-xs" role="alert">{note}</p>}
-            <p className="muted mt-auto text-[11px]">A approve · R reject, then 1–6 or Enter · V version · T title · M sound · ←/→ move · Esc close</p>
+            <p className="muted mt-auto text-[11px]">{tr("rq.keys")}</p>
           </div>
         </div>
       )}
 
       {items && !cur && (
         <div className="card mx-auto mt-6 w-full max-w-md text-center">
-          {n === 0 ? <p>☀ Nothing new to review. Clips show up here when a job finishes.</p> : (
+          {n === 0 ? <p>☀ {tr("rq.empty")}</p> : (
             <>
-              <p className="studio-title text-lg">☀ All caught up</p>
-              <p className="num mt-1">{count("approved")} approved · {count("rejected")} rejected{count("ready") ? ` · ${count("ready")} skipped` : ""}</p>
+              <p className="studio-title text-lg">☀ {tr("rq.caughtUp")}</p>
+              <p className="num mt-1">{tr("rq.tally", { a: count("approved"), r: count("rejected") })}{count("ready") ? ` · ${tr("rq.skipped", { n: count("ready") })}` : ""}</p>
             </>
           )}
           <div className="mt-3 flex flex-wrap justify-center gap-2">
-            {count("approved") > 0 && <button className="btn" onClick={onClose}>Schedule all approved →</button>}
-            {n > 0 && <button className="chip" onClick={() => go(n - 1)}>← Back</button>}
-            <button className="chip" onClick={onClose}>Clip list</button>
+            {count("approved") > 0 && <button className="btn" onClick={onClose}>{tr("rq.scheduleAll")} →</button>}
+            {n > 0 && <button className="chip" onClick={() => go(n - 1)}>← {tr("link.back")}</button>}
+            <button className="chip" onClick={onClose}>{tr("rq.clipList")}</button>
           </div>
-          {count("approved") > 0 && <p className="muted mt-2 text-[11px]">Each approved clip has ▶ Publish (with a schedule time) in the clip list.</p>}
+          {count("approved") > 0 && <p className="muted mt-2 text-[11px]">{tr("rq.publishHint")}</p>}
         </div>
       )}
     </div>
@@ -308,7 +308,7 @@ function PlanBox({ p, slots, busy, approved, added, onAdded, onTitle, onSlot, on
   const [text, setText] = useState(added);
   return (
     <section className="space-y-2 rounded-xl border border-[#ff8fab]/30 bg-[#ff2e63]/5 p-2 text-xs" aria-label={tr("rq.plan")}>
-      <b className="block text-[10px] uppercase tracking-widest">🤖 {tr("rq.plan")}</b>
+      <b className="block text-[12px] font-medium">🤖 {tr("rq.plan")}</b>
       {approved && <p className="ok">{tr("rq.planOnly")}</p>}
       <div><p className="font-semibold">{p.title}</p><p className="muted">{p.titleWhy}</p></div>
       {!!p.alts?.length && <div className="flex flex-wrap items-center gap-1" role="group" aria-label={tr("ap.runnerUps")}>

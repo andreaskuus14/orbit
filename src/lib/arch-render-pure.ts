@@ -5,7 +5,7 @@
 // finite numbers survive, so nothing stored in the model can reach the script as code.
 import { FACES, GROUPS, KINDS, ROOF_FORMS, styleOf, type Part, type Scene } from "./arch-pure.ts";
 import type { Quality } from "./arch-blender-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 import { minutesLeft, stepsFrom, words, type Progress } from "./progress-pure.ts";
 
 export type RenderStage = "script" | "gpu" | "render" | "save";

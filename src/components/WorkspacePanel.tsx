@@ -59,18 +59,18 @@ export function WorkspacePanel() {
   };
 
   return (
-    <section className="space-y-2" aria-label="Workspaces">
-      <h3 className="h3">Workspaces</h3>
-      <p className="muted text-xs">Real files CORE builds for you. Ask CORE &ldquo;build me a website about…&rdquo;, then open the preview. Previews run sandboxed and offline: external CDNs, fonts and APIs are blocked, so sites must use their own files.</p>
+    <section className="space-y-2" aria-label={t("wsp.title")}>
+      <h3 className="h3">{t("wsp.title")}</h3>
+      <p className="muted text-xs">{t("wsp.help")}</p>
       {err && <p className="error">{err}</p>}
       {!ws ? (
-        list.length === 0 ? <p className="muted">No workspaces yet.</p> : (
+        list.length === 0 ? <p className="muted">{t("wsp.none")}</p> : (
           <ul className="space-y-1">
             {list.map((w) => (
               <li key={w.slug} className="card flex items-center gap-3">
                 <button className="min-w-0 flex-1 truncate text-left" onClick={() => openWs(w.slug)}>{w.slug}</button>
-                <span className="muted shrink-0 text-xs">{w.files} files · {fmtSize(w.bytes)}</span>
-                <a className="chip" href={w.preview} target="_blank" rel="noopener noreferrer">▶ Open</a>
+                <span className="muted shrink-0 text-xs">{t("wsp.files", { n: w.files })} · {fmtSize(w.bytes)}</span>
+                <a className="chip" href={w.preview} target="_blank" rel="noopener noreferrer">{t("wsp.open")}</a>
               </li>
             ))}
           </ul>
@@ -78,27 +78,27 @@ export function WorkspacePanel() {
       ) : (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <button className="chip" onClick={() => { current.current = null; setWs(null); void load(); }}>← All workspaces</button>
+            <button className="chip" onClick={() => { current.current = null; setWs(null); void load(); }}>{t("wsp.all")}</button>
             <span className="min-w-0 flex-1 truncate">{ws}</span>
-            {files && <a className="chip" href={files.preview} target="_blank" rel="noopener noreferrer">▶ Open preview</a>}
+            {files && <a className="chip" href={files.preview} target="_blank" rel="noopener noreferrer">{t("wsp.preview")}</a>}
             {files && files.files.length > 0 && <button className="chip" onClick={() => void trust()} title={t("ws.trustTitle")}>{t("ws.trust")}</button>}
           </div>
           {trusted && <p className="muted text-xs" role="status">{trusted}</p>}
           {check && (
-            <div className="card space-y-2" aria-label="Site check">
+            <div className="card space-y-2" aria-label={t("wsp.check")}>
               <p className="text-xs">{check.line} <span className="muted">· {new Date(check.at).toLocaleString()}</span></p>
               {check.issues.length > 0 && <ul className="muted list-disc pl-4 text-xs">{check.issues.map((i) => <li key={i}>{i}</li>)}</ul>}
               {check.shots.length > 0 && (
                 <div className="flex items-start gap-2">
                   {check.shots.map((s) => (
-                    <img key={s} src={`/api/workspace?ws=${encodeURIComponent(ws)}&check=${s}&t=${encodeURIComponent(check.at)}`} alt={`${s} screenshot of ${ws}`}
+                    <img key={s} src={`/api/workspace?ws=${encodeURIComponent(ws)}&check=${s}&t=${encodeURIComponent(check.at)}`} alt={t("wsp.shot", { s, ws })}
                       className={`${s === "phone" ? "w-1/4" : "w-3/4"} h-auto rounded border border-white/10`} width={s === "phone" ? 390 : 1280} height={s === "phone" ? 844 : 800} />
                   ))}
                 </div>
               )}
             </div>
           )}
-          {!files ? <p className="muted">Loading…</p> : files.files.length === 0 ? <p className="muted">Empty.</p> : (
+          {!files ? <p className="muted">{t("wsp.loading")}</p> : files.files.length === 0 ? <p className="muted">{t("wsp.empty")}</p> : (
             <ul className="space-y-1">
               {files.files.map((f) => (
                 <li key={f.path} className="card flex items-center gap-3">

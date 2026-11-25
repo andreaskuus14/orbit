@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { layout } from "@/lib/memory-map-pure";
 import { parseEmbedding, stabilize } from "@/lib/memory-world-pure";
@@ -47,6 +48,6 @@ export async function GET() {
     mapCacheSet(user.id, count ?? 0, body);
     return Response.json(body);
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Could not load the memory map" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Could not load the memory map") }, { status: 500 });
   }
 }

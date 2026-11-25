@@ -263,7 +263,7 @@ export function GalaxyHud({ selected, hoverSet, els, introMs = 900, lines }: {
     <>
       <div className="galaxy-hud" aria-hidden>
         <div><b>{title}</b></div>
-        <div>LOCAL {clock}</div>
+        <div className="uppercase">{t("cin.local", { c: clock })}</div>
         <div>{focus}</div>
         <div><span ref={(el) => { els.current.coord = el; }} /></div>
       </div>
@@ -476,9 +476,10 @@ export function StoryReadout({ stop, intro, onOpen }: { stop: number; intro: boo
 
 /** Slim progress rail on the right edge: one dot per stop (plus the overview); click glides there. */
 export function StoryRail({ stop, on, onGo }: { stop: number; on: boolean; onGo: (n: number) => void }) {
+  const { t } = useT();
   return (
-    <nav className={`story-rail${on ? " on" : ""}`} aria-label="Planet journey" aria-hidden={!on || undefined}>
-      <button type="button" className="story-rail-home" aria-label="Overview" title="Overview" aria-current={stop === -1 ? "step" : undefined} onClick={() => onGo(-1)} tabIndex={on ? 0 : -1} />
+    <nav className={`story-rail${on ? " on" : ""}`} aria-label={t("cin.journey")} aria-hidden={!on || undefined}>
+      <button type="button" className="story-rail-home" aria-label={t("cin.overview")} title={t("cin.overview")} aria-current={stop === -1 ? "step" : undefined} onClick={() => onGo(-1)} tabIndex={on ? 0 : -1} />
       {PLANETS.map((p, i) => (
         <button type="button" key={p.id} aria-label={`Fly to ${p.name}`} title={p.name} aria-current={stop === i ? "step" : undefined} onClick={() => onGo(i)} tabIndex={on ? 0 : -1} />
       ))}

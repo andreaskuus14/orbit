@@ -16,7 +16,7 @@ import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
 import { useDialogFocus } from "./useDialogFocus";
 import { NightRepairCard } from "./NightRepairCard";
 import { useT } from "./i18n";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 
 const COLOR: Record<Status, string> = { ok: "var(--mint)", warn: "var(--amber)", fail: "var(--rose)" };
 const WORD: Record<Status, Key> = { ok: "doc.ok", warn: "doc.warn", fail: "doc.fail" };

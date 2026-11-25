@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { allowOnce } from "@/lib/durable";
 import { egressTarget } from "@/lib/allow-once-pure";
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
 // POST { id }: the owner's "Allow once" click on a CORE egress refusal card (allow-once-pure). Signed-in owner only; CSRF: src/middleware.ts
 // guards all /api/*. No CORE tool reaches this: the model, background turns, the scheduler and Auto can't create a grant.
 // GET ?id=: what the card shows before his click: tool, destination and the exact arguments (sorted keys, full text).
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const id = new URL(req.url).searchParams.get("id") ?? "";
@@ -17,7 +18,7 @@ export async function GET(req: Request) {
   return v ? Response.json(v) : Response.json({ error: "This refusal can no longer be allowed (expired, already used, or ORBIT restarted)" }, { status: 410 });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const b = await req.json().catch(() => null) as { id?: unknown } | null;
@@ -28,3 +29,5 @@ export async function POST(req: Request) {
   logActivity({ area: "core", title: `Allow once granted by the owner: ${g.tool.slice(0, 80)} → ${egressTarget(g.tool).slice(0, 60)}${g.journal ? " (journal/LIFE warning shown)" : ""}` }); // tool + target, never the text
   return Response.json({ ok: true, tool: g.tool, journal: g.journal });
 }
+export const GET = guard("core/allow-once", GET_);
+export const POST = guard("core/allow-once", POST_);

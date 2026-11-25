@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import path from "node:path";
 import { mkdir, readdir } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
@@ -15,7 +16,7 @@ const isId = (x: unknown): x is string => typeof x === "string" && /^[a-z0-9]{6,
 const get = async (id: string) => { const t = await readState<Track>(dir(), id, trackProblem); if (t) { await refreshShas(t); await reopenChanged(t); } return t; };
 const save = (t: Track) => saveState(t.id, path.join(dir(), `${t.id}.json`), t);
 
-export async function GET() {
+async function GET_() {
   const { res } = await requireUser();
   if (res) return res;
   await mkdir(dir(), { recursive: true });
@@ -24,7 +25,7 @@ export async function GET() {
   return Response.json({ stages: STAGES, tracks: await Promise.all(tracks.map(async (t) => ({ track: t, state: await summary(t) }))) });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const h = req.headers;
   if (crossSiteBlocked("POST", "/api/studio/track", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") }))
     return Response.json({ error: "Cross-site request refused" }, { status: 403 });
@@ -62,3 +63,5 @@ export async function POST(req: Request) {
     return Response.json({ track: t, state: await summary(t) });
   });
 }
+export const GET = guard("studio/track", GET_);
+export const POST = guard("studio/track", POST_);

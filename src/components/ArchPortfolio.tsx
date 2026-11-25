@@ -70,7 +70,7 @@ export function ArchPortfolio({ grab, onPreview }: { grab: () => HTMLCanvasEleme
 
   return (
     <details className="card space-y-2" aria-label={T.head} onToggle={(e) => { if ((e.target as HTMLDetailsElement).open && !versions) void load(); }}>
-      <summary className="muted cursor-pointer text-[10px] uppercase tracking-widest">{T.head}</summary>
+      <summary className="muted cursor-pointer text-[12px] font-medium">{T.head}</summary>
       {!versions ? <p className="muted text-xs">{msg || "…"}</p> : !versions.length ? <p className="muted text-xs">{T.none}</p> : <>
         <div className="flex flex-wrap gap-1.5">
           <input className="field flex-1" value={title} maxLength={APF_MAX.title} placeholder={T.title} aria-label={T.title} onChange={(e) => setTitle(e.target.value)} />

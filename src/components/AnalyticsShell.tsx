@@ -6,7 +6,7 @@
 // Actions: POST /api/analytics (calibrate, experiments, queue), /api/usage-meter (budget), /api/agent-scorecard (run now).
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PlanetShell, Section, Button, Chip, Row, Card, Empty, Loading, ErrorState, Sheet, toast, uiSound, type MenuItem } from "@/components/ui";
-import { EN, type Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { eventLabel } from "@/lib/event-label-pure";
 import { linkToHash } from "@/lib/deeplink-pure";
 import type { Days, Item, RateOut, Summary, UsageGroup } from "@/lib/analytics-summary-pure";
@@ -82,7 +82,7 @@ export function AnalyticsShell({ onClose }: { onClose?: () => void }) {
     { label: t("ana.s.scorecard"), onSelect: () => open("scorecard") },
     { label: t("ana.s.speed"), onSelect: () => open("speed") },
   ];
-  const status = d ? t("ana.status", { n: days, f: nf.format(d.outcomes.finished) }) : t("ana.statusLoading");
+  const status = d ? t("ana.status", { n: days, f: nf.format(d.outcomes.finished) }) : err ? t("ana.err.title") : t("ana.statusLoading"); // never "Reading…" beside the error card
 
   const body = (): ReactNode => {
     if (!d && err) return <ErrorState title={t("ana.err.title")} text={t("ana.err.text")} retryLabel={t("ana.retry")} onRetry={reload} />;
@@ -131,7 +131,7 @@ export function AnalyticsShell({ onClose }: { onClose?: () => void }) {
 
   const sheetTitle: Record<SheetId, Key> = { outcomes: "ana.s.outcomes", reliability: "ana.s.reliability", cost: "ana.s.cost", improve: "ana.s.improve", usage: "ana.s.usage", scorecard: "ana.s.scorecard", speed: "ana.s.speed" };
   return (
-    <PlanetShell planet="analytics" title={t("ana.title")} status={status} menu={menu} menuLabel={t("ana.more")} onClose={onClose} closeLabel={t("ana.close")} className="ana-shell"
+    <PlanetShell planet="analytics" title={t("ana.title")} status={status} menu={menu} menuLabel={t("ana.more")} onClose={onClose} closeLabel={t("ana.close")} closeClassName="world-back" className="ana-shell"
       sheet={<Sheet open={!!sheet} title={sheet ? t(sheetTitle[sheet]) : ""} onClose={close} closeLabel={t("ana.close")}>
         {sheet && (!d ? (err ? <ErrorState title={t("ana.err.title")} text={t("ana.err.text")} retryLabel={t("ana.retry")} onRetry={reload} /> : <Loading label={t("ana.loading")} />)
           : <SheetBody id={sheet} d={d} days={days} reload={reload} nf={nf} cf={cf} loc={loc} />)}
@@ -148,7 +148,7 @@ export function AnalyticsShell({ onClose }: { onClose?: () => void }) {
 type T = ReturnType<typeof useT>["t"];
 const pctText = (r: { pct: number | null }, t: T) => (r.pct == null ? t("ana.unknown") : `${r.pct}%`);
 function overall(d: Summary) { const n = d.reliability.reduce((a, r) => a + r.success.n, 0), of = d.reliability.reduce((a, r) => a + r.success.of, 0); return { n, of, pct: of ? Math.round((100 * n) / of) : null }; }
-const evText = (type: string, t: T) => { const k = `ana.ev.${type}`; return k in EN ? t(k as Key) : eventLabel(type).label; };
+const evText = (type: string, t: T) => { const k = `ana.ev.${type}`; const v = t(k as Key); return v !== k ? v : eventLabel(type).label; };
 function when(iso: string, loc: string) {
   const ms = Date.parse(iso), d = new Date(ms), today = new Date();
   return d.toDateString() === today.toDateString() ? d.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString(loc, { day: "numeric", month: "short" });

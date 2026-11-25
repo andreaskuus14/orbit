@@ -34,7 +34,7 @@ export function ArchStudio({ worker, lesson, lessonKey, onScan, onScanNote, onTe
   const [crit, setCrit] = useState<Critique | null>(null), [critMsg, setCritMsg] = useState(""), [critBusy, setCritBusy] = useState(false);
   const [rows, setRows] = useState<StudioMemory[]>([]), [q, setQ] = useState(""), [open, setOpen] = useState<string | null>(null), [libMsg, setLibMsg] = useState("");
   const [digest, setDigest] = useState<ArchDigest | null>(null);
-  const { t, lang } = useT();
+  const { t, tn, lang } = useT();
   const [shots, setShots] = useState<File[]>([]), [shotTitle, setShotTitle] = useState(""), [jobs, setJobs] = useState<ScanJob[]>([]), [shotMsg, setShotMsg] = useState("");
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { try { setBrief(localStorage.getItem(BRIEF_KEY) ?? ""); } catch { /* private mode */ } }, []);
@@ -141,20 +141,20 @@ export function ArchStudio({ worker, lesson, lessonKey, onScan, onScanNote, onTe
   }
 
   return (
-    <details className="card space-y-2" aria-label="ARCH studio">
-      <summary className="muted cursor-pointer text-[10px] uppercase tracking-widest">Studio · scans · sketch critique · precedents</summary>
+    <details className="card space-y-2" aria-label={t("ast.studio")}>
+      <summary className="muted cursor-pointer text-[12px] font-medium">{t("ast.summary")}</summary>
 
-      {digest && <div className="space-y-1" aria-label="This week in the studio">
-        <div className="muted text-[10px] uppercase tracking-widest">Week of {digest.week}</div>
-        <p className="text-xs">{digest.lessons} lesson{digest.lessons === 1 ? "" : "s"}{digest.precedents.length ? ` (${digest.precedents.join(", ")})` : ""} · {digest.critiques} critique{digest.critiques === 1 ? "" : "s"} · {digest.scans} scan{digest.scans === 1 ? "" : "s"}</p>
-        {digest.weak.length > 0 && <p className="text-xs">Recurring: {digest.weak.map((w) => `${w.aspect} ${w.count}×`).join(", ")}</p>}
-        <p className="text-xs"><span className="font-semibold">Focus next week. </span>{digest.focus}</p>
+      {digest && <div className="space-y-1" aria-label={t("ast.week")}>
+        <div className="muted text-[12px] font-medium">{t("ast.weekOf", { w: digest.week })}</div>
+        <p className="text-xs">{tn("ast.lessons", digest.lessons)}{digest.precedents.length ? ` (${digest.precedents.join(", ")})` : ""} · {tn("ast.critiques", digest.critiques)} · {tn("ast.scans", digest.scans)}</p>
+        {digest.weak.length > 0 && <p className="text-xs">{t("ast.recurring")} {digest.weak.map((w) => `${w.aspect} ${w.count}×`).join(", ")}</p>}
+        <p className="text-xs"><span className="font-semibold">{t("ast.focus")} </span>{digest.focus}</p>
       </div>}
 
       <div className="space-y-1.5">
-        <div className="muted text-[10px] uppercase tracking-widest">Scan</div>
-        <label className={`chip inline-flex cursor-pointer${scanBusy ? " opacity-50" : ""}`} title="A Gaussian-splat export (.ply or .splat) from Scaniverse or Polycam">
-          ◍ Import scan (.ply / .splat)
+        <div className="muted text-[12px] font-medium">{t("ast.scan")}</div>
+        <label className={`chip inline-flex cursor-pointer${scanBusy ? " opacity-50" : ""}`} title={t("ast.importTip")}>
+          ◍ {t("ast.import")}
           <input type="file" accept=".ply,.splat" className="sr-only" disabled={scanBusy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void importScan(f); }} />
         </label>
         {scanMsg && <p className="text-xs" aria-live="polite">{scanMsg}</p>}
@@ -173,47 +173,47 @@ export function ArchStudio({ worker, lesson, lessonKey, onScan, onScanNote, onTe
           {jobs.slice().reverse().slice(0, 2).map((j) => <ProgressCard key={j.id} p={scanProgress(j, lang, now)}
             onAction={(a) => { if (a.kind === "open" && j.saved) openPhotoScan(j.saved); else if (a.kind === "retry") setShotMsg(t("ps.retry")); }} />)}
         </div>
-        <p className="muted text-[11px]">Scaniverse: Share → Export → Splat (.ply). Up to {DEFAULT_MAX_SPLATS.toLocaleString("en")} splats are kept; the file is stored in VAULT.</p>
+        <p className="muted text-[11px]">{t("ast.scaniverse", { n: DEFAULT_MAX_SPLATS.toLocaleString("en") })}</p>
       </div>
 
       <div className="space-y-1.5">
-        <div className="muted text-[10px] uppercase tracking-widest">Sketch critique</div>
+        <div className="muted text-[12px] font-medium">{t("ast.critique")}</div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <label className="chip inline-flex cursor-pointer">✎ {photo ? photo.name.slice(0, 28) : "Photo of a sketch"}
+          <label className="chip inline-flex cursor-pointer">✎ {photo ? photo.name.slice(0, 28) : t("ast.photo")}
             <input type="file" accept="image/*" className="sr-only" onChange={(e) => { setPhoto(e.target.files?.[0] ?? null); setCrit(null); setCritMsg(""); }} />
           </label>
-          <button className="btn" disabled={!photo || critBusy} onClick={() => void critique()}>{critBusy ? "Critiquing…" : "Critique"}</button>
+          <button className="btn" disabled={!photo || critBusy} onClick={() => void critique()}>{critBusy ? t("ast.critiquing") : t("ast.critiqueBtn")}</button>
         </div>
-        <textarea className="field w-full text-xs" rows={2} maxLength={2000} value={brief} onChange={(e) => setBrief(e.target.value)} placeholder="Brief (optional): a 60 m² studio house on a north slope, one bedroom…" aria-label="Design brief" />
-        {lesson && <p className="muted text-[11px]">Judged against the open lesson: {lesson.building}.</p>}
+        <textarea className="field w-full text-xs" rows={2} maxLength={2000} value={brief} onChange={(e) => setBrief(e.target.value)} placeholder={t("ast.briefPh")} aria-label={t("ast.brief")} />
+        {lesson && <p className="muted text-[11px]">{t("ast.judged", { b: lesson.building })}</p>}
         {critMsg && <p className="text-xs" aria-live="polite">{critMsg}</p>}
         {crit && <div className="space-y-1 text-xs">
           <p>{crit.summary}</p>
           {ASPECTS.map((a) => crit[a] && <p key={a}><span className="font-semibold capitalize">{a}. </span>{crit[a]}</p>)}
-          {crit.precedent.name && <p><span className="font-semibold">Precedent. </span>{crit.precedent.name}{crit.precedent.why ? `: ${crit.precedent.why}` : ""}{" "}
-            <button className="chip" onClick={() => onTeach(crit.precedent.name)}>📚 Teach me this</button></p>}
+          {crit.precedent.name && <p><span className="font-semibold">{t("ast.precedent")} </span>{crit.precedent.name}{crit.precedent.why ? `: ${crit.precedent.why}` : ""}{" "}
+            <button className="chip" onClick={() => onTeach(crit.precedent.name)}>📚 {t("ast.teach")}</button></p>}
           {crit.next.length > 0 && <ul className="list-disc pl-4">{crit.next.map((n) => <li key={n}>{n}</li>)}</ul>}
         </div>}
       </div>
 
       <div className="space-y-1.5">
-        <div className="muted text-[10px] uppercase tracking-widest">Precedent library · {items.length}</div>
-        <input className="field w-full" type="search" placeholder="Search lessons, scans, critiques…" value={q} maxLength={200} onChange={(e) => setQ(e.target.value)} aria-label="Search the precedent library" />
+        <div className="muted text-[12px] font-medium">{t("ast.library")} · {items.length}</div>
+        <input className="field w-full" type="search" placeholder={t("ast.searchPh")} value={q} maxLength={200} onChange={(e) => setQ(e.target.value)} aria-label={t("ast.search")} />
         {libMsg && <p className="muted text-xs">{libMsg}</p>}
-        {!items.length && !libMsg && <p className="muted text-xs">Saved lessons, imported scans and sketch critiques land here, linked by building.</p>}
+        {!items.length && !libMsg && <p className="muted text-xs">{t("ast.empty")}</p>}
         <ul className="space-y-0.5">{shown.slice(0, 60).map((it) => {
           const near = linked(it.id), isOpen = open === it.id;
           return <li key={it.id}>
             <button className="chip w-full justify-between text-left" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : it.id)}>
               <span><span aria-hidden className="mr-1">{ICON[it.kind]}</span>{it.title}</span>
-              <span className="muted num text-[10px]">{near.length ? `${near.length} link${near.length === 1 ? "" : "s"} · ` : ""}{it.created_at.slice(0, 10)}</span>
+              <span className="muted num text-[10px]">{near.length ? `${tn("ast.links", near.length)} · ` : ""}{it.created_at.slice(0, 10)}</span>
             </button>
             {isOpen && <div className="space-y-1 px-1 py-1 text-xs">
               <p className="muted whitespace-pre-line">{it.content.slice(0, 700)}{it.content.length > 700 ? "…" : ""}</p>
               <div className="flex flex-wrap gap-1">
-                {it.vault && <button className="chip" disabled={scanBusy} onClick={() => void openScan(it.vault!, it, it.tags.includes("photo-scan") && !/^scale: /m.test(it.content))}>◍ Open scan</button>}
-                {it.image && <a className="chip" href={`/api/memories/${it.id}/file`} target="_blank" rel="noreferrer">Sketch ↗</a>}
-                {near.map((n) => <button key={n.id} className="chip" onClick={() => setOpen(n.id)} title="Linked by building">{ICON[n.kind]} {n.title.slice(0, 40)}</button>)}
+                {it.vault && <button className="chip" disabled={scanBusy} onClick={() => void openScan(it.vault!, it, it.tags.includes("photo-scan") && !/^scale: /m.test(it.content))}>◍ {t("ast.openScan")}</button>}
+                {it.image && <a className="chip" href={`/api/memories/${it.id}/file`} target="_blank" rel="noreferrer">{t("ast.sketch")} ↗</a>}
+                {near.map((n) => <button key={n.id} className="chip" onClick={() => setOpen(n.id)} title={t("ast.linked")}>{ICON[n.kind]} {n.title.slice(0, 40)}</button>)}
               </div>
             </div>}
           </li>;

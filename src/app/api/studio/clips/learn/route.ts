@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { learnView } from "@/lib/clips/learn";
 import { studyShort, studyView } from "@/lib/clips/study";
@@ -17,7 +18,7 @@ export async function GET() {
     const [l, study] = await Promise.all([learnView(), studyView().catch(() => null)]);
     const model = await modelStatus().catch(() => null); // after learnView: reads the freshly collected stats
     return Response.json({ ...l, study, model });
-  } catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Couldn't load what ORBIT learned" }, { status: 500 }); }
+  } catch (e) { return Response.json({ error: safeMessage(e, "Couldn't load what ORBIT learned") }, { status: 500 }); }
 }
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
       .catch((e) => console.error("[orbit] viral study memory not saved:", e instanceof Error ? e.message : e));
     return Response.json({ lesson });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Study failed";
+    const msg = safeMessage(e, "Study failed");
     return Response.json({ error: msg }, { status: /Already studying/.test(msg) ? 409 : /paused|usage/i.test(msg) ? 429 : 502 });
   }
 }

@@ -13,7 +13,7 @@ import {
   type ReviewDeskSummary,
 } from "@/lib/outcome-cockpit-pure";
 import type { ObjectionVerdict, PlanDebate } from "@/lib/outcome-debate-pure";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { useT } from "./i18n";
 
 type ProjectRow = OutcomeProject & { summary: ReviewDeskSummary };
@@ -202,7 +202,7 @@ export function OutcomeCockpit() {
                 <p className="muted mt-0.5 text-xs">{current.brief}</p>
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {current.planets.map((pl) => (
-                    <span key={pl} className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-cyan-200/80">
+                    <span key={pl} className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[12px] font-medium text-cyan-200/80">
                       {pl}
                     </span>
                   ))}
@@ -306,7 +306,7 @@ export function OutcomeCockpit() {
                           <div className="flex flex-wrap items-center gap-1.5">
                             <span aria-hidden="true">{s.status === "verified" ? "✓" : s.status === "needs_fix" || s.status === "blocked" ? "✗" : s.status === "running" ? "▸" : s.status === "waiting_approval" ? "⏳" : "○"}</span>
                             <span className="font-medium">{s.title}</span>
-                            <span className="muted font-mono text-[10px] uppercase">{s.planet} · {s.agent}</span>
+                            <span className="muted font-mono text-[12px] font-medium">{s.planet} · {s.agent}</span>
                             {readyIds.has(s.id) && <span className="rounded bg-cyan-500/20 px-1.5 py-0.5 text-[10px] text-cyan-200">{t("oe.ready")}</span>}
                             {s.reused && <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-200">{t("oe.reused")}</span>}
                             {s.runId && (
@@ -354,7 +354,7 @@ export function OutcomeCockpit() {
                 </ol>
 
                 <div>
-                  <h3 className="muted mb-1.5 text-[11px] uppercase tracking-wider">{t("oe.checks")}</h3>
+                  <h3 className="muted mb-1.5 text-[12px] font-medium">{t("oe.checks")}</h3>
                   <ul className="space-y-1.5">
                     {current.checks.map((c) => (
                       <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-1.5 text-xs">
@@ -379,7 +379,7 @@ export function OutcomeCockpit() {
               <div className="mt-3 space-y-3">
                 {linkedSteps.length > 0 && (
                   <div>
-                    <h3 className="muted mb-1.5 text-[11px] uppercase tracking-wider">{t("oe.liveRunners")}</h3>
+                    <h3 className="muted mb-1.5 text-[12px] font-medium">{t("oe.liveRunners")}</h3>
                     <ul className="space-y-1.5">
                       {linkedSteps.map((s) => {
                         const rk = s.runnerKind ?? pickRunnerKind(s);
@@ -401,7 +401,7 @@ export function OutcomeCockpit() {
                 )}
 
                 <div>
-                  <h3 className="muted mb-1.5 text-[11px] uppercase tracking-wider">{t("oe.deliverables")}</h3>
+                  <h3 className="muted mb-1.5 text-[12px] font-medium">{t("oe.deliverables")}</h3>
                   <ul className="space-y-1.5">
                     {current.deliverables.map((d) => (
                       <li key={d.id} className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-2 text-xs">
@@ -419,7 +419,7 @@ export function OutcomeCockpit() {
                 </div>
 
                 <div>
-                  <h3 className="muted mb-1.5 text-[11px] uppercase tracking-wider">{t("oe.approvals")}</h3>
+                  <h3 className="muted mb-1.5 text-[12px] font-medium">{t("oe.approvals")}</h3>
                   {!current.summary.canApprove && current.approvals.some((a) => a.status === "waiting") && (
                     <p className="muted mb-1.5 text-xs">{t("oe.approveLocked")}</p>
                   )}
@@ -428,7 +428,7 @@ export function OutcomeCockpit() {
                       <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-400/30 bg-amber-950/20 px-2.5 py-2 text-xs">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            <span className="rounded bg-amber-400/20 px-1.5 py-0.5 font-mono text-[10px] uppercase text-amber-200">{a.kind}</span>
+                            <span className="rounded bg-amber-400/20 px-1.5 py-0.5 font-mono text-[12px] font-medium text-amber-200">{a.kind}</span>
                             <strong>{a.title}</strong>
                           </div>
                           <p className="muted mt-0.5 text-[11px]">{a.detail}</p>
@@ -443,7 +443,7 @@ export function OutcomeCockpit() {
                             </button>
                           </div>
                         ) : (
-                          <span className="muted font-mono text-[11px] uppercase">{a.status}</span>
+                          <span className="muted font-mono text-[12px] font-medium">{a.status}</span>
                         )}
                       </li>
                     ))}
@@ -482,11 +482,11 @@ function PlanReview({ debate, busy, onSkip, t }: { debate: PlanDebate; busy: boo
         if (!items.length) return null;
         return (
           <div key={verdict} className="mt-2">
-            <h4 className="muted text-[11px] uppercase tracking-wider">{label}</h4>
+            <h4 className="muted text-[12px] font-medium">{label}</h4>
             <ul className="mt-1 space-y-1">
               {items.map((o) => (
                 <li key={o.id}>
-                  <span>{VERDICT_MARK[verdict]} <strong className="font-mono text-[10px] uppercase">{o.severity}</strong> {o.claim}</span>
+                  <span>{VERDICT_MARK[verdict]} <strong className="font-mono text-[12px] font-medium">{o.severity}</strong> {o.claim}</span>
                   <span className="muted block text-[11px]">{o.checkId ? `${t("oe.reviewAdded")}: ${o.fix}` : o.fix}{o.reply ? ` · ${o.reply}` : ""}</span>
                 </li>
               ))}

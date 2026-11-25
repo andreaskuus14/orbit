@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { expDamp } from "@/lib/smooth-damp-pure";
 import { useScramble } from "./useScramble";
+import { tr } from "./i18n";
 
 const KEY = "orbit.preloaded";
 const pre = { stage: 0, shown: 0, at: 0, cold: null as boolean | null, done: [] as (() => void)[] };
@@ -83,7 +84,7 @@ function Counter({ done }: { done: boolean }) {
   }, []);
   return (
     <div className={`galaxy-loader preloader${out ? " done" : ""}`} role="status" aria-live="polite" aria-hidden={out || undefined}>
-      <span className="sr-only">{out ? "" : "Loading the galaxy…"}</span>
+      <span className="sr-only">{out ? "" : tr("galaxy.loading")}</span>
       <div className="preloader-row" aria-hidden="true">
         <span className="preloader-mask"><svg className="preloader-glyph" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.5" /><circle cx="12" cy="12" r="2.2" /><circle cx="20.2" cy="5.6" r="1.2" /></svg></span>
         <span className="preloader-mask"><span className="preloader-word">ORBIT</span></span>

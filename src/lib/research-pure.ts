@@ -5,7 +5,7 @@
 // Stop-all stops it; the usage pacer shrinks it (soft budget) or stops it (hard limit). It never logs in anywhere: pages that
 // ask for a login are skipped. Nothing private goes out: the question is checked like web_search (policy-pure LEAK_TOOLS).
 import { fromStages, type Progress } from "./progress-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 import type { Claim, Verdict } from "./factcheck-pure.ts";
 import { FLAG } from "./factcheck-pure.ts";
 

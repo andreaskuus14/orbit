@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { wbPoints } from "@/lib/countries-pure";
 
@@ -59,7 +60,7 @@ export async function GET(req: Request) {
     const j = await retry(() => json(`https://api.worldbank.org/v2/country/${iso3}?format=json`));
     c = Array.isArray(j) && Array.isArray(j[1]) ? j[1][0] ?? {} : {};
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Country data unavailable" }, { status: 502 });
+    return Response.json({ error: safeMessage(e, "Country data unavailable") }, { status: 502 });
   }
   if (!c.name) return Response.json({ error: "No statistics for this territory" }, { status: 404 }); // World Bank doesn't cover it
   const out: Record<string, Point[]> = {};

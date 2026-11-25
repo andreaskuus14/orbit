@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { logActivity } from "@/lib/activity";
 import { approvalGate, termContent } from "@/lib/approval-pure";
@@ -57,6 +58,6 @@ export async function POST(req: Request) {
       default: return Response.json({ error: "Unknown action" }, { status: 400 });
     }
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Failed") }, { status: 500 });
   }
 }

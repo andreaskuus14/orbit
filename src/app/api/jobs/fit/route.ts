@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { jobFit } from "@/lib/job-fit";
 
@@ -5,7 +6,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 180;
 
 /** POST {posting} → fit score, matches, gaps and DRAFT CV summary + cover letter. Read-only: nothing is saved or sent. */
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const b = await req.json().catch(() => ({}));
@@ -14,3 +15,4 @@ export async function POST(req: Request) {
   const r = await jobFit(sb, user.id, posting, req.signal);
   return Response.json(r, { status: "error" in r ? 502 : 200 });
 }
+export const POST = guard("jobs/fit", POST_);

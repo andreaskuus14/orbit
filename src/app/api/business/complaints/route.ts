@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { complaintsFor, listChats, mineComplaints, sendChat, writeAngle } from "@/lib/complaints";
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
   // Customer chat: the owner's Send click is the only path that posts a reply back to Chatwoot.
   if (b.action === "send") {
     if (typeof b.chat !== "string" || typeof b.text !== "string") return fail("chat and text required");
-    try { return Response.json({ chat: await sendChat(b.chat, b.text) }); } catch (e) { return fail(e instanceof Error ? e.message : "Failed", 502); }
+    try { return Response.json({ chat: await sendChat(b.chat, b.text) }); } catch (e) { return fail(safeMessage(e, "Failed"), 502); }
   }
   if (!isNicheId(b.id)) return fail("id required");
   if (b.action !== "mine" && b.action !== "angle") return fail("action must be mine or angle");
@@ -38,5 +39,5 @@ export async function POST(req: Request) {
     if (b.action === "mine") return Response.json({ report: await mineComplaints(b.id, req.signal) });
     await writeAngle(b.id, req.signal);
     return Response.json({ report: await complaintsFor(b.id) });
-  } catch (e) { return fail(e instanceof Error ? e.message : "Failed", 502); }
+  } catch (e) { return fail(safeMessage(e, "Failed"), 502); }
 }

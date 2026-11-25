@@ -2,6 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useThree } from "@react-three/fiber";
+import { useT } from "./i18n";
 import { OrbitControls } from "@react-three/drei";
 import { useGlRecovery } from "./useGlRecovery";
 import { GRID_ERRORS_KEY, GRID_SCRIPTS_KEY, GRID_SNIPPET, attachErrors, layoutGrid, parseScriptList, type Building, type GridLayout } from "@/lib/grid-pure";
@@ -51,18 +52,20 @@ function City({ g, picked, onHover, onPick }: { g: GridLayout; picked: number | 
 }
 
 function Detail({ b }: { b: Building }) {
+  const { t } = useT();
   const s = b.script;
   return (
     <div className="card space-y-1" style={{ boxShadow: `inset 3px 0 0 ${s.errors.length ? RED : CYAN}` }} aria-live="polite">
       <p className="text-sm font-semibold">{s.name}</p>
-      <p className="muted break-all text-xs">{s.path} · {s.lines} lines</p>
+      <p className="muted break-all text-xs">{s.path} · {t("grid.lines", { n: s.lines })}</p>
       {s.errors.length ? s.errors.map((e, i) => <code key={i} className="block whitespace-pre-wrap break-all text-[11px]" style={{ color: RED }}>{e}</code>)
-        : <p className="muted text-xs">No console errors seen.</p>}
+        : <p className="muted text-xs">{t("grid.noErrors")}</p>}
     </div>
   );
 }
 
 export default function GridCity() {
+  const { t } = useT();
   const glr = useGlRecovery();
   const [scripts, setScripts] = useState("");
   const [errors, setErrors] = useState("");
@@ -82,38 +85,38 @@ export default function GridCity() {
   const inputs = (
     <div className="grid gap-2">
       <ol className="muted list-decimal pl-4 text-xs">
-        <li>In Roblox Studio open View → Command Bar and Output.</li>
-        <li>Paste this read-only line into the Command Bar and press Enter (it only prints script names and line counts):</li>
+        <li>{t("grid.step1")}</li>
+        <li>{t("grid.step2")}</li>
       </ol>
       <code className="block select-all whitespace-pre-wrap break-all rounded bg-black/40 p-2 text-[10px]">{GRID_SNIPPET}</code>
-      <label className="text-xs">3. Copy the Output lines here
-        <textarea className="field mt-1 w-full font-mono" rows={4} placeholder="ServerScriptService.Pets.PetHandler 120" value={scripts}
+      <label className="text-xs">3. {t("grid.step3")}
+        <textarea className="field mt-1 w-full font-mono" rows={4} placeholder={t("grid.scriptsPh")} value={scripts}
           onChange={(e) => { setScripts(e.target.value); save(GRID_SCRIPTS_KEY, e.target.value); }} />
       </label>
-      <label className="text-xs">Console errors (filled from the Playtest bot&apos;s last run, or paste your own)
-        <textarea className="field mt-1 w-full font-mono" rows={3} placeholder="ServerScriptService.Pets.PetHandler:42: attempt to index nil" value={errors}
+      <label className="text-xs">{t("grid.errors")}
+        <textarea className="field mt-1 w-full font-mono" rows={3} placeholder={t("grid.errorsPh")} value={errors}
           onChange={(e) => { setErrors(e.target.value); save(GRID_ERRORS_KEY, e.target.value); }} />
       </label>
     </div>
   );
 
   if (!g.buildings.length) return (
-    <section className="glass rounded-xl p-3 text-sm" aria-label="Tron Grid">
-      <h3 className="brand mb-2 text-sm" style={{ color: CYAN }}>Tron Grid</h3>
-      <p className="mb-2 text-xs"><b>Connect Roblox Studio and run a scan</b> to see your game&apos;s code as a city.</p>
+    <section className="glass rounded-xl p-3 text-sm" aria-label={t("grid.title")}>
+      <h3 className="brand mb-2 text-sm" style={{ color: CYAN }}>{t("grid.title")}</h3>
+      <p className="mb-2 text-xs"><b>{t("grid.empty1")}</b> {t("grid.empty2")}</p>
       {inputs}
     </section>
   );
 
   return (
-    <section className="glass grid gap-2 rounded-xl p-3 text-sm" aria-label="Tron Grid">
+    <section className="glass grid gap-2 rounded-xl p-3 text-sm" aria-label={t("grid.title")}>
       <div className="flex items-center justify-between gap-2">
-        <h3 className="brand text-sm" style={{ color: CYAN }}>Tron Grid</h3>
-        <button className="chip" aria-expanded={editing} onClick={() => setEditing(!editing)}>{editing ? "Done" : "Update data"}</button>
+        <h3 className="brand text-sm" style={{ color: CYAN }}>{t("grid.title")}</h3>
+        <button className="chip" aria-expanded={editing} onClick={() => setEditing(!editing)}>{editing ? t("grid.done") : t("grid.update")}</button>
       </div>
-      <p className="muted text-xs">{g.buildings.length} scripts · {g.districts.length} districts · <span style={{ color: bad ? RED : undefined }}>{bad} with errors</span></p>
+      <p className="muted text-xs">{t("grid.stats", { s: g.buildings.length, d: g.districts.length })} · <span style={{ color: bad ? RED : undefined }}>{t("grid.withErrors", { n: bad })}</span></p>
       {editing && inputs}
-      <div className="relative h-72 overflow-hidden rounded-lg" role="img" aria-label={`Code city: ${g.buildings.length} scripts in ${g.districts.length} districts, ${bad} with errors. The list below has the same data.`}>
+      <div className="relative h-72 overflow-hidden rounded-lg" role="img" aria-label={t("grid.cityAria", { s: g.buildings.length, d: g.districts.length, n: bad })}>
         <Canvas key={glr.key} onCreated={glr.onCreated} frameloop="demand" camera={{ position: [far * 0.7, far * 0.8, far * 0.7], fov: 45 }} dpr={[1, 2]}>
           <color attach="background" args={["#010409"]} />
           <City g={g} picked={picked} onPick={setPicked}
@@ -122,13 +125,13 @@ export default function GridCity() {
         </Canvas>
         {tip && (
           <span aria-hidden className="globe-tip pointer-events-none absolute left-0 top-0" style={{ transform: `translate(${hover.x + 12}px, ${hover.y + 10}px)` }}>
-            {tip.script.name} · {tip.script.lines} lines{tip.script.errors.length ? ` · ${tip.script.errors.length} errors` : ""}
+            {tip.script.name} · {t("grid.lines", { n: tip.script.lines })}{tip.script.errors.length ? ` · ${t("grid.errCount", { n: tip.script.errors.length })}` : ""}
           </span>
         )}
       </div>
       {sel && <Detail b={sel} />}
       <details>
-        <summary className="cursor-pointer text-xs">Script list</summary>
+        <summary className="cursor-pointer text-xs">{t("grid.list")}</summary>
         {g.districts.map((d) => (
           <div key={d.name} className="mt-2">
             <div className="hud-title">{d.name}</div>
@@ -136,7 +139,7 @@ export default function GridCity() {
               {g.buildings.map((b, i) => b.script.district !== d.name ? null : (
                 <li key={b.script.path}>
                   <button className="hud-row" style={{ ["--accent" as string]: b.script.errors.length ? RED : CYAN }} aria-pressed={picked === i} onClick={() => setPicked(i)}
-                    aria-label={`${b.script.path}, ${b.script.lines} lines, ${b.script.errors.length} errors`}>
+                    aria-label={`${b.script.path}, ${t("grid.lines", { n: b.script.lines })}, ${t("grid.errCount", { n: b.script.errors.length })}`}>
                     <span className="truncate">{b.script.name}</span><span className="num">{b.script.lines}</span>
                   </button>
                 </li>

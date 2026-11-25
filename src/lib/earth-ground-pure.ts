@@ -273,3 +273,46 @@ export function groundFade(alt: number): number {
   const t = Math.log(GROUND_MAX_ALT / alt) / Math.log(GROUND_MAX_ALT / GROUND_FULL);
   return t * t * (3 - 2 * t);
 }
+
+/* ---------- the edge of the loaded area ---------- */
+
+/** How far (in tiles) the vector ground fades out toward an unloaded neighbour. */
+export const FEATHER = 0.4;
+/**
+ * Alpha of the vector ground at (u, v) ∈ [0,1]² inside tile (x, y): 0 on any border shared with a tile that has no ground,
+ * 1 from FEATHER tiles in, smoothstep between. has(x, y) says whether a tile has ground. Only the 8 neighbours matter (FEATHER < 1).
+ */
+export function edgeAlpha(x: number, y: number, u: number, v: number, has: (x: number, y: number) => boolean, w = FEATHER): number {
+  let d = Infinity;
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    if ((!dx && !dy) || has(x + dx, y + dy)) continue;
+    const ex = dx < 0 ? u : dx > 0 ? 1 - u : 0, ey = dy < 0 ? v : dy > 0 ? 1 - v : 0; // distance to that neighbour's square
+    d = Math.min(d, Math.hypot(ex, ey));
+  }
+  const t = Math.max(0, Math.min(1, d / w));
+  return t * t * (3 - 2 * t);
+}
+/** The circle (tile units) around a set of loaded tiles: centre and the radius that reaches every tile corner. Null when empty. */
+export function coverCircle(tiles: { x: number; y: number }[]): { x: number; y: number; r: number } | null {
+  if (!tiles.length) return null;
+  const cx = tiles.reduce((s, t) => s + t.x + 0.5, 0) / tiles.length, cy = tiles.reduce((s, t) => s + t.y + 0.5, 0) / tiles.length;
+  let r = 0;
+  for (const t of tiles) for (const [a, b] of [[0, 0], [1, 0], [0, 1], [1, 1]]) r = Math.max(r, Math.hypot(t.x + a - cx, t.y + b - cy));
+  return { x: cx, y: cy, r };
+}
+/**
+ * The same edge mask for the buildings of tile (x, y): one value per vertex, taken at each building's footprint centre so a building
+ * sinks and fades as a whole (no sheared walls). Vertex order follows extrude(): 4 wall + 1 roof vertex per ring point. A tile with
+ * no ground of its own keeps its buildings (1).
+ */
+export function buildingEdge(x: number, y: number, bs: Pick<Building, "r">[], has: (x: number, y: number) => boolean, w = FEATHER): Float32Array {
+  const out = new Float32Array(bs.reduce((s, b) => s + 5 * b.r.length, 0));
+  const own = has(x, y);
+  let k = 0;
+  for (const b of bs) {
+    const cx = b.r.reduce((s, p) => s + p[0], 0) / b.r.length, cy = b.r.reduce((s, p) => s + p[1], 0) / b.r.length;
+    const a = own ? edgeAlpha(x, y, Math.min(1, Math.max(0, lon2x(cx, BZ) - x)), Math.min(1, Math.max(0, lat2y(cy, BZ) - y)), has, w) : 1;
+    out.fill(a, k, k + 5 * b.r.length); k += 5 * b.r.length;
+  }
+  return out;
+}

@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { runPulse, type Focus } from "@/lib/pulse";
 
@@ -13,6 +14,6 @@ export async function POST(req: Request) {
     const { briefing, ingest } = await runPulse(sb, user.id, "manual", focus);
     return Response.json({ briefing, ingest });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Pulse failed" }, { status: 502 });
+    return Response.json({ error: safeMessage(e, "Pulse failed") }, { status: 502 });
   }
 }

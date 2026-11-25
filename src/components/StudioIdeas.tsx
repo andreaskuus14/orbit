@@ -58,7 +58,7 @@ export default function StudioIdeas({ active }: { active: boolean }) {
           <summary>{t("ya.top")}: {d.report.niche}</summary>
           <ol className="mt-1 space-y-1.5">
             {d.report.outliers.map((o) => (
-              <li key={o.id}><a className="link" href={o.url} target="_blank" rel="noopener noreferrer">{o.title}</a> · {o.channel} · {o.views.toLocaleString()} views{o.projected !== null && ` · ${o.projected.toFixed(1)}× normal`}
+              <li key={o.id}><a className="link" href={o.url} target="_blank" rel="noopener noreferrer">{o.title}</a> · {o.channel} · {t("sid.views", { n: o.views.toLocaleString() })}{o.projected !== null && ` · ${t("sid.normal", { x: o.projected.toFixed(1) })}`}
                 <div className="muted">{o.why.why}</div>{o.why.copy.length > 0 && <div>{t("ya.copy")}: {o.why.copy.join(" · ")}</div>}</li>
             ))}
           </ol>
@@ -77,12 +77,12 @@ function IdeaDetail({ i, post }: { i: Idea; post: (b: Record<string, unknown>) =
     <div className="mt-1.5 space-y-2 rounded border border-white/10 p-2 text-xs">
       <p><b>{t("ya.why")}:</b> {i.why.why}</p>
       {i.angle && <p className="muted">{i.angle}</p>}
-      {i.script.length > 0 && <details><summary>{t("ya.script")}</summary><ol className="mt-1 space-y-1">{i.script.map((b, k) => <li key={k}><span className="muted">{b.sec}s · seen:</span> {b.seen} <br /><span className="muted">heard:</span> “{b.heard}”</li>)}</ol></details>}
+      {i.script.length > 0 && <details><summary>{t("ya.script")}</summary><ol className="mt-1 space-y-1">{i.script.map((b, k) => <li key={k}><span className="muted">{b.sec}s · {t("sid.seen")}</span> {b.seen} <br /><span className="muted">{t("sid.heard")}</span> “{b.heard}”</li>)}</ol></details>}
       {i.titles.length > 0 && <details><summary>{t("ya.options")}</summary>
         <ul className="mt-1 space-y-1">{i.titles.map((x, k) => <li key={k}>“{x.text}” <span className="muted">— {x.reason}</span></li>)}{i.thumbs.map((x, k) => <li key={`t${k}`}>🖼 {x.idea} <span className="muted">— {x.reason}</span></li>)}</ul>
         <p className="muted mt-1">{i.abNote}</p></details>}
-      {needStyle && <div className="flex gap-1.5">{i.styleFrames!.files.map((_, k) => <img key={k} src={file(`style-${k + 1}`)} alt={`Style frame ${k + 1}`} className="h-40 rounded" />)}</div>}
-      {needMotion && <video src={file("motion")} controls loop className="h-64 rounded" aria-label="Motion test" />}
+      {needStyle && <div className="flex gap-1.5">{i.styleFrames!.files.map((_, k) => <img key={k} src={file(`style-${k + 1}`)} alt={t("sid.frame", { n: k + 1 })} className="h-40 rounded" />)}</div>}
+      {needMotion && <video src={file("motion")} controls loop className="h-64 rounded" aria-label={t("sid.motion")} />}
       <div className="flex flex-wrap gap-1.5">
         {needStyle && <button className="btn" onClick={() => void post({ action: "approve-style", id: i.id })}>{t("ya.approveStyle")}</button>}
         {needMotion && <button className="btn" onClick={() => void post({ action: "approve-motion", id: i.id })}>{t("ya.approveMotion")}</button>}

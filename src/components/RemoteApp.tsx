@@ -90,7 +90,7 @@ export function RemoteApp() {
   return (
     <Shell>
       <RemoteGalaxy need={items.length} jobs={q?.active.length ?? 0} paused={paused} />
-      <button className="btn w-full text-lg" style={{ minHeight: 56 }} onClick={() => setCar(true)}>Car mode</button>
+      <button className="btn w-full text-lg" style={{ minHeight: 56 }} onClick={() => setCar(true)}>{t("rm.car")}</button>
       {car && <RemoteCar items={items} getBrief={getBrief} onLater={setLater} onExit={() => setCar(false)} />}
 
       {habit && (
@@ -165,28 +165,29 @@ function Night() {
 
 /** Location-aware brief: shown only when he switched it on in Profile on the PC. One rough point per tap, nothing in the background. */
 function Place() {
+  const { t } = useT();
   const [on, setOn] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => { void fetch("/api/remote/place").then((r) => (r.ok ? r.json() : null)).then((j) => setOn(!!j?.on)).catch(() => {}); }, []);
   if (!on) return null;
   function update() {
-    if (!("geolocation" in navigator)) return setNote("This browser can't share location.");
+    if (!("geolocation" in navigator)) return setNote(t("rm.place.noGeo"));
     setBusy(true); setNote("");
     navigator.geolocation.getCurrentPosition(async (pos) => {
       const round = (v: number) => Math.round(v * 100) / 100; // ~1 km before it leaves the phone
       const r = await fetch("/api/remote/place", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ lat: round(pos.coords.latitude), lon: round(pos.coords.longitude) }) }).catch(() => null);
       const j = r && (await r.json().catch(() => null));
-      setNote(r?.ok ? (j?.near ? `Near ${j.near}.` : "Updated: not near a saved place.") : j?.error ?? "Network error");
+      setNote(r?.ok ? (j?.near ? t("rm.place.near", { place: j.near }) : t("rm.place.notNear")) : j?.error ?? t("rm.netErr"));
       setBusy(false);
-    }, (e) => { setNote(e.code === e.PERMISSION_DENIED ? "Location is blocked: allow it for Remote in Settings → Privacy → Location Services." : "Couldn't get a location."); setBusy(false); },
+    }, (e) => { setNote(e.code === e.PERMISSION_DENIED ? t("rm.place.blocked") : t("rm.place.failed")); setBusy(false); },
     { enableHighAccuracy: false, maximumAge: 10 * 60_000, timeout: 15_000 });
   }
   return (
     <section className="rm-sec" aria-labelledby="r-place">
-      <h2 id="r-place" className="rm-label">Place</h2>
-      <p className="muted text-sm">Sends a rough location (about 1 km) to your PC for the morning brief. Only when you tap; the PC keeps just the latest one.</p>
-      <button className="btn w-full" style={{ minHeight: 44 }} disabled={busy} onClick={update}>{busy ? "…" : "Update place"}</button>
+      <h2 id="r-place" className="rm-label">{t("rm.place.title")}</h2>
+      <p className="muted text-sm">{t("rm.place.help")}</p>
+      <button className="btn w-full" style={{ minHeight: 44 }} disabled={busy} onClick={update}>{busy ? "…" : t("rm.place.update")}</button>
       {note && <p className="muted text-sm" role="status">{note}</p>}
     </section>
   );
@@ -275,6 +276,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 /** Also used by /screen (screen: pairs as a read-only screen). */
 export function Pair({ off, onPaired, screen }: { off: string; onPaired: () => void; screen?: boolean }) {
+  const { t } = useT();
   const [code, setCode] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -285,14 +287,14 @@ export function Pair({ off, onPaired, screen }: { off: string; onPaired: () => v
     const r = await fetch("/api/remote/pair", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: code.trim(), ...(screen ? { name: "Screen", type: "screen" } : { name: /iPhone/.test(navigator.userAgent) ? "iPhone" : "Phone" }) }) }).catch(() => null);
     setBusy(false);
     if (r?.ok) return onPaired();
-    setErr(r ? await errorOf(r) : "Network error");
+    setErr(r ? await errorOf(r) : t("rm.netErr"));
   }
   return (
     <form onSubmit={submit} className="card space-y-3">
-      <p className="text-sm">On the PC: Profile → <b>Pair phone</b>. Type the 6-digit code here within 2 minutes.</p>
-      <p className="muted text-xs">{screen ? "This pairs a read-only screen: it can look, never approve, stop or ask." : "On iPhone, add this page to the Home Screen first and pair from there: the home-screen app keeps its own sign-in."}</p>
-      <input className="field w-full text-center text-2xl tracking-[0.4em]" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} required aria-label="Pairing code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
-      <button className="btn w-full" style={{ minHeight: 48 }} disabled={busy || code.length !== 6}>{busy ? "Pairing…" : "Pair"}</button>
+      <p className="text-sm">{t("rm.pair.how")}</p>
+      <p className="muted text-xs">{screen ? t("rm.pair.screen") : t("rm.pair.iphone")}</p>
+      <input className="field w-full text-center text-2xl tracking-[0.4em]" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} required aria-label={t("rm.pair.code")} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+      <button className="btn w-full" style={{ minHeight: 48 }} disabled={busy || code.length !== 6}>{busy ? t("rm.pair.busy") : t("rm.pair.btn")}</button>
       {err && <p className="error" role="alert">{err}</p>}
     </form>
   );

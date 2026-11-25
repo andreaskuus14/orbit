@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useT } from "./i18n";
 import { applyFilters, inspect, NO_FILTERS, projects, whyMatched, type Filters, type Mem } from "@/lib/memory-workspace-pure";
 import type { MemoryType } from "@/lib/memory-types-pure";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { mergedContent } from "@/lib/memory-hygiene-pure";
 import type { Decision, RItem } from "@/lib/memory-review-pure";
 import type { Dup, DupChoice } from "@/lib/memory-capture-pure";
@@ -214,7 +214,7 @@ export function MemoryReview({ onChanged }: { onChanged: () => void }) {
   if (!list?.length && !err) return null;
   return (
     <div className="card space-y-2" aria-label={t("memrev.title")}>
-      <div className="muted text-[10px] uppercase tracking-widest">{t("memrev.title")}</div>
+      <div className="muted text-[12px] font-medium">{t("memrev.title")}</div>
       {err && <p className="error" role="alert">{err}</p>}
       <ul className="space-y-3">{(list ?? []).map((it) => (
         <li key={it.key} className="space-y-1">

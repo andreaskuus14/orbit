@@ -3,7 +3,7 @@
 // cancel, and the shared Progress card. Tests: tests/gpu-queue.test.ts.
 import { isPrivate, isPrivateKind } from "./private-pure.ts";
 import { fromStages, type Progress } from "./progress-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 
 export const GPU_JOB_KINDS = ["image", "image_edit", "video", "music", "3d", "voice", "upscale", "blender_render"] as const;
 export type GpuJobKind = (typeof GPU_JOB_KINDS)[number];

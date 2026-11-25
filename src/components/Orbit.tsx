@@ -25,7 +25,7 @@ import { linkFromHash, linkToHash, shouldPush, type DeepLink } from "@/lib/deepl
 import { askHere } from "@/lib/voice-target-pure";
 import { viewKey } from "@/lib/planet-view-pure";
 import { NAV_EVENT, parseNavCommand, type LifeView, type NavTarget } from "@/lib/nav-pure";
-import { NotificationCenter } from "./NotificationCenter";
+import { NotificationCenter, PhoneReadyItems } from "./NotificationCenter";
 import { StopAll } from "./StopAll";
 import { PresenceBeat } from "./PresenceBeat";
 import { Terminal } from "./Terminal";
@@ -44,7 +44,6 @@ import { HudFrame } from "./HudFrame";
 import { WeeklyCard } from "./WeeklyCard";
 import { EveningCapture } from "./EveningCapture";
 import { updateSkillRun, type SkillLaunch } from "./skill-run-receipts";
-import { MissionControl } from "./MissionControl";
 import { StatusRail } from "./StatusRail";
 import { Ticker } from "./Ticker";
 import { WarpBurst, WarpOverlay } from "./WarpOverlay";
@@ -62,7 +61,6 @@ import { runRecipeCommand } from "./recipe-command";
 import { OrbitExplore, warmWorld, WorldLoading } from "./OrbitExplore";
 import { markOpen } from "./dev-mark";
 import { useStageActive } from "./stage-slot";
-import { WorkView } from "./WorkView";
 import type { WorkTab } from "@/lib/work-vocab-pure";
 import { NeedsYou } from "./NeedsYou";
 import { COMMAND_REPLY_EVENT, runNavCommand } from "./nav-command";
@@ -77,7 +75,8 @@ import { PlanetBoundary } from "./PlanetBoundary";
 import { StaleBuildWatch } from "./StaleBuildWatch";
 import { CommandBar, type CommandBarHandle } from "./home/CommandBar";
 import { displayName } from "@/lib/home-ui-pure";
-import { IconMore } from "./ui/icons";
+import { IconClose, IconMore } from "./ui/icons";
+import { Button } from "./ui";
 import { uiSound } from "./ui/sound";
 import "@/app/home.css";
 import { useDialogFocus } from "./useDialogFocus";
@@ -91,7 +90,7 @@ import { HomeDesk } from "./HomeDesk";
 import type { Progress } from "@/lib/progress-pure";
 import { AMBER, countBadge, galaxyStatus, ROSE, sentenceRest, type CheckLike, type GalaxyStatus, type NeedLike, type StatusWorld } from "@/lib/galaxy-status-pure";
 import { freshJson } from "./use-poll";
-import { Tour, TOUR_EVENT } from "./Tour";
+import { TOUR_EVENT } from "@/lib/tour-key-pure";
 import { corePhase, useUiMotion } from "./motion/motion";
 import { CorePresence } from "./motion/CorePresence";
 import { HomeAnswer, type HomeAsk } from "./motion/HomeAnswer";
@@ -123,6 +122,11 @@ const MemoryPanel = dynamic(() => import("./panels").then((m) => m.MemoryPanel),
 const IntelligencePanel = dynamic(() => import("./IntelligencePanel").then((m) => m.IntelligencePanel), { ssr: false, loading: PanelLoading });
 const AgentsPanel = dynamic(() => import("./AgentsPanels").then((m) => m.AgentsPanel), { ssr: false, loading: PanelLoading });
 const OperationsPanel = dynamic(() => import("./AgentsPanels").then((m) => m.OperationsPanel), { ssr: false, loading: PanelLoading });
+// Only on screen after a click or after boot: kept out of the first-load bundle (WorkView alone carries Goals, Missions,
+// Skills, Routines and the Outcome cockpit). The Work sheet's code is warmed with the drawers at boot 3, so it still opens at once.
+const WorkView = dynamic(() => import("./WorkView").then((m) => m.WorkView), { ssr: false, loading: PanelLoading });
+const MissionControl = dynamic(() => import("./MissionControl").then((m) => m.MissionControl), { ssr: false });
+const Tour = dynamic(() => import("./Tour").then((m) => m.Tour), { ssr: false });
 const DoctorPanel = dynamic(() => import("./DoctorPanel").then((m) => m.DoctorPanel), { ssr: false });
 const RemoteCall = dynamic(() => import("./RemoteCall").then((m) => m.RemoteCall), { ssr: false });
 const PcConfirm = dynamic(() => import("./voice/DeskVoice").then((m) => m.PcConfirm), { ssr: false });
@@ -155,7 +159,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const { t, tn, lang } = useT();
   const sb = useMemo(() => createClient(), []);
   const boot = useBootBatch(3);
-  useEffect(() => { if (boot >= 3) void import("./panels"); }, [boot]); // warm the CORE drawer after first paint
+  useEffect(() => { if (boot >= 3) { void import("./panels"); void import("./WorkView"); } }, [boot]); // warm the CORE drawer after first paint
   const [view, setView] = useState<"3d" | "2d" | null>(null); // null = still deciding: show the loader, never flash the 2D index
   const [reduced, setReduced] = useState(false);
   const [dilation, setDilation] = useState<{ startAt: number; endAt: number } | null>(null); // a time dilation focus block
@@ -755,15 +759,16 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   const statusDrag = useDragPanel<HTMLElement>(!shown && view === "3d" ? "status" : null);
   const panelBody = (id: PanelId) => (id === "core" ? <CorePanel initial={pending?.text ?? null} initialSkill={pending?.skill} initialHere={pending?.here} onConsumed={consumed} onOpenMemory={openMemory} greeting={wakeGreeting} onGreeted={clearGreeting} />
       : id === "profile" ? <ProfilePanel />
-      : id === "analytics" ? <AnalyticsPanel onClose={() => setPanel(null)} />
+      : id === "analytics" ? <AnalyticsPanel onClose={closeWorld} />
       : id === "intelligence" ? <IntelligencePanel />
       : id === "operations" ? <OperationsPanel focusTask={focusTask} onOpen={setFocusTask} openMemory={openMemory} />
       : id === "agents" ? <AgentsPanel onOpenTask={openTask} />
-      : id === "life" ? <LifePanel open={lifeOpen} onClose={() => setPanel(null)} /> // one calm shell; a CORE/voice jump opens the right sheet
+      : id === "life" ? <LifePanel open={lifeOpen} onClose={closeWorld} /> // one calm shell; a CORE/voice jump opens the right sheet
       : id === "vault" ? <VaultPlanet onClose={closeWorld} />
       : id === "business" ? <BusinessShell onClose={closeWorld} focusId={focusClient} onFocus={setFocusClient} />
               : null);
-  const title = drawer === "core" ? "CORE" : drawer === "profile" ? t("hud.profile") : drawer && planetById(drawer) ? t(`planet.${planetById(drawer)!.id}`) : "";
+  const kitDrawer = drawer === "intelligence" || drawer === "profile";
+  const title = drawer === "core" ? "CORE" : drawer === "profile" ? t("hud.profile") : drawer === "intelligence" ? t("intel.title") : drawer && planetById(drawer) ? t(`planet.${planetById(drawer)!.id}`) : "";
 
   return (
     <main ref={shell} className="orbit-shell relative h-dvh w-full overflow-hidden" data-view={view} data-details={details || undefined} data-dive-in={quiet ?? undefined} data-diving={dive ? "" : undefined}>
@@ -794,7 +799,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {has("arch") && <Kept on={at("arch")} name="arch" onBack={closeWorld}><ArchWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} paused={!at("arch")} /></Kept>}
       {has("memory") && <Kept on={at("memory")} name="memory" onBack={closeWorld}><MemoryWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} focusId={focusMemory} onChanged={refreshCount} paused={!at("memory")} List={MemoryPanel} /></Kept>}
       {shown && KEEP.includes(shown) && at(shown) ? null : isPlanetWorld(shown) ? (
-        <PlanetWorld key={shown} id={shown} bare={shown === "vault"} flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld}><PlanetBoundary key={shown} name={shown} onBack={closeWorld}>{panelBody(shown)}</PlanetBoundary></PlanetWorld>
+        <PlanetBoundary key={`w-${shown}`} name={shown} onBack={closeWorld}><PlanetWorld key={shown} id={shown} bare={shown === "vault"} flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld}><PlanetBoundary key={shown} name={shown} onBack={closeWorld}>{panelBody(shown)}</PlanetBoundary></PlanetWorld></PlanetBoundary>
       ) : view === null ? <GalaxyLoader /> : view === "3d" ? null : (
         <nav aria-label={t("overview.aria")} inert={covered || undefined} className="orbit-overview absolute inset-0 overflow-y-auto px-4 pb-32 pt-24">
           <AmbientLoop />
@@ -825,7 +830,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         </button>
         <div className="hud-bar-top">
           {(live === "offline" || details) && <span className={"pill hidden sm:inline-flex " + (live === "live" ? "ok" : live === "offline" ? "bad" : "")} title={t("hud.liveTitle")}>{t(live === "live" ? "hud.live" : live === "offline" ? "hud.offline" : "hud.connecting")}</span>}
-          {process.env.NODE_ENV === "development" && <span className="pill hidden lg:inline-flex" title="Running the development server (slower). Start Orbital from the desktop shortcut for the production server.">DEV</span>}
+          {process.env.NODE_ENV === "development" && <span className="pill hidden lg:inline-flex" title={t("hud.devTitle")}>DEV</span>}
           <PresenceBeat />
           <NotificationCenter home={!shown && !approach} />
           <TimeDilation onSpan={setDilation} />
@@ -839,6 +844,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {/* Native popover: light-dismiss and Esc for free, drawn in the top layer above every panel. */}
       <div id="hud-menu" popover="auto" className="glass hud-menu" aria-label={t("hud.more")}>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => dispatchEvent(new Event(PALETTE_EVENT))}>{t("menu.search")} <kbd>Ctrl+K</kbd></button>
+        <PhoneReadyItems />
         {/* On a phone Work and Galaxy/Index leave the top bar (it didn't fit) and live here. */}
         <button className="hud-menu-item hud-menu-phone" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={() => setWorkOpen("work")}>{t("hud.work")}</button>
         <button className="hud-menu-item" popoverTarget="hud-menu" popoverTargetAction="hide" onClick={toggleView} title={t("hud.viewTitle")}>{t(view === "3d" ? "hud.index" : "hud.galaxy")}</button>
@@ -873,9 +879,15 @@ export default function Orbit({ userId, email }: { userId: string; email: string
       {boot >= 3 && <><ShortcutsOverlay /><Terminal /><MissionControl /><CommandPalette /><LifeReminders /><RemoteCall compact /><PcConfirm /></>}
 
       {drawer && !WORLDS.includes(drawer) && (
-        <div ref={drawerDrag.ref} tabIndex={-1} className={`glass drawer${drawer === "core" ? " drawer-core" : ""}${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
+        <div ref={drawerDrag.ref} tabIndex={-1} className={`glass drawer${drawer === "core" ? " drawer-core" : ""}${kitDrawer ? " drawer-kit" : ""}${docked ? " drawer-dock" : ""}${panel ? "" : " drawer-out"}`} role="dialog" aria-label={title}
           aria-hidden={!panel || undefined} inert={!panel || undefined}>
-          <div className="drag-handle mb-3 flex items-center justify-between" {...(docked ? {} : drawerDrag.handle)}><h2 className="brand world-header flex items-center gap-2 text-base">{drawer && drawer !== "profile" && <WorldEmblem id={drawer} size={28} />}<MaskText key={title} text={title} />{drawer && <WorldHeaderArt id={drawer} />}</h2><button className="chip" onClick={() => setPanel(null)} aria-label={t("hud.closePanel")} title={t("hud.closeEsc")}>{t("common.close")}</button></div>
+          {kitDrawer ? ( // kit header (design-language.md § Shell): accent dot, sentence-case name, ghost close icon
+            <header className="pu pu-head drag-handle" data-planet={drawer} {...(docked ? {} : drawerDrag.handle)}>
+              <span className="pu-mark" aria-hidden="true" />
+              <div className="pu-head-text"><h2 className="pu-title">{title}</h2></div>
+              <Button variant="ghost" icon={<IconClose />} label={t("hud.closePanel")} title={t("hud.closeEsc")} onClick={() => setPanel(null)} />
+            </header>
+          ) : <div className="drag-handle mb-3 flex items-center justify-between" {...(docked ? {} : drawerDrag.handle)}><h2 className="brand world-header flex items-center gap-2 text-base">{drawer && <WorldEmblem id={drawer} size={28} />}<MaskText key={title} text={title} />{drawer && <WorldHeaderArt id={drawer} />}</h2><button className="chip" onClick={() => setPanel(null)} aria-label={t("hud.closePanel")} title={t("hud.closeEsc")}>{t("common.close")}</button></div>}
           <div className="min-h-0 flex-1 overflow-y-auto">
             {drawer && <PlanetBoundary key={drawer} name={drawer}>{panelBody(drawer)}</PlanetBoundary>}
           </div>

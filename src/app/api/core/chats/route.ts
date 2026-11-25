@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { randomUUID } from "node:crypto";
 import { requireUser } from "@/lib/supabase/server";
 import { getChats, updateChats } from "@/lib/core-chats";
@@ -21,7 +22,7 @@ const SEARCH_HITS = 20;
 const bad = (error: string, status = 400) => Response.json({ error }, { status });
 const out = (r: object) => ("error" in r ? bad(String(r.error)) : Response.json(r));
 
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const params = new URL(req.url).searchParams;
@@ -63,7 +64,7 @@ export async function GET(req: Request) {
   return Response.json({ chats: data ?? [], projects: store.projects, map: store.chats });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const b = await req.json().catch(() => null);
@@ -124,3 +125,5 @@ export async function POST(req: Request) {
       return bad("Unknown action");
   }
 }
+export const GET = guard("core/chats", GET_);
+export const POST = guard("core/chats", POST_);

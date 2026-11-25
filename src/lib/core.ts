@@ -43,7 +43,7 @@ import { logActivity } from "./activity";
 import { pluginGates } from "./plugins";
 import { isPluginTool } from "./plugins-pure";
 import { WEB_SEARCH_SYSTEM, webSearchQuery } from "./core-web-pure";
-import { CORE_LANG_RULE, type Lang } from "./i18n-pure";
+import { CORE_LANG_RULE, type Lang } from "./i18n-core-pure";
 import type { WriteEvidence } from "./completion-pure";
 import { MODULE_PRIVATE, MODULE_NAMES, modulePromptFor, MODULE_WRITES, isModuleTool, moduleStatus, runModuleTool } from "./core-modules";
 import { classifyReflex, clockReply, smallTalkReply, type Reflex } from "./reflex-pure";

@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { readActivity } from "@/lib/activity";
 import { undoActivity } from "@/lib/activity-undo";
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 // OPERATIONS → Time machine. GET ?day=YYYY-MM-DD (default today, Europe/Tallinn) → { day, days, entries }: everything ORBIT did that
 // day (agent jobs, files, memory, settings, agent actions, sends), newest first, journal redacted to "Journal entry". Owner-only, no model.
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { sb, res } = await requireUser();
   if (res) return res;
   const q = new URL(req.url).searchParams.get("day");
@@ -35,7 +36,7 @@ export async function GET(req: Request) {
 }
 
 // POST { tm: id } (a time-machine record: Undo, or Undo of the Undo) | { undo: ActUndo, area } (an Activity-log Undo).
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { sb, user, res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => null)) as { tm?: unknown; undo?: unknown; area?: unknown } | null;
@@ -44,3 +45,5 @@ export async function POST(req: Request) {
   const r = await undoActivity(sb, user.id, u, b?.area ?? "operator");
   return Response.json(r.body, { status: r.status });
 }
+export const GET = guard("time-machine", GET_);
+export const POST = guard("time-machine", POST_);

@@ -25,6 +25,12 @@ const nextConfig: NextConfig = {
   ...(process.env.ORBIT_FAST_PROD_BUILD === "1"
     ? { typescript: { ignoreBuildErrors: true }, eslint: { ignoreDuringBuilds: true }, outputFileTracingExcludes: { "*": ["**/*"] } }
     : {}),
+  // Browser bundles get lib/i18n-browser.ts instead of lib/i18n-pure.ts: same API, but only the active language's strings
+  // ship on first load (the server and node tests keep both). See components/i18n.tsx.
+  webpack(config, { isServer, webpack }) {
+    if (!isServer) config.plugins.push(new webpack.NormalModuleReplacementPlugin(/(^|\/)i18n-pure(\.ts)?$/, (r: { request: string }) => { r.request = r.request.replace(/i18n-pure(\.ts)?$/, "i18n-browser"); }));
+    return config;
+  },
   async headers() {
     return [
       {

@@ -1,9 +1,10 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { linkPair } from "@/lib/memory-planet-pure";
 
 /** Suggested relationships awaiting the user's confirmation. */
-export async function GET() {
+async function GET_() {
   const { sb, res } = await requireUser();
   if (res) return res;
   const { data, error } = await sb
@@ -15,7 +16,7 @@ export async function GET() {
 }
 
 /** Confirm or reject a suggestion. Nothing becomes a permanent link without this. */
-export async function PATCH(req: Request) {
+async function PATCH_(req: Request) {
   const { sb, res } = await requireUser();
   if (res) return res;
   const { id, status } = await req.json().catch(() => ({}));
@@ -28,7 +29,7 @@ export async function PATCH(req: Request) {
 
 /** The owner links two memories by hand (MEMORY → a memory → Link to…): a confirmed link, or an existing suggestion in either
  *  direction turned confirmed. His own click only; nothing leaves ORBIT. */
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const h = req.headers;
   if (crossSiteBlocked("POST", "/api/links", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { sb, res } = await requireUser();
@@ -44,3 +45,6 @@ export async function POST(req: Request) {
   if (error) return Response.json({ error: error.message }, { status: 400 });
   return Response.json({ ok: true, id: data?.id ?? null }, { status: found?.length ? 200 : 201 });
 }
+export const GET = guard("links", GET_);
+export const PATCH = guard("links", PATCH_);
+export const POST = guard("links", POST_);

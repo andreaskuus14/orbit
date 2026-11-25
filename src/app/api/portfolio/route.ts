@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { requireUser } from "@/lib/supabase/server";
@@ -54,6 +55,6 @@ export async function POST(req: Request) {
     return text ? Response.json({ text }) : fail("No draft came back; try again", 502);
   } catch (e) {
     if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
-    return fail(`Couldn't draft: ${e instanceof Error ? e.message : "unknown error"}`, 502);
+    return fail(`Couldn't draft: ${safeMessage(e, "unknown error")}`, 502);
   }
 }

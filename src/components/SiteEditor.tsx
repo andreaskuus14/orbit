@@ -4,6 +4,7 @@
 // undo/redo; Publish turns the changes into copy edits for /api/sites/edit. Order, images and scripts stay the brief's.
 import { useMemo, useState } from "react";
 import { Puck, type Config } from "@puckeditor/core";
+import { useT } from "./i18n";
 import "@puckeditor/core/puck.css";
 import { SITE_CSS, section, type Brief } from "@/lib/site-brief-pure";
 import { IMMERSIVE_CSS, SCENE_CSS, SEQUENCE_CSS, directionOf } from "@/lib/site-immersive-pure";
@@ -19,6 +20,7 @@ const FIELDS = {
 };
 
 export function SiteEditor({ ws, brief: initial, base }: { ws: string; brief: Brief; base: string }) {
+  const { t } = useT();
   const [brief, setBrief] = useState(initial), [note, setNote] = useState(""), [key, setKey] = useState(0);
   const data = useMemo(() => toPuck(brief), [brief]);
   const config = useMemo(() => {
@@ -43,18 +45,18 @@ export function SiteEditor({ ws, brief: initial, base }: { ws: string; brief: Br
     setNote("Saving…");
     const res = await fetch("/api/sites/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ws, version: brief.version, edits: r.edits }) });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) return setNote((j.errors ?? [j.error ?? "Save failed"]).join("; "));
+    if (!res.ok) return setNote((j.errors ?? [j.error ?? t("site.saveFail")]).join("; "));
     setBrief(j.brief); setKey((k) => k + 1);
-    setNote(`Saved as version ${j.brief.version}: ${j.changed.join(", ")}.`);
+    setNote(t("site.saved", { v: j.brief.version, x: j.changed.join(", ") }));
   };
 
   return (
     <div className="site-editor">
-      <p role="status" aria-live="polite" className="px-3 py-1 text-sm">{note || `Editing ${brief.name}, version ${brief.version}. Click a section, change its text, then Publish.`}
-        {" "}<a className="underline" href={`/api/workspace?ws=${encodeURIComponent(ws)}&zip=1`}>Download site (zip)</a></p>
+      <p role="status" aria-live="polite" className="px-3 py-1 text-sm">{note || t("site.editing", { n: brief.name, v: brief.version })}
+        {" "}<a className="underline" href={`/api/workspace?ws=${encodeURIComponent(ws)}&zip=1`}>{t("site.zip")}</a></p>
       <Puck key={key} config={config} data={data as never} onPublish={(d) => void publish(d as unknown as PuckData)}
         permissions={{ drag: false, duplicate: false, delete: false, insert: false }}
-        overrides={{ drawer: () => <p className="p-3 text-sm">Sections come from the site brief; edit their text here.</p> }}
+        overrides={{ drawer: () => <p className="p-3 text-sm">{t("site.drawer")}</p> }}
         viewports={[{ width: 390, height: "auto", label: "Phone", icon: "Smartphone" }, { width: 1440, height: "auto", label: "Desktop", icon: "Monitor" }]} />
     </div>
   );

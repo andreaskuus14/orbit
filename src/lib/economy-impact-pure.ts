@@ -2,7 +2,7 @@
 // Every number is tagged with where it came from: "calculated" (plain arithmetic), "simulated" (seeded spender personas)
 // or "playtest" (what Andreas measured himself). Every result lists the changed inputs it reflects. Tested in tests/economy-impact.test.ts.
 import { SIM_DEFAULTS, economyReport, simulate, type Economy, type SimOpts } from "./economy-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 
 export type Source = "calculated" | "simulated" | "playtest";
 /** One changed input: key "rate" | "slots" | "egg:<name>" | "pet:<name>". */

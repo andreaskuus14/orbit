@@ -11,6 +11,8 @@ import RobloxBuild, { PINK } from "./RobloxBuild";
 import { KaggleBurst } from "./KaggleBurst";
 import { ProgressCard } from "./ProgressCard";
 import type { Progress } from "@/lib/progress-pure";
+import { ErrorState } from "./ui/State";
+import { isComfyView, isHealthView, isPcView, okJson } from "@/lib/json-guard-pure";
 
 // Local AI tools (tools/local-ai on his PC): Picture to 3D and Text to 3D (GAME DEV → Assets), Voiceover (STUDIO → Produce),
 // Captions (STUDIO → Produce), Read document (VAULT), Open IFC model (ARCH) and the tool list (OPERATIONS → Local AI). Every result is saved in VAULT; nothing is uploaded. Data: /api/local-ai.
@@ -33,14 +35,15 @@ async function post(body: FormData | object): Promise<string> {
 
 function useHealth() {
   const [h, setH] = useState<Health | null>(null);
-  const check = useCallback(() => { void fetch("/api/local-ai", { cache: "no-store" }).then((r) => r.json()).then(setH, () => setH(null)); }, []);
+  const check = useCallback(() => { void fetch("/api/local-ai", { cache: "no-store" }).then((r) => okJson<Health>(r, isHealthView)).then(setH, () => setH(null)); }, []);
   useEffect(check, [check]);
   return [h, check] as const;
 }
 
 function State({ h, id, onCheck }: { h: Health | null; id: ToolId; onCheck: () => void }) {
   const s = toolState(h, id);
-  return <p className="text-xs" style={{ color: s.ok ? "#4ade80" : "#fbbf24" }}>{s.text} <button className="chip ml-1" onClick={onCheck}>Check again</button></p>;
+  const { t } = useT();
+  return <p className="text-xs" style={{ color: s.ok ? "#4ade80" : "#fbbf24" }}>{s.text} <button className="chip ml-1" onClick={onCheck}>{t("la.checkAgain")}</button></p>;
 }
 
 function Model({ url }: { url: string }) {
@@ -57,6 +60,7 @@ export function PictureTo3D() {
   const [err, setErr] = useState("");
   const [glb, setGlb] = useState("");
   const [png, setPng] = useState("");
+  const { t } = useT();
   const run = async (action: "image3d" | "removebg") => {
     if (!file) return;
     setBusy(action); setErr("");
@@ -65,20 +69,20 @@ export function PictureTo3D() {
     catch (e) { setErr(msg(e)); } finally { setBusy(""); check(); }
   };
   return (
-    <section className="glass grid gap-2 rounded-xl p-3 text-sm" style={{ borderColor: `${PINK}44` }} aria-label="Picture to 3D">
-      <h3 className="brand text-sm" style={{ color: PINK }}>Picture to 3D (free, on your PC)</h3>
-      <p className="muted text-xs">One clear picture of one object (a pet, a sword, a chest) on a plain background works best. Makes a .glb model in VAULT.</p>
+    <section className="glass grid gap-2 rounded-xl p-3 text-sm" style={{ borderColor: `${PINK}44` }} aria-label={t("la.p3d")}>
+      <h3 className="brand text-sm" style={{ color: PINK }}>{t("la.p3dTitle")}</h3>
+      <p className="muted text-xs">{t("la.p3dHelp")}</p>
       <State h={h} id="image3d" onCheck={check} />
-      {h?.running && !toolState(h, "image3d").ok && <p className="muted text-xs">Quick TripoSR isn't installed, so this makes a grey Pixal3D draft (shape only). Ask CORE for quality "best" or "match" for a textured model.</p>}
-      <input type="file" accept="image/png,image/jpeg,image/webp" className="text-xs" aria-label="Picture" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-      <input className="field text-xs" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (e.g. golden-dragon-pet)" aria-label="Model name" />
+      {h?.running && !toolState(h, "image3d").ok && <p className="muted text-xs">{t("la.noTripo")}</p>}
+      <input type="file" accept="image/png,image/jpeg,image/webp" className="text-xs" aria-label={t("la.picture")} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+      <input className="field text-xs" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder={t("la.namePh")} aria-label={t("la.modelName")} />
       <div className="flex flex-wrap gap-2">
         {/* TripoSR off (its compiled package didn't build): the server uses the Pixal3D draft instead, so the button stays usable */}
-        <button className="btn" disabled={!file || !!busy || !h?.running} onClick={() => void run("image3d")}>{busy === "image3d" ? "Making the 3D model (1-3 min on GPU)…" : "🧊 Make 3D model"}</button>
-        <button className="chip" disabled={!file || !!busy || !toolState(h, "removebg").ok} onClick={() => void run("removebg")}>{busy === "removebg" ? "Cutting out…" : "✂ Cut out background only"}</button>
+        <button className="btn" disabled={!file || !!busy || !h?.running} onClick={() => void run("image3d")}>{busy === "image3d" ? t("la.making3d") : `🧊 ${t("la.make3d")}`}</button>
+        <button className="chip" disabled={!file || !!busy || !toolState(h, "removebg").ok} onClick={() => void run("removebg")}>{busy === "removebg" ? t("la.cutting") : `✂ ${t("la.cutOnly")}`}</button>
       </div>
       {err && <p className="text-xs text-red-400" role="alert">{err}</p>}
-      {png && <p className="text-xs">Cut-out saved as <a className="underline" href={raw(png)} download>{png}</a> in VAULT.</p>}
+      {png && <p className="text-xs">{t("la.cutSaved")} <a className="underline" href={raw(png)} download>{png}</a> {t("la.inVault")}</p>}
       {glb && (
         <div className="grid gap-2">
           <div className="h-56 overflow-hidden rounded-lg bg-black/40">
@@ -88,16 +92,16 @@ export function PictureTo3D() {
               <OrbitControls makeDefault />
             </Canvas>
           </div>
-          <p className="text-xs">Saved as <a className="underline" href={raw(glb)} download>{glb}</a> in VAULT.</p>
+          <p className="text-xs">{t("la.savedAs")} <a className="underline" href={raw(glb)} download>{glb}</a> {t("la.inVault")}</p>
           <details className="text-xs" open>
-            <summary>Send to Roblox Studio</summary>
+            <summary>{t("la.toRoblox")}</summary>
             {/* The Studio MCP bridge has no file-import tool (insert_asset needs a published asset id), so this step is his. */}
             <ol className="ml-4 list-decimal">
-              <li>Download the .glb with the link above.</li>
-              <li>In Roblox Studio: Home tab → Import 3D (or File → Import 3D) and pick the file.</li>
-              <li>Check the scale in the preview, then Import. It lands in Workspace as a MeshPart you can resize.</li>
+              <li>{t("la.rb1")}</li>
+              <li>{t("la.rb2")}</li>
+              <li>{t("la.rb3")}</li>
             </ol>
-            <p className="muted">Colours come as vertex colours; if the model looks grey in Studio, paint it or give it a texture in Textures. Unreal: drag the .glb into the Content Browser.</p>
+            <p className="muted">{t("la.colours")}</p>
           </details>
         </div>
       )}
@@ -109,13 +113,14 @@ export function PictureTo3D() {
 export function TextTo3D() {
   const [prompt, setPrompt] = useState("");
   const [item, setItem] = useState<{ kind: "generate"; prompt: string } | null>(null);
+  const { t } = useT();
   return (
-    <section className="grid gap-2 text-sm" aria-label="Text to 3D in Roblox">
+    <section className="grid gap-2 text-sm" aria-label={t("la.t3dAria")}>
       <div className="glass grid gap-2 rounded-xl p-3" style={{ borderColor: `${PINK}44` }}>
-        <h3 className="brand text-sm" style={{ color: PINK }}>Text to 3D (Roblox Studio)</h3>
-        <p className="muted text-xs">Describe one object. Roblox Studio makes a textured mesh in your open place with its own AI (Cube 3D). Free, runs on Roblox&apos;s servers.</p>
-        <input className="field text-xs" maxLength={180} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Cute fluffy cat pet with big eyes" aria-label="Describe the object" />
-        <button className="btn" disabled={prompt.trim().length < 3} onClick={() => setItem({ kind: "generate", prompt: prompt.trim() })}>Use this description</button>
+        <h3 className="brand text-sm" style={{ color: PINK }}>{t("la.t3dTitle")}</h3>
+        <p className="muted text-xs">{t("la.t3dHelp")}</p>
+        <input className="field text-xs" maxLength={180} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={t("la.t3dPh")} aria-label={t("la.describe")} />
+        <button className="btn" disabled={prompt.trim().length < 3} onClick={() => setItem({ kind: "generate", prompt: prompt.trim() })}>{t("la.useDesc")}</button>
       </div>
       {item && <RobloxBuild item={item} />}
     </section>
@@ -131,6 +136,7 @@ async function toWav(blob: Blob): Promise<Blob> {
 
 /** STUDIO → Produce → Voiceover: a preset voice, or his own cloned voice (his own recording + consent only). */
 export function Voiceover() {
+  const { t } = useT();
   const [h, check] = useHealth();
   const [text, setText] = useState("");
   const [voice, setVoice] = useState<string>(VOICES[0].id);
@@ -173,44 +179,45 @@ export function Voiceover() {
   };
   const id: ToolId = own ? "clone" : "tts";
   return (
-    <section className="glass grid gap-2 rounded-xl p-3 text-sm" aria-label="Voiceover">
-      <h3 className="brand text-sm">🎙 Voiceover (free, on your PC)</h3>
-      <div className="flex gap-2" role="group" aria-label="Voice">
-        <button className="chip" aria-pressed={!own} onClick={() => setOwn(false)}>Preset voice</button>
-        <button className="chip" aria-pressed={own} onClick={() => setOwn(true)}>My own voice</button>
+    <section className="glass grid gap-2 rounded-xl p-3 text-sm" aria-label={t("la.vo")}>
+      <h3 className="brand text-sm">🎙 {t("la.voTitle")}</h3>
+      <div className="flex gap-2" role="group" aria-label={t("la.voice")}>
+        <button className="chip" aria-pressed={!own} onClick={() => setOwn(false)}>{t("la.preset")}</button>
+        <button className="chip" aria-pressed={own} onClick={() => setOwn(true)}>{t("la.own")}</button>
       </div>
       <State h={h} id={id} onCheck={check} />
       <textarea className="field h-28 w-full text-xs" value={text} onChange={(e) => setText(e.target.value)} maxLength={own ? MAX_CLONE_CHARS : 5000}
-        placeholder="Your script (English). Own-voice takes: up to 600 characters each." aria-label="Script" />
+        placeholder={t("la.scriptPh")} aria-label={t("la.script")} />
       {!own ? (
-        <select className="field text-xs" value={voice} onChange={(e) => setVoice(e.target.value)} aria-label="Preset voice">
+        <select className="field text-xs" value={voice} onChange={(e) => setVoice(e.target.value)} aria-label={t("la.preset")}>
           {VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
         </select>
       ) : (
         <div className="grid gap-2 rounded-lg border border-white/10 p-2 text-xs">
           <label className="flex items-start gap-2"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-            <span>This recording is <b>my own voice</b>. I only clone myself, never anyone else (no friends, streamers or celebrities).</span></label>
+            <span>{t("la.consentA")} <b>{t("la.consentB")}</b>{t("la.consentC")}</span></label>
           <div className="flex flex-wrap items-center gap-2">
-            <button className="chip" onClick={() => void record()} disabled={!consent}>{rec ? "⏹ Stop recording" : "⏺ Record 10-20 s of me"}</button>
-            <span className="muted">or a .wav of me:</span>
-            <input type="file" accept=".wav,audio/wav" disabled={!consent} aria-label="Voice sample (WAV)" onChange={(e) => setSample(e.target.files?.[0] ?? null)} />
+            <button className="chip" onClick={() => void record()} disabled={!consent}>{rec ? `⏹ ${t("la.stopRec")}` : `⏺ ${t("la.rec")}`}</button>
+            <span className="muted">{t("la.orWav")}</span>
+            <input type="file" accept=".wav,audio/wav" disabled={!consent} aria-label={t("la.sample")} onChange={(e) => setSample(e.target.files?.[0] ?? null)} />
           </div>
           {sampleUrl && <audio controls src={sampleUrl} className="w-full" />}
-          <input className="field text-xs" value={sampleText} onChange={(e) => setSampleText(e.target.value)} maxLength={500} placeholder="Exactly what you said in the sample" aria-label="What you said in the sample" />
-          <p className="muted">Mark the video as using a synthetic voice where the platform asks (YouTube: altered or synthetic content).</p>
+          <input className="field text-xs" value={sampleText} onChange={(e) => setSampleText(e.target.value)} maxLength={500} placeholder={t("la.saidPh")} aria-label={t("la.said")} />
+          <p className="muted">{t("la.synthetic")}</p>
         </div>
       )}
-      <input className="field text-xs" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder="File name (e.g. pet-sim-intro)" aria-label="File name" />
-      <button className="btn" disabled={busy || !text.trim() || !!blocked || !toolState(h, id).ok} onClick={() => void make()}>{busy ? "Making the voiceover…" : "Make voiceover"}</button>
+      <input className="field text-xs" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder={t("la.filePh")} aria-label={t("la.file")} />
+      <button className="btn" disabled={busy || !text.trim() || !!blocked || !toolState(h, id).ok} onClick={() => void make()}>{busy ? t("la.makingVo") : t("la.makeVo")}</button>
       {blocked && text.trim() && <p className="muted text-xs">{blocked}</p>}
       {err && <p className="text-xs text-red-400" role="alert">{err}</p>}
-      {saved && <><audio controls src={raw(saved)} className="w-full" /><p className="text-xs">Saved as <a className="underline" href={raw(saved)} download>{saved}</a> in VAULT.</p></>}
+      {saved && <><audio controls src={raw(saved)} className="w-full" /><p className="text-xs">{t("la.savedAs")} <a className="underline" href={raw(saved)} download>{saved}</a> {t("la.inVault")}</p></>}
     </section>
   );
 }
 
 /** STUDIO → Produce → Captions: a VAULT clip (captions saved next to it) or an uploaded one → .srt, .vtt and a clean transcript. */
 export function Captions() {
+  const { t } = useT();
   const [h, check] = useHealth();
   const [files, setFiles] = useState<string[]>([]);
   const [pick, setPick] = useState("");
@@ -231,29 +238,30 @@ export function Captions() {
     } catch (e) { setErr(msg(e)); } finally { setBusy(false); check(); }
   };
   return (
-    <section className="glass grid gap-2 rounded-xl p-3 text-sm" aria-label="Captions">
-      <h3 className="brand text-sm">💬 Captions (free, on your PC)</h3>
-      <p className="muted text-xs">Writes down what is said and saves subtitles (.srt for YouTube, .vtt) and a clean transcript in VAULT, next to the clip. English or Estonian.</p>
+    <section className="glass grid gap-2 rounded-xl p-3 text-sm" aria-label={t("la.cap")}>
+      <h3 className="brand text-sm">💬 {t("la.capTitle")}</h3>
+      <p className="muted text-xs">{t("la.capHelp")}</p>
       <State h={h} id="captions" onCheck={check} />
-      <select className="field text-xs" value={pick} onChange={(e) => { setPick(e.target.value); setUpload(null); }} aria-label="Video or audio in VAULT">
-        <option value="">{files.length ? "Pick a video or audio file in VAULT…" : "No video or audio in VAULT yet"}</option>
+      <select className="field text-xs" value={pick} onChange={(e) => { setPick(e.target.value); setUpload(null); }} aria-label={t("la.media")}>
+        <option value="">{files.length ? t("la.pickMedia") : t("la.noMedia")}</option>
         {files.map((n) => <option key={n} value={n}>{n}</option>)}
       </select>
-      <label className="text-xs">or a file from this PC (up to 100 MB; only the captions are kept): <input type="file" accept="video/*,audio/*,.mkv,.m4a" className="text-xs"
+      <label className="text-xs">{t("la.orFile")} <input type="file" accept="video/*,audio/*,.mkv,.m4a" className="text-xs"
         onChange={(e) => { setUpload(e.target.files?.[0] ?? null); setPick(""); }} /></label>
-      <select className="field text-xs" value={lang} onChange={(e) => setLang(e.target.value)} aria-label="Spoken language">
+      <select className="field text-xs" value={lang} onChange={(e) => setLang(e.target.value)} aria-label={t("la.spoken")}>
         {CAPTION_LANGS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
       </select>
-      <button className="btn" disabled={busy || (!pick && !upload) || !toolState(h, "captions").ok} onClick={() => void make()}>{busy ? "Listening… (about a minute per 10 min of video on the GPU)" : "Make captions"}</button>
+      <button className="btn" disabled={busy || (!pick && !upload) || !toolState(h, "captions").ok} onClick={() => void make()}>{busy ? t("la.listening") : t("la.makeCap")}</button>
       {err && <p className="text-xs text-red-400" role="alert">{err}</p>}
-      {done && <p className="text-xs">Saved in VAULT{done.language ? ` (language: ${done.language}, ${done.device})` : ""}: {done.saved.map((n, i) => <span key={n}>{i ? ", " : ""}<a className="underline" href={raw(n)} download>{n}</a></span>)}.
-        YouTube: Studio → Subtitles → Add → Upload file → the .srt. Check names and Estonian words before publishing.</p>}
+      {done && <p className="text-xs">{t("la.savedVault")}{done.language ? ` (${t("la.language", { l: done.language, d: done.device })})` : ""}: {done.saved.map((n, i) => <span key={n}>{i ? ", " : ""}<a className="underline" href={raw(n)} download>{n}</a></span>)}.
+        {t("la.ytSubs")}</p>}
     </section>
   );
 }
 
 /** VAULT file action: PDF/Word/PowerPoint/scan → Markdown saved beside it, so CORE can search and read it. */
 export function ReadDocument({ name, onSaved }: { name: string; onSaved: (saved: string) => void }) {
+  const { t } = useT();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const run = async () => {
@@ -261,13 +269,14 @@ export function ReadDocument({ name, onSaved }: { name: string; onSaved: (saved:
     try { onSaved(await post({ action: "doc", file: name })); } catch (e) { setErr(msg(e)); } finally { setBusy(false); }
   };
   return <>
-    <button className="btn" disabled={busy} onClick={() => void run()} title="Docling on this PC (OPERATIONS → Local AI). The file never leaves the PC.">{busy ? "Reading the document…" : "Read document → Markdown"}</button>
+    <button className="btn" disabled={busy} onClick={() => void run()} title={t("la.doclingTitle")}>{busy ? t("la.readingDoc") : t("la.readDoc")}</button>
     {err && <p className="error w-full text-xs" role="alert">{err}</p>}
   </>;
 }
 
 /** ARCH → Open IFC model: storeys, spaces with areas, element counts, materials, simple checks and a spaces CSV (IfcOpenShell on this PC). */
 export function IfcOpen() {
+  const { t } = useT();
   const [h, check] = useHealth();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -287,24 +296,24 @@ export function IfcOpen() {
   };
   const m = s?.summary;
   return (
-    <div className="card space-y-1.5 text-xs" aria-label="Open IFC model">
-      <div className="muted text-[10px] uppercase tracking-widest">Open IFC model</div>
+    <div className="card space-y-1.5 text-xs" aria-label={t("la.ifc")}>
+      <div className="muted text-[12px] font-medium">{t("la.ifc")}</div>
       <State h={h} id="ifc" onCheck={check} />
-      <input type="file" accept=".ifc" disabled={busy || !toolState(h, "ifc").ok} aria-label="IFC file" onChange={(e) => void open(e.target.files?.[0])} />
-      {busy && <p className="muted">Reading the model…</p>}
+      <input type="file" accept=".ifc" disabled={busy || !toolState(h, "ifc").ok} aria-label={t("la.ifcFile")} onChange={(e) => void open(e.target.files?.[0])} />
+      {busy && <p className="muted">{t("la.readingModel")}</p>}
       {err && <p className="error" role="alert">{err}</p>}
       {m && <>
-        <p><b>{m.project || s.name}</b> · {m.schema} · {m.storeys.length} storeys · {m.spaces.length} spaces, {totalArea(m)} m² · {Object.values(m.counts).reduce((a, b) => a + b, 0)} elements</p>
-        {m.issues.length ? <ul className="pl-4">{m.issues.map((x) => <li key={x.kind} className="error">⚠ {x.text}: {x.count}{x.examples.length ? <span className="muted"> (e.g. {x.examples.slice(0, 3).join("; ")})</span> : null}</li>)}</ul>
-          : <p style={{ color: "#4ade80" }}>✓ No issues found by the simple checks (names, space areas, duplicate GlobalIds).</p>}
-        <details><summary className="cursor-pointer">Storeys</summary><ul className="muted pl-4">{m.storeys.map((x, i) => <li key={i}>{x.name || "(no name)"} · {x.elevation} m · {x.elements} elements</li>)}</ul></details>
-        <details><summary className="cursor-pointer">Spaces</summary>
-          <table className="w-full"><thead><tr className="muted"><th className="text-left">Storey</th><th className="text-left">Space</th><th className="text-right">m²</th></tr></thead>
+        <p><b>{m.project || s.name}</b> · {m.schema} · {t("la.ifcSummary", { s: m.storeys.length, sp: m.spaces.length, a: totalArea(m), e: Object.values(m.counts).reduce((a, b) => a + b, 0) })}</p>
+        {m.issues.length ? <ul className="pl-4">{m.issues.map((x) => <li key={x.kind} className="error">⚠ {x.text}: {x.count}{x.examples.length ? <span className="muted"> ({t("la.eg", { x: x.examples.slice(0, 3).join("; ") })})</span> : null}</li>)}</ul>
+          : <p style={{ color: "#4ade80" }}>✓ {t("la.noIssues")}</p>}
+        <details><summary className="cursor-pointer">{t("la.storeys")}</summary><ul className="muted pl-4">{m.storeys.map((x, i) => <li key={i}>{x.name || t("la.noName")} · {x.elevation} m · {t("la.elements", { n: x.elements })}</li>)}</ul></details>
+        <details><summary className="cursor-pointer">{t("la.spaces")}</summary>
+          <table className="w-full"><thead><tr className="muted"><th className="text-left">{t("la.storey")}</th><th className="text-left">{t("la.space")}</th><th className="text-right">m²</th></tr></thead>
             <tbody>{m.spaces.slice(0, 300).map((x) => <tr key={x.guid}><td>{x.storey}</td><td>{x.name}{x.longName ? ` · ${x.longName}` : ""}</td><td className="text-right">{x.area ?? "—"}</td></tr>)}</tbody></table>
-          {m.spaces.length > 300 && <p className="muted">First 300 shown; the CSV has all {m.spaces.length}.</p>}</details>
-        <details><summary className="cursor-pointer">Elements by type</summary><p className="muted">{Object.entries(m.counts).map(([k, v]) => `${k.replace(/^Ifc/, "")} ${v}`).join(" · ")}</p></details>
-        <details><summary className="cursor-pointer">Materials</summary><p className="muted">{m.materials.map((x) => `${x.name} (${x.elements})`).join(" · ") || "none"}</p></details>
-        <button className="chip" disabled={!m.spaces.length} onClick={csv}>⬇ Spaces and areas (CSV)</button>
+          {m.spaces.length > 300 && <p className="muted">{t("la.first300", { n: m.spaces.length })}</p>}</details>
+        <details><summary className="cursor-pointer">{t("la.byType")}</summary><p className="muted">{Object.entries(m.counts).map(([k, v]) => `${k.replace(/^Ifc/, "")} ${v}`).join(" · ")}</p></details>
+        <details><summary className="cursor-pointer">{t("la.materials")}</summary><p className="muted">{m.materials.map((x) => `${x.name} (${x.elements})`).join(" · ") || t("la.none")}</p></details>
+        <button className="chip" disabled={!m.spaces.length} onClick={csv}>⬇ {t("la.csv")}</button>
       </>}
     </div>
   );
@@ -315,10 +324,12 @@ type Pc = { brain: LocalStatus & { using?: string }; autostart: Autostart };
 
 /** "This PC" rows above the tool list: the local brain (Ollama) and Starts with Windows. Data: /api/local-brain. */
 function ThisPc() {
+  const { t } = useT();
   const [pc, setPc] = useState<Pc | null>(null);
+  const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const check = useCallback(() => { void fetch("/api/local-brain", { cache: "no-store" }).then((r) => r.json()).then(setPc, () => setPc(null)); }, []);
+  const check = useCallback(() => { void fetch("/api/local-brain", { cache: "no-store" }).then((r) => okJson<Pc>(r, isPcView)).then((v) => { setPc(v); setFailed(!v); }, () => { setPc(null); setFailed(true); }); }, []);
   useEffect(check, [check]);
   const toggle = async (on: boolean) => {
     setBusy(true); setErr("");
@@ -330,21 +341,21 @@ function ThisPc() {
       setPc((p) => (p ? { ...p, autostart: j.autostart! } : p));
     } catch (e) { setErr(msg(e)); } finally { setBusy(false); }
   };
-  if (!pc) return null;
+  if (!pc) return failed ? <ErrorState title={t("common.cantLoad", { what: t("la.brain") })} retryLabel={t("common.tryAgain")} onRetry={check} /> : null;
   const a = pc.autostart, b = pc.brain;
   return (
     <div className="grid gap-2">
       <div className="glass grid gap-1 rounded-lg p-2 text-xs">
-        <div className="flex flex-wrap items-center justify-between gap-2"><b>Local brain</b>
-          <span style={{ color: b.state === "ok" ? "#4ade80" : b.state === "off" ? undefined : "#fbbf24" }} className={b.state === "off" ? "muted" : undefined}>{b.state === "ok" ? "Ready" : b.state === "fallback" ? "Using another model" : b.state === "off" ? "Off" : b.state === "missing" ? "Model not pulled" : "Not running"}</span></div>
-        <p>{b.text}{b.state === "down" ? " ORBIT tried to start it (ollama serve); check again in a minute." : ""}</p>
-        <p className="muted">A small model on this PC: answers chat and summaries when Claude is unreachable. Your journal is never read by any model, this one included. Setup: <code className="select-all">powershell -ExecutionPolicy Bypass -File tools\ollama\setup.ps1</code></p>
+        <div className="flex flex-wrap items-center justify-between gap-2"><b>{t("la.brain")}</b>
+          <span style={{ color: b.state === "ok" ? "#4ade80" : b.state === "off" ? undefined : "#fbbf24" }} className={b.state === "off" ? "muted" : undefined}>{t(b.state === "ok" ? "la.ready" : b.state === "fallback" ? "la.fallback" : b.state === "off" ? "la.off" : b.state === "missing" ? "la.notPulled" : "la.notRunning")}</span></div>
+        <p>{b.text}{b.state === "down" ? ` ${t("la.triedStart")}` : ""}</p>
+        <p className="muted">{t("la.brainHelp")} <code className="select-all">powershell -ExecutionPolicy Bypass -File tools\ollama\setup.ps1</code></p>
       </div>
       <div className="glass grid gap-1 rounded-lg p-2 text-xs">
-        <div className="flex flex-wrap items-center justify-between gap-2"><b>Starts with Windows: {a.on === null ? "?" : a.on ? "on" : "off"}</b>
-          {a.on !== null && <button className="chip" disabled={busy} onClick={() => void toggle(!a.on)}>{busy ? "Working…" : a.on ? "Turn off" : "Turn on"}</button>}</div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><b>{t("la.autostart", { s: a.on === null ? "?" : a.on ? t("common.on") : t("common.off") })}</b>
+          {a.on !== null && <button className="chip" disabled={busy} onClick={() => void toggle(!a.on)}>{busy ? t("la.working") : a.on ? t("la.turnOff") : t("la.turnOn")}</button>}</div>
         <p>{a.text}</p>
-        <p className="muted">Or in PowerShell in the ORBIT folder: <code className="select-all">{a.command}</code></p>
+        <p className="muted">{t("la.orPs")} <code className="select-all">{a.command}</code></p>
         {err && <p style={{ color: "#fbbf24" }} className="whitespace-pre-wrap">{err}</p>}
       </div>
     </div>
@@ -354,19 +365,19 @@ function ThisPc() {
 export function LocalAiTools() {
   const [h, checkAi] = useHealth();
   const [comfy, setComfy] = useState<(ComfyHealth & { model: ComfyModel }) | null>(null); // ComfyUI is its own service (tools/comfyui)
-  const check = useCallback(() => { checkAi(); void fetch("/api/local-ai?service=comfy", { cache: "no-store" }).then((r) => r.json()).then(setComfy, () => setComfy(null)); }, [checkAi]);
+  const check = useCallback(() => { checkAi(); void fetch("/api/local-ai?service=comfy", { cache: "no-store" }).then((r) => okJson<ComfyHealth & { model: ComfyModel }>(r, isComfyView)).then(setComfy, () => setComfy(null)); }, [checkAi]);
   useEffect(check, [check]);
-  const { lang } = useT();
+  const { lang, t } = useT();
   return (
-    <section className="grid gap-3 text-sm" aria-label="Local AI tools">
+    <section className="grid gap-3 text-sm" aria-label={t("la.tools")}>
       <ThisPc />
       <KaggleBurst />
       <GpuJobs />
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs">{h?.running ? <>Service running{h.gpu ? ` on ${h.gpu.name} (${h.gpu.vramGb} GB)` : " on the CPU only (no GPU found)"}.</> : <>Service not running. Start it: <code>{START_CMD}</code></>}</p>
-        <button className="chip" onClick={check}>Check again</button>
+        <p className="text-xs">{h?.running ? <>{h.gpu ? t("la.svcGpu", { gpu: h.gpu.name, gb: h.gpu.vramGb }) : t("la.svcCpu")}</> : <>{t("la.svcDown")} <code>{START_CMD}</code></>}</p>
+        <button className="chip" onClick={check}>{t("la.checkAgain")}</button>
       </div>
-      <p className="muted text-xs">Free models on this PC: nothing is uploaded and nothing costs credits. Results are saved in VAULT. One job runs at a time and each model leaves the GPU when done.</p>
+      <p className="muted text-xs">{t("la.freeHelp")}</p>
       {CATALOG.map((c) => {
         const nitro = c.id === "images" && comfy?.model === "nitrofusion2";
         const live = c.id === "images" ? (comfy?.running ? { ok: true } : null) : c.id === "text3d" || c.id === "motion" ? null : toolState(h, c.id);
@@ -375,12 +386,12 @@ export function LocalAiTools() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <b>{lang === "et" && c.et ? c.et.name : c.name}</b>
               <span style={{ color: live ? (live.ok ? "#4ade80" : "#fbbf24") : undefined }} className={live ? undefined : "muted"}>
-                {live ? (live.ok ? (nitro ? "ComfyUI running" : "Ready") : h?.running ? "Not installed" : "Not running") : c.id === "text3d" ? "Uses Roblox Studio" : c.id === "images" ? (comfy?.installed ? "Starting…" : "Not installed") : "Not available yet"}
+                {t(live ? (live.ok ? (nitro ? "la.comfy" : "la.ready") : h?.running ? "la.notInstalled" : "la.notRunning") : c.id === "text3d" ? "la.usesRoblox" : c.id === "images" ? (comfy?.installed ? "la.starting" : "la.notInstalled") : "la.notYet")}
               </span>
             </div>
             <p>{lang === "et" && c.et ? c.et.what : c.what}</p>
-            <p className="muted">{nitro ? "Model: NitroFusion2 (1-step W4A8 in ComfyUI) · License: Apache-2.0" : <>Model: {c.model} · VRAM: {c.vram}{h?.gpu && c.vramGb > h.gpu.vramGb ? " (more than your GPU has)" : ""} · License: {c.license}</>} · Where: {c.where}</p>
-            <p className="muted">Setup: <code className="select-all">{nitro ? comfySetup("nitrofusion2") : c.setup}</code></p>
+            <p className="muted">{nitro ? t("la.nitro") : <>{t("la.model")}: {c.model} · VRAM: {c.vram}{h?.gpu && c.vramGb > h.gpu.vramGb ? ` ${t("la.moreVram")}` : ""} · {t("la.license")}: {c.license}</>} · {t("la.where")}: {c.where}</p>
+            <p className="muted">{t("la.setup")}: <code className="select-all">{nitro ? comfySetup("nitrofusion2") : c.setup}</code></p>
           </div>
         );
       })}
@@ -397,7 +408,7 @@ function GpuJobs() {
   if (!jobs.length) return null;
   const cancel = (id: string) => void fetch("/api/gpu-jobs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: id.replace(/^gpu:/, ""), action: "cancel" }) }).then(load);
   return (
-    <div className="grid gap-2" aria-label="GPU jobs">
+    <div className="grid gap-2" aria-label={lang === "et" ? "GPU tööd" : "GPU jobs"}>
       <b className="text-xs">{lang === "et" ? "GPU järjekord" : "GPU queue"}</b>
       {jobs.slice(0, 6).map((p) => (
         <ProgressCard key={p.id} p={p} compact>

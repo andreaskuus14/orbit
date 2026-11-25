@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useT } from "./i18n";
 import { nav } from "./palette-commands";
 import { NO_AUTO, autoLine, type AutoState } from "@/lib/studio-ui-pure";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 
 const CLIPS = "/api/studio/clips";
 async function get<T>(url: string): Promise<T> {

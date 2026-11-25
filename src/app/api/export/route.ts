@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { buildExport } from "@/lib/backup";
 
@@ -11,6 +12,6 @@ export async function GET() {
       headers: { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="orbit-export-${body.exported_at.slice(0, 10)}.json"` },
     });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Export failed" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Export failed") }, { status: 500 });
   }
 }

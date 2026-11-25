@@ -629,7 +629,7 @@ function CoreSuggests({ tick, busy }: { tick: number; busy: boolean }) {
   return (
     <section className="mb-2 space-y-1.5" aria-label={tr("core.suggests")}>
       <button type="button" className="muted flex w-full items-center gap-2 truncate text-left text-xs" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <span className="uppercase tracking-wide">{tr("core.suggests")} · {Math.min(3, items.length)}</span>
+        <span className="tracking-wide">{tr("core.suggests")} · {Math.min(3, items.length)}</span>
         {!open && <span className="min-w-0 flex-1 truncate">{items[0].title}</span>}
         <span aria-hidden>{open ? "▾" : "▸"}</span>
       </button>

@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { embed, embeddingProvider } from "@/lib/embeddings";
@@ -8,7 +9,7 @@ export const maxDuration = 300;
 // POST /api/memories/reembed?offset=0 → re-embeds up to 40 of the caller's memories with the current provider.
 // Needed once after switching provider (vectors from different models can't be compared). Call again with next until done.
 const BATCH = 40;
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const h = req.headers;
   if (crossSiteBlocked("POST", "/api/memories/reembed", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { sb, res } = await requireUser();
@@ -31,3 +32,4 @@ export async function POST(req: Request) {
   const more = (data?.length ?? 0) === BATCH;
   return Response.json({ provider: embeddingProvider(), done, failed, next: more ? offset + BATCH : null });
 }
+export const POST = guard("memories/reembed", POST_);

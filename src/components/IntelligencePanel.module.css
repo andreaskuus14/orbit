@@ -61,6 +61,7 @@
 .check .dot { background: var(--pu-warn); }
 .check.trustBtn { color: var(--pu-warn); }
 .pop { position: absolute; z-index: 5; left: -4px; top: calc(100% + 0.35rem); width: min(21rem, 78vw); padding: 0.7rem 0.8rem; border-radius: 12px; background: var(--pu-overlay); border: 1px solid rgba(148, 163, 184, 0.28); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); font-size: 0.78rem; color: var(--pu-ink-2); display: flex; flex-direction: column; gap: 0.45rem; }
+.pop[data-up] { top: auto; bottom: calc(100% + 0.35rem); transform-origin: bottom left; }
 .pop b { color: var(--pu-ink); font-weight: 600; }
 .pop ul { display: flex; flex-direction: column; gap: 0.3rem; }
 .flag { color: var(--pu-warn); }
@@ -125,6 +126,8 @@
 .sparkBig { width: 132px; height: 30px; }
 .favicon { width: 16px; height: 16px; flex: none; display: inline-grid; place-items: center; border-radius: 4px; overflow: hidden; background: rgba(255, 255, 255, 0.1); font: 700 9px/1 var(--pu-font); color: var(--pu-ink-2); }
 .favicon img { width: 14px; height: 14px; }
+.meta + .meta2, .summary + .meta2, .body + .meta2 { margin-top: 6px; } /* the two meta rows (outlets, then place · read time) need air between them */
+.summary + .meta, .body + .meta { margin-top: 6px; }
 .meta2 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-family: var(--pu-font); font-size: 11.5px; line-height: 16px; font-weight: 450; color: var(--pu-ink-3); }
 .place { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px 1px 2px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); color: var(--pu-ink-2); }
 .mini { display: block; flex: none; border-radius: 6px; background: rgba(56, 120, 160, 0.18); }

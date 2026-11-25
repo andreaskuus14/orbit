@@ -1,10 +1,11 @@
+import { guard } from "@/lib/api-route";
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/server";
 import { oauthEnv } from "@/lib/yt-oauth";
 import { OAUTH_COOKIE, OAUTH_ENV, OAUTH_PATH, authUrl, loopbackOrigin, pkceChallenge, randomToken } from "@/lib/yt-analytics-pure";
 
 // Starts the Google loopback OAuth flow (PKCE). Navigate here (not fetch): it redirects to Google.
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const cfg = oauthEnv();
@@ -17,3 +18,4 @@ export async function GET(req: Request) {
   r.cookies.set(OAUTH_COOKIE, `${state}.${verifier}`, { httpOnly: true, sameSite: "lax", path: OAUTH_PATH, maxAge: 600 });
   return r;
 }
+export const GET = guard("studio/oauth/start", GET_);

@@ -9,6 +9,7 @@ type View = { skills: Skill[]; proposals: Proposal[] };
 const currentVersion = (s: Skill) => s.versions.find((v) => v.v === s.current) ?? s.versions[s.versions.length - 1]; // skills-pure's, without its server imports
 
 function DraftForm({ d, busy, label, onSave, onCancel }: { d: Draft; busy: boolean; label: string; onSave: (d: Draft) => void; onCancel: () => void }) {
+  const { t } = useT();
   const [f, setF] = useState({ ...d, tools: d.tools.join(", ") });
   const field = (k: keyof typeof f, multi = false) => {
     const p = { className: "field w-full", value: f[k], onChange: (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value }), "aria-label": k };
@@ -17,12 +18,13 @@ function DraftForm({ d, busy, label, onSave, onCancel }: { d: Draft; busy: boole
   return (
     <form className="mt-1 space-y-1" onSubmit={(e) => { e.preventDefault(); onSave({ ...f, tools: f.tools.split(/[\s,]+/).filter(Boolean) }); }}>
       {field("name")}{field("instruction", true)}{field("tools")}{field("example")}
-      <div className="flex gap-1"><button type="submit" className="chip" disabled={busy}>{label}</button><button type="button" className="chip" onClick={onCancel}>Cancel</button></div>
+      <div className="flex gap-1"><button type="submit" className="chip" disabled={busy}>{label}</button><button type="button" className="chip" onClick={onCancel}>{t("skl.cancel")}</button></div>
     </form>
   );
 }
 
 export default function SkillsPanel() {
+  const { t } = useT();
   const [v, setV] = useState<View | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState("");
@@ -41,43 +43,43 @@ export default function SkillsPanel() {
   useEffect(() => { void post({ action: "scan" }); }, [post]);
   const del = (s: Skill) => {
     if (sure !== s.id) { setSure(s.id); setTimeout(() => setSure(""), 4000); return; }
-    setSure(""); void post({ action: "delete", id: s.id }, "Deleted.");
+    setSure(""); void post({ action: "delete", id: s.id }, t("skl.deleted"));
   };
   return (
     <div className="space-y-2 text-sm">
-      <p className="muted text-xs">When you ask CORE for the same multi-step thing 3+ times, ORBIT proposes a skill. Run a kept one in CORE: “run skill &lt;name&gt;: &lt;input&gt;”. Skills use only CORE&apos;s own tools and every approval still applies.</p>
+      <p className="muted text-xs">{t("skl.help")}</p>
       {msg && <p className={msg.ok ? "ok" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
-      {!v && <p className="muted">Looking…</p>}
+      {!v && <p className="muted">{t("skl.looking")}</p>}
       {v?.proposals.map((p) => (
         <div key={p.id} className="card">
-          <b>✨ {p.name}</b> <span className="muted text-xs">· seen {p.support}× · {p.tools.join(" → ")}</span>
+          <b>✨ {p.name}</b> <span className="muted text-xs">· {t("skl.seen", { n: p.support })} · {p.tools.join(" → ")}</span>
           <p className="text-xs">{p.instruction}</p>
-          {p.example && <p className="muted text-xs">e.g. “{p.example}”</p>}
-          {open === `keep:${p.id}` ? <DraftForm d={p} busy={!!busy} label="Keep" onCancel={() => setOpen("")} onSave={(d) => void post({ action: "keep", id: p.id, edits: d }, `Kept. Say “run skill ${d.name}”.`)} /> : (
+          {p.example && <p className="muted text-xs">{t("skl.eg", { x: p.example })}</p>}
+          {open === `keep:${p.id}` ? <DraftForm d={p} busy={!!busy} label={t("skl.keep")} onCancel={() => setOpen("")} onSave={(d) => void post({ action: "keep", id: p.id, edits: d }, t("skl.kept", { name: d.name }))} /> : (
             <div className="mt-1 flex gap-1">
-              <button type="button" className="chip" disabled={!!busy} onClick={() => void post({ action: "keep", id: p.id }, `Kept. Say “run skill ${p.name}”.`)}>Keep</button>
-              <button type="button" className="chip" disabled={!!busy} onClick={() => setOpen(`keep:${p.id}`)}>Edit first</button>
-              <button type="button" className="chip" disabled={!!busy} onClick={() => void post({ action: "dismiss", id: p.id })}>Dismiss</button>
+              <button type="button" className="chip" disabled={!!busy} onClick={() => void post({ action: "keep", id: p.id }, t("skl.kept", { name: p.name }))}>{t("skl.keep")}</button>
+              <button type="button" className="chip" disabled={!!busy} onClick={() => setOpen(`keep:${p.id}`)}>{t("skl.editFirst")}</button>
+              <button type="button" className="chip" disabled={!!busy} onClick={() => void post({ action: "dismiss", id: p.id })}>{t("skl.dismiss")}</button>
             </div>)}
         </div>))}
-      {v && !v.skills.length && !v.proposals.length && <p className="muted">No skills yet.</p>}
+      {v && !v.skills.length && !v.proposals.length && <p className="muted">{t("skl.none")}</p>}
       <ul className="space-y-1.5">{v?.skills.map((s) => {
         const c = currentVersion(s);
         return (
           <li key={s.id} className="card">
             <b>{c.name}</b> <span className="muted text-xs">· v{c.v} · {c.tools.join(", ")}</span>
             <p className="muted text-xs line-clamp-2">{c.instruction}</p>
-            {open === `edit:${s.id}` ? <DraftForm d={c} busy={!!busy} label="Save new version" onCancel={() => setOpen("")} onSave={(d) => void post({ action: "edit", id: s.id, ...d }, "Saved as a candidate version. Fill in its card, eval it, then promote.")} /> : (
+            {open === `edit:${s.id}` ? <DraftForm d={c} busy={!!busy} label={t("skl.saveNew")} onCancel={() => setOpen("")} onSave={(d) => void post({ action: "edit", id: s.id, ...d }, t("skl.savedCand"))} /> : (
               <div className="mt-1 flex flex-wrap gap-1">
-                <button type="button" className="chip" disabled={!!busy} onClick={() => setOpen(`edit:${s.id}`)}>Edit</button>
-                <button type="button" className="chip" disabled={!!busy} onClick={() => setOpen(open === `hist:${s.id}` ? "" : `hist:${s.id}`)} aria-expanded={open === `hist:${s.id}`}>History ({s.versions.length})</button>
-                <button type="button" className={`chip ${sure === s.id ? "error" : ""}`} disabled={!!busy} onClick={() => del(s)} aria-label={`Delete skill ${c.name}`}>{sure === s.id ? "Really?" : "Delete"}</button>
+                <button type="button" className="chip" disabled={!!busy} onClick={() => setOpen(`edit:${s.id}`)}>{t("skl.edit")}</button>
+                <button type="button" className="chip" disabled={!!busy} onClick={() => setOpen(open === `hist:${s.id}` ? "" : `hist:${s.id}`)} aria-expanded={open === `hist:${s.id}`}>{t("skl.history", { n: s.versions.length })}</button>
+                <button type="button" className={`chip ${sure === s.id ? "error" : ""}`} disabled={!!busy} onClick={() => del(s)} aria-label={t("skl.delL", { name: c.name })}>{sure === s.id ? t("skl.really") : t("skl.delete")}</button>
               </div>)}
             {open === `hist:${s.id}` && <ul className="mt-1 space-y-1">{[...s.versions].reverse().map((x) => (
               <li key={x.v} className="space-y-0.5 text-xs">
                 <div className="flex items-start justify-between gap-2">
                   <span className="min-w-0"><b>v{x.v}</b> <span className="muted">{x.note} · {x.at.slice(0, 10)}</span> {x.name}: {x.instruction}</span>
-                  {x.v < s.current && <button type="button" className="chip shrink-0" disabled={!!busy} onClick={() => void post({ action: "rollback", id: s.id, v: x.v }, `Rolled back to v${x.v}.`)}>Roll back</button>}
+                  {x.v < s.current && <button type="button" className="chip shrink-0" disabled={!!busy} onClick={() => void post({ action: "rollback", id: s.id, v: x.v }, t("skl.rolled", { v: x.v }))}>{t("skl.rollback")}</button>}
                 </div>
                 <VersionMeta s={s} x={x} busy={!!busy} post={post} />
               </li>))}</ul>}

@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { requireUser } from "@/lib/supabase/server";
@@ -11,7 +12,7 @@ import { createHash } from "node:crypto";
 export const dynamic = "force-dynamic";
 
 // CLIP FACTORY: inbox videos → vertical Shorts. Contract: src/lib/clips/types.ts.
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   startClipQueue();
@@ -27,7 +28,7 @@ export async function GET(req: Request) {
   return new Response(body, { headers: { ...headers, "Content-Type": "application/json" } });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   startClipQueue();
@@ -48,3 +49,5 @@ export async function POST(req: Request) {
   const job = await createJob(source, options);
   return Response.json({ job });
 }
+export const GET = guard("studio/clips", GET_);
+export const POST = guard("studio/clips", POST_);

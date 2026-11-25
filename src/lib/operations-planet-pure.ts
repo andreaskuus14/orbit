@@ -3,7 +3,7 @@
 // Everything here is pure and tested (tests/operations-planet.test.ts): buckets, numbers, the timeline lanes, the step table,
 // log lines, routine (automation) wording in EN/ET, history groups, the slim list the API sends while polling, and the copy.
 // Never invents data: a step without a time shows "—", a job without a typical length has no "time left".
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 import { opsStatus, type OpsStatus } from "./ops-status-pure.ts";
 import { plainStep, words } from "./progress-pure.ts";
 import { plainError } from "./planet-page-pure.ts";

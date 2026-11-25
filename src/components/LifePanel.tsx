@@ -100,7 +100,7 @@ export default function LifePanel({ open, onClose }: { open?: { tab: LifeView; s
 
   const todays = st ? st.habits.filter((h) => h.scheduledToday && !h.off) : [];
   const done = todays.filter((h) => h.doneToday).length;
-  const status = st ? t("lf.status", { done, n: todays.length, min: st.focus.today }) : t("lf.loading");
+  const status = st ? t("lf.status", { done, n: todays.length, min: st.focus.today }) : failed ? t("lf.err.title") : t("lf.loading");
   const menu: MenuItem[] = [
     { label: t("lf.s.plan"), onSelect: () => openSheet("plan") },
     { label: t("lf.s.reminders"), onSelect: () => openSheet("reminders") },
@@ -156,8 +156,8 @@ export default function LifePanel({ open, onClose }: { open?: { tab: LifeView; s
 
   const sh = sheet ? sheets[sheet] : null;
   return (
-    <PlanetShell planet="life" title={t("planet.life")} status={status} className="lf-shell" menu={menu} menuLabel={t("lf.more")}
-      onClose={onClose} closeLabel={t("lf.close")}
+    <PlanetShell planet="life" title={t("lf.title")} status={status} className="lf-shell" menu={menu} menuLabel={t("lf.more")}
+      onClose={onClose} closeLabel={t("lf.close")} closeClassName="world-back"
       ask={{ label: t("lf.ask"), placeholder: t("lf.askPh"), sendLabel: t("lf.askSend"),
         onSubmit: async (task) => { if (await planAct({ task, min: 30, rank: 2 })) toast({ tone: "done", text: t("life.taskAdded") }); } }}
       sheet={<Sheet open={!!sh} title={sh?.title ?? ""} onClose={close} closeLabel={t("lf.close")}>{sh?.body()}</Sheet>}>

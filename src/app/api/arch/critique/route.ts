@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { isCurrent } from "@/lib/memory-types-pure";
 import { dropPrivate } from "@/lib/private-pure";
@@ -44,7 +45,7 @@ export async function POST(req: Request) {
     critique = parseCritique(r.text);
   } catch (e) {
     if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
-    return fail(`Couldn't critique: ${e instanceof Error ? e.message : "unknown error"}`, 502);
+    return fail(`Couldn't critique: ${safeMessage(e, "unknown error")}`, 502);
   }
   if (!critique) return fail("CORE couldn't read that sketch; try a sharper, well-lit photo", 502);
 
@@ -58,6 +59,6 @@ export async function POST(req: Request) {
     return Response.json({ critique, memoryId: out.memory.id, imageSaved: !up.error });
   } catch (e) {
     if (!up.error) await sb.storage.from("vault").remove([path]);
-    return Response.json({ critique, memoryId: null, saveError: e instanceof Error ? e.message : "Could not save" });
+    return Response.json({ critique, memoryId: null, saveError: safeMessage(e, "Could not save") });
   }
 }

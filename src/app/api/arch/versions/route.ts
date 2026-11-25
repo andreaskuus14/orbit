@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { requireUser } from "@/lib/supabase/server";
@@ -48,6 +49,6 @@ export async function POST(req: Request) {
     const versions = await run;
     return versions ? Response.json({ versions }) : Response.json({ error: "Scene missing or too big" }, { status: 400 });
   } catch (e) {
-    return Response.json({ error: `Couldn't save the version: ${e instanceof Error ? e.message : "unknown error"}` }, { status: 500 });
+    return Response.json({ error: `Couldn't save the version: ${safeMessage(e, "unknown error")}` }, { status: 500 });
   }
 }

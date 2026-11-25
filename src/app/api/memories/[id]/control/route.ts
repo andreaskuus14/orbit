@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 // Memory controls (provenance-pure.ts): POST {action: "why" | "confirm" | "correct" | "forget", content?}.
 // why: the source chain. confirm ("Remember this"): mark confirmed. correct: new text, re-embed, and rewrite summaries
 // that quote the old text; the old text is kept as a "superseded" copy, or with {scope: project} the original stays and a
@@ -102,7 +103,7 @@ export async function POST(req: Request, { params }: Ctx) {
     }
     return Response.json({ error: "Unknown action" }, { status: 400 });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 400 });
+    return Response.json({ error: safeMessage(e, "Failed") }, { status: 400 });
   }
 }
 

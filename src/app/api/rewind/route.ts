@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { rewind } from "@/lib/when";
 
@@ -9,5 +10,5 @@ export async function GET(req: Request) {
   if (res) return res;
   const q = (new URL(req.url).searchParams.get("q") ?? "").slice(0, 200);
   try { return Response.json(await rewind(sb, user.id, q)); }
-  catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Rewind failed" }, { status: 500 }); }
+  catch (e) { return Response.json({ error: safeMessage(e, "Rewind failed") }, { status: 500 }); }
 }

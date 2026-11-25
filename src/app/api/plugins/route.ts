@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { discardPending, oauthSignedIn, signOutOAuth, isRunning, listPending, loadPlugins, runPending, testPlugin, updatePlugins } from "@/lib/plugins";
 import { checkState, publicPlugin, toolGate, toolId, SUGGESTED } from "@/lib/plugins-pure";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 // POST {action:"add", plugin} | {action:"update", name, enabled?, local?, tools?, others?, timeoutSec?} | {action:"remove", name}
 //    | {action:"test", name} | {action:"signout", name} (sign-in itself: GET /api/plugins/oauth?name=) | {action:"run", id} (his Run click on a queued call) | {action:"discard", id}.
 // Only his clicks here add servers or run queued calls; CORE has no tool that changes this config.
-export async function GET() {
+async function GET_() {
   const { res } = await requireUser();
   if (res) return res;
   const plugins = await Promise.all(loadPlugins().map(async (p) => ({
@@ -24,7 +25,7 @@ export async function GET() {
   return Response.json({ plugins, pending: (await listPending()).map((q) => ({ ...q, running: isRunning(q.id) })), suggested: SUGGESTED, vault: vaultDir(), stopAll: stopAllOn() });
 }
 
-export async function POST(req: Request) {
+async function POST_(req: Request) {
   const { res } = await requireUser();
   if (res) return res;
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
@@ -63,3 +64,5 @@ export async function POST(req: Request) {
   const view = await (await GET()).json();
   return Response.json({ ...view, ...extra });
 }
+export const GET = guard("plugins", GET_);
+export const POST = guard("plugins", POST_);

@@ -11,6 +11,7 @@ import { PerformanceMonitor } from "@react-three/drei";
 import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
+import { useT } from "./i18n";
 import { useLeanQuality } from "./useLeanQuality";
 import { useMountLater, WarmCompile, WarmIn } from "./WarmCompile";
 import { speakChunk, speechSettings, stop as stopSpeech } from "./voice/speak";
@@ -168,6 +169,7 @@ function River({ data, headRef, sel, reduced, dust, onPick, dragged }: {
 const fmt = (day: string) => new Date(`${day}T12:00:00Z`).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
 export default function Chronicle({ reduced, quality = "auto", paused = false, slot }: { reduced: boolean; quality?: QualityMode; paused?: boolean; slot: HTMLElement | null }) {
+  const { t } = useT();
   const glr = useGlRecovery();
   const later = useMountLater();
   const q = useLeanQuality(quality);
@@ -259,44 +261,44 @@ export default function Chronicle({ reduced, quality = "auto", paused = false, s
 
   const panel = <div className="space-y-3">
     {err && <p className="error" role="alert">{err}</p>}
-    {!data && !err && <p className="muted" role="status">Charting your timeline…</p>}
+    {!data && !err && <p className="muted" role="status">{t("chr.loading")}</p>}
     {data && day && <>
       <div>
         <div className="font-medium">{fmt(day.day)}</div>
-        {arc && <p className="muted text-xs">{arc.title}{arc.auto ? "" : " · titled by CORE"}</p>}
+        {arc && <p className="muted text-xs">{arc.title}{arc.auto ? "" : ` · ${t("chr.titled")}`}</p>}
       </div>
-      <div role="group" aria-label="Chronicle timeline" className="flex items-center gap-2 text-xs">
+      <div role="group" aria-label={t("chr.timeline")} className="flex items-center gap-2 text-xs">
         <input type="range" min={0} max={last} step={1} value={shown} className="h-1 min-w-0 flex-1 accent-sky-300"
-          aria-label="Day in your chronicle" aria-valuetext={fmt(day.day)} onChange={(e) => { setPlaying(null); go(Number(e.target.value)); }} />
-        <button className="chip" onClick={() => { setPlaying(null); go(last); }} disabled={shown === last}>Today</button>
+          aria-label={t("chr.day")} aria-valuetext={fmt(day.day)} onChange={(e) => { setPlaying(null); go(Number(e.target.value)); }} />
+        <button className="chip" onClick={() => { setPlaying(null); go(last); }} disabled={shown === last}>{t("chr.today")}</button>
       </div>
       <div className="flex flex-wrap gap-1.5">
-        <button className="chip" aria-pressed={playing === "week"} onClick={() => setPlaying(playing === "week" ? null : "week")}>{playing === "week" ? "Pause" : "Play week"}</button>
-        <button className="chip" aria-pressed={playing === "month"} onClick={() => setPlaying(playing === "month" ? null : "month")}>{playing === "month" ? "Pause" : "Play month"}</button>
-        <button className="chip" onClick={() => { const ms = dayLastYear(data, day.day); setLastYear(ms); const t = ms[0]; if (t) { go(dayIndex(data.from, t.day)); setSel(data.moments.indexOf(t)); } }}>This day last year</button>
+        <button className="chip" aria-pressed={playing === "week"} onClick={() => setPlaying(playing === "week" ? null : "week")}>{playing === "week" ? t("chr.pause") : t("chr.week")}</button>
+        <button className="chip" aria-pressed={playing === "month"} onClick={() => setPlaying(playing === "month" ? null : "month")}>{playing === "month" ? t("chr.pause") : t("chr.month")}</button>
+        <button className="chip" onClick={() => { const ms = dayLastYear(data, day.day); setLastYear(ms); const m0 = ms[0]; if (m0) { go(dayIndex(data.from, m0.day)); setSel(data.moments.indexOf(m0)); } }}>{t("chr.lastYear")}</button>
       </div>
       <div className="flex flex-wrap gap-3 text-[11px]">
-        <label className="muted flex items-center gap-1.5"><input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} />Narrate with CORE&apos;s voice</label>
-        <label className="muted flex items-center gap-1.5"><input type="checkbox" checked={priv} onChange={togglePriv} />Include private (journal, on this device only)</label>
+        <label className="muted flex items-center gap-1.5"><input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} />{t("chr.narrate")}</label>
+        <label className="muted flex items-center gap-1.5"><input type="checkbox" checked={priv} onChange={togglePriv} />{t("chr.private")}</label>
       </div>
       {lastYear && <div className="card space-y-1 text-xs">
-        <div className="muted text-[10px] uppercase tracking-widest">This day last year</div>
+        <div className="muted text-[12px] font-medium">{t("chr.lastYear")}</div>
         {lastYear.length ? <ul className="space-y-0.5">{lastYear.map((x) => <li key={x.id}><button className="chip w-full justify-between text-left" onClick={() => { go(dayIndex(data.from, x.day)); setSel(data.moments.indexOf(x)); }}>
-          <span className="truncate">{x.title}</span><span className="muted">{x.day.slice(5)}</span></button></li>)}</ul> : <p className="muted">Nothing a year ago around this day.</p>}
+          <span className="truncate">{x.title}</span><span className="muted">{x.day.slice(5)}</span></button></li>)}</ul> : <p className="muted">{t("chr.noLastYear")}</p>}
       </div>}
       {m && <div className="card space-y-1">
         <div className="font-medium">{m.title}</div>
-        <p className="muted text-xs">{m.first ? `${m.first} · ` : ""}{planetById(m.planet)?.name ?? m.planet.toUpperCase()} · {new Date(m.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}{m.private ? " · private" : ""}</p>
-        {m.links.length > 0 && <div className="flex flex-wrap gap-1.5">{m.links.map((l) => <button key={l.id} className="btn" onClick={() => open(l)}>Open {l.kind === "memory" ? "memory" : l.kind.replace("week:", "")}</button>)}</div>}
+        <p className="muted text-xs">{m.first ? `${m.first} · ` : ""}{planetById(m.planet)?.name ?? m.planet.toUpperCase()} · {new Date(m.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}{m.private ? ` · ${t("chr.priv")}` : ""}</p>
+        {m.links.length > 0 && <div className="flex flex-wrap gap-1.5">{m.links.map((l) => <button key={l.id} className="btn" onClick={() => open(l)}>{t("chr.open", { what: l.kind === "memory" ? t("chr.memory") : l.kind.replace("week:", "") })}</button>)}</div>}
       </div>}
       {data.streaks.length > 0 && <div className="text-xs">
-        <div className="muted text-[10px] uppercase tracking-widest">Streaks</div>
-        <ul>{data.streaks.map((s) => <li key={s.what + s.from}><button className="chip mt-1" onClick={() => go(dayIndex(data.from, s.from))}>{s.what}: {s.days} days · {s.from.slice(5)} → {s.to.slice(5)}</button></li>)}</ul>
+        <div className="muted text-[12px] font-medium">{t("chr.streaks")}</div>
+        <ul>{data.streaks.map((s) => <li key={s.what + s.from}><button className="chip mt-1" onClick={() => go(dayIndex(data.from, s.from))}>{s.what}: {t("chr.days", { n: s.days })} · {s.from.slice(5)} → {s.to.slice(5)}</button></li>)}</ul>
       </div>}
-      {lanes.length > 0 && <ul className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]" aria-label="Legend">
+      {lanes.length > 0 && <ul className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]" aria-label={t("chr.legend")}>
         {lanes.map((p) => <li key={p} className="muted flex items-center gap-1.5"><i aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 9, background: colorOf(p), boxShadow: `0 0 6px ${colorOf(p)}` }} />{planetById(p)?.name ?? p.toUpperCase()}</li>)}
       </ul>}
-      <p className="muted text-[11px]">Each ring is a day, flowing away into the future; points are moments in their planet&apos;s colour, bright beacons are the big ones and firsts. Scroll or drag to move through time, click a point to open it.</p>
+      <p className="muted text-[11px]">{t("chr.help")}</p>
     </>}
   </div>;
 

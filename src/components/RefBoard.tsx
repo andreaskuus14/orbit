@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import RobloxBuild from "./RobloxBuild";
+import { useT } from "./i18n";
 import { KIND_LABEL, allowedImage, groupBoard, studioPrompt, urls, EMPTY_STYLE, MAX_STYLE, MAX_SUMMARY, type BoardItem, type Pick, type RefItem, type RefKind, type Style } from "@/lib/refs-pure";
 
 // GAME DEV → 🎨 References: type a word, see Creator Store models + CC images + Reddit inspiration, let AI pick the best
@@ -20,6 +21,7 @@ const post = <T,>(body: object) => api<T>({ method: "POST", body: JSON.stringify
 const msg = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong");
 
 export default function RefBoard() {
+  const { t } = useT();
   const [input, setInput] = useState("");
   const [base, setBase] = useState(""); // the word he typed; idea chips search variations of it
   const [query, setQuery] = useState("");
@@ -96,61 +98,61 @@ export default function RefBoard() {
 
   return (
     <div className="space-y-3" style={{ ["--accent" as string]: PINK }}>
-      <section aria-label="My game's style" className="card space-y-2" style={{ boxShadow: `inset 3px 0 0 ${PINK}` }}>
+      <section aria-label={t("rb.myStyle")} className="card space-y-2" style={{ boxShadow: `inset 3px 0 0 ${PINK}` }}>
         <div className="flex items-center justify-between">
-          <div className="hud-title" style={{ color: PINK }}>🎯 MY GAME&apos;S STYLE <span className="muted text-xs">({style.items.length}/{MAX_STYLE})</span></div>
-          {styleBusy && <span className="muted text-xs" role="status">Reading your style…</span>}
+          <div className="hud-title" style={{ color: PINK }}>🎯 {t("rb.myStyleHead")} <span className="muted text-xs">({style.items.length}/{MAX_STYLE})</span></div>
+          {styleBusy && <span className="muted text-xs" role="status">{t("rb.reading")}</span>}
         </div>
-        {!style.items.length ? <p className="muted text-xs">Mark up to {MAX_STYLE} references with 🎯 Style — searches, picks, ideas and Studio prompts will then match them.</p> : (
+        {!style.items.length ? <p className="muted text-xs">{t("rb.markUp", { n: MAX_STYLE })}</p> : (
           <>
             <ul className="flex flex-wrap gap-2">
               {style.items.map((i) => (
                 <li key={i.id} className="relative w-16">
-                  <a href={i.link} target="_blank" rel="noopener noreferrer" aria-label={`${i.title} (opens source)`}><Thumb item={i} /></a>
+                  <a href={i.link} target="_blank" rel="noopener noreferrer" aria-label={t("rb.opensSource", { title: i.title })}><Thumb item={i} /></a>
                   <button className="absolute right-0 top-0 rounded-full bg-black/70 px-1.5 text-xs" onClick={() => toggleStyle(i)} disabled={styleBusy}
-                    aria-label={`Remove ${i.title} from my style`}>×</button>
+                    aria-label={t("rb.removeStyle", { title: i.title })}>×</button>
                 </li>
               ))}
             </ul>
-            <textarea className="field w-full text-xs" rows={2} maxLength={MAX_SUMMARY} aria-label="Style summary" placeholder="Style summary (palette, shapes, detail, mood)"
+            <textarea className="field w-full text-xs" rows={2} maxLength={MAX_SUMMARY} aria-label={t("rb.summary")} placeholder={t("rb.summaryPh")}
               value={summary} onChange={(e) => setSummary(e.target.value)} onBlur={() => void saveSummary()} />
-            {style.keywords.length > 0 && <p className="muted text-[0.68rem]">Keywords: {style.keywords.join(" · ")}</p>}
+            {style.keywords.length > 0 && <p className="muted text-[0.68rem]">{t("rb.keywords")} {style.keywords.join(" · ")}</p>}
             {style.keywords.length > 0 && (
               <label className="flex items-center gap-1.5 text-xs">
                 <input type="checkbox" checked={matchStyle} onChange={(e) => { setMatchStyle(e.target.checked); if (query) void search(query, false, e.target.checked); }} />
-                Match my style in searches
+                {t("rb.matchStyle")}
               </label>
             )}
           </>
         )}
       </section>
 
-      <form role="search" aria-label="Search references" className="flex gap-2" onSubmit={(e) => { e.preventDefault(); void search(input, true); }}>
-        <input className="field min-w-0 flex-1" maxLength={60} placeholder="What do you want to build? e.g. tree" aria-label="Reference search word"
+      <form role="search" aria-label={t("rb.searchRefs")} className="flex gap-2" onSubmit={(e) => { e.preventDefault(); void search(input, true); }}>
+        <input className="field min-w-0 flex-1" maxLength={60} placeholder={t("rb.searchPh")} aria-label={t("rb.searchWord")}
           value={input} onChange={(e) => setInput(e.target.value)} />
-        <button className="btn" disabled={!input.trim() || busy === "search"}>{busy === "search" ? "Searching…" : "Search"}</button>
+        <button className="btn" disabled={!input.trim() || busy === "search"}>{busy === "search" ? t("rb.searching") : t("rb.search")}</button>
       </form>
 
       {query && (
         <>
-          <div className="flex flex-wrap gap-2 text-xs" aria-label="Search elsewhere">
-            <a className="chip" href={urls.pinterest(query)} target="_blank" rel="noopener noreferrer">Search on Pinterest ↗</a>
-            <a className="chip" href={urls.googleImages(query)} target="_blank" rel="noopener noreferrer">Google Images ↗</a>
-            <a className="chip" href={urls.creatorStore(query)} target="_blank" rel="noopener noreferrer">Creator Store ↗</a>
+          <div className="flex flex-wrap gap-2 text-xs" aria-label={t("rb.elsewhere")}>
+            <a className="chip" href={urls.pinterest(query)} target="_blank" rel="noopener noreferrer">{t("rb.pinterest")} ↗</a>
+            <a className="chip" href={urls.googleImages(query)} target="_blank" rel="noopener noreferrer">{"Google Images"} ↗</a>
+            <a className="chip" href={urls.creatorStore(query)} target="_blank" rel="noopener noreferrer">{"Creator Store"} ↗</a>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button className="btn" onClick={() => void aiPick()} disabled={!!busy || !all.length}>{busy === "pick" ? "Thinking…" : "✨ Pick the best for Roblox"}</button>
-            <button className="chip" onClick={() => void brainstorm()} disabled={!!busy}>{busy === "ideas" ? "Brainstorming…" : "💡 Ideas"}</button>
+            <button className="btn" onClick={() => void aiPick()} disabled={!!busy || !all.length}>{busy === "pick" ? t("rb.thinking") : `✨ ${t("rb.pickBest")}`}</button>
+            <button className="chip" onClick={() => void brainstorm()} disabled={!!busy}>{busy === "ideas" ? t("rb.brainstorming") : `💡 ${t("rb.ideas")}`}</button>
           </div>
         </>
       )}
 
       {ideas.length > 0 && (
-        <ul className="flex flex-wrap gap-1.5" aria-label={`Ideas for ${base}`}>
+        <ul className="flex flex-wrap gap-1.5" aria-label={t("rb.ideasFor", { base })}>
           {ideas.map((idea) => (
             <li key={idea} className="flex items-center rounded-full" style={{ border: `1px solid ${PINK}55` }}>
               <button className="px-2.5 py-1 text-xs" aria-pressed={idea === query} onClick={() => void search(idea, false)} style={idea === query ? { color: PINK } : undefined}>{idea}</button>
-              <button className="px-2 py-1 text-xs" aria-label={`Generate “${idea}” in Studio`} title="Generate in Studio"
+              <button className="px-2 py-1 text-xs" aria-label={t("rb.genIdea", { idea })} title={t("rb.genStudio")}
                 onClick={() => setBuild(generate(`${base} — ${idea}`))}>⚒</button>
             </li>
           ))}
@@ -160,28 +162,28 @@ export default function RefBoard() {
       {err && <p className="error" role="alert">{err}</p>}
 
       {build && (
-        <div ref={buildRef} className="card space-y-2" style={{ borderColor: `${PINK}66` }} aria-label="Build in Roblox Studio">
-          <div className="flex items-center justify-between"><div className="hud-title" style={{ color: PINK }}>STUDIO BUILD</div>
-            <button className="chip" onClick={() => setBuild(null)} aria-label="Close Studio build">✕</button></div>
+        <div ref={buildRef} className="card space-y-2" style={{ borderColor: `${PINK}66` }} aria-label={t("rb.buildRoblox")}>
+          <div className="flex items-center justify-between"><div className="hud-title" style={{ color: PINK }}>{t("rb.studioBuild")}</div>
+            <button className="chip" onClick={() => setBuild(null)} aria-label={t("rb.closeBuild")}>✕</button></div>
           <RobloxBuild item={build} />
         </div>
       )}
 
       {picks.length > 0 && (
-        <section aria-label="AI picks" className="card space-y-1" style={{ boxShadow: `inset 3px 0 0 ${PINK}` }}>
-          <div className="hud-title" style={{ color: PINK }}>✨ TOP PICKS FOR ROBLOX</div>
+        <section aria-label={t("rb.aiPicks")} className="card space-y-1" style={{ boxShadow: `inset 3px 0 0 ${PINK}` }}>
+          <div className="hud-title" style={{ color: PINK }}>✨ {t("rb.topPicks")}</div>
           <ol className="space-y-1 text-xs">
             {picks.map((p, k) => { const it = all.find((i) => i.id === p.id); return it && <li key={p.id}><b>{k + 1}. {it.title}</b> <span className="muted">— {p.reason}</span></li>; })}
           </ol>
         </section>
       )}
 
-      {busy === "search" && !sections && <p className="muted text-sm" role="status">Searching the web for references…</p>}
+      {busy === "search" && !sections && <p className="muted text-sm" role="status">{t("rb.searchingWeb")}</p>}
       {sections?.map((s) => (
         <section key={s.kind} aria-label={KIND_LABEL[s.kind]} className="space-y-2">
           <div className="hud-title">{KIND_LABEL[s.kind].toUpperCase()} <span className="muted text-xs">({s.items.length})</span></div>
-          {s.error ? <p className="muted text-xs">Unavailable right now: {s.error}</p>
-            : !s.items.length ? <p className="muted text-xs">Nothing found for “{query}”.</p>
+          {s.error ? <p className="muted text-xs">{t("rb.unavailable", { err: s.error })}</p>
+            : !s.items.length ? <p className="muted text-xs">{t("rb.nothing", { q: query })}</p>
             : (
               <ul className="grid grid-cols-2 gap-2">
                 {s.items.map((i) => (
@@ -193,21 +195,21 @@ export default function RefBoard() {
         </section>
       ))}
 
-      <section aria-label="Moodboard" className="space-y-2 pt-1">
-        <div className="hud-title" style={{ color: PINK }}>MOODBOARD <span className="muted text-xs">({board.length}/200)</span></div>
-        {!groups.length && <p className="muted text-xs">Save references here with ☆ Save.</p>}
+      <section aria-label={t("rb.moodboard")} className="space-y-2 pt-1">
+        <div className="hud-title" style={{ color: PINK }}>{t("rb.moodboardHead")} <span className="muted text-xs">({board.length}/200)</span></div>
+        {!groups.length && <p className="muted text-xs">{t("rb.saveHere")}</p>}
         {groups.map((gr) => (
           <details key={gr.word} open={gr.word === query}>
             <summary className="cursor-pointer text-sm">{gr.word} <span className="muted text-xs">· {gr.items.length}</span></summary>
             <ul className="mt-2 grid grid-cols-3 gap-2">
               {gr.items.map((b) => (
                 <li key={`${b.word}:${b.id}`} className="space-y-1">
-                  <a href={b.link} target="_blank" rel="noopener noreferrer" aria-label={`${b.title} (opens source)`}><Thumb item={b} /></a>
+                  <a href={b.link} target="_blank" rel="noopener noreferrer" aria-label={t("rb.opensSource", { title: b.title })}><Thumb item={b} /></a>
                   <p className="truncate text-[0.7rem]" title={b.title}>{b.title}</p>
                   <div className="flex gap-1">
-                    <button className="chip !px-2" onClick={() => setBuild(toBuild(b, b.word))} aria-label={`${b.kind === "creator" ? "Build" : "Generate"} ${b.title} in Studio`}>⚒</button>
+                    <button className="chip !px-2" onClick={() => setBuild(toBuild(b, b.word))} aria-label={b.kind === "creator" ? t("rb.buildX", { title: b.title }) : t("rb.genX", { title: b.title })}>⚒</button>
                     <StyleButton compact item={b} on={locked.has(b.id)} disabled={styleBusy || (styleFull && !locked.has(b.id))} onClick={() => toggleStyle(b)} />
-                    <button className="chip !px-2" onClick={() => void remove(b)} aria-label={`Remove ${b.title} from moodboard`}>✕</button>
+                    <button className="chip !px-2" onClick={() => void remove(b)} aria-label={t("rb.removeMood", { title: b.title })}>✕</button>
                   </div>
                 </li>
               ))}
@@ -228,23 +230,25 @@ function Thumb({ item }: { item: RefItem }) {
 }
 
 function StyleButton({ item, on, disabled, onClick, compact }: { item: RefItem; on: boolean; disabled: boolean; onClick: () => void; compact?: boolean }) {
+  const { t } = useT();
   return (
     <button className="chip !px-2" onClick={onClick} disabled={disabled} aria-pressed={on} style={on ? { color: PINK, borderColor: PINK } : undefined}
-      aria-label={on ? `Remove ${item.title} from my style` : `Use ${item.title} as my game's style`} title={disabled && !on ? `Style is full (${MAX_STYLE})` : "My game's style"}>{compact ? "🎯" : "🎯 Style"}</button>
+      aria-label={on ? t("rb.removeStyle", { title: item.title }) : t("rb.useStyle", { title: item.title })} title={disabled && !on ? t("rb.full", { n: MAX_STYLE }) : t("rb.myStyle")}>{compact ? "🎯" : `🎯 ${t("rb.style")}`}</button>
   );
 }
 
 function RefCard({ item, pick, saved, onSave, onBuild, styled, styleDisabled, onStyle }: {
   item: RefItem; pick?: Pick & { rank: number }; saved: boolean; onSave: () => void; onBuild: () => void; styled: boolean; styleDisabled: boolean; onStyle: () => void;
 }) {
+  const { t } = useT();
   return (
     <li className="card relative space-y-1 !p-2" style={pick ? { borderColor: PINK, boxShadow: `0 0 16px ${PINK}55` } : undefined}>
       {pick && <span className="absolute left-1 top-1 z-[1] rounded-full px-1.5 text-[0.65rem] font-bold text-black" style={{ background: PINK }}>✨ #{pick.rank}</span>}
-      <a href={item.link} target="_blank" rel="noopener noreferrer" aria-label={`${item.title} (opens source page)`}><Thumb item={item} /></a>
+      <a href={item.link} target="_blank" rel="noopener noreferrer" aria-label={t("rb.opensPage", { title: item.title })}><Thumb item={item} /></a>
       <p className="line-clamp-2 text-xs font-semibold" title={item.title}>{item.title}</p>
       <p className="muted truncate text-[0.68rem]">
-        {item.creator && <>by {item.creator}</>}
-        {item.verified && <span title="Verified creator" aria-label="verified creator" style={{ color: "#60a5fa" }}> ✔</span>}
+        {item.creator && <>{t("rb.by", { who: item.creator })}</>}
+        {item.verified && <span title={t("rb.verified")} aria-label={t("rb.verified")} style={{ color: "#60a5fa" }}> ✔</span>}
         {item.subreddit && <> · r/{item.subreddit}</>}
       </p>
       {(item.votes || item.license) && (
@@ -252,8 +256,8 @@ function RefCard({ item, pick, saved, onSave, onBuild, styled, styleDisabled, on
       )}
       {pick?.reason && <p className="text-[0.68rem]" style={{ color: PINK }}>{pick.reason}</p>}
       <div className="flex flex-wrap gap-1 pt-0.5">
-        <button className="chip !px-2" onClick={onSave} disabled={saved} aria-label={saved ? `${item.title} saved` : `Save ${item.title} to moodboard`}>{saved ? "★ Saved" : "☆ Save"}</button>
-        <button className="chip !px-2" onClick={onBuild}>{item.kind === "creator" ? "Build in Studio" : "Generate in Studio"}</button>
+        <button className="chip !px-2" onClick={onSave} disabled={saved} aria-label={saved ? t("rb.savedX", { title: item.title }) : t("rb.saveX", { title: item.title })}>{saved ? `★ ${t("rb.saved")}` : `☆ ${t("rb.save")}`}</button>
+        <button className="chip !px-2" onClick={onBuild}>{item.kind === "creator" ? t("rb.buildStudio") : t("rb.genStudio")}</button>
         <StyleButton item={item} on={styled} disabled={styleDisabled} onClick={onStyle} />
       </div>
     </li>

@@ -2,7 +2,7 @@
 // Pure (no DOM): the data, the progress rules and the stored-progress parser. UI: components/WhatsNew.tsx. Tests: tests/tour.test.ts.
 // Step text is bilingual here (one place per step); the tour's buttons and labels live in i18n-pure ("tour.*").
 import type { NavTarget } from "./nav-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 
 export { TOUR_KEY, TOUR_EVENT } from "./tour-key-pure.ts"; // bump TOUR_KEY there
 

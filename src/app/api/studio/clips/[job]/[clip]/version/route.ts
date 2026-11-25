@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { requireUser } from "@/lib/supabase/server";
@@ -6,7 +7,7 @@ import { isClipId, isInboxName, isJobId, validVersion } from "@/lib/clips/pure";
 
 // "Another version" of a clip: re-rendered from the job's saved analysis (no transcription; Claude only with suggest: true for an
 // untyped title/hook). Body: { layout?, camSide?, camSize?, captions?: "karaoke"|"classic"|"none", hook?, title?, start?, end? (±10 s nudges), jumpCuts?, zooms?, suggest? }.
-export async function POST(req: Request, { params }: { params: Promise<{ job: string; clip: string }> }) {
+async function POST_(req: Request, { params }: { params: Promise<{ job: string; clip: string }> }) {
   const { res } = await requireUser();
   if (res) return res;
   startClipQueue();
@@ -30,3 +31,4 @@ export async function POST(req: Request, { params }: { params: Promise<{ job: st
     return Response.json({ clip: next }, { status: 202 });
   });
 }
+export const POST = guard("studio/clips/[job]/[clip]/version", POST_);

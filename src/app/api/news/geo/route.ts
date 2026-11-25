@@ -1,8 +1,9 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { hotspots } from "@/lib/geo";
 
 // News hotspots for the INTELLIGENCE globe: the user's recent articles grouped by the country they're about.
-export async function GET(req: Request) {
+async function GET_(req: Request) {
   const { sb, res } = await requireUser();
   if (res) return res;
   const hours = Math.min(24 * 14, Math.max(6, Number(new URL(req.url).searchParams.get("hours")) || 72));
@@ -13,3 +14,4 @@ export async function GET(req: Request) {
   const { hotspots: hs, untagged } = hotspots(data ?? []);
   return Response.json({ hours, total: data?.length ?? 0, untagged, hotspots: hs });
 }
+export const GET = guard("news/geo", GET_);

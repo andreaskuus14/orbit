@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useT } from "./i18n";
 import { parseClipUrl } from "@/lib/clips/format";
 import { startClip } from "./Herald";
 import { REACH_SOURCES, SOURCE_NAME, statLine, type ReachSource, type ReachSources, type Scored } from "@/lib/reach/pure";
@@ -11,6 +12,7 @@ const PINK = "#f472b6";
 const LABEL: Record<ReachSource, string> = { reddit: "Subreddits", kick: "Kick channels", twitch: "Twitch logins", bsky: "Bluesky searches" };
 
 export default function ReachPanel() {
+  const { t } = useT();
   const [scan, setScan] = useState<Scan | null>(null);
   const [err, setErr] = useState("");
   const [edit, setEdit] = useState<Record<ReachSource, string> | null>(null);
@@ -42,11 +44,11 @@ export default function ReachPanel() {
 
   return (
     <div className="space-y-1.5">
-      <h3 className="text-sm font-semibold">🌐 Reach <span className="muted text-xs font-normal">clips exploding on Reddit, Kick, Twitch and Bluesky</span></h3>
+      <h3 className="text-sm font-semibold">{t("rch.title")} <span className="muted text-xs font-normal">{t("rch.sub")}</span></h3>
       {err && <p className="error text-sm" role="alert">{err}</p>}
-      {!scan && !err && <p className="muted text-sm" aria-live="polite">Loading…</p>}
-      {scan?.stopped && <p className="muted text-sm">Stop-all is on: Reach isn&apos;t scanning.</p>}
-      {scan && !scan.at && scan.running && <p className="muted text-sm" aria-live="polite">First scan running (sites are asked slowly, a few seconds apart)…</p>}
+      {!scan && !err && <p className="muted text-sm" aria-live="polite">{t("rch.loading")}</p>}
+      {scan?.stopped && <p className="muted text-sm">{t("rch.stopped")}</p>}
+      {scan && !scan.at && scan.running && <p className="muted text-sm" aria-live="polite">{t("rch.first")}</p>}
       {scan && REACH_SOURCES.map((src) => {
         const xs = scan.items.filter((x) => x.source === src).slice(0, 5);
         if (!xs.length && !scan.hints[src].length) return null;
@@ -58,35 +60,35 @@ export default function ReachPanel() {
               {xs.map((x) => { const clip = x.media ? parseClipUrl(x.media) : null; return (
                 <li key={x.id} className="card flex items-center gap-2.5">
                   {x.thumb && <img src={x.thumb} alt="" width={44} height={44} loading="lazy" referrerPolicy="no-referrer" className="h-11 w-11 shrink-0 rounded-lg object-cover" />}
-                  <a href={x.open} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 no-underline" aria-label={`${x.title}, ${statLine(x)}, opens on ${SOURCE_NAME[src]}`}>
+                  <a href={x.open} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 no-underline" aria-label={t("rch.itemL", { title: x.title, stat: statLine(x), src: SOURCE_NAME[src] })}>
                     <span className="block truncate text-sm font-semibold">{x.hot ? "🔥 " : ""}{x.title}</span>
                     <span className="muted block truncate text-xs">{statLine(x)}</span>
                   </a>
-                  {clip && <button className="chip shrink-0 text-xs" style={{ borderColor: PINK, color: PINK }} onClick={() => void startClip(clip)}>🎬 Clip it now</button>}
+                  {clip && <button className="chip shrink-0 text-xs" style={{ borderColor: PINK, color: PINK }} onClick={() => void startClip(clip)}>{t("rch.clip")}</button>}
                 </li>); })}
             </ol>
           </div>
         );
       })}
-      {scan && !!scan.at && <p className="muted text-xs">Scanned {new Date(scan.at).toLocaleTimeString()} · refreshes every 3 h · 🔥 = 3+ deviations and 2×+ the source&apos;s own 14-day normal; while it&apos;s learning (under 5 days of history) 2× the batch&apos;s per-hour rate</p>}
+      {scan && !!scan.at && <p className="muted text-xs">{t("rch.scanned", { at: new Date(scan.at).toLocaleTimeString() })}</p>}
 
       <div className="card space-y-1.5">
         <div className="flex items-center gap-2">
-          <h4 className="flex-1 text-xs font-semibold">🌐 Reach sources</h4>
-          {scan && !edit && <button className="chip text-xs" onClick={() => { setSaveMsg(""); setEdit(Object.fromEntries(REACH_SOURCES.map((s) => [s, scan.sources[s].join(", ")])) as Record<ReachSource, string>); }}>Edit</button>}
+          <h4 className="flex-1 text-xs font-semibold">{t("rch.sources")}</h4>
+          {scan && !edit && <button className="chip text-xs" onClick={() => { setSaveMsg(""); setEdit(Object.fromEntries(REACH_SOURCES.map((s) => [s, scan.sources[s].join(", ")])) as Record<ReachSource, string>); }}>{t("rch.edit")}</button>}
         </div>
-        {scan && !edit && REACH_SOURCES.map((s) => <p key={s} className="muted truncate text-xs">{LABEL[s]}: {scan.sources[s].join(", ") || "none"}</p>)}
+        {scan && !edit && REACH_SOURCES.map((s) => <p key={s} className="muted truncate text-xs">{LABEL[s]}: {scan.sources[s].join(", ") || t("rch.none")}</p>)}
         {edit && (
           <>
             {REACH_SOURCES.map((s) => (
               <label key={s} className="block text-xs">
-                {LABEL[s]} <span className="muted">(comma-separated, up to 20; letters, digits, _{s === "bsky" ? ", spaces" : ""})</span>
+                {LABEL[s]} <span className="muted">{t(s === "bsky" ? "rch.fmtBsky" : "rch.fmt")}</span>
                 <input className="field mt-0.5 w-full !text-sm" value={edit[s]} onChange={(e) => setEdit({ ...edit, [s]: e.target.value })} maxLength={900} />
               </label>
             ))}
             <div className="flex gap-1.5">
-              <button className="btn text-xs" onClick={() => void save()}>Save</button>
-              <button className="chip text-xs" onClick={() => setEdit(null)}>Cancel</button>
+              <button className="btn text-xs" onClick={() => void save()}>{t("rch.save")}</button>
+              <button className="chip text-xs" onClick={() => setEdit(null)}>{t("rch.cancel")}</button>
             </div>
           </>
         )}

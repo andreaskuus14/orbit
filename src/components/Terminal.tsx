@@ -2,6 +2,7 @@
 // fsociety mode: ` (when not typing) or the palette opens a read-only hacker terminal over everything. Polls existing endpoints
 // only while open; nothing typed here runs anything. Formatting: lib/terminal-pure.ts.
 import { useEffect, useRef, useState } from "react";
+import { useT } from "./i18n";
 import { activityLines, agentLines, appendNew, BANNER, busyLines, doctorLines, goalLines, statsLine, TERMINAL_EVENT, usageLines, type Line } from "@/lib/terminal-pure";
 
 const get = (url: string) => fetch(url, { cache: "no-store" }).then((r) => r.json()).catch(() => null);
@@ -9,6 +10,7 @@ const get = (url: string) => fetch(url, { cache: "no-store" }).then((r) => r.jso
 export function Terminal() {
   const ref = useRef<HTMLDialogElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const [{ log, batch }, setLog] = useState<{ log: Line[]; batch: number }>({ log: [], batch: 0 }); // batch: where the newest lines start (typewriter stagger)
   const [stats, setStats] = useState("booting…");
@@ -59,7 +61,7 @@ export function Terminal() {
   useEffect(() => { bottom.current?.scrollIntoView({ block: "end" }); }, [log]);
 
   return (
-    <dialog ref={ref} className="fsoc" aria-label="fsociety terminal: live read-only feed" onClose={() => setOpen(false)}>
+    <dialog ref={ref} className="fsoc" aria-label={t("fsoc.label")} onClose={() => setOpen(false)}>
       <style>{`
 .fsoc { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 1rem; border: 0; background: #000; color: #4ade80; font: 13px/1.45 var(--font-mono, ui-monospace, monospace); overflow: hidden; }
 .fsoc::backdrop { background: #000; }
@@ -76,7 +78,7 @@ export function Terminal() {
       <div className="fsoc-scan" aria-hidden="true" />
       <div className="flex items-center justify-between gap-3 text-white">
         <span>root@orbit:~# tail -f /var/log/orbit <span className="text-[#4ade80]">· {stats}</span></span>
-        <button className="chip" onClick={() => ref.current?.close()} autoFocus aria-label="Close terminal (Esc or `)">exit</button>
+        <button className="chip" onClick={() => ref.current?.close()} autoFocus aria-label={t("fsoc.close")}>exit</button>
       </div>
       <div className="fsoc-body mt-2" role="log" aria-live="off">
         <pre className="fsoc-banner" aria-hidden="true">{BANNER}</pre>

@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { emit } from "@/lib/claude";
@@ -10,7 +11,7 @@ import { bustMapCache } from "@/lib/memory-map-cache";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_: Request, { params }: Ctx) {
+async function GET_(_: Request, { params }: Ctx) {
   const { sb, res } = await requireUser();
   if (res) return res;
   const { id } = await params;
@@ -24,7 +25,7 @@ export async function GET(_: Request, { params }: Ctx) {
   return Response.json({ memory: redactJournalRow(data as unknown as Parameters<typeof redactJournalRow>[0]), links: links ?? [] });
 }
 
-export async function PATCH(req: Request, { params }: Ctx) {
+async function PATCH_(req: Request, { params }: Ctx) {
   const h = req.headers; // the middleware matcher skips paths ending in .png etc., so check here too
   if (crossSiteBlocked("PATCH", "/api/memories", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { sb, user, res } = await requireUser();
@@ -55,7 +56,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   return Response.json({ memory: redactJournalRow(data as unknown as Parameters<typeof redactJournalRow>[0]) }); // a tags-only edit of a journal row must not echo its sealed text
 }
 
-export async function DELETE(req: Request, { params }: Ctx) {
+async function DELETE_(req: Request, { params }: Ctx) {
   const h = req.headers; // the middleware matcher skips paths ending in .png etc., so check here too
   if (crossSiteBlocked("DELETE", "/api/memories", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { sb, user, res } = await requireUser();
@@ -72,3 +73,6 @@ export async function DELETE(req: Request, { params }: Ctx) {
   bustMapCache(user.id);
   return Response.json({ ok: true });
 }
+export const GET = guard("memories/[id]", GET_);
+export const PATCH = guard("memories/[id]", PATCH_);
+export const DELETE = guard("memories/[id]", DELETE_);

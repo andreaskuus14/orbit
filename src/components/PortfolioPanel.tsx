@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { KIND_LABEL, PMAX, PROJECT_KINDS, draftInput, emptyPortfolio, portfolioHtml, portfolioPdf, type Portfolio, type Project, type ProjectKind, type Shot } from "@/lib/portfolio-pure";
 import { localDay } from "@/lib/morning-pure";
 import { askConfirm } from "./ui/Dialog";
+import { useT } from "./i18n";
 
 const MAX_PX = 1800; // long side: sharp in print at A4, small enough to keep the saved file sane
 /** Any drawable (the WebGL canvas, an uploaded picture) → a JPEG data URL no bigger than MAX_PX. */
@@ -27,6 +28,7 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(
 
 /** grab() renders the 3D view once and returns its canvas (null while no view is up); caption describes what is on screen. */
 export function PortfolioPanel({ grab, caption }: { grab: () => HTMLCanvasElement | null; caption: string }) {
+  const { t } = useT();
   const [p, setP] = useState<Portfolio | null>(null), [sel, setSel] = useState(""), [msg, setMsg] = useState("");
   const [draft, setDraft] = useState(""), [drafting, setDrafting] = useState(false);
   const dirty = useRef(false);
@@ -34,19 +36,19 @@ export function PortfolioPanel({ grab, caption }: { grab: () => HTMLCanvasElemen
   async function load() {
     if (p) return;
     const r = await fetch("/api/portfolio").catch(() => null), j = await r?.json().catch(() => null);
-    if (r?.ok && j?.portfolio) { setP(j.portfolio); setSel(j.portfolio.projects[0]?.id ?? ""); } else setMsg(j?.error ?? "Couldn't load the portfolio.");
+    if (r?.ok && j?.portfolio) { setP(j.portfolio); setSel(j.portfolio.projects[0]?.id ?? ""); } else setMsg(j?.error ?? t("pf.loadFail"));
   }
   // autosave a second after the last change
   useEffect(() => {
     if (!p || !dirty.current) return;
-    const t = setTimeout(async () => {
+    const tm = setTimeout(async () => {
       dirty.current = false;
       const r = await fetch("/api/portfolio", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ portfolio: p }) }).catch(() => null);
       const j = await r?.json().catch(() => null);
-      setMsg(r?.ok ? "Saved on this PC." : `Not saved: ${j?.error ?? "ORBIT isn't reachable"}`);
+      setMsg(r?.ok ? t("pf.saved") : t("pf.notSaved", { err: j?.error ?? t("pf.unreachable") }));
     }, 1000);
-    return () => clearTimeout(t);
-  }, [p]);
+    return () => clearTimeout(tm);
+  }, [p]); // eslint-disable-line react-hooks/exhaustive-deps -- t only changes with the language
   const edit = (fn: (p: Portfolio) => Portfolio) => { dirty.current = true; setP((x) => fn(x ?? emptyPortfolio())); };
   const editProject = (id: string, fn: (pr: Project) => Project) => edit((x) => ({ ...x, projects: x.projects.map((pr) => (pr.id === id ? fn(pr) : pr)) }));
   const project = p?.projects.find((x) => x.id === sel);
@@ -58,19 +60,19 @@ export function PortfolioPanel({ grab, caption }: { grab: () => HTMLCanvasElemen
   };
   const addShot = (img: { src: string; w: number; h: number }, cap: string) => {
     const id = project?.id ?? newProject("arch", "ARCH model");
-    if (project && project.shots.length >= PMAX.shots) return setMsg(`A project holds ${PMAX.shots} pictures; start a new one or remove some.`);
+    if (project && project.shots.length >= PMAX.shots) return setMsg(t("pf.full", { n: PMAX.shots }));
     const s: Shot = { id: uid(), ...img, caption: cap.slice(0, PMAX.caption), at: localDay(new Date()) };
     editProject(id, (pr) => ({ ...pr, shots: [...pr.shots, s] }));
-    setMsg(`Added to ${project?.title ?? "a new ARCH project"}.`);
+    setMsg(project ? t("pf.addedTo", { title: project.title }) : t("pf.addedNew"));
   };
   function capture() {
     const c = grab();
-    if (!c) return setMsg("Open the 3D view first.");
-    try { addShot(toJpeg(c, c.width, c.height), caption); } catch { setMsg("This browser couldn't read the 3D view."); }
+    if (!c) return setMsg(t("pf.open3d"));
+    try { addShot(toJpeg(c, c.width, c.height), caption); } catch { setMsg(t("pf.cantRead")); }
   }
   async function upload(files: FileList) {
     for (const f of Array.from(files)) {
-      try { const b = await createImageBitmap(f); addShot(toJpeg(b, b.width, b.height), f.name.replace(/\.[^.]+$/, "")); b.close(); } catch { setMsg(`${f.name}: use a JPEG or PNG.`); }
+      try { const b = await createImageBitmap(f); addShot(toJpeg(b, b.width, b.height), f.name.replace(/\.[^.]+$/, "")); b.close(); } catch { setMsg(t("pf.useJpeg", { name: f.name })); }
     }
   }
   async function askDraft() {
@@ -86,16 +88,16 @@ export function PortfolioPanel({ grab, caption }: { grab: () => HTMLCanvasElemen
   const move = <T,>(a: T[], i: number, d: number) => { const b = [...a], j = i + d; if (j < 0 || j >= b.length) return a; [b[i], b[j]] = [b[j], b[i]]; return b; };
 
   return (
-    <details className="card space-y-2" aria-label="Portfolio builder" onToggle={(e) => { if ((e.target as HTMLDetailsElement).open) void load(); }}>
-      <summary className="muted cursor-pointer text-[10px] uppercase tracking-widest">Portfolio · captures → PDF and web page</summary>
-      {!p ? <p className="muted text-xs">{msg || "Loading…"}</p> : <>
+    <details className="card space-y-2" aria-label={t("pf.builder")} onToggle={(e) => { if ((e.target as HTMLDetailsElement).open) void load(); }}>
+      <summary className="muted cursor-pointer text-[12px] font-medium">{t("pf.summary")}</summary>
+      {!p ? <p className="muted text-xs">{msg || t("common.loading")}</p> : <>
         <div className="flex flex-wrap gap-1.5">
-          <input className="field flex-1" value={p.title} maxLength={PMAX.title} onChange={(e) => edit((x) => ({ ...x, title: e.target.value }))} aria-label="Portfolio title" placeholder="Portfolio" />
-          <input className="field flex-1" value={p.name} maxLength={PMAX.title} onChange={(e) => edit((x) => ({ ...x, name: e.target.value }))} aria-label="Your name" placeholder="Your name" />
+          <input className="field flex-1" value={p.title} maxLength={PMAX.title} onChange={(e) => edit((x) => ({ ...x, title: e.target.value }))} aria-label={t("pf.title")} placeholder={t("pf.titlePh")} />
+          <input className="field flex-1" value={p.name} maxLength={PMAX.title} onChange={(e) => edit((x) => ({ ...x, name: e.target.value }))} aria-label={t("pf.name")} placeholder={t("pf.name")} />
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <button className="btn" onClick={capture} title="Saves what the 3D view shows now into the selected project">📷 Capture for portfolio</button>
-          <label className="chip inline-flex cursor-pointer" title="Screenshots of STUDIO or game work, renders, sketches">+ Pictures
+          <button className="btn" onClick={capture} title={t("pf.captureTip")}>📷 {t("pf.capture")}</button>
+          <label className="chip inline-flex cursor-pointer" title={t("pf.picsTip")}>+ {t("pf.pics")}
             <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => { if (e.target.files) void upload(e.target.files); e.target.value = ""; }} />
           </label>
           {PROJECT_KINDS.map((k) => <button key={k} className="chip" onClick={() => newProject(k)}>+ {KIND_LABEL[k]}</button>)}
@@ -104,49 +106,49 @@ export function PortfolioPanel({ grab, caption }: { grab: () => HTMLCanvasElemen
 
         <ul className="space-y-0.5">{p.projects.map((pr, i) => <li key={pr.id} className="flex gap-1">
           <button className="chip flex-1 justify-between text-left" aria-pressed={pr.id === sel} onClick={() => { setSel(pr.id); setDraft(""); }}>
-            <span>{String(i + 1).padStart(2, "0")} {pr.title}</span><span className="muted num text-[10px]">{KIND_LABEL[pr.kind]} · {pr.shots.length} pic</span></button>
-          <button className="chip" aria-label={`Move ${pr.title} up`} disabled={!i} onClick={() => edit((x) => ({ ...x, projects: move(x.projects, i, -1) }))}>↑</button>
+            <span>{String(i + 1).padStart(2, "0")} {pr.title}</span><span className="muted num text-[10px]">{KIND_LABEL[pr.kind]} · {t("pf.pic", { n: pr.shots.length })}</span></button>
+          <button className="chip" aria-label={t("pf.moveUp", { title: pr.title })} disabled={!i} onClick={() => edit((x) => ({ ...x, projects: move(x.projects, i, -1) }))}>↑</button>
         </li>)}</ul>
-        {!p.projects.length && <p className="muted text-xs">Capture the 3D view or add pictures to start a project. Each project becomes one page.</p>}
+        {!p.projects.length && <p className="muted text-xs">{t("pf.empty")}</p>}
 
-        {project && <div className="space-y-1.5" aria-label={`Project ${project.title}`}>
+        {project && <div className="space-y-1.5" aria-label={t("pf.project", { title: project.title })}>
           <div className="flex flex-wrap gap-1.5">
-            <input className="field flex-1" value={project.title} maxLength={PMAX.title} aria-label="Project title" onChange={(e) => editProject(project.id, (x) => ({ ...x, title: e.target.value }))} />
-            <select className="field" value={project.kind} aria-label="Project kind" onChange={(e) => editProject(project.id, (x) => ({ ...x, kind: e.target.value as ProjectKind }))}>
+            <input className="field flex-1" value={project.title} maxLength={PMAX.title} aria-label={t("pf.projTitle")} onChange={(e) => editProject(project.id, (x) => ({ ...x, title: e.target.value }))} />
+            <select className="field" value={project.kind} aria-label={t("pf.kind")} onChange={(e) => editProject(project.id, (x) => ({ ...x, kind: e.target.value as ProjectKind }))}>
               {PROJECT_KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}</select>
-            <input className="field w-16" value={project.year} maxLength={20} aria-label="Year" onChange={(e) => editProject(project.id, (x) => ({ ...x, year: e.target.value }))} />
+            <input className="field w-16" value={project.year} maxLength={20} aria-label={t("pf.year")} onChange={(e) => editProject(project.id, (x) => ({ ...x, year: e.target.value }))} />
           </div>
-          <textarea className="field w-full text-xs" rows={5} maxLength={PMAX.text} value={project.text} aria-label="Project text"
-            placeholder="What it is, the main idea, what you learned. Or write a few notes and press Draft text."
+          <textarea className="field w-full text-xs" rows={5} maxLength={PMAX.text} value={project.text} aria-label={t("pf.text")}
+            placeholder={t("pf.textPh")}
             onChange={(e) => editProject(project.id, (x) => ({ ...x, text: e.target.value }))} />
           <div className="flex flex-wrap items-center gap-1.5">
-            <button className="chip" disabled={drafting} onClick={() => void askDraft()} title="One quick-model call; uses the title, captions and your notes">{drafting ? "Drafting…" : "✎ Draft text"}</button>
+            <button className="chip" disabled={drafting} onClick={() => void askDraft()} title={t("pf.draftTip")}>{drafting ? t("pf.drafting") : `✎ ${t("pf.draft")}`}</button>
             <span className="muted num text-[10px]">{project.text.length}/{PMAX.text}</span>
-            <button className="chip error ml-auto" onClick={async () => { if ((await askConfirm(`Delete “${project.title}” and its pictures?`))) { edit((x) => ({ ...x, projects: x.projects.filter((y) => y.id !== project.id) })); setSel(""); } }}>Delete project</button>
+            <button className="chip error ml-auto" onClick={async () => { if ((await askConfirm(t("pf.delAsk", { title: project.title })))) { edit((x) => ({ ...x, projects: x.projects.filter((y) => y.id !== project.id) })); setSel(""); } }}>{t("pf.del")}</button>
           </div>
           {draft && <div className="card space-y-1 text-xs">
             <p className="whitespace-pre-line">{draft}</p>
             <div className="flex gap-1.5">
-              <button className="chip" onClick={() => { editProject(project.id, (x) => ({ ...x, text: draft })); setDraft(""); }}>Use this (then edit)</button>
-              <button className="chip" onClick={() => setDraft("")}>Discard</button>
+              <button className="chip" onClick={() => { editProject(project.id, (x) => ({ ...x, text: draft })); setDraft(""); }}>{t("pf.use")}</button>
+              <button className="chip" onClick={() => setDraft("")}>{t("pf.discard")}</button>
             </div>
           </div>}
           <ul className="grid grid-cols-2 gap-1.5">{project.shots.map((s, i) => <li key={s.id} className="space-y-0.5">
             {/* eslint-disable-next-line @next/next/no-img-element -- a local data URL, nothing for next/image to optimise */}
             <img src={s.src} alt={s.caption} className="w-full rounded" />
-            <input className="field w-full text-[11px]" value={s.caption} maxLength={PMAX.caption} aria-label="Caption" onChange={(e) => editProject(project.id, (x) => ({ ...x, shots: x.shots.map((y) => (y.id === s.id ? { ...y, caption: e.target.value } : y)) }))} />
+            <input className="field w-full text-[11px]" value={s.caption} maxLength={PMAX.caption} aria-label={t("pf.caption")} onChange={(e) => editProject(project.id, (x) => ({ ...x, shots: x.shots.map((y) => (y.id === s.id ? { ...y, caption: e.target.value } : y)) }))} />
             <div className="flex gap-1">
-              <button className="chip" disabled={!i} aria-label="Move picture earlier" onClick={() => editProject(project.id, (x) => ({ ...x, shots: move(x.shots, i, -1) }))}>←</button>
-              <button className="chip error" aria-label="Remove picture" onClick={() => editProject(project.id, (x) => ({ ...x, shots: x.shots.filter((y) => y.id !== s.id) }))}>✕</button>
+              <button className="chip" disabled={!i} aria-label={t("pf.earlier")} onClick={() => editProject(project.id, (x) => ({ ...x, shots: move(x.shots, i, -1) }))}>←</button>
+              <button className="chip error" aria-label={t("pf.removePic")} onClick={() => editProject(project.id, (x) => ({ ...x, shots: x.shots.filter((y) => y.id !== s.id) }))}>✕</button>
             </div>
           </li>)}</ul>
         </div>}
 
         <div className="flex flex-wrap gap-1.5">
-          <button className="chip" disabled={!p.projects.length} onClick={() => save(`${slug(p.title)}.pdf`, portfolioPdf(p) as Uint8Array<ArrayBuffer>, "application/pdf")}>⬇ PDF (A4 landscape)</button>
-          <button className="chip" disabled={!p.projects.length} onClick={() => save(`${slug(p.title)}.html`, portfolioHtml(p), "text/html")}>⬇ Web page (.html)</button>
+          <button className="chip" disabled={!p.projects.length} onClick={() => save(`${slug(p.title)}.pdf`, portfolioPdf(p) as Uint8Array<ArrayBuffer>, "application/pdf")}>⬇ {t("pf.pdf")}</button>
+          <button className="chip" disabled={!p.projects.length} onClick={() => save(`${slug(p.title)}.html`, portfolioHtml(p), "text/html")}>⬇ {t("pf.html")}</button>
         </div>
-        <p className="muted text-[11px]">The first picture of a project is its hero. Files download to this PC; ORBIT doesn&apos;t upload or send them.</p>
+        <p className="muted text-[11px]">{t("pf.foot")}</p>
       </>}
     </details>
   );

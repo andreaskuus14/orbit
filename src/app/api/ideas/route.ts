@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { BusyError } from "@/lib/claude";
@@ -32,6 +33,6 @@ export async function POST(req: Request) {
     return Response.json({ found: found.length, ...(await listIdeas()) });
   } catch (e) {
     if (e instanceof BusyError) return fail("CORE is busy; try again in a moment", 429);
-    return fail(e instanceof Error ? e.message : "Couldn't read that video", 502);
+    return fail(safeMessage(e, "Couldn't read that video"), 502);
   }
 }

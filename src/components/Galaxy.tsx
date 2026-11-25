@@ -49,7 +49,7 @@ import { perfCtx } from "./PerfBeacon";
 import { LivingEffects } from "./LivingEffects";
 import { InkGlyph } from "./InkGlyph";
 import { useT } from "./i18n";
-import { ET, translate, type Lang } from "@/lib/i18n-pure";
+import { translate, type Lang } from "@/lib/i18n-pure";
 import { hoverParts, planetLife, toolPlanet, QUIET, WARM, WORK } from "@/lib/living-galaxy-pure";
 import { displayName, planetReadout } from "@/lib/home-ui-pure";
 import { markTone, sentenceRest, statusLook, type GalaxyStatus, type WorldStatus } from "@/lib/galaxy-status-pure";
@@ -773,7 +773,7 @@ function Flag({ tone, still }: { tone: "amber" | "rose" | null; still: boolean }
 }
 
 const BODIES = ["core", ...PLANETS.map((p) => p.id)];
-const LABEL_W = BODIES.map((id) => Math.max(id === "core" ? 4 : Math.max(PLANETS.find((p) => p.id === id)!.name.length, ET[`planet.${id as PlanetId}`]?.length ?? 0), 13) * 7.6 + 16); // px: 13px sentence-case name, or the readout line under it (≈ 20 chars at 11px)
+const LABEL_W = BODIES.map((id) => Math.max(id === "core" ? 4 : PLANETS.find((p) => p.id === id)!.name.length, 13) * 7.6 + 16); // px (Estonian names fit in 13 too: tests/i18n.test.ts): 13px sentence-case name, or the readout line under it (≈ 20 chars at 11px)
 
 const LABEL_H = 32; // name + readout line
 

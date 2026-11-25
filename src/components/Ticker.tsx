@@ -2,12 +2,14 @@
 // Cockpit ticker (plan #6): the last few notifications scroll by in one thin line under the header, like a ship's log.
 // Reads the bell's own history; nothing new is stored or fetched.
 import { useEffect, useState } from "react";
+import { useT } from "./i18n";
 import { NOTIFY_EVENT, NOTIFY_KEY, parseItems, relTime, type NotifyItem } from "@/lib/notify-pure";
 
 const read = () => { try { return parseItems(localStorage.getItem(NOTIFY_KEY)).slice(0, 6); } catch { return []; } };
 
 export function Ticker() {
   const [items, setItems] = useState<NotifyItem[]>([]), [i, setI] = useState(0);
+  const { t } = useT();
   useEffect(() => {
     const load = () => setItems(read());
     load();
@@ -19,7 +21,7 @@ export function Ticker() {
   if (!items.length) return null;
   const it = items[i % items.length];
   return (
-    <div className="ticker" role="status" aria-label="Latest activity">
+    <div className="ticker" role="status" aria-label={t("ticker.aria")}>
       <span className="ticker-dot" aria-hidden />
       <span key={it.id} className="ticker-line"><b>{it.title}</b>{it.reason ? ` · ${it.reason}` : ""} <span className="muted">· {relTime(it.at, Date.now())}</span></span>
     </div>

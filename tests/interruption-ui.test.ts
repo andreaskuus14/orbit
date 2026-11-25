@@ -65,7 +65,7 @@ function ui(component = "Herald", options: { voice?: boolean; hidden?: boolean; 
     if (name.endsWith("/sfx")) return { sfx: { chime: () => {}, tick: () => {}, open: () => {}, close: () => {}, whoosh: () => {} } };
     if (name.endsWith("nav-pure")) return { NAV_EVENT: "orbit:navigate" };
     if (name.endsWith("focus-timer-pure")) return { FOCUS_TIMER_KEY: "orbit.focus-timer.v1" };
-    if (name.endsWith("/i18n")) return { useT: () => ({ t: (k: string, v?: { n?: number }) => `${k}${v?.n ?? ""}`, lang: "en" }) };
+    if (name.endsWith("/i18n")) return { useT: () => ({ t: (k: string, v?: Record<string, unknown>) => `${k}${v?.n ?? ""}${v?.title ? `:${v.title}` : ""}${v?.kind ? `:${v.kind}` : ""}`, lang: "en" }) };
     if (name.endsWith("voice/speak")) return { speechSettings: () => ({ speak: !!options.voice }), speakingOrJustEnded: () => false, speakChunk: (s: string) => voice.push(s) };
     return require(name);
   });
@@ -86,7 +86,7 @@ const d = (signal: rules.Signal, key: string): notices.NotifyDetail => ({ title:
 test("real Herald waits for idle, renders why, and batches the next useful item into the bell", () => {
   const h = ui(); h.emit(d("briefing", "one")); assert.equal(h.nodes("article").length, 0);
   h.tick(rules.IDLE_MS); assert.equal(h.nodes("article").length, 1);
-  assert.equal(h.nodes("p").find((p) => p.props["aria-label"] === "Why this appeared").props.children, "Measured reason one");
+  assert.equal(h.nodes("p").find((p) => p.props["aria-label"] === "her.why").props.children, "Measured reason one");
   h.emit(d("agent-finished", "two")); assert.equal(h.nodes("article").length, 1); assert.equal(h.bell.length, 2); h.close();
 });
 test("real Herald blocks world/core work and immediately shows urgent without speaking while voice is off", () => {
@@ -96,7 +96,7 @@ test("real Herald blocks world/core work and immediately shows urgent without sp
 });
 test("real dismiss controls quiet a kind twice; subsequent notices remain in the bell", () => {
   const h = ui();
-  for (const key of ["one", "two"]) { h.emit(d("disk-full", key)); const close = h.nodes("button").find((b) => b.props["aria-label"] === `Dismiss: Update ${key}`); assert.ok(close); close.props.onClick(); h.flush(); }
+  for (const key of ["one", "two"]) { h.emit(d("disk-full", key)); const close = h.nodes("button").find((b) => b.props["aria-label"] === "her.dismissL"); assert.ok(close); close.props.onClick(); h.flush(); }
   assert.deepEqual(clone(h.store.loadJudgment().muted), ["disk-full"]);
   h.emit(d("disk-full", "three")); assert.equal(h.nodes("article").length, 0); assert.equal(h.bell.length, 3); h.close();
 });
@@ -121,7 +121,7 @@ test("resolved problems disappear from Herald; quiet scout actions remain availa
 });
 test("real bell keeps quiet items, shows the red fix chip, and clears it only on resolution", () => {
   const h = ui("NotificationCenter"); h.emit(d("scout", "scout")); h.emit(d("disk-full", "disk"));
-  assert.ok(h.nodes("button").some((b) => b.props["aria-label"] === "Unread: Update scout"));
+  assert.ok(h.nodes("button").some((b) => b.props["aria-label"] === "notify.unread:Update scout"));
   const red = h.nodes("button").find((b) => String(b.props["aria-label"]).startsWith("Problem:")); assert.ok(red); red.props.onClick();
   assert.deepEqual(clone(h.nav.at(-1)), { panel: "studio" });
   h.nodes("button").find((b) => b.props.children === "notify.clear").props.onClick(); h.flush();
@@ -130,7 +130,7 @@ test("real bell keeps quiet items, shows the red fix chip, and clears it only on
 });
 test("real bell Unmute clears that kind's dismissal count", () => {
   const h = ui("NotificationCenter"); h.store.saveJudgment(rules.dismissKind(rules.dismissKind(rules.emptyJudgment(), "briefing", T), "briefing", T)); h.flush();
-  const unmute = h.nodes("button").find((b) => Array.isArray(b.props.children) && b.props.children[0] === "Unmute "); assert.ok(unmute); unmute.props.onClick(); h.flush();
+  const unmute = h.nodes("button").find((b) => String(b.props.children).startsWith("notify.unmute:")); assert.ok(unmute); unmute.props.onClick(); h.flush();
   assert.deepEqual(clone(h.store.loadJudgment().muted), []); assert.deepEqual(clone(h.store.loadJudgment().dismissals.briefing), []); h.close();
 });
 
@@ -138,7 +138,7 @@ test("bell batch count excludes the update already shown as a popup", () => {
   const h = ui("NotificationCenter"); h.emit(d("briefing", "one")); h.emit(d("agent-finished", "two")); h.emit(d("scout", "three")); h.emit(d("scout", "four"));
   h.event(rules.POPUP_SHOWN, ["one"]);
   const summary = h.nodes("p").find((p) => p.props["aria-live"] === "polite");
-  assert.equal(summary.props.children[0], 3); h.close();
+  assert.equal(summary.props.children, "notify.updates.other3"); h.close();
 });
 
 test("blocked storage keeps the insight baseline in memory and every new insight reaches the shared bus", async () => {

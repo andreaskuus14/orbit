@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { parseRunId } from "@/lib/eval-core-pure";
 
@@ -16,5 +17,5 @@ export async function POST(req: Request) {
   const run = b?.cleanup === "all" ? "all" : parseRunId(b?.cleanup);
   if (!run) return Response.json({ error: 'cleanup must be an eval run id (ev-YYYYMMDD-xxxx) or "all"' }, { status: 400 });
   try { return Response.json({ run, deleted: await (await import("@/lib/eval-run")).cleanupEvalRun(sb, user.id, run) }); }
-  catch (e) { return Response.json({ error: e instanceof Error ? e.message : "cleanup failed" }, { status: 500 }); }
+  catch (e) { return Response.json({ error: safeMessage(e, "cleanup failed") }, { status: 500 }); }
 }

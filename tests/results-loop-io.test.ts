@@ -9,6 +9,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as pure from "../src/lib/clips/learn-pure.ts";
 import * as pmPure from "../src/lib/clips/postmortem-pure.ts";
+import * as apiErrorPure from "../src/lib/api-error-pure.ts";
+const apiRouteStub = { guard: (_name: string, fn: unknown) => fn }; // route tests call the raw handler
 
 const require = createRequire(import.meta.url);
 const compile = (file: string) => ts.transpileModule(readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8"), {
@@ -24,7 +26,7 @@ function collector(options: { stopped?: boolean; analyticsFail?: boolean; dataFa
   const m = { exports: {} as any };
   runInNewContext(learnCode, { module: m, exports: m.exports, process: { env: { YOUTUBE_API_KEY: "test-only" } }, console,
     setInterval: (fn: any, ms: number) => { timers.push({ fn, ms }); return { unref() {} }; }, clearInterval() {},
-    require: (name: string) => {
+    require: (name: string) => { if (name.endsWith("api-route")) return apiRouteStub; if (name.endsWith("api-error-pure")) return apiErrorPure;
       if (name === "node:path") return require(name);
       if (name === "node:fs/promises") return { access: async () => { throw new Error("no file"); } };
       if (name.endsWith("/learn-pure")) return pure;
@@ -93,7 +95,7 @@ test("results timer starts once, runs without a UI, and respects Stop-all", asyn
 
 test("Last Shorts renders escaped titles, 48h views, both directions, baseline waiting and optional retention", () => {
   const m = { exports: {} as any };
-  runInNewContext(compile("components/LastShorts.tsx"), { module: m, exports: m.exports, require: (n: string) => (n === "./world-paused" ? { useWorldPaused: () => false } : n === "./i18n" ? { useT: () => ({ lang: "en", t: (k: never, v?: never) => translate("en", k, v) }) } : require(n)) });
+  runInNewContext(compile("components/LastShorts.tsx"), { module: m, exports: m.exports, require: (n: string) => n.endsWith("api-route") ? apiRouteStub : n.endsWith("api-error-pure") ? apiErrorPure : (n === "./world-paused" ? { useWorldPaused: () => false } : n === "./i18n" ? { useT: () => ({ lang: "en", t: (k: never, v?: never) => translate("en", k, v) }) } : require(n)) });
   const rows: pure.ShortResult[] = [
     { videoId: "abcdefghijk", title: "<script>My title</script>", hook: "", capturedAt: "", views48: 400, medianViews: 200, changePct: 100, verdict: "worked", avgViewPct: 0 },
     { videoId: "lmnopqrstuv", title: "Slow start", hook: "", capturedAt: "", views48: 100, medianViews: 200, changePct: -50, verdict: "flopped" },
@@ -118,7 +120,7 @@ test("results endpoint remains authenticated and leaves the regular Analytics pa
   const code = compile("app/api/studio/analytics/route.ts");
   let authorized = false, resultCalls = 0, analyticsCalls = 0;
   const m = { exports: {} as any };
-  runInNewContext(code, { module: m, exports: m.exports, Response, URL, require: (name: string) => {
+  runInNewContext(code, { module: m, exports: m.exports, Response, URL, require: (name: string) => { if (name.endsWith("api-route")) return apiRouteStub; if (name.endsWith("api-error-pure")) return apiErrorPure;
     if (name.endsWith("supabase/server")) return { requireUser: async () => authorized ? {} : { res: new Response("Unauthorized", { status: 401 }) } };
     if (name.endsWith("clips/learn")) return { learnView: async () => { resultCalls++; return { lastShorts: [], checkedAt: "now", warnings: [] }; } };
     if (name.endsWith("clips/postmortem")) return { postmortemView: async () => null };

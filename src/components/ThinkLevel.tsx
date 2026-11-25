@@ -2,7 +2,7 @@
 // Thinking level UI (think-level-pure.ts): one small picker by the composer (Auto / quick / normal / deep, for the next message)
 // and one word on each answer saying how hard CORE thought, with why in its tooltip.
 import { CHOICES, answerLevel, type LevelChoice } from "@/lib/think-level-pure";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { useT } from "./i18n";
 
 export function LevelPicker({ value, onChange, disabled }: { value: LevelChoice; onChange: (v: LevelChoice) => void; disabled?: boolean }) {

@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { capsuleView, previewRestore, restoreCapsule, runBackup, setupCapsule } from "@/lib/capsule";
 
@@ -26,6 +27,6 @@ export async function POST(req: Request) {
     if (b.action === "restore") return Response.json({ restored: await restoreCapsule(b.name, b.passphrase) });
     return Response.json({ error: "Unknown action" }, { status: 400 });
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 400 });
+    return Response.json({ error: safeMessage(e, "Failed") }, { status: 400 });
   }
 }

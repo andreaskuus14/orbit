@@ -10,7 +10,7 @@ import { DayPlan } from "./DayPlan";
 import { openTarget } from "./NeedsYou";
 import { useT } from "./i18n";
 import { announce } from "./announce";
-import { greetKey } from "@/lib/i18n-pure";
+import { greetKey } from "@/lib/i18n-core-pure";
 
 const ICON: Record<BriefItem["kind"], string> = { decision: "✋", deadline: "⏰", night: "🌙", health: "🩺", calendar: "📅", school: "🎓", weather: "🌦", place: "📍", first: "➜", result: "✦", lesson: "💡", question: "❔", study: "🗂" };
 type Got = Brief & { life: boolean };
@@ -99,10 +99,10 @@ export default function MorningBriefBody({ home, onOpenTask, onOpenGoal, onClose
             </ul>
           )}
           {b?.today && b.today.length > 0 && (
-            <div className="mt-4 grid gap-3" aria-label="Today">
+            <div className="mt-4 grid gap-3" aria-label={t("mbb.today")}>
               {b.today.map((g) => (
                 <section key={g.key} aria-labelledby={`mb-today-${g.key}`}>
-                  <h3 id={`mb-today-${g.key}`} className="muted text-xs uppercase tracking-wide">{g.label}</h3>
+                  <h3 id={`mb-today-${g.key}`} className="muted text-xs">{g.label}</h3>
                   {g.failed ? <p className="error text-xs" role="status">{g.failed}</p> : (
                     <ul className="mt-1 grid gap-1">
                       {g.rows.map((r: TodayRow) => (
@@ -119,7 +119,7 @@ export default function MorningBriefBody({ home, onOpenTask, onOpenGoal, onClose
                           )}
                         </li>
                       ))}
-                      {g.more ? <li className="muted text-xs">+{g.more} more</li> : null}
+                      {g.more ? <li className="muted text-xs">{t("mbb.more", { n: g.more })}</li> : null}
                     </ul>
                   )}
                 </section>

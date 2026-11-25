@@ -4,7 +4,7 @@
 // with their trace, plan jobs, missions, staged pipelines such as clip / 3D / video renders) into it. The card is
 // components/ProgressCard.tsx; the same card is used on home, in Needs you, on the phone and in every planet. Pure; tests in
 // tests/progress.test.ts. An action never approves by itself: it opens where the exact item and its own Approve live (AGENTS.md rule 6).
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 import { opsStatus } from "./ops-status-pure.ts";
 import { joinDetail } from "./home-ui-pure.ts";
 

@@ -1,3 +1,4 @@
+import { guard } from "@/lib/api-route";
 import { requireUser } from "@/lib/supabase/server";
 import { crossSiteBlocked } from "@/lib/csrf";
 import { readBrandKit, saveBrandKit } from "@/lib/clips/brand-kit";
@@ -7,14 +8,14 @@ export const dynamic = "force-dynamic";
 
 // STUDIO brand kit: GET { kit, defaults, isDefault }; PUT { kit: partial } changes only the parts sent; PUT { reset: true } restores the defaults.
 // New renders pick it up; clips already rendered keep their look (publish checks warn when they differ). Nothing here uploads anything.
-export async function GET() {
+async function GET_() {
   const { res } = await requireUser();
   if (res) return res;
   const kit = await readBrandKit();
   return Response.json({ kit, defaults: DEFAULT_KIT, isDefault: isDefaultKit(kit) });
 }
 
-export async function PUT(req: Request) {
+async function PUT_(req: Request) {
   const h = req.headers;
   if (crossSiteBlocked("PUT", "/api/studio/brand", { secFetchSite: h.get("sec-fetch-site"), origin: h.get("origin"), host: h.get("host"), forwardedHost: h.get("x-forwarded-host") })) return Response.json({ error: "Cross-site request refused" }, { status: 403 });
   const { res } = await requireUser();
@@ -25,3 +26,5 @@ export async function PUT(req: Request) {
   if (typeof kit === "string") return Response.json({ error: kit }, { status: 400 });
   return Response.json({ kit, defaults: DEFAULT_KIT, isDefault: isDefaultKit(kit) });
 }
+export const GET = guard("studio/brand", GET_);
+export const PUT = guard("studio/brand", PUT_);

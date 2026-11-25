@@ -25,12 +25,12 @@ export default function MissionsPanel({ visible, onOpenTask }: { visible: boolea
 
   return (
     <div className="space-y-2 text-xs">
-      <p className="muted">Ask CORE for work that needs several steps and it becomes a mission here. It keeps going in the background and after restarts.</p>
+      <p className="muted">{t("msp.help")}</p>
       {creating
         ? <MissionBriefForm onCreated={() => { setCreating(false); load(); }} onCancel={() => setCreating(false)} />
         : <button type="button" className="chip" onClick={() => setCreating(true)}>{t("mission.brief.new")}</button>}
       {err && <p role="alert" style={{ color: "#fb7185" }}>{err}</p>}
-      {!list ? <p className="muted">{err ? "" : "Loading…"}</p> : !list.length ? <p className="muted">No missions yet.</p> : (
+      {!list ? <p className="muted">{err ? "" : t("msp.loading")}</p> : !list.length ? <p className="muted">{t("msp.empty")}</p> : (
         <ul className="space-y-2">
           {list.map((m) => (
             <li key={m.id} className="card space-y-1.5">
@@ -38,7 +38,7 @@ export default function MissionsPanel({ visible, onOpenTask }: { visible: boolea
                 <p className="min-w-0 break-words font-medium">{m.doc.objective}</p>
                 <span className="shrink-0"><OpsStatus raw={m.status} label={m.label} at={m.doc.log?.at(-1)?.at} /></span>
               </div>
-              <p><span className="muted">Next: </span>{m.next}</p>
+              <p><span className="muted">{t("msp.next")} </span>{m.next}</p>
               {m.doc.acceptance && <p><span className="muted">{t("mission.doneWhen")}</span>{m.doc.acceptance}{m.doc.verified !== undefined && <span style={{ color: m.doc.verified ? "var(--mint)" : "#fb7185" }}> — {t(m.doc.verified ? "mission.verified" : "mission.notVerified")}</span>}</p>}
               {m.doc.artifact && <p><span className="muted">{t("mission.report")}</span><span className="num">{m.doc.artifact.slug}/{m.doc.artifact.path}</span>{m.doc.next && <> · <span className="muted">{t("mission.then")}</span>{m.doc.next}</>}</p>}
               {m.doc.metrics && (
@@ -55,7 +55,7 @@ export default function MissionsPanel({ visible, onOpenTask }: { visible: boolea
                   <ul className="mt-1 space-y-0.5">{m.doc.checks.map((c, i) => <li key={i}><span style={{ color: c.ok ? "var(--mint)" : "#fb7185" }}>{t(c.ok ? "mission.passed" : "mission.failed")}</span> <span className="muted">{t("mission.step", { n: c.step + 1 })}</span> {c.what}</li>)}</ul>
                 </details>
               )}
-              {m.doc.constraints.length > 0 && <p className="muted">Constraints: {m.doc.constraints.join("; ")}</p>}
+              {m.doc.constraints.length > 0 && <p className="muted">{t("msp.constraints", { x: m.doc.constraints.join("; ") })}</p>}
               {m.chain && (
                 <ol className="space-y-0.5">
                   {m.chain.steps.map((s) => (
@@ -63,7 +63,7 @@ export default function MissionsPanel({ visible, onOpenTask }: { visible: boolea
                       <button type="button" className="min-w-0 truncate text-left underline-offset-2 hover:underline" disabled={!s.taskId} onClick={() => s.taskId && onOpenTask?.(s.taskId)}>
                         {s.index + 1}. {s.agent}: {s.request.split("\n")[0]}
                       </button>
-                      <span className="muted shrink-0">{s.status === "done" ? (stepVerified(m.doc.receipts, s.index) ? "verified" : "done · not verified") : s.status.replace("_", " ")}</span>
+                      <span className="muted shrink-0">{s.status === "done" ? (stepVerified(m.doc.receipts, s.index) ? t("msp.verified") : t("msp.doneNotVer")) : s.status.replace("_", " ")}</span>
                     </li>
                   ))}
                 </ol>
@@ -79,13 +79,13 @@ export default function MissionsPanel({ visible, onOpenTask }: { visible: boolea
                 </details>
               )}
               {m.doc.receipts.length > 0 && (
-                <details><summary className="cursor-pointer">Receipts ({m.doc.receipts.length})</summary>
+                <details><summary className="cursor-pointer">{t("msp.receipts", { n: m.doc.receipts.length })}</summary>
                   <ul className="mt-1 space-y-0.5">
-                    {m.doc.receipts.map((r) => <li key={`${r.kind}:${r.ref}`}><span className="num">{r.kind} {r.path ?? r.ref}</span> <span className="muted">— step {r.step + 1}, {r.check}</span></li>)}
+                    {m.doc.receipts.map((r) => <li key={`${r.kind}:${r.ref}`}><span className="num">{r.kind} {r.path ?? r.ref}</span> <span className="muted">— {t("msp.step", { n: r.step + 1 })}, {r.check}</span></li>)}
                   </ul>
                 </details>
               )}
-              <details><summary className="cursor-pointer">History</summary>
+              <details><summary className="cursor-pointer">{t("msp.history")}</summary>
                 <ul className="mt-1 space-y-0.5">{m.doc.log.slice(-12).map((l, i) => <li key={i}><span className="muted">{timeAgo(l.at)}</span> {l.text}</li>)}</ul>
               </details>
               <div className="flex flex-wrap gap-1.5">

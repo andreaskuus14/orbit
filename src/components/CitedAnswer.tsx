@@ -7,7 +7,7 @@ import { citeAnswer, parseMarker, traceCite, type Cite, type SourceRef } from "@
 import { OPEN_SOURCE_EVENT } from "@/lib/week-pure";
 import { ChatAnswer } from "./ChatAnswer";
 import { useT } from "./i18n";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 
 type Props = { content: string; citations?: Cite[]; trace?: { step: string; cite?: unknown }[]; openMemory: (id: string) => void };
 

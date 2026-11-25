@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { diaryView } from "@/lib/diary";
 
@@ -9,5 +10,5 @@ export async function GET(req: Request) {
   if (res) return res;
   const u = new URL(req.url);
   try { return Response.json(await diaryView(user.id, u.searchParams.get("q") ?? "", Number(u.searchParams.get("page")) || 1)); }
-  catch (e) { return Response.json({ error: e instanceof Error ? e.message : "Diary failed" }, { status: 500 }); }
+  catch (e) { return Response.json({ error: safeMessage(e, "Diary failed") }, { status: 500 }); }
 }

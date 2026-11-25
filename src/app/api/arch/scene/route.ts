@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { readFile, mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { requireUser } from "@/lib/supabase/server";
@@ -56,6 +57,6 @@ export async function POST(req: Request) {
     const r = await run;
     return "stale" in r ? Response.json({ error: "A newer version is saved", rev: r.stale }, { status: 409 }) : Response.json(r);
   } catch (e) {
-    return Response.json({ error: `Couldn't save: ${e instanceof Error ? e.message : "unknown error"}` }, { status: 500 });
+    return Response.json({ error: `Couldn't save: ${safeMessage(e, "unknown error")}` }, { status: 500 });
   }
 }

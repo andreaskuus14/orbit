@@ -1,3 +1,4 @@
+import { safeMessage } from "@/lib/api-error-pure";
 import { requireUser } from "@/lib/supabase/server";
 import { captureMemory, fileHash, type Kind } from "@/lib/memory";
 import { cleanTags, str } from "@/lib/pure";
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
   try {
     text = await extractText(buf, type);
   } catch (e) {
-    return Response.json({ error: `Couldn't read that file: ${e instanceof Error ? e.message : "unknown error"}` }, { status: 422 });
+    return Response.json({ error: `Couldn't read that file: ${safeMessage(e, "unknown error")}` }, { status: 422 });
   }
 
   const note = str(form?.get("note"), 20_000) ?? "";
@@ -55,6 +56,6 @@ export async function POST(req: Request) {
     return Response.json({ ...out, extractedChars: text.length }, { status: "preview" in out ? 409 : 201 });
   } catch (e) {
     if (path) await sb.storage.from("vault").remove([path]); // don't leave an orphaned file
-    return Response.json({ error: e instanceof Error ? e.message : "Could not save" }, { status: 500 });
+    return Response.json({ error: safeMessage(e, "Could not save") }, { status: 500 });
   }
 }

@@ -10,7 +10,7 @@ import type { ActItem, ActUndo } from "./activity-pure.ts";
 import { undoKey } from "./activity-pure.ts";
 import { isPrivate, isPrivateKind } from "./private-pure.ts";
 import type { Progress } from "./progress-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 
 export const TM_MAX = 2000; // records kept
 export const TM_TZ = "Europe/Tallinn";
