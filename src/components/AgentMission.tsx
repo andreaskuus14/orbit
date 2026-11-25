@@ -79,10 +79,10 @@ export default function AgentMission({ agent, onClose, status: given, visible = 
 
   return (
     <div className="space-y-3">
-      <button className="chip" onClick={onClose}>← All agents</button>
+      <button className="chip" onClick={onClose}>{t("agm.all")}</button>
       <header className="flex items-start justify-between gap-2">
         <div>
-          <div className="hud-title">MISSION CONTROL</div>
+          <div className="hud-title uppercase">{t("agm.mc")}</div>
           <h2 ref={title} tabIndex={-1} className="text-lg font-semibold outline-none" style={{ color: agent.color }}>{agent.name}</h2>
           {agent.role && <p className="muted text-xs">{agent.role}</p>}
         </div>
@@ -92,55 +92,55 @@ export default function AgentMission({ agent, onClose, status: given, visible = 
       <AgentStatsCard agent={agent.slug} />
 
       {live && cur ? (
-        <section className="card space-y-2" aria-label="Current task">
+        <section className="card space-y-2" aria-label={t("agm.curTask")}>
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <div className="hud-title text-[0.7rem]">CURRENT</div>
+              <div className="hud-title text-[0.7rem] uppercase">{t("agm.current")}</div>
               <p className="text-sm font-medium break-words">{cur.title}</p>
-              <p className="muted text-xs">{cur.started_at ? `started ${timeAgo(cur.started_at, now)}` : `queued ${timeAgo(cur.created_at, now)}`}</p>
+              <p className="muted text-xs">{cur.started_at ? t("agm.started", { ago: timeAgo(cur.started_at, now) }) : t("agm.queued", { ago: timeAgo(cur.created_at, now) })}</p>
             </div>
             <StatusPill status={cur.status} />
           </div>
 
           {holder && (
-            <div className="space-y-2 rounded-lg border p-2 text-xs" style={{ borderColor: "rgba(251,191,36,0.4)" }} aria-label="Pending approvals">
-              <div className="hud-title text-[0.7rem]" style={{ color: "#fbbf24" }}>NEEDS YOUR APPROVAL</div>
+            <div className="space-y-2 rounded-lg border p-2 text-xs" style={{ borderColor: "rgba(251,191,36,0.4)" }} aria-label={t("agm.pending")}>
+              <div className="hud-title text-[0.7rem] uppercase" style={{ color: "#fbbf24" }}>{t("agm.needs")}</div>
               {pend.map((p, i) => (
-                <p key={i} className="break-words"><b>{p.tool.replace(/_/g, " ")}</b>{holder.agent !== agent.slug ? <span className="muted"> · via {holder.agent}</span> : null}: {String(p.input.title ?? p.input.name ?? p.input.query ?? "").slice(0, 200)}</p>
+                <p key={i} className="break-words"><b>{p.tool.replace(/_/g, " ")}</b>{holder.agent !== agent.slug ? <span className="muted"> · {t("agm.via", { who: holder.agent })}</span> : null}: {String(p.input.title ?? p.input.name ?? p.input.query ?? "").slice(0, 200)}</p>
               ))}
               <a className="link" href={ops(holder.id)}>{t("agt.approveOps")}</a>
             </div>
           )}
           {!holder && d && cur.status === "awaiting_approval" && onOpenTask && (
-            <button className="link text-xs" style={{ color: "#fbbf24" }} onClick={() => onOpenTask(cur.id)}>Waiting on a nested sub-task: open in Operations to approve →</button>
+            <button className="link text-xs" style={{ color: "#fbbf24" }} onClick={() => onOpenTask(cur.id)}>{t("agm.nested")}</button>
           )}
 
-          <ol className="max-h-56 space-y-0.5 overflow-y-auto font-mono text-[0.7rem]" aria-label="Live step log" aria-live="polite">
-            {log.map((l) => <li key={l.key} className="break-words"><span style={{ color: l.ok ? "var(--mint)" : "var(--rose)" }} aria-label={l.ok ? "ok" : "failed"}>{l.ok ? "✓" : "✗"}</span> {l.who && <b>{l.who} · </b>}{l.text}</li>)}
-            {!log.length && <li className="muted">{d ? "No steps yet." : "Loading trace…"}</li>}
+          <ol className="max-h-56 space-y-0.5 overflow-y-auto font-mono text-[0.7rem]" aria-label={t("agm.log")} aria-live="polite">
+            {log.map((l) => <li key={l.key} className="break-words"><span style={{ color: l.ok ? "var(--mint)" : "var(--rose)" }} aria-label={l.ok ? t("agm.ok") : t("agm.failed")}>{l.ok ? "✓" : "✗"}</span> {l.who && <b>{l.who} · </b>}{l.text}</li>)}
+            {!log.length && <li className="muted">{d ? t("agm.noSteps") : t("agm.loadTrace")}</li>}
           </ol>
           <div className="flex flex-wrap gap-2">
             {(cur.status === "queued" || cur.status === "running") && <a className="chip" href={ops(cur.id)}>{t("agt.cancelOps")}</a>}
-            {onOpenTask && <button className="link text-xs" onClick={() => onOpenTask(cur.id)}>Open in Operations →</button>}
+            {onOpenTask && <button className="link text-xs" onClick={() => onOpenTask(cur.id)}>{t("agm.openOps")}</button>}
           </div>
         </section>
-      ) : tasks && <p className="muted text-sm">{agent.name} is free.</p>}
+      ) : tasks && <p className="muted text-sm">{t("agm.free", { name: agent.name })}</p>}
 
       <a className="btn inline-block" href={ops()}>{t("agt.giveTask", { name: agent.name })}</a>
 
-      <section aria-label="Recent results">
-        <div className="hud-title">RECENT RESULTS</div>
-        {!tasks ? <p className="muted text-xs">Loading…</p> : !recent.length ? <p className="muted text-xs">No finished tasks yet.</p> : (
+      <section aria-label={t("agm.recent")}>
+        <div className="hud-title uppercase">{t("agm.recent")}</div>
+        {!tasks ? <p className="muted text-xs">{t("agm.loading")}</p> : !recent.length ? <p className="muted text-xs">{t("agm.none")}</p> : (
           <ul className="mt-1 space-y-2 text-xs">
-            {recent.map((t) => (
-              <li key={t.id} className="card space-y-1">
+            {recent.map((x) => (
+              <li key={x.id} className="card space-y-1">
                 <div className="flex items-start justify-between gap-2">
-                  <p className="min-w-0 break-words font-medium">{t.title}</p>
-                  <StatusPill status={t.status} />
+                  <p className="min-w-0 break-words font-medium">{x.title}</p>
+                  <StatusPill status={x.status} />
                 </div>
-                <p className="muted">{timeAgo(t.finished_at ?? t.created_at, now)}</p>
-                {(t.result || t.error) && <p className={`break-words ${t.error && !t.result ? "error" : ""}`}>{excerpt(t.result || t.error)}</p>}
-                {onOpenTask && <button className="link" onClick={() => onOpenTask(t.id)} aria-label={`Open “${t.title.slice(0, 60)}” in Operations`}>Open in Operations →</button>}
+                <p className="muted">{timeAgo(x.finished_at ?? x.created_at, now)}</p>
+                {(x.result || x.error) && <p className={`break-words ${x.error && !x.result ? "error" : ""}`}>{excerpt(x.result || x.error)}</p>}
+                {onOpenTask && <button className="link" onClick={() => onOpenTask(x.id)} aria-label={t("agm.openTitle", { title: x.title.slice(0, 60) })}>{t("agm.openOps")}</button>}
               </li>
             ))}
           </ul>
