@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useT } from "./i18n";
 import type { Margin } from "@/lib/niche-pure";
 import { eur, fixScenario, fmt, histogram, KEYS, scenarioFrom, simulate, SPEC, takeaways, type Key, type Result, type Scenario } from "@/lib/whatif-pure";
 
@@ -23,6 +24,7 @@ function makeSim(): Sim {
 }
 
 export default function WhatIf({ margin }: { margin: Margin }) {
+  const { t } = useT();
   const [scen, setScen] = useState<Scenario[]>(() => [scenarioFrom(margin)]);
   const [res, setRes] = useState<(Result | null)[]>([null]);
   const [err, setErr] = useState("");
@@ -44,11 +46,11 @@ export default function WhatIf({ margin }: { margin: Margin }) {
   const hists = res.map((r) => (r ? histogram(r.profits, lo, hi, BINS) : null));
   const top = Math.max(1, ...hists.flatMap((h) => h ?? []));
   return (
-    <div className="space-y-2 rounded-md border border-white/10 p-2" aria-label="What-if simulator">
+    <div className="space-y-2 rounded-md border border-white/10 p-2" aria-label={t("wif.sim")}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="muted text-xs">10,000 simulated months. Every month picks each input from your range (most often near the middle).</p>
+        <p className="muted text-xs">{t("wif.help")}</p>
         <button className="chip" aria-pressed={scen.length === 2} onClick={() => { setScen((xs) => (xs.length === 2 ? [xs[0]] : [xs[0], structuredClone(xs[0])])); setRes((r) => [r[0]]); }}>
-          {scen.length === 2 ? "Single scenario" : "Compare with B"}</button>
+          {scen.length === 2 ? t("wif.single") : t("wif.compare")}</button>
       </div>
       {err && <p className="error" role="alert">{err}</p>}
       <div className={`grid gap-3 ${scen.length === 2 ? "md:grid-cols-2" : ""}`}>
@@ -62,13 +64,14 @@ export default function WhatIf({ margin }: { margin: Margin }) {
 
 function Panel({ name, s, r, h, lo, hi, top, set }: { name: string; s: Scenario; r: Result | null; h: number[] | null; lo: number; hi: number; top: number; set: (s: Scenario) => void }) {
   const W = 240, H = 70, x = (v: number) => ((v - lo) / (hi - lo)) * W, bw = W / BINS;
-  const maxSwing = Math.max(1e-9, ...(r?.tornado.map((t) => t.swing) ?? []));
+  const { t } = useT();
+  const maxSwing = Math.max(1e-9, ...(r?.tornado.map((x) => x.swing) ?? []));
   return (
-    <section className="min-w-0 space-y-2" aria-label={name ? `Scenario ${name}` : "Scenario"}>
-      {name && <b className="text-xs">Scenario {name}</b>}
+    <section className="min-w-0 space-y-2" aria-label={name ? t("wif.scenN", { n: name }) : t("wif.scen")}>
+      {name && <b className="text-xs">{t("wif.scenN", { n: name })}</b>}
       {r && h && <>
         <svg viewBox={`0 0 ${W} ${H + 12}`} className="w-full" role="img"
-          aria-label={`Monthly profit: median ${eur(r.p50)}, 5th to 95th percentile ${eur(r.p5)} to ${eur(r.p95)}, ${Math.round(r.pLoss * 100)}% of months lose money`}>
+          aria-label={t("wif.chartL", { med: eur(r.p50), lo: eur(r.p5), hi: eur(r.p95), loss: Math.round(r.pLoss * 100) })}>
           {h.map((c, b) => {
             const bh = (c / top) * H, left = lo + b * (hi - lo) / BINS;
             return <rect key={b} x={b * bw + 0.5} y={H - bh} width={bw - 1} height={bh} fill={left + (hi - lo) / BINS / 2 < 0 ? "var(--rose)" : "var(--mint)"} opacity={0.8} />;
@@ -78,27 +81,27 @@ function Panel({ name, s, r, h, lo, hi, top, set }: { name: string; s: Scenario;
           <text x={0} y={H + 10} fontSize={8} fill="var(--muted)">{eur(lo)}</text>
           <text x={W} y={H + 10} fontSize={8} fill="var(--muted)" textAnchor="end">{eur(hi)}</text>
         </svg>
-        <p className="text-xs"><span className="num">{Math.round(r.pLoss * 100)}%</span> loss months · median <b className="num">{eur(r.p50)}</b> · 90% between <span className="num">{eur(r.p5)}</span> and <span className="num">{eur(r.p95)}</span></p>
-        <ul className="list-disc space-y-0.5 pl-4 text-xs">{takeaways(fixScenario(s), r).map((t) => <li key={t}>{t}</li>)}</ul>
-        <div className="space-y-0.5 text-xs" aria-label="What matters most (profit with one input at its low and high end, others in the middle)">
-          <div className="muted">What matters most</div>
-          {r.tornado.map((t) => (
-            <div key={t.key} className="grid grid-cols-[8.5rem_1fr] items-center gap-2" title={`${SPEC[t.key].label}: ${eur(t.atLo)} at the low end, ${eur(t.atHi)} at the high end`}>
-              <span className="truncate muted">{SPEC[t.key].label}</span>
-              <span className="flex items-center gap-1.5"><span className="h-2 rounded-sm" style={{ width: `${(t.swing / maxSwing) * 60}%`, background: "var(--cyan)", minWidth: 1 }} />
-                <span className="num whitespace-nowrap">{eur(t.swing)}</span></span>
+        <p className="text-xs">{t("wif.sum", { loss: Math.round(r.pLoss * 100), med: eur(r.p50), lo: eur(r.p5), hi: eur(r.p95) })}</p>
+        <ul className="list-disc space-y-0.5 pl-4 text-xs">{takeaways(fixScenario(s), r).map((x) => <li key={x}>{x}</li>)}</ul>
+        <div className="space-y-0.5 text-xs" aria-label={t("wif.mattersL")}>
+          <div className="muted">{t("wif.matters")}</div>
+          {r.tornado.map((x) => (
+            <div key={x.key} className="grid grid-cols-[8.5rem_1fr] items-center gap-2" title={t("wif.swingTip", { k: SPEC[x.key].label, lo: eur(x.atLo), hi: eur(x.atHi) })}>
+              <span className="truncate muted">{SPEC[x.key].label}</span>
+              <span className="flex items-center gap-1.5"><span className="h-2 rounded-sm" style={{ width: `${(x.swing / maxSwing) * 60}%`, background: "var(--cyan)", minWidth: 1 }} />
+                <span className="num whitespace-nowrap">{eur(x.swing)}</span></span>
             </div>
           ))}
         </div>
       </>}
-      {!r && <p className="muted text-xs">Simulating…</p>}
+      {!r && <p className="muted text-xs">{t("wif.simulating")}</p>}
       <details className="text-xs" open>
-        <summary className="cursor-pointer"><b>Ranges</b></summary>
+        <summary className="cursor-pointer"><b>{t("wif.ranges")}</b></summary>
         <div className="space-y-1.5 pt-1">
           {KEYS.map((k) => <RangeRow key={k} k={k} s={s} set={set} />)}
-          <label className="flex items-center justify-between gap-2"><span className="muted">Fees (payment + platform) %</span>
+          <label className="flex items-center justify-between gap-2"><span className="muted">{t("wif.fees")}</span>
             <input className="field w-20" type="number" min={0} max={30} step={0.5} value={Math.round(s.feePct * 1000) / 10} onChange={(e) => set({ ...s, feePct: Number(e.target.value) / 100 })} /></label>
-          <label className="flex items-center justify-between gap-2"><span className="muted">Fixed costs / month (shop plan, apps) €</span>
+          <label className="flex items-center justify-between gap-2"><span className="muted">{t("wif.fixed")}</span>
             <input className="field w-20" type="number" min={0} step={5} value={s.fixed} onChange={(e) => set({ ...s, fixed: Number(e.target.value) })} /></label>
         </div>
       </details>

@@ -50,11 +50,11 @@ export function DaylightPanel({ parts, site, d, onChange }: { parts: Part[]; sit
   }
 
   return (
-    <div className="card space-y-1.5" aria-label="Daylight study">
-      <div className="muted text-[12px] font-medium">Daylight study · {site.name} · {t("arch.studyEstimate")}</div>
+    <div className="card space-y-1.5" aria-label={t("adl.study")}>
+      <div className="muted text-[12px] font-medium">{t("adl.study")} · {site.name} · {t("arch.studyEstimate")}</div>
       <div className="flex flex-wrap items-center gap-1.5">
-        <button className="btn" disabled={busy !== null} onClick={() => void run()}>{busy !== null ? `Sampling ${MONTHS[busy]}… ${busy + 1}/12` : d ? "Run again" : "☀ Study daylight"}</button>
-        {d && <button className="chip" onClick={() => onChange(null)}>Clear</button>}
+        <button className="btn" disabled={busy !== null} onClick={() => void run()}>{busy !== null ? t("adl.sampling", { m: MONTHS[busy], i: busy + 1 }) : d ? t("adl.again") : t("adl.run")}</button>
+        {d && <button className="chip" onClick={() => onChange(null)}>{t("adl.clear")}</button>}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs" aria-label={t("arch.dayInputs")}>
         {(["day", "stepMin", "year", "dfDiv"] as const).map((k) => <label key={k} className="flex items-center gap-1">{t(`arch.dayIn.${k}`)}
@@ -62,17 +62,17 @@ export function DaylightPanel({ parts, site, d, onChange }: { parts: Part[]; sit
         <button className="chip" onClick={() => { setInp(DAYLIGHT_INPUTS); try { localStorage.removeItem(KEY); } catch { /* ignore */ } }}>{t("arch.energyReset")}</button>
       </div>
       <p className="muted text-[11px]">{t("arch.dayInputsNote", { day: inp.day, step: inp.stepMin, year: inp.year, div: inp.dfDiv })}</p>
-      {d && !d.rooms.length && <p className="text-xs">No enclosed rooms found. Rooms are what the walls of one floor enclose; add a shell or close the interior walls.</p>}
+      {d && !d.rooms.length && <p className="text-xs">{t("adl.noRooms")}</p>}
       {d?.rooms.map((r) => {
         const max = Math.max(...d.rooms.map((x) => x.annualHours)), room = d.plan.rooms.find((x) => x.id === r.id)!;
         return <div key={r.id} className="space-y-1">
           <div className="flex items-center gap-2 text-xs">
             <span className="inline-block h-3 w-3 rounded-sm" style={{ background: tint(r.annualHours, max), outline: r.noDecSun ? `2px solid ${WARN}` : undefined }} aria-hidden />
-            <span className="font-semibold">{r.name}</span><span className="muted num">{room.area} m² · {room.windows.length} window{room.windows.length === 1 ? "" : "s"}</span>
+            <span className="font-semibold">{r.name}</span><span className="muted num">{room.area} m² · {t("adl.windows", { n: room.windows.length })}</span>
           </div>
-          <p className="text-xs"><span className="num">{r.annualHours.toLocaleString("en")}</span> h direct sun a year · June {d.inp.day}: <span className="num">{r.junHours}</span> h · Dec {d.inp.day}: <span className="num">{r.decHours}</span> h
-            {r.noDecSun && <span style={{ color: WARN }}> · no direct sun in December</span>}</p>
-          <p className="muted text-[11px]">Window-to-floor <span className="num">{r.wfr}%</span> → daylight factor ≈ <span className="num">{r.df}%</span> ({dfBand(r.df)}).</p>
+          <p className="text-xs">{t("adl.hours", { a: r.annualHours.toLocaleString("en"), day: d.inp.day, jun: r.junHours, dec: r.decHours })}
+            {r.noDecSun && <span style={{ color: WARN }}> · {t("adl.noDec")}</span>}</p>
+          <p className="muted text-[11px]">{t("adl.df", { wfr: r.wfr, df: r.df, band: dfBand(r.df) })}</p>
           <div className="grid gap-px" style={{ gridTemplateColumns: `1rem repeat(${d.months[0]?.up.length ?? 24}, 1fr)` }} role="img"
             aria-label={`${r.name}: sun by month and hour, ${r.decHours} hours on December ${d.inp.day}, ${r.junHours} on June ${d.inp.day}`}>
             {d.months.map((m, mi) => [<span key={`l${mi}`} className="muted text-[9px] leading-[8px]">{MONTHS[mi]}</span>,
@@ -81,10 +81,8 @@ export function DaylightPanel({ parts, site, d, onChange }: { parts: Part[]; sit
           </div>
         </div>;
       })}
-      {d && d.rooms.length > 0 && <p className="muted text-[11px]">Strip: months down, solar hours 0–23 across (noon = sun due south); amber = sun through a window, pale = sun up but not on the glass, dark = night.
-        Floors in 3D: grey = no sun → amber = sunniest; red edge = no direct sun on December {d.inp.day}.</p>}
-      <p className="muted text-[11px]">Study estimate: the sampled day of each month at the step above, rays tested against your blocks (roof as a box; no trees, terrain or neighbours unless you model them).
-        Daylight factor uses a rule of thumb, DF ≈ window-to-floor ratio ÷ {inp.dfDiv} (BRE formula with a typical room gives ÷ 5). Not a certified daylight calculation.</p>
+      {d && d.rooms.length > 0 && <p className="muted text-[11px]">{t("adl.strip", { day: d.inp.day })}</p>}
+      <p className="muted text-[11px]">{t("adl.note", { div: inp.dfDiv })}</p>
     </div>
   );
 }
