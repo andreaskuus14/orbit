@@ -1,12 +1,14 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import type { EpisodeView } from "@/lib/episodes-pure";
+import { useT } from "./i18n";
 
 // MEMORY → Episodes: the moments ORBIT remembers (calls, decisions, wins, setbacks, milestones). Data: /api/memories/episodes (episodes.ts).
 
 const ICON: Record<EpisodeView["type"], string> = { call: "📞", decision: "⚖️", win: "🏆", failure: "🌧️", milestone: "🚩" };
 
 export function EpisodesList({ onOpen }: { onOpen: (id: string) => void }) {
+  const { t } = useT();
   const [eps, setEps] = useState<EpisodeView[] | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -18,15 +20,15 @@ export function EpisodesList({ onOpen }: { onOpen: (id: string) => void }) {
     try {
       const r = await fetch("/api/memories/episodes", { method: "POST" }), j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
-      setMsg(j.added ? `${j.added} new episode${j.added === 1 ? "" : "s"}.` : "Nothing new to remember.");
+      setMsg(j.added ? (j.added === 1 ? t("eps.new1") : t("eps.newN", { n: j.added })) : t("eps.nothing"));
       await load();
-    } catch (e) { setMsg(e instanceof Error ? e.message : "Could not build"); } finally { setBusy(false); }
+    } catch (e) { setMsg(e instanceof Error ? e.message : t("eps.buildFail")); } finally { setBusy(false); }
   }
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <p className="muted text-xs">Built every night from calls, your decisions, wins, setbacks and milestones. Never from your journal. CORE brings one up when it fits.</p>
-        <button type="button" className="chip shrink-0" disabled={busy} onClick={build}>{busy ? "Building…" : "Build now"}</button>
+        <p className="muted text-xs">{t("eps.help")}</p>
+        <button type="button" className="chip shrink-0" disabled={busy} onClick={build}>{busy ? t("eps.building") : t("eps.build")}</button>
       </div>
       {msg && <p className="muted text-xs" role="status">{msg}</p>}
       <ul className="space-y-2">
@@ -39,8 +41,8 @@ export function EpisodesList({ onOpen }: { onOpen: (id: string) => void }) {
             </button>
           </li>
         ))}
-        {eps && !eps.length && <li className="muted">No episodes yet. They appear after tonight, or press Build now.</li>}
-        {!eps && !msg && <li className="muted">Loading…</li>}
+        {eps && !eps.length && <li className="muted">{t("eps.empty")}</li>}
+        {!eps && !msg && <li className="muted">{t("eps.loading")}</li>}
       </ul>
     </div>
   );

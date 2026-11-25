@@ -42,7 +42,7 @@ export function KaggleBurst() {
         <span className="muted">{!v.on ? t("kag.off") : !v.setup.ok ? t("kag.notSetUp", { hint: v.setup.hint })
           : `${t("kag.hours", { left: `${v.hoursLeft.toFixed(1)} h` })}${v.quota?.refreshAt ? ` · ${t("kag.resets", { at: new Date(v.quota.refreshAt).toLocaleString() })}` : ""}`}</span>
       </div>
-      <p className="muted">{t("kag.help")} Setup: <code className="select-all">powershell -ExecutionPolicy Bypass -File tools\kaggle\setup.ps1</code></p>
+      <p className="muted">{t("kag.help")} {t("kag.setup")} <code className="select-all">powershell -ExecutionPolicy Bypass -File tools\kaggle\setup.ps1</code></p>
       {j && (
         <div className="grid gap-1">
           <div className="flex flex-wrap items-center justify-between gap-2">

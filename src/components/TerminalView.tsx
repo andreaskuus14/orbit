@@ -55,7 +55,7 @@ export function TerminalView() {
         <input className="input flex-1 font-mono text-sm" value={cmd} onChange={(e) => setCmd(e.target.value)} placeholder={t("term.placeholder")} aria-label={t("term.command")} />
         <button className="btn" disabled={busy === "run" || !cmd.trim()}>{t("term.run")}</button>
       </form>
-      {!data ? <p className="muted">Loading…</p> : !data.sessions.length ? <p className="muted text-sm">{t("term.none")}</p> : data.sessions.map((s) => (
+      {!data ? <p className="muted">{t("tv.loading")}</p> : !data.sessions.length ? <p className="muted text-sm">{t("term.none")}</p> : data.sessions.map((s) => (
         <section key={s.id} className="card space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <b>{s.name}</b><span className="muted text-xs">{s.shell} · {s.cwd}{s.venv ? ` · venv ${s.venv}` : ""}</span>

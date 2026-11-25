@@ -86,7 +86,7 @@ const d = (signal: rules.Signal, key: string): notices.NotifyDetail => ({ title:
 test("real Herald waits for idle, renders why, and batches the next useful item into the bell", () => {
   const h = ui(); h.emit(d("briefing", "one")); assert.equal(h.nodes("article").length, 0);
   h.tick(rules.IDLE_MS); assert.equal(h.nodes("article").length, 1);
-  assert.equal(h.nodes("p").find((p) => p.props["aria-label"] === "Why this appeared").props.children, "Measured reason one");
+  assert.equal(h.nodes("p").find((p) => p.props["aria-label"] === "her.why").props.children, "Measured reason one");
   h.emit(d("agent-finished", "two")); assert.equal(h.nodes("article").length, 1); assert.equal(h.bell.length, 2); h.close();
 });
 test("real Herald blocks world/core work and immediately shows urgent without speaking while voice is off", () => {
@@ -96,7 +96,7 @@ test("real Herald blocks world/core work and immediately shows urgent without sp
 });
 test("real dismiss controls quiet a kind twice; subsequent notices remain in the bell", () => {
   const h = ui();
-  for (const key of ["one", "two"]) { h.emit(d("disk-full", key)); const close = h.nodes("button").find((b) => b.props["aria-label"] === `Dismiss: Update ${key}`); assert.ok(close); close.props.onClick(); h.flush(); }
+  for (const key of ["one", "two"]) { h.emit(d("disk-full", key)); const close = h.nodes("button").find((b) => b.props["aria-label"] === "her.dismissL"); assert.ok(close); close.props.onClick(); h.flush(); }
   assert.deepEqual(clone(h.store.loadJudgment().muted), ["disk-full"]);
   h.emit(d("disk-full", "three")); assert.equal(h.nodes("article").length, 0); assert.equal(h.bell.length, 3); h.close();
 });

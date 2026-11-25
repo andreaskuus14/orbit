@@ -5,6 +5,7 @@ import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { Html } from "@react-three/drei";
 import { halos, type Graph } from "@/lib/memory-graph-pure";
+import { useT } from "./i18n";
 
 type Pt = { id: string; title: string; x: number; y: number; z: number };
 const HUES = ["#7dc4ff", "#ffd27a", "#b8f0a8", "#ff9ec7", "#c3b4ff", "#7de3d0", "#ffb27a", "#f0a8ff", "#fff3a8", "#ff8f8f"];
@@ -41,20 +42,21 @@ export function ClusterHalos({ graph, items }: { graph: Graph; items: Pt[] }) {
 export function ClusterList({ graph, items, onFly, onSelect }: {
   graph: Graph; items: Pt[]; onFly: (at: [number, number, number], dist: number) => void; onSelect: (index: number) => void;
 }) {
+  const { t } = useT();
   const hs = useHalos(graph, items), index = useMemo(() => new Map(items.map((m, i) => [m.id, i])), [items]);
   const name = new Map(graph.clusters.map((c) => [c.id, c.name]));
   const bridges = graph.bridges.filter((b) => index.has(b.id)).slice(0, 8);
   if (!hs.length) return null;
   return (
     <details className="space-y-1.5">
-      <summary className="muted cursor-pointer text-[12px] font-medium">Clusters · {hs.length}</summary>
+      <summary className="muted cursor-pointer text-[12px] font-medium">{t("mcl.clusters")} · {hs.length}</summary>
       <ul className="flex flex-wrap gap-1.5">{[...hs].sort((a, b) => b.size - a.size).map((h) => (
         <li key={h.id}><button className="chip" title={graph.clusters.find((c) => c.id === h.id)?.keywords.join(", ")} onClick={() => onFly(h.at, Math.min(48, Math.max(9, h.r * 3)))}>
           <i aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 9, background: hue(h.id) }} />{h.name} <span className="muted num">{h.size}</span></button></li>
       ))}</ul>
-      {bridges.length > 0 && <ul className="space-y-0.5" aria-label="Bridge memories">{bridges.map((b) => (
+      {bridges.length > 0 && <ul className="space-y-0.5" aria-label={t("mcl.bridges")}>{bridges.map((b) => (
         <li key={b.id}><button className="chip w-full justify-start text-left" onClick={() => onSelect(index.get(b.id)!)}>
-          <span className="truncate">“{b.title}” connects <b>{name.get(b.a)}</b> and <b>{name.get(b.b)}</b></span></button></li>
+          <span className="truncate">{t("mcl.connects", { x: b.title, a: name.get(b.a) ?? "", b: name.get(b.b) ?? "" })}</span></button></li>
       ))}</ul>}
     </details>
   );

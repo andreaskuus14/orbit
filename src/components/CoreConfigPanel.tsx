@@ -24,7 +24,7 @@ export default function CoreConfigPanel() {
   ];
   return (
     <section aria-label={t("coreCfg.aria")}>
-      <div className="hud-title">CORE CONFIG</div>
+      <div className="hud-title uppercase">{t("ccfg.title")}</div>
       <dl className="mt-2 space-y-1 text-xs">
         {rows.map(([k, v]) => <div key={k}><dt className="muted inline">{k}: </dt><dd className="inline">{v}</dd></div>)}
       </dl>

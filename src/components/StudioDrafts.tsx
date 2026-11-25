@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { contentHash, spendContent } from "@/lib/approval-pure";
+import { useT } from "./i18n";
 import { bySite } from "@/lib/site-pictures-pure";
 
 // STUDIO → Websites (pictures made for sites, grouped per site, one Approve-all click each) and STUDIO → Other (drafts tied to
@@ -25,6 +26,7 @@ async function call<T>(url: string, body?: unknown): Promise<T> {
 }
 
 export default function StudioDrafts({ section }: { section: "websites" | "other" }) {
+  const { t } = useT();
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [err, setErr] = useState("");
@@ -83,12 +85,12 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
 
   const groups = section === "websites" ? bySite(jobs ?? []) : [];
   return (
-    <section className="glass hud-panel h-full space-y-3 overflow-y-auto p-4" aria-label={section === "websites" ? "Websites" : "Other"}>
+    <section className="glass hud-panel h-full space-y-3 overflow-y-auto p-4" aria-label={section === "websites" ? t("sdr.websites") : t("sdr.other")}>
       <header>
-        <h3 className="hud-title studio-title !text-[0.7rem]">{section === "websites" ? "WEBSITES" : "OTHER"}</h3>
+        <h3 className="hud-title studio-title !text-[0.7rem]"><span className="uppercase">{section === "websites" ? t("sdr.websites") : t("sdr.other")}</span></h3>
         <p className="muted text-xs">{section === "websites"
-          ? "Photos CORE drafted for your sites, one card per site. The site already shows drawn stand-ins; one Approve click makes the real photos and ORBIT puts them into the site at the same paths. Nothing is generated before your click, and none of this goes to YouTube."
-          : "Pictures and videos CORE drafted that belong to neither a site nor YouTube. Nothing is generated before your Approve click."}</p>
+          ? t("sdr.webHelp")
+          : t("sdr.otherHelp")}</p>
         {err && <p className="error mt-1 text-xs" role="alert">{err}</p>}
       </header>
       {section === "websites" && (
@@ -97,26 +99,26 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
           try { setMade(await call<{ name: string; preview: string; fill: string[]; assumed: string[] }>("/api/sites/idea", { idea })); setIdea(""); }
           catch (x) { setErr(String((x as Error).message ?? x)); } finally { setWorking(""); }
         }}>
-          <label className="muted block text-xs" htmlFor="site-idea">New site from one sentence</label>
+          <label className="muted block text-xs" htmlFor="site-idea">{t("sdr.newSite")}</label>
           <div className="flex gap-2">
-            <input id="site-idea" className="input flex-1 text-xs" value={idea} onChange={(e) => setIdea(e.target.value)} placeholder="A site for my lake sauna in Lahemaa, for couples booking an evening" maxLength={600} />
-            <button className="btn text-xs" disabled={idea.trim().length < 8 || working === "idea"}>{working === "idea" ? "Building…" : "Build"}</button>
+            <input id="site-idea" className="input flex-1 text-xs" value={idea} onChange={(e) => setIdea(e.target.value)} placeholder={t("sdr.ph")} maxLength={600} />
+            <button className="btn text-xs" disabled={idea.trim().length < 8 || working === "idea"}>{working === "idea" ? t("sdr.building") : t("sdr.build")}</button>
           </div>
-          {made && <p className="text-xs"><a className="underline" href={made.preview} target="_blank" rel="noreferrer">Open {made.name}</a>{made.fill.length ? ` · fill in: ${made.fill.join(", ")}` : ""}</p>}
-          {made && made.assumed.length > 0 && <div className="muted text-xs"><p>ORBIT assumed (check these):</p><ul className="list-disc pl-4">{made.assumed.map((a) => <li key={a}>{a}</li>)}</ul></div>}
+          {made && <p className="text-xs"><a className="underline" href={made.preview} target="_blank" rel="noreferrer">{t("sdr.open", { x: made.name })}</a>{made.fill.length ? ` · ${t("sdr.fill", { x: made.fill.join(", ") })}` : ""}</p>}
+          {made && made.assumed.length > 0 && <div className="muted text-xs"><p>{t("sdr.assumed")}</p><ul className="list-disc pl-4">{made.assumed.map((a) => <li key={a}>{a}</li>)}</ul></div>}
         </form>
       )}
-      {!jobs && !err && <p className="muted text-xs">Loading…</p>}
-      {jobs && !jobs.length && <p className="muted text-xs">{section === "websites" ? "No site pictures yet. Ask CORE for realistic photos on a site and they show up here." : "Nothing here yet."}</p>}
+      {!jobs && !err && <p className="muted text-xs">{t("sdr.loading")}</p>}
+      {jobs && !jobs.length && <p className="muted text-xs">{section === "websites" ? t("sdr.noPics") : t("sdr.nothing")}</p>}
 
       {groups.map((g) => {
         const preview = previews[g.workspace];
         const base = preview?.replace(/index\.html$/, "");
         return (
-          <article key={g.workspace} className="card space-y-2" aria-label={`Site ${g.workspace}`}>
+          <article key={g.workspace} className="card space-y-2" aria-label={t("sdr.siteL", { x: g.workspace })}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h4 className="text-sm font-semibold">{g.workspace}</h4>
-              {preview && <a className="chip" href={preview} target="_blank" rel="noreferrer">Open site preview ↗</a>}
+              {preview && <a className="chip" href={preview} target="_blank" rel="noreferrer">{t("sdr.preview")} ↗</a>}
             </div>
             {g.jobs.map((j) => (
               <div key={j.id} className="rounded border p-2" style={{ borderColor: "rgba(255,214,224,0.12)" }}>
@@ -135,7 +137,7 @@ export default function StudioDrafts({ section }: { section: "websites" | "other
                   })}
                 </ul>
                 {status(j)}
-                {j.site?.slots && j.status !== "done" && !busy(j) && <button className="chip mt-2" disabled={!!working} onClick={() => void local(j)} title="Free: ComfyUI on this PC (tools/comfyui/setup.ps1)">{working === `local:${j.id}` ? "Making photos on this PC (≈10 s each)…" : "🖥 Generate locally (free)"}</button>}
+                {j.site?.slots && j.status !== "done" && !busy(j) && <button className="chip mt-2" disabled={!!working} onClick={() => void local(j)} title={t("sdr.localTip")}>{working === `local:${j.id}` ? "Making photos on this PC (≈10 s each)…" : "🖥 Generate locally (free)"}</button>}
                 <Actions j={j} label="Approve all" />
               </div>
             ))}

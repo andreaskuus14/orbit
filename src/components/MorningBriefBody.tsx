@@ -99,7 +99,7 @@ export default function MorningBriefBody({ home, onOpenTask, onOpenGoal, onClose
             </ul>
           )}
           {b?.today && b.today.length > 0 && (
-            <div className="mt-4 grid gap-3" aria-label="Today">
+            <div className="mt-4 grid gap-3" aria-label={t("mbb.today")}>
               {b.today.map((g) => (
                 <section key={g.key} aria-labelledby={`mb-today-${g.key}`}>
                   <h3 id={`mb-today-${g.key}`} className="muted text-xs">{g.label}</h3>
@@ -119,7 +119,7 @@ export default function MorningBriefBody({ home, onOpenTask, onOpenGoal, onClose
                           )}
                         </li>
                       ))}
-                      {g.more ? <li className="muted text-xs">+{g.more} more</li> : null}
+                      {g.more ? <li className="muted text-xs">{t("mbb.more", { n: g.more })}</li> : null}
                     </ul>
                   )}
                 </section>

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useT } from "./i18n";
 import {
   buildGenUiSrcDoc,
   DEFAULT_GEN_UI_HEIGHT,
@@ -20,6 +21,7 @@ export function GenUiFrame({ block, onAction }: GenUiFrameProps) {
   const rawId = useId();
   const nonce = useMemo(() => `oui_${rawId.replace(/[^a-zA-Z0-9_-]/g, "")}_${block.id.replace(/[^a-zA-Z0-9_-]/g, "")}`, [rawId, block.id]);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const { t } = useT();
   const [height, setHeight] = useState<number>(block.height ?? DEFAULT_GEN_UI_HEIGHT);
   const [expanded, setExpanded] = useState(false);
   const [showSource, setShowSource] = useState(false);
@@ -103,33 +105,33 @@ export function GenUiFrame({ block, onAction }: GenUiFrameProps) {
 
             }}
           >
-            {block.streaming ? "Building…" : `Offline · ${block.kind}`}
+            {block.streaming ? t("gen.building") : `${t("gen.offline")} · ${block.kind}`}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button
             type="button"
-            aria-label={showSource ? "Show interactive view" : "Show widget source"}
+            aria-label={showSource ? t("gen.showView") : t("gen.showSrc")}
             onClick={() => setShowSource((v) => !v)}
             style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6 }}
           >
-            {showSource ? "Preview" : "Source"}
+            {showSource ? t("gen.preview") : t("gen.source")}
           </button>
           <button
             type="button"
-            aria-label="Copy widget HTML"
+            aria-label={t("gen.copyL")}
             onClick={copyHtml}
             style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6 }}
           >
-            {copied ? "Copied" : "Copy"}
+            {copied ? t("gen.copied") : t("gen.copy")}
           </button>
           <button
             type="button"
-            aria-label={expanded ? "Exit fullscreen" : "Expand interactive view"}
+            aria-label={expanded ? t("gen.exitFull") : t("gen.expandL")}
             onClick={() => setExpanded((v) => !v)}
             style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6 }}
           >
-            {expanded ? "Close" : "Expand"}
+            {expanded ? t("gen.close") : t("gen.expand")}
           </button>
         </div>
       </header>
@@ -137,20 +139,20 @@ export function GenUiFrame({ block, onAction }: GenUiFrameProps) {
       {pending && (pending.type === "ask" || pending.type === "copy") ? (
         <div role="status" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", fontSize: 12, color: "#e2e8f0", background: "rgba(251, 191, 36, 0.12)" }}>
           <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {pending.type === "ask" ? `This widget wants to ask CORE: "${pending.prompt}"` : "This widget wants to copy text to your clipboard."}
+            {pending.type === "ask" ? t("gen.wantsAsk", { p: pending.prompt }) : t("gen.wantsCopy")}
           </span>
-          <button type="button" onClick={confirmPending} style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6 }}>{pending.type === "ask" ? "Ask" : "Copy"}</button>
-          <button type="button" onClick={() => setPending(null)} style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6 }}>No</button>
+          <button type="button" onClick={confirmPending} style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6 }}>{pending.type === "ask" ? t("gen.ask") : t("gen.copy")}</button>
+          <button type="button" onClick={() => setPending(null)} style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6 }}>{t("gen.no")}</button>
         </div>
       ) : null}
 
       {block.streaming ? (
         <div style={{ padding: 16, color: "#94a3b8", fontSize: 13 }}>
-          Streaming interactive canvas…
+          {t("gen.streaming")}
         </div>
       ) : !validation?.ok ? (
         <div role="alert" style={{ padding: 14, color: "#fca5a5", fontSize: 13 }}>
-          <strong>Blocked by offline sandbox:</strong> {validation?.reason ?? "Invalid widget"}
+          <strong>{t("gen.blocked")}</strong> {validation?.reason ?? t("gen.invalid")}
         </div>
       ) : showSource ? (
         <pre

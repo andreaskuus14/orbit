@@ -68,8 +68,8 @@ export function EvidenceLog({ game, world, commit }: P) {
       </ul>
       <form className="space-y-1.5" onSubmit={add}>
         <div className="flex flex-wrap gap-1.5">
-          <select className="field py-1" aria-label="Kind" value={d.kind} onChange={set("kind")}>{EVIDENCE_KINDS.map((k) => <option key={k} value={k}>{t(`gd.k.${k}`)}</option>)}</select>
-          <select className="field py-1" aria-label="Outcome" value={d.outcome} onChange={set("outcome")}>{OUTCOMES.map((o) => <option key={o} value={o}>{t(`gd.o.${o}`)}</option>)}</select>
+          <select className="field py-1" aria-label={t("gdv.kind")} value={d.kind} onChange={set("kind")}>{EVIDENCE_KINDS.map((k) => <option key={k} value={k}>{t(`gd.k.${k}`)}</option>)}</select>
+          <select className="field py-1" aria-label={t("gdv.outcome")} value={d.outcome} onChange={set("outcome")}>{OUTCOMES.map((o) => <option key={o} value={o}>{t(`gd.o.${o}`)}</option>)}</select>
           <select className="field py-1" aria-label={t("gd.item")} value={d.bugId} onChange={set("bugId")}><option value="">{t("gd.item")}: {t("gd.none")}</option>{items.map((b) => <option key={b.id} value={b.id}>{b.title}</option>)}</select>
         </div>
         <div className="flex gap-1.5">

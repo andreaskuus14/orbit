@@ -105,7 +105,7 @@ export function NeedsYou({ onOpenTask, onOpenGoal, tasks = null, tasksFailed = f
       </span></div>
     {(err || loadFailed) && <p className="error" role="alert">{err || t("needs.loadFailed")}</p>}
     {controlled && (() => { const own = extra.filter((p) => !(items ?? []).some((n) => n.ref.includes(p.id))); return own.length ? <ul className="mb-2 space-y-2">{own.map((p) => <li key={p.id} className="!block !border-0 !p-0"><ProgressCard p={p} onAction={() => onOpenTask(p.id)} onOpen={() => onOpenTask(p.id)} /></li>)}</ul> : null; })()}
-    {digest && !(controlled && !list.length) && <ul className="muted text-xs" aria-label="Digest">{digest.lines.map((l) => <li key={l}>{l}</li>)}</ul>}
+    {digest && !(controlled && !list.length) && <ul className="muted text-xs" aria-label={t("ny.digest")}>{digest.lines.map((l) => <li key={l}>{l}</li>)}</ul>}
     {!items && !err && !loadFailed && <p className="muted" role="status">{t("needs.loading")}</p>}
     {items && !loadFailed && !items.length && !(controlled && extra.length) && <p className="muted">{t("needs.empty")}</p>}
     {!!list.length && <ul className="space-y-2">{list.slice(0, SHOWN).map((n) => <li key={n.ref} className="!block !border-0 !p-0">
