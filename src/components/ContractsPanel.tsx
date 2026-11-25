@@ -2,7 +2,9 @@
 import { getDeals } from "./deals-client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "./i18n";
-import { COVER_LANGS, NOT_LEGAL_ADVICE, STATUS_LABEL, coverEmail, revision, signedHref, TEMPLATES, TEMPLATE_IDS, changed, contractSendContent, current, diffWords, missing, type Contract, type Fields, type Signature, type TemplateId, type VClause, type Version } from "@/lib/contracts-pure";
+import { fieldLabelKey, statusKey, templateBlurbKey, templateTitleKey } from "@/lib/contracts-i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
+import { COVER_LANGS, coverEmail, revision, signedHref, TEMPLATES, TEMPLATE_IDS, changed, contractSendContent, current, diffWords, missing, type Contract, type Fields, type Signature, type TemplateId, type VClause, type Version } from "@/lib/contracts-pure";
 import { emailIn, type Prospect } from "@/lib/business-pure";
 import { contentHash } from "@/lib/approval-pure";
 
@@ -18,7 +20,7 @@ async function call(body?: object) {
   return json;
 }
 // A proposal's "countersigned" is the client accepting that revision (BUS07).
-const statusText = (c: Contract, t: (k: "ct.accepted") => string) => (c.template === "proposal" && c.status === "countersigned" ? t("ct.accepted") : STATUS_LABEL[c.status]);
+const statusText = (c: Contract, t: (k: Key) => string) => t(c.template === "proposal" && c.status === "countersigned" ? "ct.accepted" : statusKey(c.status));
 const statusTone = (s: Contract["status"]) => (s === "review" ? "error" : s === "countersigned" ? "ok" : "muted");
 
 export default function ContractsPanel({ prospects }: { prospects: Prospect[] }) {
@@ -42,7 +44,7 @@ export default function ContractsPanel({ prospects }: { prospects: Prospect[] })
   return (
     <section className="card space-y-2" aria-label={t("ctp.title")}>
       <h3 className="text-[12px] font-medium muted">{t("ctp.title")}</h3>
-      <p className="muted text-xs">{NOT_LEGAL_ADVICE} {t("ctp.neverSigns")}</p>
+      <p className="muted text-xs">{t("ctp.notLegal")} {t("ctp.neverSigns")}</p>
       <NewContract prospects={prospects} deals={deals} busy={busy} onCreate={async (b) => { const n = await act("create", { action: "create", ...b }); if (n) setOpen(n.id); return !!n; }} />
       {err && <p className="error" role="alert">{err}</p>}
       {st && !st.contracts.length && <p className="muted text-xs">{t("ctp.empty")}</p>}
@@ -71,14 +73,14 @@ function NewContract({ prospects, deals, busy, onCreate }: { prospects: Prospect
     <form className="space-y-1.5 rounded-md border border-white/10 p-2" aria-label={tr("ctp.new")} onSubmit={(e) => { e.preventDefault(); void go(true); }}>
       <div className="flex flex-wrap gap-1.5">
         <select className="chip min-w-0 max-w-full truncate" aria-label={tr("ctp.template")} value={tpl} onChange={(e) => setTpl(e.target.value as TemplateId)}>
-          {TEMPLATE_IDS.map((id) => <option key={id} value={id}>{TEMPLATES[id].title}</option>)}</select>
+          {TEMPLATE_IDS.map((id) => <option key={id} value={id}>{tr("ctp.tplOption", { title: tr(templateTitleKey(id)) })}</option>)}</select>
         <select className="chip min-w-0 max-w-full truncate" aria-label={tr("ctp.from")} value={src} onChange={(e) => { setSrc(e.target.value); if (e.target.value.startsWith("deal:")) setTpl("purchase"); }}>
           <option value="">{tr("ctp.fromNothing")}</option>
           {prospects.map((p) => <option key={p.id} value={`prospect:${p.id}`}>{tr("ctp.client", { name: p.name })}</option>)}
           {deals.map((d) => <option key={d.id} value={`deal:${d.id}`}>{tr("ctp.deal", { label: d.label.slice(0, 70) })}</option>)}
         </select>
       </div>
-      <p className="muted text-xs">{t.blurb} {tr("ctp.fillHelp")}</p>
+      <p className="muted text-xs">{tr(templateBlurbKey(tpl))} {tr("ctp.fillHelp")} {tr("ctp.enText")}</p>
       <FieldGrid t={tpl} f={fields} set={setFields} />
       <div className="flex flex-wrap gap-1.5">
         <button className="btn" disabled={!!busy}>{busy === "create" ? tr("ctp.drafting") : `✍ ${tr("ctp.draft")}`}</button>
@@ -90,13 +92,14 @@ function NewContract({ prospects, deals, busy, onCreate }: { prospects: Prospect
 }
 
 function FieldGrid({ t, f, set, disabled }: { t: TemplateId; f: Fields; set: (f: Fields) => void; disabled?: boolean }) {
+  const { t: tr } = useT();
   return (
     <div className="grid gap-1.5 sm:grid-cols-2">
       {TEMPLATES[t].fields.map((x) => (
-        <label key={x.key} className={`grid gap-0.5 text-xs ${x.long ? "sm:col-span-2" : ""}`}><span className="muted">{x.label}{x.required && " *"}</span>
-          {x.options ? <select className="field" value={f[x.key] ?? x.def ?? ""} disabled={disabled} onChange={(e) => set({ ...f, [x.key]: e.target.value })}>{x.options.map((o) => <option key={o}>{o}</option>)}</select>
-            : x.long ? <textarea className="field" rows={2} maxLength={2000} placeholder={x.def} value={f[x.key] ?? ""} disabled={disabled} onChange={(e) => set({ ...f, [x.key]: e.target.value })} />
-              : <input className="field" maxLength={200} placeholder={x.def} value={f[x.key] ?? ""} disabled={disabled} onChange={(e) => set({ ...f, [x.key]: e.target.value })} />}
+        <label key={x.key} className={`grid min-w-0 gap-0.5 text-xs ${x.long ? "sm:col-span-2" : ""}`}><span className="muted">{tr(fieldLabelKey(t, x.key))}{x.required && " *"}</span>
+          {x.options ? <select className="field w-full min-w-0" value={f[x.key] ?? x.def ?? ""} disabled={disabled} onChange={(e) => set({ ...f, [x.key]: e.target.value })}>{x.options.map((o) => <option key={o}>{o}</option>)}</select>
+            : x.long ? <textarea className="field w-full min-w-0" rows={2} maxLength={2000} placeholder={x.def} value={f[x.key] ?? ""} disabled={disabled} onChange={(e) => set({ ...f, [x.key]: e.target.value })} />
+              : <input className="field w-full min-w-0" maxLength={200} placeholder={x.def} value={f[x.key] ?? ""} disabled={disabled} onChange={(e) => set({ ...f, [x.key]: e.target.value })} />}
         </label>))}
     </div>
   );
@@ -145,14 +148,14 @@ function Detail({ c, canSend, busy, act }: { c: Contract; canSend: boolean; busy
           <p className="font-semibold">{t("ct.rev.title", { n: shown.n, p: prev.n })}</p>
           {rev.scope && <p className="warn">{t("ct.rev.scope")}</p>}
           {!rev.fields.length && !rev.clauses.length && <p className="muted">{t("ct.rev.none", { p: prev.n })}</p>}
-          {rev.fields.map((f) => <p key={f.key}><span className="muted">{f.label}:</span> <del className="bg-rose-500/20">{f.from || "—"}</del> → <ins className="bg-emerald-500/20 no-underline">{f.to || "—"}</ins></p>)}
+          {rev.fields.map((f) => <p key={f.key}><span className="muted">{t(fieldLabelKey(c.template, f.key))}:</span> <del className="bg-rose-500/20">{f.from || "—"}</del> → <ins className="bg-emerald-500/20 no-underline">{f.to || "—"}</ins></p>)}
           {rev.clauses.map((cl) => <p key={cl.id}><span className="muted">{cl.heading}:</span> {cl.pieces.map((x, k) => x.op === "same" ? <span key={k}>{x.text}</span>
             : x.op === "add" ? <ins key={k} className="bg-emerald-500/20 no-underline">{x.text}</ins> : <del key={k} className="bg-rose-500/20">{x.text}</del>)}</p>)}
         </div>)}
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="space-y-2">
           <FieldGrid t={c.template} f={fields} set={setFields} disabled={!editable || viewN !== v.n} />
-          {gaps.length > 0 && <p className="error text-xs">{t("ctp.missing", { list: gaps.map((g) => g.label).join(", ") })}</p>}
+          {gaps.length > 0 && <p className="error text-xs">{t("ctp.missing", { list: gaps.map((g) => t(fieldLabelKey(c.template, g.key))).join(", ") })}</p>}
           {editable && viewN === v.n && (
             <details><summary className="cursor-pointer text-xs">{t("ctp.editClauses")}</summary>
               <div className="mt-1 space-y-1.5">{v.clauses.map((cl) => (
