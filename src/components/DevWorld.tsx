@@ -330,7 +330,8 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
 
   return (
     <div className="gamedev absolute inset-0 globe-in" aria-label={k("gx.title")}>
-      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, far * 0.45, far], fov: 42 }}
+      {/* quiet: no WebGL (no GPU) drops the 3D, the panel keeps working */}
+      {!flat && <PlanetBoundary name="creation-scene" quiet><Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, far * 0.45, far], fov: 42 }}
         dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         <WarmCompile world="creation" />
         {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
@@ -352,7 +353,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
           </EffectComposer>
         )}
         {process.env.NODE_ENV === "development" && <FrameMark name="creation" />}
-      </Canvas>}
+      </Canvas></PlanetBoundary>}
 
       <HoverTip ref={tip} label={tipLabel} />
       {world && c.games > 0 && <p className="pu gd-caption pu-num" data-planet="creation" aria-hidden="true">{(() => { const n = bugs.filter((b) => isActive(b) && b.severity === "crash").length; return n ? k("gx.caption", { g: c.games, b: c.open, c: n }) : k("gx.status", { g: c.games, b: c.open }); })()}</p>}

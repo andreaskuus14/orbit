@@ -1,4 +1,5 @@
 "use client";
+import { PlanetBoundary } from "./PlanetBoundary";
 import { useMountLater, WarmCompile, WarmIn } from "./WarmCompile";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
@@ -497,7 +498,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
       {/* Flag on: the scene renders inside the galaxy's canvas (see Stage.tsx); dpr/antialias then follow the galaxy canvas. */}
       {!flat && later && (staged
         ? (paused ? null : <StageIn><WorldScene fov={45} position={[0, 4.2, 11]}>{scene}</WorldScene></StageIn>)
-        : <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>{scene}</Canvas>)}
+        : <PlanetBoundary name="studio-scene" quiet><Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>{scene}</Canvas></PlanetBoundary>)}
 
       <div aria-hidden className="studio-vignette pointer-events-none absolute inset-0 z-[1]" />
 

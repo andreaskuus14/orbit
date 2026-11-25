@@ -1,4 +1,5 @@
 "use client";
+import { PlanetBoundary } from "./PlanetBoundary";
 import { WarmCompile } from "./WarmCompile";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
@@ -547,7 +548,8 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
 
   return (
     <div className="absolute inset-0 globe-in">
-      {!flat && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={visible && !paused ? "always" : "never"} camera={{ position: [0, HOME * 0.45, HOME], fov: 42 }}
+      {/* quiet: no WebGL (no GPU) drops the 3D, the panel keeps working */}
+      {!flat && <PlanetBoundary name="agents-scene" quiet><Canvas key={glr.key} onCreated={glr.onCreated} frameloop={visible && !paused ? "always" : "never"} camera={{ position: [0, HOME * 0.45, HOME], fov: 42 }}
         dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }} onPointerMissed={() => setSelected(null)}>
         <WarmCompile world="agents" />
         {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
@@ -568,7 +570,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
           </EffectComposer>
         )}
         {process.env.NODE_ENV === "development" && <FrameMark name="agents" />}
-      </Canvas>}
+      </Canvas></PlanetBoundary>}
 
       <HoverTip ref={tip} label={(id) => { const a = list.find((x) => x.slug === id); return a ? `${a.name} · ${currentTask(tasks, a.slug)?.title.slice(0, 60) ?? STATUS_LABEL[status[a.slug]]}` : null; }} />
 
