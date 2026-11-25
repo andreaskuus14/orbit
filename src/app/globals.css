@@ -1046,3 +1046,19 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .drawer:has([data-intel-surface]) .drag-handle > .chip { font-family: var(--font-inter), system-ui, sans-serif; text-transform: none; letter-spacing: normal; background: transparent; border-color: rgba(255, 255, 255, 0.14); box-shadow: none; }
 /* Planet toasts sit above the command bar (it owns the bottom centre) */
 .orbit-shell .pu-toasts { bottom: calc(var(--bar) + 2.5rem); }
+/* Planet worlds v2: glass chips over the 3D scene (world-kit ChipLayer). Placed by world-chips-pure: never over the panel. */
+.wchip-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 11; }
+.wchip { position: absolute; left: 0; top: 0; opacity: 0; display: flex; flex-direction: column; gap: 1px; min-width: 6.5rem; max-width: 15rem; padding: 6px 10px 7px;
+  border-radius: 10px; background: linear-gradient(180deg, rgba(22, 26, 40, 0.72), rgba(8, 10, 18, 0.66)); border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03) inset, 0 6px 24px rgba(0, 0, 0, 0.45), 0 0 18px color-mix(in srgb, var(--c) 22%, transparent);
+  backdrop-filter: blur(10px) saturate(1.3); -webkit-backdrop-filter: blur(10px) saturate(1.3); color: #e8eefc; font-size: 0.74rem; line-height: 1.25; white-space: nowrap;
+  transition: opacity 0.25s ease; will-change: transform; }
+.wchip[role="button"] { cursor: pointer; }
+.wchip-t { display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.wchip-v { font-size: 0.95rem; font-weight: 600; color: color-mix(in srgb, var(--c) 70%, white); font-variant-numeric: tabular-nums; }
+.wchip-s { font-size: 0.66rem; color: rgba(214, 224, 245, 0.66); overflow: hidden; text-overflow: ellipsis; }
+.wchip-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: #8b95a8; }
+.wchip-dot.ok { background: #4ade80; box-shadow: 0 0 6px #4ade80; } .wchip-dot.busy { background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }
+.wchip-dot.warn { background: #c084fc; box-shadow: 0 0 6px #c084fc; } .wchip-dot.bad { background: #f87171; box-shadow: 0 0 6px #f87171; }
+@media (max-width: 640px) { .wchip { min-width: 0; font-size: 0.68rem; padding: 4px 8px; } .wchip-s { display: none; } body:has(.drawer, .pu-shell) .wchip-layer { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .wchip { transition: none; } }
