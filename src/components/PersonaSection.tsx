@@ -12,23 +12,23 @@ export function PersonaSection() {
   const { t } = useT();
   const [v, setV] = useState<View | null>(null);
   const [msg, setMsg] = useState("");
-  const send = (body: object, done = "Saved.") => {
+  const send = (body: object, done = t("pers.saved")) => {
     setMsg("");
     fetch("/api/persona", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`); setV(j); setMsg(done); })
-      .catch((e) => setMsg(plainError(e, "Could not save")));
+      .catch((e) => setMsg(plainError(e, t("pers.saveFail"))));
   };
-  useEffect(() => { fetch("/api/persona", { cache: "no-store" }).then((r) => r.json()).then((j) => (j.error ? setMsg("Couldn't load this. Try again.") : setV(j))).catch((e) => setMsg(plainError(e, "Couldn't load this. Try again."))); }, []);
+  useEffect(() => { fetch("/api/persona", { cache: "no-store" }).then((r) => r.json()).then((j) => (j.error ? setMsg(t("pers.loadFail")) : setV(j))).catch((e) => setMsg(plainError(e, t("pers.loadFail")))); }, []);
   return (
     <section className="space-y-2" aria-labelledby="persona-h">
       <h3 id="persona-h" className="h3">{t("profile.persona")}</h3>
-      <p className="muted text-xs">One voice in chat, calls, the morning brief and push: a calm, dry-witted alien intelligence that likes you. It always disagrees honestly and says when it&apos;s unsure; no setting makes it flatter you.</p>
+      <p className="muted text-xs">{t("pers.help")}</p>
       {v && <>
         {v.proposal && (
           <div className="card flex flex-wrap items-center gap-2 text-sm">
-            <span>Adjust: {v.proposal.text}?</span>
-            <button type="button" className="btn" onClick={() => send({ decision: "keep" }, "Adjusted.")}>Keep</button>
-            <button type="button" className="chip" onClick={() => send({ decision: "reject" }, "Left as is.")}>No</button>
+            <span>{t("pers.adjust", { x: v.proposal.text })}</span>
+            <button type="button" className="btn" onClick={() => send({ decision: "keep" }, t("pers.adjusted"))}>{t("pers.keep")}</button>
+            <button type="button" className="chip" onClick={() => send({ decision: "reject" }, t("pers.left"))}>{t("pers.no")}</button>
           </div>
         )}
         {(Object.keys(v.labels) as Slider[]).map((s) => (
@@ -40,13 +40,13 @@ export function PersonaSection() {
           </label>
         ))}
         <label className="flex items-center gap-3 text-sm">
-          <span className="w-24">Call voice</span>
+          <span className="w-24">{t("pers.voice")}</span>
           <select className="field" value={v.persona.voice} onChange={(e) => send({ voice: e.target.value })}>
-            <option value="">PC default</option>
+            <option value="">{t("pers.pcDefault")}</option>
             {v.voices.map((x) => <option key={x} value={x}>{x}</option>)}
           </select>
         </label>
-        <p className="muted text-xs">Sounds like: “{v.preview}”</p>
+        <p className="muted text-xs">{t("pers.sounds", { x: v.preview })}</p>
       </>}
       {msg && <p className="muted text-sm" role="status">{msg}</p>}
     </section>

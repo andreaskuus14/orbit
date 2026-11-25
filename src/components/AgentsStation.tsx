@@ -628,7 +628,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
       </PlanetShell>
       </div>
 
-      <div role="log" aria-label="Agent activity" aria-relevant="additions" className="pu agents-log absolute z-[14] inset-x-3 bottom-[7.75rem] flex gap-4 overflow-x-auto whitespace-nowrap px-4 py-1.5 text-xs min-[900px]:right-[32rem]">
+      <div role="log" aria-label={t("ast.log")} aria-relevant="additions" className="pu agents-log absolute z-[14] inset-x-3 bottom-[7.75rem] flex gap-4 overflow-x-auto whitespace-nowrap px-4 py-1.5 text-xs min-[900px]:right-[32rem]">
         <span className="agents-log-title shrink-0">{t("agt.activity")}</span>
         {feed.map((e) => (
           <span key={e.key} className="shrink-0">

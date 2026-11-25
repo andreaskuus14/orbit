@@ -224,7 +224,7 @@ export function Herald({ home, coreBusy = false }: { home: boolean; coreBusy?: b
   };
 
   return (
-    <section className="herald" aria-label="ORBIT heads-up"
+    <section className="herald" aria-label={t("her.title")}
       onMouseEnter={() => hold(true)} onMouseLeave={() => hold(false)}
       onFocus={() => hold(true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) hold(false); }}>
       <style>{CSS}</style>
@@ -235,19 +235,19 @@ export function Herald({ home, coreBusy = false }: { home: boolean; coreBusy?: b
           <div className="min-w-0 flex-1">
             <div className="flex items-start gap-2">
               <b className="herald-title flex-1">{classify(c.notice, loadJudgment()) === "URGENT" ? "🔴 " : ""}{c.title}</b>
-              <button className="herald-x" onClick={() => dismiss(c.key, true)} aria-label={`Dismiss: ${c.title}`} title="Dismiss">✕</button>
+              <button className="herald-x" onClick={() => dismiss(c.key, true)} aria-label={t("her.dismissL", { x: c.title })} title={t("her.dismiss")}>✕</button>
             </div>
-            <p className="herald-why mt-1 text-xs" aria-label="Why this appeared">{reasonLine(c.notice)}</p>
+            <p className="herald-why mt-1 text-xs" aria-label={t("her.why")}>{reasonLine(c.notice)}</p>
             {/* Compact: one action; the rest (more actions, Pop-ups off) are in the 🔔 bell. */}
             <div className="mt-1.5 flex gap-1.5">
-              {c.notice.fixHref === "/api/studio/oauth/start" ? <a className="chip" href={c.notice.fixHref}>{c.notice.fixLabel ?? "Fix"}</a>
+              {c.notice.fixHref === "/api/studio/oauth/start" ? <a className="chip" href={c.notice.fixHref}>{c.notice.fixLabel ?? t("her.fix")}</a>
                 : c.actions[0] && <button className="chip herald-go" onClick={() => act(c, c.actions[0])}>{c.actions[0].label}</button>}
             </div>
           </div>
         </article>
       ) : (
         <button key={c.key} className={`herald-pill glass k-${c.kind}`} onClick={() => setCards((cs) => cs.map((x) => (x.key === c.key ? { ...x, open: true, at: Date.now() } : x)))}
-          aria-label={`Show: ${c.title}`} title={c.title}>
+          aria-label={t("her.show", { x: c.title })} title={c.title}>
           <span aria-hidden>{KIND_ICON[c.kind]}</span><span className="truncate">{c.title}</span>
         </button>
       ))}
@@ -257,6 +257,7 @@ export function Herald({ home, coreBusy = false }: { home: boolean; coreBusy?: b
 
 /** "Pop-ups on/off" for the notification menu: the global Herald mute. */
 export function HeraldToggle() {
+  const { t } = useT();
   const [muted, setMuted] = useState(false);
   useEffect(() => {
     const f = () => setMuted(load().mute);
@@ -264,9 +265,9 @@ export function HeraldToggle() {
     return () => removeEventListener(MUTE_EVENT, f);
   }, []);
   return (
-    <button className="chip" aria-pressed={!muted} title="Animated pop-ups for uploads, trends, briefings and breaking news"
+    <button className="chip" aria-pressed={!muted} title={t("her.popTip")}
       onClick={() => { save({ ...load(), mute: !muted, snooze: 0 }); dispatchEvent(new Event(MUTE_EVENT)); }}>
-      Pop-ups {muted ? "off" : "on"}
+      {t("her.pop", { state: t(muted ? "common.off" : "common.on") })}
     </button>
   );
 }

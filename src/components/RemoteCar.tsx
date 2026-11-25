@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useT } from "./i18n";
 import { LATER_KEY, briefSpeech, markLater, speechParts, waitingSpeech, type CarItem } from "@/lib/car-mode-pure";
 import { CAR_TALK } from "./RemoteCall";
 import { useDialogFocus } from "./useDialogFocus";
@@ -14,7 +15,8 @@ export function readLater(): string[] {
 // Car mode: for driving or walking. Always dark, the screen stays on, three huge buttons, one line of big text, nothing to scroll.
 // Talk starts the normal ORBIT call (car flag: no approvals by voice). Brief and "what's waiting" are read aloud on the phone.
 export function RemoteCar({ items, getBrief, onLater, onExit }: { items: CarItem[]; getBrief: () => Promise<BriefReply>; onLater: (ids: string[]) => void; onExit: () => void }) {
-  const [line, setLine] = useState("Car mode");
+  const { t } = useT();
+  const [line, setLine] = useState(() => t("car.title"));
   const [speaking, setSpeaking] = useState(false);
   const brief = useRef<Promise<BriefReply> | null>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -68,17 +70,17 @@ export function RemoteCar({ items, getBrief, onLater, onExit }: { items: CarItem
 
   const big = { borderRadius: 28, fontSize: 32, fontWeight: 700, border: "2px solid #333", background: "#111", color: "#fff" } as const;
   return (
-    <div ref={box} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Car mode" className="fixed inset-0 z-[90] flex flex-col gap-3 px-4"
+    <div ref={box} tabIndex={-1} role="dialog" aria-modal="true" aria-label={t("car.title")} className="fixed inset-0 z-[90] flex flex-col gap-3 px-4"
       style={{ background: "#000", color: "#fff", colorScheme: "dark", paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
       <p aria-live="polite" className="overflow-hidden text-center font-semibold" style={{ fontSize: 28, lineHeight: 1.25, height: "3.75em" }}>{line}</p>
-      <button onClick={talk} style={{ ...big, flex: 2, fontSize: 64, background: "var(--cyan, #22d3ee)", color: "#000", border: "none" }}>Talk</button>
+      <button onClick={talk} style={{ ...big, flex: 2, fontSize: 64, background: "var(--cyan, #22d3ee)", color: "#000", border: "none" }}>{t("car.talk")}</button>
       <div className="grid grid-cols-2 gap-3" style={{ flex: 1 }}>
-        <button onClick={() => void readBrief()} style={big}>Brief</button>
-        <button onClick={readWaiting} style={big} aria-label={`Read what's waiting: ${items.length}`}>Waiting{items.length ? ` ${items.length}` : ""}</button>
+        <button onClick={() => void readBrief()} style={big}>{t("car.brief")}</button>
+        <button onClick={readWaiting} style={big} aria-label={t("car.waitingL", { n: items.length })}>{t("car.waiting")}{items.length ? ` ${items.length}` : ""}</button>
       </div>
       <div className="grid grid-cols-2 gap-3" style={{ minHeight: 88 }}>
-        <button onClick={() => { window.speechSynthesis?.cancel(); setSpeaking(false); setLine("Car mode"); }} disabled={!speaking} style={{ ...big, fontSize: 26, opacity: speaking ? 1 : 0.4 }}>Quiet</button>
-        <button onClick={onExit} style={{ ...big, fontSize: 26 }}>Exit</button>
+        <button onClick={() => { window.speechSynthesis?.cancel(); setSpeaking(false); setLine(t("car.title")); }} disabled={!speaking} style={{ ...big, fontSize: 26, opacity: speaking ? 1 : 0.4 }}>{t("car.quiet")}</button>
+        <button onClick={onExit} style={{ ...big, fontSize: 26 }}>{t("car.exit")}</button>
       </div>
     </div>
   );

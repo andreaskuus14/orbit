@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "./i18n";
 import { pollMs } from "@/lib/poll-pure";
 import { usePoll } from "./use-poll";
 import type { RivalReport } from "@/lib/rivals-pure";
@@ -15,6 +16,7 @@ async function call(body?: object) {
 }
 
 export default function RivalsBox({ id }: { id: string }) {
+  const { t } = useT();
   const [b, setB] = useState<Board | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [err, setErr] = useState("");
@@ -25,24 +27,24 @@ export default function RivalsBox({ id }: { id: string }) {
   const urls = b?.urls[id] ?? [], r = b?.reports[id];
   return (
     <details className="text-xs">
-      <summary className="cursor-pointer"><b>Rivals</b> ({urls.length}/5 competitor links{r ? `, checked ${new Date(r.at).toLocaleDateString()}` : ""})</summary>
+      <summary className="cursor-pointer"><b>{t("riv.title")}</b> ({t("riv.links", { n: urls.length })}{r ? `, ${t("riv.checked", { d: new Date(r.at).toLocaleDateString() })}` : ""})</summary>
       <div className="space-y-1.5 pt-1">
         {r ? <ul className="list-disc pl-5">{r.lines.map((l) => <li key={l}>{l}</li>)}</ul>
-          : <p className="muted">{urls.length ? "Not checked yet: it runs weekly in the night shift, or click Check now." : "Add up to 5 public competitor pages (shop pages, YouTube channel videos pages)."}</p>}
-        {b?.lastError && !b.busy && <p className="muted">Last attempt: {b.lastError}</p>}
+          : <p className="muted">{urls.length ? t("riv.notYet") : t("riv.add")}</p>}
+        {b?.lastError && !b.busy && <p className="muted">{t("riv.last", { e: b.lastError })}</p>}
         {err && <p className="error" role="alert">{err}</p>}
         {draft === null ? (
           <div className="flex flex-wrap gap-1.5">
-            <button className="chip" onClick={() => setDraft(urls.join("\n"))}>Edit links</button>
-            {urls.length > 0 && <button className="chip" disabled={b?.busy} onClick={() => void act({ action: "check" })}>{b?.busy ? "Reading competitor pages…" : "Check now"}</button>}
+            <button className="chip" onClick={() => setDraft(urls.join("\n"))}>{t("riv.edit")}</button>
+            {urls.length > 0 && <button className="chip" disabled={b?.busy} onClick={() => void act({ action: "check" })}>{b?.busy ? t("riv.reading") : t("riv.check")}</button>}
           </div>
         ) : (
           <div className="space-y-1">
-            <label className="block muted" htmlFor={`rivals-${id}`}>One public link per line (max 5). Read-only: no logins, robots.txt respected.</label>
+            <label className="block muted" htmlFor={`rivals-${id}`}>{t("riv.help")}</label>
             <textarea id={`rivals-${id}`} className="w-full rounded border border-white/10 bg-transparent p-1.5" rows={5} value={draft} onChange={(e) => setDraft(e.target.value)} />
             <div className="flex gap-1.5">
-              <button className="chip" onClick={() => void act({ action: "save", id, urls: draft.split(/\s+/).filter(Boolean) })}>Save</button>
-              <button className="chip" onClick={() => setDraft(null)}>Cancel</button>
+              <button className="chip" onClick={() => void act({ action: "save", id, urls: draft.split(/\s+/).filter(Boolean) })}>{t("riv.save")}</button>
+              <button className="chip" onClick={() => setDraft(null)}>{t("riv.cancel")}</button>
             </div>
           </div>
         )}

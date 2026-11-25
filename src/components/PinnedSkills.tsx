@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useT } from "./i18n";
 import type { Skill } from "@/lib/skills-pure";
 import { CORE_OPEN_SKILL_CHAT, queueSkillRun, useSkillReceipts } from "./skill-run-receipts";
 import { ACTIVE_CHAT_KEY } from "@/lib/core-chats-pure";
@@ -14,6 +15,7 @@ export function PinnedSkills({ onRun, tasks }: { onRun: () => void; tasks?: unkn
   const receipts = useSkillReceipts();
   const taskRows = (tasks as { tasks?: { id: string; status: string }[] } | null)?.tasks;
   const rows = Array.isArray(taskRows) ? taskRows : [];
+  const { t } = useT();
   const [skills, setSkills] = useState<Skill[] | null>(null);
   const [pins, setPins] = useState<string[]>([]);
   const [failed, setFailed] = useState(false);
@@ -44,16 +46,16 @@ export function PinnedSkills({ onRun, tasks }: { onRun: () => void; tasks?: unkn
     try { localStorage.setItem(PIN_KEY, JSON.stringify(next)); } catch { /* Pins still work in this session. */ }
   };
 
-  if (failed) return <p role="alert">Couldn’t load saved skills. <button type="button" className="chip" onClick={() => { setFailed(false); setAttempt(attempt + 1); }}>Retry</button></p>;
-  if (!skills) return <p role="status">Loading saved skills…</p>;
-  if (!skills.length) return <p className="mc-dim">Keep a skill in Saved workflows to pin it here.</p>;
+  if (failed) return <p role="alert">{t("pin.fail")} <button type="button" className="chip" onClick={() => { setFailed(false); setAttempt(attempt + 1); }}>{t("pin.retry")}</button></p>;
+  if (!skills) return <p role="status">{t("pin.loading")}</p>;
+  if (!skills.length) return <p className="mc-dim">{t("pin.empty")}</p>;
   const ordered = [...skills].sort((a, b) => Number(pins.includes(b.id)) - Number(pins.includes(a.id)));
   return <ul>{ordered.map((skill) => {
     const version = skill.versions.find((v) => v.v === skill.current);
     if (!version) return null;
     const pinned = pins.includes(skill.id);
     const input = inputs[skill.id] ?? "";
-    const label = version.card?.inputs || "Optional skill input";
+    const label = version.card?.inputs || t("pin.input");
     const receipt = receipts[skill.id];
     const task = receipt?.taskId ? rows.find((row) => row.id === receipt.taskId) : undefined;
     const status = skillRunLabel(receipt, task?.status);
@@ -71,11 +73,11 @@ export function PinnedSkills({ onRun, tasks }: { onRun: () => void; tasks?: unkn
     return <li key={skill.id}>
       <div className="mc-row">
         <b>{version.name}</b>
-        <button type="button" className="chip" aria-label={`Pin ${version.name}`} aria-pressed={pinned} onClick={() => toggle(skill.id)}>{pinned ? "Pinned" : "Pin"}</button>
+        <button type="button" className="chip" aria-label={t("pin.pinL", { x: version.name })} aria-pressed={pinned} onClick={() => toggle(skill.id)}>{pinned ? t("pin.pinned") : t("pin.pin")}</button>
       </div>
       {pinned && status && <div className="mc-actions">
         <span role="status">{status}</span>
-        {(receipt?.taskId || receipt?.chatId) && <button type="button" className="chip" onClick={openReceipt}>{receipt.taskId ? "Open task" : "Open CORE chat"}</button>}
+        {(receipt?.taskId || receipt?.chatId) && <button type="button" className="chip" onClick={openReceipt}>{receipt.taskId ? t("pin.openTask") : t("pin.openChat")}</button>}
       </div>}
       {pinned && <form className="mc-actions" onSubmit={(e) => {
         e.preventDefault();
@@ -85,7 +87,7 @@ export function PinnedSkills({ onRun, tasks }: { onRun: () => void; tasks?: unkn
         dispatchEvent(new CustomEvent(VOICE_ASK, { detail: { text, skill: run } }));
       }}>
         <label>{label}<input className="field w-full" maxLength={2000} value={input} onChange={(e) => setInputs({ ...inputs, [skill.id]: e.target.value })} /></label>
-        <button className="chip" type="submit">Run in CORE</button>
+        <button className="chip" type="submit">{t("pin.run")}</button>
       </form>}
     </li>;
   })}</ul>;

@@ -24,7 +24,7 @@ function Item({ it }: { it: TeamItem }) {
         {it.proof
           ? <span className={PROOF_CLASS[it.proof]} style={{ display: "inline-flex" }}>{t(`team.proof.${it.proof}`)}</span>
           : (it.section === "done" || it.section === "needs") && <span className="pill bad" style={{ display: "inline-flex" }}>{t("team.proof.none")}</span>}
-        {it.sha && <span className="muted font-mono text-xs" title="commit">{it.sha}</span>}
+        {it.sha && <span className="muted font-mono text-xs" title={t("tsv.commit")}>{it.sha}</span>}
         {it.link && <a className="link text-xs" href={it.link.href} target="_blank" rel="noopener noreferrer">{it.link.label}</a>}
         {it.updates > 1 && <span className="muted text-xs">· {t("team.updates", { n: it.updates })}</span>}
       </div>
