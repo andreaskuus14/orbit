@@ -6,6 +6,7 @@ import { runInNewContext } from "node:vm";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
+import { translate } from "../src/lib/i18n-pure.ts";
 
 // Render the actual components using the installed compiler; no extra test runtime.
 const require = createRequire(import.meta.url);
@@ -13,7 +14,8 @@ function component(file: string, name: string) {
   const source = readFileSync(new URL(`../src/components/${file}.tsx`, import.meta.url), "utf8");
   const output = ts.transpileModule(source, { compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   const module = { exports: {} as Record<string, React.ComponentType<any>> };
-  runInNewContext(output, { exports: module.exports, module, require });
+  const req = (n: string) => n === "./i18n" ? { useT: () => ({ lang: "en", t: (k: never, v?: never) => translate("en", k, v) }) } : require(n);
+  runInNewContext(output, { exports: module.exports, module, require: req });
   return module.exports[name];
 }
 const Continue = component("ContinueWork", "ContinueWorkView");

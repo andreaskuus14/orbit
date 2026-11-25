@@ -64,28 +64,28 @@ export function ChatSheet({ chats, projects, map, error, act, activeId, running 
   const navRef = useRef<HTMLElement>(null);
   useDialogFocus(navRef, true, onClose);
   const rename = async (c: ChatRow) => {
-    const t = (await askText("Rename chat", { value: c.title }))?.trim();
-    if (t && t !== c.title) void act({ action: "rename", id: c.id, title: t.slice(0, MAX_TITLE) });
+    const title = (await askText(t("chats.renameChat"), { value: c.title }))?.trim();
+    if (title && title !== c.title) void act({ action: "rename", id: c.id, title: title.slice(0, MAX_TITLE) });
   };
   const remove = async (c: ChatRow) => {
-    if (!(await askConfirm(`Delete "${c.title}"? This can't be undone.`))) return;
+    if (!(await askConfirm(t("chats.deleteConfirm", { title: c.title })))) return;
     if (await act({ action: "delete", id: c.id })) onDeleted(c.id);
   };
   const row = (c: ChatRow) => (
     <li key={c.id} className={`flex items-center gap-1 rounded-lg px-1 ${c.id === activeId ? "bg-white/10" : ""}`}>
       <button type="button" className="min-w-0 flex-1 truncate py-1.5 text-left text-sm" aria-current={c.id === activeId || undefined} title={c.title} onClick={() => onOpen(c.id)}>{running.includes(c.id) && <span className="text-xs" title={t("core.chatRunning")} aria-label={t("core.chatRunning")}>● </span>}{c.title}</button>
-      <button type="button" className="chip px-2" aria-label={`Rename ${c.title}`} title="Rename" onClick={() => rename(c)}>✎</button>
-      <button type="button" className="chip px-2" aria-label={`Delete ${c.title}`} title="Delete" onClick={() => void remove(c)}>✕</button>
+      <button type="button" className="chip px-2" aria-label={t("chats.renameAria", { title: c.title })} title={t("chats.rename")} onClick={() => rename(c)}>✎</button>
+      <button type="button" className="chip px-2" aria-label={t("chats.deleteAria", { title: c.title })} title={t("chats.delete")} onClick={() => void remove(c)}>✕</button>
     </li>
   );
   const recents = chats.filter((c) => !map[c.id]);
   return (
     <>
-      <button type="button" className="chat-sheet-backdrop" aria-label="Close chat list" onClick={onClose} />
-      <nav ref={navRef} tabIndex={-1} className="glass chat-sheet" aria-label="CORE chats">
+      <button type="button" className="chat-sheet-backdrop" aria-label={t("chats.closeList")} onClick={onClose} />
+      <nav ref={navRef} tabIndex={-1} className="glass chat-sheet" aria-label={t("chats.aria")}>
         <div className="mb-2 flex items-center gap-2">
-          <button type="button" className="btn flex-1" onClick={() => onNew(null)}>＋ New chat</button>
-          <button type="button" className="chip" onClick={onClose} aria-label="Close chat list">Close</button>
+          <button type="button" className="btn flex-1" onClick={() => onNew(null)}>＋ {t("chats.new")}</button>
+          <button type="button" className="chip" onClick={onClose} aria-label={t("chats.closeList")}>{t("common.close")}</button>
         </div>
         <input type="search" className="field mb-2 w-full text-sm" placeholder={t("chat.search")} aria-label={t("chat.search")} value={search.q}
           onChange={(e) => search.setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && search.hits?.[0]) onOpen(search.hits[0].id); }} />
@@ -97,11 +97,11 @@ export function ChatSheet({ chats, projects, map, error, act, activeId, running 
         </ul> : <>
         <CheckpointCard chatId={activeId} />
 
-        <div className="mt-3 flex items-center justify-between"><span className="h3">Projects</span>
-          <button type="button" className="chip px-2" aria-label="New project" title="New project" onClick={() => setEditing("new")}>＋</button></div>
+        <div className="mt-3 flex items-center justify-between"><span className="h3">{t("chats.projects")}</span>
+          <button type="button" className="chip px-2" aria-label={t("chats.newProject")} title={t("chats.newProject")} onClick={() => setEditing("new")}>＋</button></div>
         {editing && <ProjectForm project={editing === "new" ? null : editing} onCancel={() => setEditing(null)}
           onSave={async (name, instructions) => { if (await act(editing === "new" ? { action: "addProject", name, instructions } : { action: "updateProject", id: editing.id, name, instructions })) setEditing(null); }} />}
-        {!projects.length && !editing && <p className="muted mt-1 text-xs">Group chats with shared instructions and pinned notes.</p>}
+        {!projects.length && !editing && <p className="muted mt-1 text-xs">{t("chats.projectsHelp")}</p>}
         <ul className="mt-1 space-y-1">
           {projects.map((p) => {
             const inside = chats.filter((c) => map[c.id] === p.id);
@@ -111,14 +111,14 @@ export function ChatSheet({ chats, projects, map, error, act, activeId, running 
                   <summary className="cursor-pointer truncate py-1 text-sm font-semibold">{p.name} <span className="muted font-normal">· {inside.length}</span></summary>
                   <div className="ml-2 border-l border-white/10 pl-2">
                     <div className="my-1 flex flex-wrap gap-1">
-                      <button type="button" className="chip" onClick={() => onNew(p.id)}>＋ Chat</button>
-                      <button type="button" className="chip" onClick={() => setEditing(p)}>Edit</button>
-                      <button type="button" className="chip" onClick={async () => { if ((await askConfirm(`Delete project "${p.name}" and its pinned notes? Its chats are kept.`))) void act({ action: "deleteProject", id: p.id }); }}>Delete</button>
+                      <button type="button" className="chip" onClick={() => onNew(p.id)}>＋ {t("chats.chat")}</button>
+                      <button type="button" className="chip" onClick={() => setEditing(p)}>{t("chats.edit")}</button>
+                      <button type="button" className="chip" onClick={async () => { if ((await askConfirm(t("chats.deleteProjectConfirm", { name: p.name })))) void act({ action: "deleteProject", id: p.id }); }}>{t("chats.delete")}</button>
                     </div>
                     <ul>{inside.map(row)}</ul>
                     {!!p.pins.length && (
                       <details className="mt-1">
-                        <summary className="muted cursor-pointer text-xs">📌 Pinned notes ({p.pins.length})</summary>
+                        <summary className="muted cursor-pointer text-xs">📌 {t("chats.pinned", { n: p.pins.length })}</summary>
                         <ul className="mt-1 space-y-1">
                           {[...p.pins].reverse().map((n) => (
                             <li key={n.id} className="rounded-lg bg-white/5 p-1.5 text-xs">
@@ -127,8 +127,8 @@ export function ChatSheet({ chats, projects, map, error, act, activeId, running 
                                 <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words">{n.text}</pre>
                               </details>
                               <div className="mt-1 flex gap-1">
-                                <button type="button" className="chip" onClick={() => void navigator.clipboard?.writeText(n.text)}>Copy</button>
-                                <button type="button" className="chip" onClick={async () => { if ((await askConfirm(`Unpin "${n.title}"?`))) void act({ action: "unpin", projectId: p.id, id: n.id }); }}>Unpin</button>
+                                <button type="button" className="chip" onClick={() => void navigator.clipboard?.writeText(n.text)}>{t("common.copy")}</button>
+                                <button type="button" className="chip" onClick={async () => { if ((await askConfirm(t("chats.unpinConfirm", { title: n.title })))) void act({ action: "unpin", projectId: p.id, id: n.id }); }}>{t("chats.unpin")}</button>
                               </div>
                             </li>
                           ))}
@@ -142,8 +142,8 @@ export function ChatSheet({ chats, projects, map, error, act, activeId, running 
           })}
         </ul>
 
-        <div className="h3 mt-4">Recents</div>
-        {!recents.length && <p className="muted mt-1 text-xs">No chats yet. They save automatically.</p>}
+        <div className="h3 mt-4">{t("chats.recents")}</div>
+        {!recents.length && <p className="muted mt-1 text-xs">{t("chats.empty")}</p>}
         <ul className="mt-1">{recents.map(row)}</ul>
         </>}
       </nav>
@@ -155,14 +155,15 @@ function ProjectForm({ project, onSave, onCancel }: { project: Project | null; o
   const [name, setName] = useState(project?.name ?? "");
   const [ins, setIns] = useState(project?.instructions ?? "");
   const [busy, setBusy] = useState(false);
+  const { t } = useT();
   return (
     <form className="mt-2 space-y-2 rounded-lg bg-white/5 p-2" onSubmit={async (e) => { e.preventDefault(); setBusy(true); await onSave(name, ins); setBusy(false); }}>
-      <input className="field w-full" placeholder="Project name" aria-label="Project name" value={name} maxLength={MAX_PROJECT_NAME} onChange={(e) => setName(e.target.value)} autoFocus />
-      <textarea className="field w-full" rows={4} placeholder="Instructions for CORE in this project (optional)" aria-label="Project instructions"
+      <input className="field w-full" placeholder={t("chats.projectName")} aria-label={t("chats.projectName")} value={name} maxLength={MAX_PROJECT_NAME} onChange={(e) => setName(e.target.value)} autoFocus />
+      <textarea className="field w-full" rows={4} placeholder={t("chats.instructionsPh")} aria-label={t("chats.instructions")}
         value={ins} maxLength={MAX_INSTRUCTIONS} onChange={(e) => setIns(e.target.value)} />
       <div className="flex items-center gap-2">
-        <button className="btn" disabled={busy || !name.trim()}>{project ? "Save" : "Create"}</button>
-        <button type="button" className="chip" onClick={onCancel}>Cancel</button>
+        <button className="btn" disabled={busy || !name.trim()}>{project ? t("chats.save") : t("chats.create")}</button>
+        <button type="button" className="chip" onClick={onCancel}>{t("common.cancel")}</button>
         <span className="muted ml-auto text-xs">{ins.length}/{MAX_INSTRUCTIONS}</span>
       </div>
     </form>

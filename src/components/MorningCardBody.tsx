@@ -86,7 +86,7 @@ export default function MorningCardBody({ data, err, recap, notes, speakMorning,
                 </button>
               )}
               {data.mission && (
-                <div aria-label="Today's mission">
+                <div aria-label={t("morning.mission")}>
                   <b>{t("morning.mission")}</b> <span className="muted text-xs">{t("morning.missionDone", { done: data.mission.done, total: data.mission.total })}</span>
                   <div className="mc-bar" aria-hidden><i style={{ width: `${(100 * data.mission.done) / Math.max(1, data.mission.total)}%` }} /></div>
                   <ul className="mt-1 grid gap-0.5">{data.mission.items.map((m) => (

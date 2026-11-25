@@ -87,8 +87,9 @@ const throwStub = { name: "throw-stub", setup(b) {
 async function bundle(stub, app = `import Orbit from "@/components/Orbit";\nconst App = () => <Orbit userId="u1" email="owner@example.test" />;`) {
   const out = (await build({
     stdin: { contents: `import { createRoot } from "react-dom/client";
+import { LangCtx } from "@/components/i18n-boot";
 ${app}
-createRoot(document.getElementById("root")).render(<App />);`, loader: "tsx", resolveDir: resolve("src") },
+createRoot(document.getElementById("root")).render(<LangCtx.Provider value={document.documentElement.lang === "et" ? "et" : "en"}><App /></LangCtx.Provider>);`, loader: "tsx", resolveDir: resolve("src") },
     bundle: true, write: false, outdir: "/tmp/home-ui-out", format: "esm", jsx: "automatic", logLevel: "error", minify: !process.env.HOME_NOMIN, sourcemap: process.env.HOME_NOMIN ? "inline" : false,
     splitting: true, chunkNames: "c-[hash]", tsconfig: resolve("tsconfig.json"),
     banner: { js: 'globalThis.process ??= { env: { NODE_ENV: "production" } };' },
@@ -161,7 +162,7 @@ async function open(w, h, { reduced = false, galaxy = true, motion = "on", phone
   await ctx.route(`${ORIGIN}/**`, async (route) => {
     const r = route.request(), u = new URL(r.url()), p = u.pathname;
     calls.push(`${r.method()} ${p}${u.search}`);
-    if (p === "/") return route.fulfill({ contentType: "text/html", body: `<!doctype html><html lang="en" data-motion="${motion}"><meta charset="utf-8"><link rel="stylesheet" href="/app.css"><style>:root{--font-inter:"Inter";--font-jetbrains:"JetBrains Mono",monospace;--font-rajdhani:"Rajdhani","Inter",sans-serif;--font-serif:"Source Serif 4",serif}</style><body><div id="root"></div><script type="module" src="${bd.entry}"></script></body></html>` });
+    if (p === "/") return route.fulfill({ contentType: "text/html", body: `<!doctype html><html lang="${LANG}" data-motion="${motion}"><meta charset="utf-8"><link rel="stylesheet" href="/app.css"><style>:root{--font-inter:"Inter";--font-jetbrains:"JetBrains Mono",monospace;--font-rajdhani:"Rajdhani","Inter",sans-serif;--font-serif:"Source Serif 4",serif}</style><body><div id="root"></div><script type="module" src="${bd.entry}"></script></body></html>` });
     if (p === "/app.css") return route.fulfill({ contentType: "text/css", body: css + "\n" + bd.css });
     if (bd.files.has(p)) return route.fulfill({ contentType: p.endsWith(".css") ? "text/css" : "text/javascript", body: bd.files.get(p).text });
     const pub = resolve("public" + decodeURIComponent(p));

@@ -1,6 +1,7 @@
 "use client";
 // "?" (when not typing) opens a list of ORBIT's keyboard shortcuts. Also opened by the header menu via SHORTCUTS_EVENT.
 import { useEffect, useRef } from "react";
+import { useT } from "./i18n";
 
 export const SHORTCUTS_EVENT = "orbit:shortcuts";
 
@@ -33,6 +34,7 @@ const GROUPS: [string, [string, string][]][] = [
 
 export function ShortcutsOverlay() {
   const ref = useRef<HTMLDialogElement>(null);
+  const { t } = useT();
   useEffect(() => {
     const open = () => { const d = ref.current; if (d && !d.open) d.showModal(); };
     const onKey = (e: KeyboardEvent) => {
@@ -50,8 +52,8 @@ export function ShortcutsOverlay() {
     <dialog ref={ref} className="glass keys-overlay" aria-labelledby="keys-title"
       onClick={(e) => { if (e.target === e.currentTarget) e.currentTarget.close(); }}>
       <div className="mb-3 flex items-center justify-between gap-4">
-        <h2 id="keys-title" className="hud-title">KEYBOARD SHORTCUTS</h2>
-        <button className="chip" onClick={() => ref.current?.close()} autoFocus>Close</button>
+        <h2 id="keys-title" className="hud-title">{t("keys.title")}</h2>
+        <button className="chip" onClick={() => ref.current?.close()} autoFocus>{t("common.close")}</button>
       </div>
       {GROUPS.map(([name, rows]) => (
         <section key={name} className="mb-3 last:mb-0">
