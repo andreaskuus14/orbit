@@ -569,6 +569,7 @@ export const ET: Partial<Record<Key, string>> = {
   "core.fixDocs": "Paranda dokumentatsiooni abil:", "core.trace": "Täitmise jälg", "core.chatsTitle": "Vestlused ja projektid",
   "core.chats": "Vestlused", "core.chat": "Vestlus", "core.newChat": "Uus vestlus", "core.chatRunning": "Selles vestluses käib veel töö", "core.projectFor": "Selle vestluse projekt",
   "core.newTitle": "Alusta uut vestlust", "core.new": "Uus",
+ "core.you": "Sina", "core.railAria": "CORE tööriistad", "core.draftTitle": "Selle vestluse mustand ja edenemine", "core.toolsShort": "Tööriistad",
   "core.intro": "Ütle, mida vajad. Ma vastan või alustan tööd ja näitan selle käiku avalehel. Midagi ei saadeta, postitata ega osteta ilma sinu klõpsuta.",
   "core.attach": "Lisa failid", "core.attachTitle": "Lisa pilte või dokumente (või lohista / kleebi need)",
   "core.ph": "Mida sa vajad?", "core.phTitle": "↑ toob tagasi viimase küsimuse · Esc peatab vastuse", "core.message": "Sõnum CORE'ile", "core.send": "Saada",

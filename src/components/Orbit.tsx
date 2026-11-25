@@ -79,6 +79,7 @@ import { IconClose, IconMore } from "./ui/icons";
 import { Button } from "./ui";
 import { uiSound } from "./ui/sound";
 import "@/app/home.css";
+import "@/app/core-stage.css";
 import { useDialogFocus } from "./useDialogFocus";
 import { TimeDilation } from "./TimeDilation";
 import { parseVisits, prefetchOrder } from "@/lib/world-prefetch-pure";
@@ -261,6 +262,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
   // The world (or panel) actually on screen. Also while panel is briefly null after closing CORE, so the world isn't remounted.
   const shown = behind && (panel === "core" || panel === null) ? behind : panel;
   const closeWorld = useCallback(() => { changeDive(null); setBehind(null); setPanel(null); setFocusGoal(null); setFocusMemory(null); }, [changeDive]); // "← Back to galaxy" really leaves, even with CORE open over it
+  const coreOver = panel === "core" && !!behind;
   const isWorld = (p: PanelId | null) => p === "intelligence" || (p !== null && WORLDS.includes(p));
   // A second question keeps the world; a running game is full-screen above everything, so CORE replaces it as before.
   const openCore = useCallback(() => { if (panel !== "core") setBehind(isWorld(panel) ? panel : null); setPanel("core"); }, [panel]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -547,7 +549,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
     if (shown === entry.id && panel !== "core") {
       const previous = document.activeElement;
       const focusBack = () => {
-        const back = root.querySelector<HTMLElement>(".kept:not([hidden]) :is(.world-back, .st-tool-back, .st-shell > .pu-head .pu-head-actions > :last-child), :scope > .globe-in .world-back"); // STUDIO: its shell's close button
+        const back = root.querySelector<HTMLElement>(".kept:not([hidden]) :is(.world-back, .st-tool-back, .st-shell > .pu-head .pu-head-actions > :last-child), :scope > .world-stack > .globe-in .world-back"); // STUDIO: its shell's close button
         if (!back) return false;
         entry.entered = true;
         const active = document.activeElement;
@@ -791,6 +793,8 @@ export default function Orbit({ userId, email }: { userId: string; email: string
         <span>{t("explore.entering", { world: t(`planet.${divePlanet.id}`) })}</span>
         <span className="planet-entry-progress" aria-hidden="true" style={{ background: divePlanet.color }} />
       </div>}
+      {/* CORE over a world owns the screen: the world stays mounted behind it, dimmed, blurred and inert (one stacking layer under the CORE frame). */}
+      <div className="world-stack absolute inset-0" data-under-core={coreOver || undefined} inert={coreOver || undefined}>
       {/* Worlds stay mounted after their first visit (hidden + paused): re-entering skips the rebuild, shader compile and texture upload. */}
       {has("intelligence") && <Kept on={at("intelligence")} name="intelligence" onBack={closeWorld}><NewsGlobe reduced={reduced} quality={quality} onClose={closeWorld} focus={newsFocus} paused={!at("intelligence")} /></Kept>}
       {has("studio") && <Kept on={at("studio")} name="studio" onBack={closeWorld}><StudioWorld flat={view !== "3d"} reduced={reduced} quality={quality} onClose={closeWorld} onOpenTask={openTask} open={studioOpen} paused={!at("studio")} review={focusReview} onReview={setFocusReview} /></Kept>}
@@ -822,6 +826,7 @@ export default function Orbit({ userId, email }: { userId: string; email: string
           </ul>
         </nav>
       )}
+      </div>
 
       <header className="hud-top absolute inset-x-0 top-0 flex items-center justify-between gap-3 px-4 py-3">
         <button className="logo" onClick={closeWorld} aria-label={t("hud.home")}>

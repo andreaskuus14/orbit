@@ -445,16 +445,17 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
   // Screen look + voice memo: always there on a wide screen; on a phone behind one "⋯" button so the chat keeps its room.
   // Behind one "More" button on every screen (MIX clean-up): the composer used to show four extra controls under every chat.
   const [tools, setTools] = useState(false);
+  const [rail, setRail] = useState(false); // wide screens: draft and progress open in the orb's place (never a cut-off column)
 
   // Memoised so streaming deltas re-render only the live bubble, not the whole history.
   const history = useMemo(() => msgs.map((m, i) => (
-    <div key={i} className={m.role === "user" ? "bubble user" : `bubble core${m.error ? " err" : ""}`}>
+    <div key={i} className={m.role === "user" ? "bubble user" : `bubble core${m.error ? " err" : ""}`} data-who={m.role === "user" ? tr("core.you") : "CORE"}>
       {/* Steps sit above the answer (as while it streams), so the answer never jumps when the turn ends. */}
       {m.live && <CoreActivity rows={m.live.rows} running={false} totalMs={m.live.ms} />}
       {m.role === "assistant" && !m.error
         ? <CitedAnswer content={withoutCard(m.content)} citations={m.citations} trace={m.trace} openMemory={onOpenMemory} />
         : <div className="whitespace-pre-wrap">{m.content}</div>}
-      {m.role === "assistant" && m.trace?.some((x) => x.step === "local") && <p className="muted mt-1 text-xs" role="note">{tr("core.offlineNote")}</p>}
+      {m.role === "assistant" && m.trace?.some((x) => x.step === "local") && <p className="core-note mt-2" role="note">{tr("core.offlineNote")}</p>}
       {m.role === "user" && i === lastUser && !busy && chatId && (
         <div className="mt-1.5 flex justify-end text-xs"><button type="button" className="chat-mini" title={tr("chat.editTitle")} onClick={() => void edit(m.content)}>✎ {tr("chat.edit")}</button></div>
       )}
@@ -526,14 +527,24 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
   const artifact = useMemo(() => (lastCore ? turnArtifact(lastCore.content) : null), [lastCore]);
   const mission = busy ? missionOf([], rows.map((r) => r.label), true) : missionOf(lastCore?.trace, [], false, !!artifact) // while busy, the old turn's steps aren't this job's;
   return (
-    <div className="core-ws">
-    <div className="relative flex h-full min-h-0 min-w-0 flex-col" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+    <div className="core-ws" data-rail={rail || undefined}>
+    {/* Wide screens: a slim rail (chats, draft and progress, tools), the living orb on its lit floor, then one conversation column. */}
+    <nav className="core-rail" aria-label={tr("core.railAria")}>
+      <button type="button" className="core-rail-btn" aria-expanded={sheet} onClick={() => setSheet((v) => !v)} title={tr("core.chatsTitle")}><RailIcon d="M3 4.5h10M3 8h10M3 11.5h6" /><span>{tr("core.chats")}</span></button>
+      <button type="button" className="core-rail-btn" aria-expanded={rail} onClick={() => setRail((v) => !v)} title={tr("core.draftTitle")}><RailIcon d="M4 2.5h5.5L12 5v8.5H4zM9.5 2.5V5H12M6 8h4M6 10.5h3" />{(artifact || busy) && <i className="core-rail-dot" aria-hidden="true" />}<span>{tr("ws.draft")}</span></button>
+      <button type="button" className="core-rail-btn" aria-expanded={tools} onClick={() => setTools((v) => !v)} title={tr("chat.tools")}><RailIcon d="M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z" /><span>{tr("core.toolsShort")}</span></button>
+    </nav>
+    <div className="core-stage">
+      {rail ? <CoreWorkspace artifact={artifact} mission={mission} busy={busy} heard={heard} onAsk={(t) => void send(t)} />
+        : <><CorePresence size="lg" className="core-stage-orb" /><div className="core-floor" aria-hidden="true"><i /><i /><i /></div></>}
+    </div>
+    <div className="core-convo relative flex h-full min-h-0 min-w-0 flex-col" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
       onDragEnter={(e) => { if (e.dataTransfer.types.includes("Files")) { drags.current++; setDragging(true); } }}
       onDragLeave={() => { if (--drags.current <= 0) { drags.current = 0; setDragging(false); } }}
       onDrop={(e) => { drags.current = 0; setDragging(false); if (e.dataTransfer.files.length) { e.preventDefault(); void att.add(e.dataTransfer.files); } }}>
       {dragging && <div className="chat-drop" aria-hidden="true"><span>📎 {tr("chat.drop")}</span></div>}
       <div className="mb-2 flex items-center gap-1.5 text-xs">
-        <button type="button" className="chip" aria-expanded={sheet} onClick={() => setSheet((v) => !v)} title={tr("core.chatsTitle")}>☰ {tr("core.chats")}</button>
+        <button type="button" className="chip core-chats-chip" aria-expanded={sheet} onClick={() => setSheet((v) => !v)} title={tr("core.chatsTitle")}>☰ {tr("core.chats")}</button>
         <span className="min-w-0 flex-1 truncate font-semibold">{chatId ? chats.chats.find((c) => c.id === chatId)?.title ?? tr("core.chat") : tr("core.newChat")}</span>
         <span className="muted shrink-0" aria-live="polite">{busy ? tr("auto.saving") : chatId ? `✓ ${tr("life.saved")}` : ""}</span>
         {!!chats.projects.length && (
@@ -553,10 +564,10 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
       <div className="flex-1 space-y-4 overflow-y-auto pr-1" aria-live="polite" aria-busy={busy}>
         {!msgs.length && <p className="muted">{tr("core.intro")}</p>}
         {history}
-        {busy && <div className="bubble core">
+        {busy && <div className="bubble core" data-who="CORE">
               {/* Steps first, text under them: new text only ever grows downwards, so nothing above it moves while it streams.
                   Long work (handed off, or past LONG_TURN_MS) shows the shared "Working on it" card instead of the step list. */}
-              <CorePresence className="mb-2" />
+              <CorePresence className="mb-2 core-inline-orb" />
               {long ? <ProgressCard p={turnProgress({ id: bgTask ?? "turn", title: lastQ.current.slice(0, 80) || tr("prog.title"), rows, streaming: !!live, taskId: bgTask, startedAt: since.current, lang,
                   label: (r) => (r.key ? tr(r.key as Parameters<typeof tr>[0], (r as LiveRow).vars) : r.label.replace(/…$/, "")) })} />
                 : <CoreActivity rows={rows} running streaming={!!live} since={since.current} taskId={bgTask} route={route} projectName={chats.projects.find((p) => p.id === project)?.name} />}
@@ -589,9 +600,12 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
             : <button className="btn" disabled={!input.trim() && !att.items.length}>{tr("core.send")}</button>}
       </form>
     </div>
-    <CoreWorkspace artifact={artifact} mission={mission} busy={busy} heard={heard} onAsk={(t) => void send(t)} />
     </div>
   );
+}
+
+function RailIcon({ d }: { d: string }) {
+  return <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>;
 }
 
 /** "CORE suggests": one compact line (count + expand) over up to 3 proactive suggestions (src/lib/insights-pure.ts),

@@ -331,7 +331,7 @@ summary.core-step::-webkit-details-marker { display: none; }
 @keyframes warp-burst { from { opacity: .85; transform: scale(.5) rotate(0deg); } 35% { opacity: .75; } to { opacity: 0; transform: scale(2.1) rotate(2deg); } }
 @media (prefers-reduced-motion: reduce) { .warp, .warp-burst { display: none; } }
 /* Through the surface (window planets): the world crossfades in over the galaxy's dive (opacity only, never blocks input). */
-.orbit-shell[data-dive-in] > .kept:not([hidden]), .orbit-shell[data-dive-in] > .globe-in { animation: dive-in .4s cubic-bezier(.3, 0, .2, 1) both; }
+.orbit-shell[data-dive-in] :is(.world-stack, .orbit-shell) > .kept:not([hidden]), .orbit-shell[data-dive-in] :is(.world-stack, .orbit-shell) > .globe-in { animation: dive-in .4s cubic-bezier(.3, 0, .2, 1) both; }
 @keyframes dive-in { from { opacity: 0; } }
 /* Morning briefing as a hook (MorningCard.tsx): next step first, big numbers, the best Short as a picture. */
 .mc-next { display: flex; align-items: center; gap: .6rem; width: 100%; text-align: left; padding: .65rem .8rem; color: #f2fbff;
