@@ -13,7 +13,8 @@ export function ArchStudy() {
   const [v, setV] = useState<View | null>(null), [books, setBooks] = useState<string[]>([]), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
   const [queue, setQueue] = useState<Card[] | null>(null), [quiz, setQuiz] = useState(false), [flip, setFlip] = useState(false), [right, setRight] = useState(0), [total, setTotal] = useState(0);
   const load = useCallback(async () => {
-    try { setV(await api<View>("/api/study")); setBooks((await post<{ books: string[] }>({ action: "books" })).books); } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't load"); }
+    // A reply missing a field (an error page, an older server) must not crash ARCH: fill in empty lists.
+    try { const r = await api<Partial<View>>("/api/study"); setV({ cards: r?.cards ?? [], skipped: r?.skipped ?? [], queue: r?.queue ?? [], stats: r?.stats ?? { due: 0, total: 0 } }); setBooks((await post<{ books?: string[] }>({ action: "books" }))?.books ?? []); } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't load"); }
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -48,7 +49,7 @@ export function ArchStudy() {
       </div> : <p className="ok" role="status">{quiz ? `Quiz done: ${right}/${total} right.` : "Done for now."} <button className="link ml-2" onClick={end}>OK</button></p>)
       : <div className="flex flex-wrap gap-1.5">
         <button className="chip" disabled={!due.length} onClick={() => start(due.slice(0, 20), false)}>{due.length ? `Review ${Math.min(20, due.length)} cards` : "Nothing due"}</button>
-        <button className="chip" onClick={() => void post<{ quiz: Card[] }>({ action: "quiz" }).then((r) => r.quiz.length ? start(r.quiz, true) : setErr("No due book cards for a quiz yet.")).catch((e) => setErr(e.message))}>Weekly quiz</button>
+        <button className="chip" onClick={() => void post<{ quiz?: Card[] }>({ action: "quiz" }).then((r) => r?.quiz?.length ? start(r.quiz, true) : setErr("No due book cards for a quiz yet.")).catch((e) => setErr(e.message))}>Weekly quiz</button>
       </div>}
       {!queue && <div className="flex flex-wrap items-center gap-1.5">
         {books.length ? books.map((b) => <button key={b} className="chip" disabled={busy} onClick={() => void make(b)}>{busy ? "Reading…" : `Cards from ${b}`}</button>) : <span className="muted">No book yet: make its skill in VAULT first.</span>}

@@ -255,6 +255,7 @@ try {
         return { bar: !!r && r.height > 10 && getComputedStyle(h).visibility !== "hidden", card: !!document.querySelector("[data-boundary]"), root: document.getElementById("root").childElementCount }; });
       check(st.bar && st.root > 0, `${s} ${w}: top bar still there after a crash`);
       if (THROW.length) check(st.card, `${s} ${w}: crash card shown`);
+      else check(!st.card, `${s} ${w}: no WebGL only drops the 3D, no crash card`); // QA_NOGL: the panel must keep working
     }
     if (FAIL.size && s !== "home" && s !== "m") check(!(await page.evaluate(() => !!document.querySelector("[data-boundary]"))), `${s} ${w}: no crash card with QA_FAIL`);
     report[`${s}-${w}`] = { errors: [...new Set(errors)], issues, missingApi: [...unknown] };

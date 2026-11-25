@@ -1,6 +1,7 @@
 "use client";
 // ARCH planet: a study workspace for small buildings. Blocks in metres on a plot; edit by typing to CORE or directly with the numbers.
 // Quantities and euros are computed in arch-pure.ts from the geometry, never by the AI. Learning tool, not certification.
+import { PlanetBoundary } from "./PlanetBoundary";
 import { WarmCompile } from "./WarmCompile";
 import { memo, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import * as THREE from "three";
@@ -546,7 +547,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const hasResults = !!msg || !!notes || !!lessonMsg;
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label={tr("arch.region")} style={{ background: bg }}>
-      {!flat && (
+      {!flat && (<PlanetBoundary name="arch-scene" quiet>
         <Canvas key={glr.key} onCreated={(st) => { glr.onCreated(st); r3f.current = st; }} frameloop={paused ? "never" : "demand"} shadows={shadowsOn({ real, sun: sun.on, holo, scan: !!scan })} dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
         <WarmCompile world="arch" cap={4000} /* a slow driver shows the house after 4 s at most, not a blank grey plot for 20 s */ />
         <Grab to={grab} />
@@ -590,7 +591,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
           </group>}
           {walk && !paused && <Walker key={scan?.name ?? "model"} rects={scan ? noRects : rects} plot={scanPlot ?? plotWD} onExit={() => setWalk(false)} />}
           <OrbitControls makeDefault enabled={!walk} enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced && !walk} autoRotateSpeed={0.8} />
-        </Canvas>
+        </Canvas></PlanetBoundary>
       )}
 
       <div className="arch-wrap absolute inset-x-3 bottom-32 z-[14] flex max-h-[40dvh] min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[440px]">
