@@ -15,6 +15,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { houseMesh, roofTop, siteLayout, type SiteLayout } from "@/lib/arch-mesh-pure";
 import { isOpening, type Part, type Scene } from "@/lib/arch-pure";
 import { archMaterials } from "./arch-textures";
+import { ArchCliff } from "./ArchIsland";
 
 const GOLD = "#c9a24a";
 /** Build "print" height for the ▶ Build replay: everything above it is clipped away (shared by every house material). */
@@ -98,7 +99,8 @@ export const ArchSiteLook = memo(function ArchSiteLook({ scene }: { scene: Scene
   const big = Math.max(scene.plot.w, scene.plot.d) * 3;
   const by = (k: string) => s.trees.filter((t) => t.kind === k);
   return <group>
-    <mesh rotation-x={-Math.PI / 2} material={mats.lawn} receiveShadow><planeGeometry args={[big, big]} /></mesh>
+    <mesh rotation-x={-Math.PI / 2} material={mats.lawn} receiveShadow><circleGeometry args={[big * 0.24, 64]} /></mesh>
+    <ArchCliff r={big * 0.24} />
     {s.gravel.map((r, i) => <Rect key={i} r={r} y={0.03} mat={mats.gravel} />)}
     {s.path && <Rect r={s.path} y={0.04} mat={mats.paving} />}
     <Instanced geo={TREE.spruce} items={by("spruce")} />

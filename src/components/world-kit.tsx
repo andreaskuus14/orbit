@@ -114,6 +114,27 @@ export function Crystals({ items, reduced, intensity = 1.2, onPick }: { items: C
   return <instancedMesh ref={ref} args={[geo, mat, Math.max(1, items.length)]} onClick={onPick ? (e) => { e.stopPropagation(); if (e.instanceId !== undefined) onPick(e.instanceId); } : undefined} />;
 }
 
+/* ---------- instanced props ---------- */
+
+export type Inst = { at: [number, number, number]; s: [number, number, number]; ry?: number; color?: string };
+/** One instanced mesh from a list of placements (static). */
+export function Many({ items, geo, mat }: { items: Inst[]; geo: THREE.BufferGeometry; mat: THREE.Material }) {
+  const ref = useRef<THREE.InstancedMesh>(null);
+  useLayoutEffect(() => { const m = ref.current; if (!m) return; const o = new THREE.Object3D(), c = new THREE.Color();
+    items.forEach((it, i) => { o.position.set(...it.at); o.rotation.set(0, it.ry ?? 0, 0); o.scale.set(...it.s); o.updateMatrix(); m.setMatrixAt(i, o.matrix); if (it.color) m.setColorAt(i, c.set(it.color)); });
+    m.count = items.length; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; m.computeBoundingSphere(); }, [items]);
+  if (!items.length) return null;
+  return <instancedMesh key={items.length} ref={ref} args={[geo, mat, items.length]} />;
+}
+
+/** Jagged rock underside: a cone whose rim and sides are pushed in and out deterministically. */
+export function rockGeometry(r: number, h: number, seed: number) {
+  const g = new THREE.ConeGeometry(r, h, 18, 5, false); g.rotateX(Math.PI); g.translate(0, -h / 2, 0);
+  const p = g.attributes.position; let s = seed;
+  for (let i = 0; i < p.count; i++) { s = (s * 16807) % 2147483647; const k = 0.82 + (s / 2147483647) * 0.36; p.setXYZ(i, p.getX(i) * k, p.getY(i) * (p.getY(i) < -0.1 ? 0.9 + (s % 7) * 0.03 : 1), p.getZ(i) * k); }
+  g.computeVertexNormals(); return g.toNonIndexed();
+}
+
 /* ---------- motes ---------- */
 
 const moteVert = /* glsl */ `attribute float aS; uniform float uT; uniform float uM; varying float vA;
@@ -191,13 +212,14 @@ export function ChipLayer({ rig, chips, onPick }: { rig: ChipRig; chips: Chip[];
 }
 
 /** The 3D half: inside <Canvas>. Projects anchors ~15x a second and lays chips out around the panel. */
-export function ChipProjector({ rig, chips }: { rig: ChipRig; chips: Chip[] }) {
+/** throttle: seconds between layouts (0 for frameloop="demand" canvases, whose few frames must each count). */
+export function ChipProjector({ rig, chips, throttle = 0.066 }: { rig: ChipRig; chips: Chip[]; throttle?: number }) {
   const camera = useThree((s) => s.camera), size = useThree((s) => s.size), gl = useThree((s) => s.gl);
   const v = useMemo(() => new THREE.Vector3(), []);
   const last = useRef(0), blocked = useRef<Box[]>([]), blockAt = useRef(0);
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
-    if (t - last.current < 0.066) return;
+    if (throttle > 0 && t - last.current < throttle) return;
     last.current = t;
     const host = gl.domElement.getBoundingClientRect();
     if (t - blockAt.current > 0.5 || !blocked.current.length) { // the panel(s) of this world, in canvas px
