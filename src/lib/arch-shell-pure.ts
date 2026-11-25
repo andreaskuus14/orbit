@@ -1,6 +1,6 @@
 // ARCH planet shell: the small rules behind the calm panel and the on-demand 3D (planet-map.md § ARCH).
 // Pure, so the render-loop and save decisions are tested in node.
-import type { Lang } from "./i18n-pure";
+import type { Lang } from "./i18n-core-pure";
 
 /** One locale per language for every date, time and number on the planet (no more "et-EE" inside English text). */
 export const locale = (lang: Lang) => (lang === "et" ? "et-EE" : "en-GB");

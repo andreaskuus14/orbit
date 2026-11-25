@@ -7,7 +7,7 @@ import type { Loop } from "./loops-pure";
 import type { TrustSuggestion } from "./trust-pure";
 import type { WorkItem } from "./work-continuation-pure";
 import type { WriteEvidence } from "./completion-pure";
-import type { Lang } from "./i18n-pure";
+import type { Lang } from "./i18n-core-pure";
 import { opsStatus, type OpsStatus } from "./ops-status-pure.ts";
 import type { Blocker } from "./business-overview-pure.ts";
 import type { ReceiptStatus } from "./receipt-pure.ts";

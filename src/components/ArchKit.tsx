@@ -2,7 +2,7 @@
 // ARCH building kit panel: open the kit house or an empty scene, browse the part hierarchy (select a part, hide a group),
 // reuse a kit group in the current scene, and swap the selected window or door for another type.
 import { useT } from "./i18n";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { isOpening, type Group, type Part, type Scene } from "@/lib/arch-pure";
 import { insertGroup, kitGroups, kitHouse, OPENING_TYPES, partTree, replaceOpening } from "@/lib/arch-kit-pure";
 

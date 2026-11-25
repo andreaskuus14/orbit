@@ -4,7 +4,7 @@
 //   - the header status line, the pace badge ("2.4× pace"), relative dates
 //   - which failed jobs are already covered by a Needs you item (so one failure is shown once, not twice)
 //   - the retention chart: path, biggest drop, axis ticks
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 
 /* ---------- pipeline ---------- */
 

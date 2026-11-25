@@ -3,7 +3,7 @@
 // only when something time-limited fits one of his projects: several signals about the same thing in 48 h, more than the 48 h
 // before. Each window has a reason, evidence links, and one suggested next step (a draft task inside ORBIT, started only by his
 // click). Pings are capped per day and per topic, and wait out quiet hours and Stop-all. IO: radar.ts; UI: RadarCards.tsx.
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 import type { Progress } from "./progress-pure.ts";
 
 export type RadarSource = "youtube" | "outlier" | "roblox" | "reach" | "news" | "business";

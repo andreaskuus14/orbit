@@ -5,7 +5,7 @@
 // GET /api/knows only reads, and each edit goes to that store's own route (knowRequest in knows-pure.ts).
 import { useCallback, useEffect, useState } from "react";
 import { itemLine, knowRequest, type EditCtx, type Group, type KnowItem } from "@/lib/knows-pure";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { useT } from "./i18n";
 import { askConfirm } from "./ui/Dialog";
 

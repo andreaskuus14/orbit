@@ -26,7 +26,7 @@ import { StudioShell, type ToolOpen } from "./StudioShell";
 import { IconBack, toast, uiSound } from "./ui";
 import { TOOL_MENU, ago, paceText } from "@/lib/studio-shell-pure";
 import type { StudioMode as Mode } from "@/lib/studio-ui-pure";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { useT } from "./i18n";
 import { isShort, moonRadius, takeoff, type Channel, type Video } from "@/lib/youtube-pure";
 

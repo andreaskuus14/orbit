@@ -11,7 +11,7 @@ import { DreamCard, RadarCards } from "./DreamRadar";
 import { openProgress } from "./ProgressCard";
 import MissionTargets from "./MissionTargets";
 import { useT } from "./i18n";
-import { greetKey } from "@/lib/i18n-pure";
+import { greetKey } from "@/lib/i18n-core-pure";
 
 const NAV: Record<MorningNav, NavTarget> = { review: { panel: "studio", view: "review" }, news: { panel: "intelligence" }, tasks: { panel: "operations" }, agents: { panel: "agents" }, life: { panel: "life" }, goals: { panel: "agents" } };
 

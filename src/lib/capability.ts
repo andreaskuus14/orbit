@@ -1,5 +1,5 @@
 import type { Check } from "./doctor-pure";
-import type { Lang } from "./i18n-pure";
+import type { Lang } from "./i18n-core-pure";
 import { MODULE_HINTS } from "./core-modules-pure";
 import { cantDo, coreNote, evaluate, guessLang, missingFor, startCheck, type Facts } from "./capability-pure";
 

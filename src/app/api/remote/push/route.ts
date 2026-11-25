@@ -1,7 +1,7 @@
 import { deviceFromCookie, rateOk, remoteProblem, updateDevices } from "@/lib/remote";
 import { RATE } from "@/lib/remote-web-pure";
 import { parseSubscription } from "@/lib/remote-push-pure";
-import { parseLang } from "@/lib/i18n-pure";
+import { parseLang } from "@/lib/i18n-core-pure";
 import { deliver, pushProblem } from "@/lib/remote-push";
 
 export const dynamic = "force-dynamic";

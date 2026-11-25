@@ -1,7 +1,7 @@
 // ARCH studio input (pure, tested in tests/arch-floorplan.test.ts): the prompts that let Claude read a sketch photo, a reference
 // photo or a text brief into rough plan data, the parsing of its reply, and the "Working on it" card for the whole run.
 // The model only reads; every measurement, area and rule check is computed in arch-floorplan-pure.
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 import { stepsFrom, minutesLeft, words, type Progress } from "./progress-pure.ts";
 import { checkPlan, findRooms, planFromBrief, planFromRaw, planStats, type FloorPlan } from "./arch-floorplan-pure.ts";
 

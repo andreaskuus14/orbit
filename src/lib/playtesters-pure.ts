@@ -8,7 +8,7 @@
 // and for where each currency is earned and spent. Fixes are proposals: nothing changes until he clicks Approve, and then only through
 // rojo.ts writeScript (Selene check, git snapshot, undoable). Nothing is published.
 import { fromStages, type Progress } from "./progress-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 
 // ---- Testers -------------------------------------------------------------------
 

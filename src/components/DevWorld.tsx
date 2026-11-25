@@ -29,7 +29,7 @@ import {
 import { KEEP_TOOLS, TOOL_GROUPS, counts, isGameTask, needsGame as toolNeedsGame, removeBug, removeGame, restore, urgentBugs, type Removed, type ToolId } from "@/lib/gamedev-shell-pure";
 import { planetNeeds, type Need } from "@/lib/needs-you-pure";
 import { fromTask, type Progress } from "@/lib/progress-pure";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { Button, Card, Chip, Empty, ErrorState, Loading, PlanetShell, Row, Section, Sheet, Toaster, WorkCard, IconBack, IconChevron, IconPlus, toast, type MenuItem } from "./ui";
 import { VOICE_ASK } from "./voice/bus";
 import { openTarget } from "./NeedsYou";

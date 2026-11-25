@@ -9,7 +9,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type SVGProps } from "react";
 import { Button, Card, Empty, ErrorState, Loading, MoreMenu, Row, Sheet, toast, uiSound, IconClose, IconSend, IconPlus, IconBack, type MenuItem } from "./ui";
 import { useT } from "./i18n";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { KINDS, type Kind } from "@/lib/kinds";
 import { connections, isLearned, searchStars } from "@/lib/memory-world-pure";
 import { whyMatched } from "@/lib/memory-workspace-pure";

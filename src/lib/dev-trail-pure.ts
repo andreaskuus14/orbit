@@ -3,7 +3,7 @@
 // only Andreas records the version he applied in Studio himself. Tested in tests/dev-trail.test.ts.
 import type { Bug, FixState, Trail } from "./devworld-pure.ts";
 import type { DevSession } from "./dev-session-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 
 export type { FixState, Trail };
 export type StepKind = "observed" | "session" | "fix" | "evidence" | "version";

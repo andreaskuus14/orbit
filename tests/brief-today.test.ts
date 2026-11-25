@@ -131,7 +131,7 @@ test("the brief overlay renders Today with labelled Approve/Open per row and the
     if (name === "react/jsx-runtime") return req(name);
     if (name === "@/lib/brief-pure") return {};
     if (name === "./i18n") return { useT: () => ({ t: (k: any, p: any) => translate("en", k, p), lang: "en" }) };
-    if (name === "@/lib/i18n-pure") return { greetKey: () => "greet.morning" };
+    if (name === "@/lib/i18n-core-pure") return { greetKey: () => "greet.morning" };
     if (name.endsWith("/speak")) return { speakChunk() {}, speechSettings: () => ({ speak: false }), stop() {} };
     if (name.endsWith("/AgentMission")) return { api: async () => ({}) };
     if (name.endsWith("/DayPlan")) return { DayPlan: () => null };

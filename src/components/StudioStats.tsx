@@ -6,7 +6,7 @@ import { AbVerdict } from "./AbVerdict";
 import { channelHealth, postedThisWeek, type Health, type Light } from "@/lib/studio-health-pure";
 import type { Accuracy, Forecast, Hint } from "@/lib/clips/forecast-pure";
 import type { ExperimentsView } from "@/lib/clips/experiments";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { FEW_VIEWS, areaPath, compact, delta, linePath, mmss, niceTicks, tooFewToCompare, toPoints, type Box } from "@/lib/chart-pure";
 
 // STUDIO stats: YouTube Analytics dashboard drawn over the left of the 3D world. Hand-written SVG charts.

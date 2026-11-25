@@ -12,7 +12,7 @@ import { mapNodes } from "@/lib/business-map-pure";
 import { applyAction, bizResults, type BizState } from "@/lib/business-state-pure";
 import { todayQueue } from "@/lib/planet-view-pure";
 import { fromStages, type Progress } from "@/lib/progress-pure";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { VOICE_ASK } from "./voice/bus";
 import BusinessMap from "./BusinessMap";
 import { ClientsView, FindView, InsightsView, MoneyView, SetupView, type Biz } from "./BusinessPanel";

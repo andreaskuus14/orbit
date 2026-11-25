@@ -6,7 +6,7 @@
 // A failed run stops counting once a later run of the same work finished, or after PROBLEM_MAX_AGE_MS (OPERATIONS keeps it).
 // Hover / tap gives one plain sentence ("STUDIO: making the Shorts, about 6 min left"). Pure; tests in tests/galaxy-status.test.ts.
 // LIFE shows counts only: no journal / LIFE text ever reaches the galaxy.
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 import type { PlanetId } from "./planets.ts";
 import type { Progress } from "./progress-pure.ts";
 import { shipTarget } from "./ships-pure.ts";

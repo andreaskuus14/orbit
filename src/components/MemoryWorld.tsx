@@ -18,7 +18,7 @@ import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { centroid, connections, isLearned, searchStars, starProjects, subgraph } from "@/lib/memory-world-pure";
 import { kindColor, normMap, type Star } from "@/lib/memory-planet-pure";
 import { useT } from "./i18n";
-import type { Key } from "@/lib/i18n-pure";
+import type { Key } from "@/lib/i18n-core-pure";
 import { DAY, edgeBorn, edgeGlow } from "@/lib/memory-edges-pure";
 import { useAlienEnv } from "./alien/env";
 import { ClusterHalos } from "./MemoryClusters";

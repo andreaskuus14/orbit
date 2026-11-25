@@ -7,7 +7,7 @@ import { trackGoals, type GoalTrack } from "@/lib/goal-autopilot";
 import { fromPilot } from "@/lib/pilot-pure";
 import { stopAllOn } from "@/lib/stop-all";
 import { usageHold } from "@/lib/usage-meter";
-import { parseLang, type Lang } from "@/lib/i18n-pure";
+import { parseLang, type Lang } from "@/lib/i18n-core-pure";
 
 export const dynamic = "force-dynamic";
 

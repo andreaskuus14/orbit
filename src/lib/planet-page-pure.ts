@@ -2,7 +2,7 @@
 // what it's for → one box to say what you need → "Working on it" cards → results → More. This file turns each planet's own job
 // state into the shared Progress model (progress-pure.ts) in plain words, and keeps internal names off the default screens.
 // Pure; tests in tests/planet-page.test.ts. Cards never approve anything: their button opens where the item's own Approve lives.
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 import { fromStages, fromTask, sortProgress, type Progress, type TaskLike } from "./progress-pure.ts";
 import { dubProgress, type ClipDub } from "./clips/dub-pure.ts";
 

@@ -2,7 +2,7 @@
 // media), when a long answer folds, the composer keys, the "Working on it" card for a long turn, and the chat search helpers.
 // Keep this file free of non-erasable TS syntax (it runs under node --experimental-strip-types).
 import { plainStep, stepsFrom, type Progress } from "./progress-pure.ts";
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 
 export type MediaKind = "image" | "video" | "audio" | "pdf" | "model" | "file";
 export type Block =

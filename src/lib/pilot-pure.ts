@@ -7,7 +7,7 @@
 // switches all work as for goals. What is different: the plan he asked for starts without a separate Approve click (his request is
 // the approval for ORBIT's own work, AGENTS.md rule 6 A), and replans apply by themselves. What is NOT different: every step that
 // would publish, send, spend, sign up / log in / install or delete still waits for his own OK click, whatever the planner said.
-import type { Lang } from "./i18n-pure.ts";
+import type { Lang } from "./i18n-core-pure.ts";
 import { MAX_STEPS, MIN_STEPS, SIDE_EFFECT, clean, cont, decideProposal, logGoal, nextMove, toStep, validateSteps, type Goal, type GoalInput, type Move, type Step, type StepDraft } from "./goals-pure.ts";
 import type { Progress, ProgressStep } from "./progress-pure.ts";
 

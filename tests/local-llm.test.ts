@@ -29,7 +29,7 @@ test("local-llm.ts never imports claude.ts, and no journal text can reach any mo
 test("the owner-facing text no longer offers journal reflection and says the journal never reaches a model", () => {
   const panel = src("src/components/LifePanel.tsx");
   assert.ok(!/\/api\/life\/reflect|localReflect/.test(panel));
-  assert.match(src("src/lib/i18n-pure.ts"), /life\.journalPrivate": "Private: journal text is never sent to any AI model\./);
+  assert.match(src("src/lib/i18n-en-pure.ts"), /life\.journalPrivate": "Private: journal text is never sent to any AI model\./);
   assert.ok(!/ORBIT_LOCAL_PRIVATE/.test(src(".env.example")));
 });
 

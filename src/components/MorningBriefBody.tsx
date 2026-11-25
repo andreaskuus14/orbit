@@ -10,7 +10,7 @@ import { DayPlan } from "./DayPlan";
 import { openTarget } from "./NeedsYou";
 import { useT } from "./i18n";
 import { announce } from "./announce";
-import { greetKey } from "@/lib/i18n-pure";
+import { greetKey } from "@/lib/i18n-core-pure";
 
 const ICON: Record<BriefItem["kind"], string> = { decision: "✋", deadline: "⏰", night: "🌙", health: "🩺", calendar: "📅", school: "🎓", weather: "🌦", place: "📍", first: "➜", result: "✦", lesson: "💡", question: "❔", study: "🗂" };
 type Got = Brief & { life: boolean };

@@ -62,3 +62,40 @@ test("parseLang, greetings and the CORE rule", () => {
   assert.equal(CORE_LANG_RULE.en, "");
   assert.match(CORE_LANG_RULE.et, /Estonian/);
 });
+
+// ---- one language per first load (perf/i18n-split) ----
+test("Estonian planet names fit the 13-character label width Galaxy reserves", () => {
+  for (const p of PLANETS) assert.ok((ET[`planet.${p.id}` as Key] ?? "").length <= 13, p.id);
+});
+
+test("browser stand-in translates only from loaded dictionaries, same rules as the server", async () => {
+  const b = await import("../src/lib/i18n-browser.ts");
+  assert.equal(b.translate("et", "lang.title"), "lang.title"); // nothing loaded yet: the key, never blank
+  b.dicts.et = ET;
+  assert.equal(b.translate("et", "lang.title"), translate("et", "lang.title"));
+  b.dicts.en = EN;
+  assert.equal(b.plural("en", "ws.doneSteps", 3), plural("en", "ws.doneSteps", 3));
+  assert.equal(b.plural("et", "ws.doneSteps", 1), plural("et", "ws.doneSteps", 1));
+  assert.equal("EN" in b || "ET" in b, false, "the browser module must not carry dictionaries");
+});
+
+test("language cookie: whole site, one year, readable by the server", async () => {
+  const { langCookie, parseLang: p } = await import("../src/lib/i18n-core-pure.ts");
+  assert.equal(langCookie("et"), "orbit.lang=et; Path=/; Max-Age=31536000; SameSite=Lax");
+  assert.equal(p("et"), "et"); assert.equal(p("xx"), "en"); assert.equal(p(undefined), "en");
+});
+
+test("layout serves the dictionary named by the cookie; only next.config swaps i18n-pure for the browser", async () => {
+  const { readFileSync } = await import("node:fs");
+  const layout = readFileSync(new URL("../src/app/layout.tsx", import.meta.url), "utf8");
+  assert.match(layout, /cookies\(\)\)\.get\(LANG_KEY\)/);
+  assert.match(layout, /<html lang=\{lang\}/);
+  assert.match(layout, /<LangBoot lang=\{lang\}>/);
+  const hook = readFileSync(new URL("../src/components/i18n.tsx", import.meta.url), "utf8");
+  assert.match(hook, /import\("@\/lib\/i18n-et-pure"\)/); // lazy chunks, never a static import
+  assert.ok(!/^import [^\n]*i18n-(en|et)-pure/m.test(hook));
+  const bootSrc = readFileSync(new URL("../src/components/i18n-boot.tsx", import.meta.url), "utf8");
+  assert.ok(!/i18n-(en|et|browser|pure)|from "\.\/i18n"/.test(bootSrc), "layout boot must not pull a dictionary into every page");
+  const cfg = readFileSync(new URL("../next.config.ts", import.meta.url), "utf8");
+  assert.match(cfg, /if \(!isServer\)[^\n]*i18n-browser/);
+});
