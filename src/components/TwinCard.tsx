@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useT } from "./i18n";
 import { KIND_LABEL, TWIN_COLOR, TWIN_GLYPH, type Decision, type TwinView } from "@/lib/twin-pure";
 
 /** The twin's case against a big decision, beside (never in front of) the decide button. Renders nothing when the twin stays quiet. */
 export function TwinCard({ decision }: { decision: Decision | null }) {
+  const { t } = useT();
   const [v, setV] = useState<TwinView | null>(null);
   const [state, setState] = useState<"idle" | "thinking" | "hidden">("idle");
   const key = decision && `${decision.kind}:${decision.ref}`;
@@ -19,20 +21,20 @@ export function TwinCard({ decision }: { decision: Decision | null }) {
   if (!decision || state === "hidden" || (!v && state !== "thinking")) return null;
   const mute = () => { setState("hidden"); void fetch("/api/twin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "mute", kind: decision.kind, muted: true }) }); };
   return (
-    <aside className="card space-y-2 text-sm" style={{ borderLeft: `3px solid ${TWIN_COLOR}` }} aria-label="Twin: the case against">
+    <aside className="card space-y-2 text-sm" style={{ borderLeft: `3px solid ${TWIN_COLOR}` }} aria-label={t("twin.title")}>
       <p className="flex items-center justify-between gap-2">
-        <b style={{ color: TWIN_COLOR }}><span aria-hidden>{TWIN_GLYPH}</span> Twin: the case against</b>
-        <button className="chip text-xs" onClick={() => setState("hidden")} aria-label="Hide the twin">Hide</button>
+        <b style={{ color: TWIN_COLOR }}><span aria-hidden>{TWIN_GLYPH}</span> {t("twin.title")}</b>
+        <button className="chip text-xs" onClick={() => setState("hidden")} aria-label={t("twin.hideL")}>{t("twin.hide")}</button>
       </p>
-      {!v ? <p className="muted" role="status">Thinking of the other side… (you don&apos;t have to wait)</p> : (
+      {!v ? <p className="muted" role="status">{t("twin.thinking")}</p> : (
         <>
           <ol className="list-decimal space-y-1 pl-5">
-            {v.risks.map((r, i) => <li key={i}>{r.text}{r.evidence.length > 0 && <span className="muted text-xs"> · ledger {r.evidence.join(", ")}</span>}</li>)}
+            {v.risks.map((r, i) => <li key={i}>{r.text}{r.evidence.length > 0 && <span className="muted text-xs"> · {t("twin.ledger", { refs: r.evidence.join(", ") })}</span>}</li>)}
           </ol>
-          <p><b>Best alternative:</b> {v.alternative}</p>
-          <p><b>Would change my mind:</b> {v.mindChange}</p>
+          <p><b>{t("twin.alt")}</b> {v.alternative}</p>
+          <p><b>{t("twin.mind")}</b> {v.mindChange}</p>
           <p className="border-t pt-2" style={{ borderColor: "var(--line)" }}>{v.recommendation}</p>
-          {decision.kind !== "argue" && <button className="chip text-xs" onClick={mute}>Don&apos;t argue on {KIND_LABEL[decision.kind]}</button>}
+          {decision.kind !== "argue" && <button className="chip text-xs" onClick={mute}>{t("twin.mute", { kind: KIND_LABEL[decision.kind] })}</button>}
         </>
       )}
     </aside>

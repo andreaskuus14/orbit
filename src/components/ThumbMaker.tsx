@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useT } from "./i18n";
 import { MAX_ZOOM, PRESETS, coverCrop, fontForWidth, imageFileError, panView, splitTitle, type View } from "@/lib/devtools-pure";
 
 // DevWorld → Thumbnail & Icon Maker: everything happens in this browser on a <canvas>; the screenshot never leaves the device.
@@ -17,6 +18,7 @@ const STICKERS = ["", "🔥", "⭐", "💰", "😱", "👑", "⚔️", "🆕", "
 const START: View = { zoom: 1, cx: 0.5, cy: 0.5 };
 
 export default function ThumbMaker() {
+  const { t } = useT();
   const canvas = useRef<HTMLCanvasElement>(null);
   const [img, setImg] = useState<ImageBitmap | null>(null);
   const [preset, setPreset] = useState<(typeof PRESETS)[number]>(PRESETS[0]);
@@ -108,7 +110,7 @@ export default function ThumbMaker() {
 
   function download() {
     canvas.current?.toBlob((b) => {
-      if (!b) return setErr("Export failed");
+      if (!b) return setErr(t("thumb.exportFail"));
       const url = URL.createObjectURL(b), a = document.createElement("a");
       a.href = url; a.download = `${(title.trim() || "thumbnail").replace(/[^\w-]+/g, "-").slice(0, 40)}-${preset.w}x${preset.h}.png`;
       a.click();
@@ -118,8 +120,8 @@ export default function ThumbMaker() {
 
   return (
     <section className="space-y-3" aria-labelledby="tm-title">
-      <h2 id="tm-title" className="text-base font-semibold" style={{ color: PINK }}>🖼️ Thumbnail &amp; Icon Maker</h2>
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Size">
+      <h2 id="tm-title" className="text-base font-semibold" style={{ color: PINK }}>🖼️ {t("thumb.title")}</h2>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("thumb.size")}>
         {PRESETS.map((p) => <button key={p.id} className="chip" aria-pressed={preset.id === p.id} onClick={() => setPreset(p)}>{p.label} <span className="muted">{p.w}×{p.h}</span></button>)}
       </div>
       <label
@@ -128,29 +130,29 @@ export default function ThumbMaker() {
         onDrop={(e) => { e.preventDefault(); setOver(false); void load(e.dataTransfer.files[0]); }}
       >
         <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(e) => { void load(e.target.files?.[0]); e.target.value = ""; }} />
-        {img ? "Change screenshot" : "Drop a screenshot here or choose one"} <span className="muted">(PNG/JPG/WebP, max 15 MB)</span>
+        {img ? t("thumb.change") : t("thumb.drop")} <span className="muted">{t("thumb.formats")}</span>
       </label>
       {err && <p className="error text-sm" role="alert">{err}</p>}
       <canvas
-        ref={canvas} tabIndex={img ? 0 : -1} role="img" aria-label={`Preview, ${preset.w} by ${preset.h}. ${img ? "Drag or use arrow keys to move the picture." : ""}`}
+        ref={canvas} tabIndex={img ? 0 : -1} role="img" aria-label={`${t("thumb.preview", { w: preset.w, h: preset.h })} ${img ? t("thumb.dragHint") : ""}`}
         className="block w-full rounded-lg border border-white/10" style={{ cursor: img ? "grab" : "default", touchAction: "none" }}
         onPointerDown={onDown} onPointerMove={onMove} onPointerUp={() => (drag.current = null)} onPointerCancel={() => (drag.current = null)} onKeyDown={onKey}
       />
-      <label className="flex items-center gap-2 text-xs">Zoom
+      <label className="flex items-center gap-2 text-xs">{t("thumb.zoom")}
         <input type="range" min={1} max={MAX_ZOOM} step={0.05} value={view.zoom} disabled={!img} className="flex-1" style={{ accentColor: PINK }}
           onChange={(e) => img && setView((v) => panView({ ...v, zoom: Number(e.target.value) }, 0, 0, img.width, img.height, preset.w, preset.h))} />
       </label>
-      <label className="block text-xs">Title
+      <label className="block text-xs">{t("thumb.titleField")}
         <input className="field mt-1 w-full" value={title} maxLength={40} onChange={(e) => setTitle(e.target.value)} />
       </label>
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Style">
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("thumb.style")}>
         {STYLES.map((s) => <button key={s.id} className="chip" aria-pressed={style.id === s.id} onClick={() => setStyle(s)} style={style.id === s.id ? { borderColor: PINK, color: PINK } : undefined}>{s.label}</button>)}
       </div>
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Sticker">
-        {STICKERS.map((s) => <button key={s || "none"} className="chip" aria-pressed={sticker === s} aria-label={s ? `Sticker ${s}` : "No sticker"} onClick={() => setSticker(s)}>{s || "None"}</button>)}
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("thumb.sticker")}>
+        {STICKERS.map((s) => <button key={s || "none"} className="chip" aria-pressed={sticker === s} aria-label={s ? t("thumb.stickerN", { s }) : t("thumb.noSticker")} onClick={() => setSticker(s)}>{s || t("thumb.none")}</button>)}
       </div>
-      <button className="btn w-full" onClick={download}>⬇ Download PNG ({preset.w}×{preset.h})</button>
-      <p className="muted text-xs">Roblox shows icons small and with rounded corners: keep the title short and away from the edges.</p>
+      <button className="btn w-full" onClick={download}>⬇ {t("thumb.download", { w: preset.w, h: preset.h })}</button>
+      <p className="muted text-xs">{t("thumb.tip")}</p>
     </section>
   );
 }

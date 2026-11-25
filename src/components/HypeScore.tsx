@@ -44,20 +44,20 @@ export function HypeWave({ hype, duration, clips, reduced, onPick }: { hype: Hyp
   const replay = hype.replay && smoothPath(hype.replay.map((v, i) => [x((i + 0.5) * hype.bucketSec), y(v * 0.9)])); // YouTube "Most replayed"
   const top = [...hype.peaks].sort((a, b) => b.height - a.height).slice(0, 3);
   const summary = top.length
-    ? `Biggest moments: ${top.map((p) => `${mmss(p.t)}${p.reasons.length ? ` (${p.reasons.join(", ")})` : ""}`).join("; ")}.`
-    : "No clear hype spikes in this stream.";
-  const source = (hype.chatMsgs ? `${hype.chatFrom ?? "Chat replay"} · ${hype.chatMsgs.toLocaleString()} messages · chat delay ${hype.delay} s` : "Audio only");
+    ? tr("hype.biggest", { list: top.map((p) => `${mmss(p.t)}${p.reasons.length ? ` (${p.reasons.join(", ")})` : ""}`).join("; ") })
+    : tr("hype.noSpikes");
+  const source = (hype.chatMsgs ? tr("hype.source", { from: hype.chatFrom ?? tr("hype.chatReplay"), n: hype.chatMsgs.toLocaleString(), d: hype.delay }) : tr("hype.audioOnly"));
   const hov = clips.find((c) => c.id === hover);
 
   return (
     <figure className="hype-wave mt-2" aria-labelledby={`${uid}-t`}>
       <figcaption className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-[11px]">
-        <span id={`${uid}-t`} className="studio-title !tracking-[0.12em]">Hype over the stream</span>
+        <span id={`${uid}-t`} className="studio-title !tracking-[0.12em]">{tr("hype.title")}</span>
         <span className="muted">{source}</span>
       </figcaption>
       <div className="relative mt-1">
         <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-24 w-full overflow-visible sm:h-28" role="img" aria-labelledby={`${uid}-st ${uid}-sd`}>
-          <title id={`${uid}-st`}>Hype curve of the stream, {mmss(total)} long</title>
+          <title id={`${uid}-st`}>{tr("hype.curveL", { len: mmss(total) })}</title>
           <desc id={`${uid}-sd`}>{summary}</desc>
           <defs>
             <linearGradient id={`${uid}-heat`} x1="0" y1={H} x2="0" y2={TOP} gradientUnits="userSpaceOnUse">
@@ -99,7 +99,7 @@ export function HypeWave({ hype, duration, clips, reduced, onPick }: { hype: Hyp
         )}
       </div>
       <div className="num mt-0.5 flex justify-between text-[10px]" style={{ color: "rgba(255,214,224,0.45)" }} aria-hidden>
-        <span>0:00</span><span className="hype-legend"><i style={{ background: "linear-gradient(90deg,#a855f7,#ff2e63,#ffb347)" }} />hype<i className="dash" />chat<i style={{ background: "#c084fc" }} />audio{hype.replay && <><i style={{ background: "#7ee0b5" }} />{tr("cf.replayedLegend")}</>}</span><span>{mmss(total)}</span>
+        <span>0:00</span><span className="hype-legend"><i style={{ background: "linear-gradient(90deg,#a855f7,#ff2e63,#ffb347)" }} />{tr("hype.lgHype")}<i className="dash" />{tr("hype.lgChat")}<i style={{ background: "#c084fc" }} />{tr("hype.lgAudio")}{hype.replay && <><i style={{ background: "#7ee0b5" }} />{tr("cf.replayedLegend")}</>}</span><span>{mmss(total)}</span>
       </div>
       <p className="muted mt-1 text-[11px] leading-snug">{summary}{hype.hint ? ` ${hype.hint}.` : ""}</p>
     </figure>
@@ -111,7 +111,7 @@ const peakValue = (h: HypeView, start: number, end: number) => {
   return Math.max(0, ...h.curve.slice(a, b));
 };
 
-const CONF: Record<Virality["conf"], string> = { low: "learning", medium: "medium confidence", high: "high confidence" };
+const CONF = { low: "hype.confLow", medium: "hype.confMed", high: "hype.confHigh" } as const satisfies Record<Virality["conf"], string>;
 
 /** Counts 0 → value once (instant with reduced motion). */
 function useCount(value: number, reduced: boolean) {
@@ -129,22 +129,24 @@ function useCount(value: number, reduced: boolean) {
 
 /** Radial 0-100 gauge, heat-coloured, with the confidence underneath. */
 export function ScoreRing({ v, reduced, size = 44 }: { v: Virality; reduced: boolean; size?: number }) {
+  const { t: tr } = useT();
   const n = useCount(v.score, reduced), r = 17, c = 2 * Math.PI * r, col = heat(v.score / 100);
   return (
-    <div className="score-ring" style={{ width: size }} role="img" aria-label={`Virality score ${v.score} of 100, ${CONF[v.conf]}`}>
+    <div className="score-ring" style={{ width: size }} role="img" aria-label={tr("hype.ringL", { s: v.score, conf: tr(CONF[v.conf]) })}>
       <svg viewBox="0 0 40 40" width={size} height={size} aria-hidden>
         <circle cx="20" cy="20" r={r} fill="rgba(12,2,8,0.72)" stroke="rgba(255,214,224,0.12)" strokeWidth="3" />
         <circle cx="20" cy="20" r={r} fill="none" stroke={col} strokeWidth="3" strokeLinecap="round" transform="rotate(-90 20 20)"
           strokeDasharray={`${(c * n) / 100} ${c}`} style={{ filter: `drop-shadow(0 0 3px ${col})` }} />
         <text x="20" y="21" textAnchor="middle" dominantBaseline="middle" className="score-ring-num" fill="#fff5f7">{n}</text>
       </svg>
-      <span className={`score-conf ${v.learning ? "learning" : ""}`}>{v.learning ? "learning" : v.conf === "high" ? "high" : "med"}</span>
+      <span className={`score-conf ${v.learning ? "learning" : ""}`}>{v.learning ? tr("hype.learning") : v.conf === "high" ? tr("hype.high") : tr("hype.med")}</span>
     </div>
   );
 }
 
 /** "Why this score": the expected views multiple and the top factors each way, as bars in score points. */
 export function ScoreWhy({ v, open }: { v: Virality; open?: boolean }) {
+  const { t: tr } = useT();
   const max = Math.max(8, ...[...v.up, ...v.down].map((f) => Math.abs(f.pts)));
   const Row = ({ text, pts }: { text: string; pts: number }) => (
     <li className="score-factor">
@@ -155,13 +157,13 @@ export function ScoreWhy({ v, open }: { v: Virality; open?: boolean }) {
   );
   return (
     <details className="score-why" open={open}>
-      <summary>Why {v.score}?</summary>
+      <summary>{tr("hype.why", { s: v.score })}</summary>
       <p className="muted mt-1 text-[11px] leading-snug">
-        {v.learning ? `Rough guess while ORBIT learns your channel: about ${v.mult.toFixed(1)}× your usual views.` : `Expected about ${v.mult.toFixed(1)}× your usual views (learned from ${v.n} of your Shorts).`}
+        {v.learning ? tr("hype.guess", { m: v.mult.toFixed(1) }) : tr("hype.expected", { m: v.mult.toFixed(1), n: v.n })}
       </p>
-      {v.up.length > 0 && <ul className="mt-1 space-y-1" aria-label="Helps the score">{v.up.map((f) => <Row key={f.key} text={f.text} pts={f.pts} />)}</ul>}
-      {v.down.length > 0 && <ul className="mt-1.5 space-y-1" aria-label="Hurts the score">{v.down.map((f) => <Row key={f.key} text={f.text} pts={f.pts} />)}</ul>}
-      {!v.up.length && !v.down.length && <p className="muted mt-1 text-[11px]">Nothing stands out either way: an average clip for your channel.</p>}
+      {v.up.length > 0 && <ul className="mt-1 space-y-1" aria-label={tr("hype.helps")}>{v.up.map((f) => <Row key={f.key} text={f.text} pts={f.pts} />)}</ul>}
+      {v.down.length > 0 && <ul className="mt-1.5 space-y-1" aria-label={tr("hype.hurts")}>{v.down.map((f) => <Row key={f.key} text={f.text} pts={f.pts} />)}</ul>}
+      {!v.up.length && !v.down.length && <p className="muted mt-1 text-[11px]">{tr("hype.average")}</p>}
     </details>
   );
 }
