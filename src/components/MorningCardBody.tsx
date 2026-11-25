@@ -12,6 +12,9 @@ import { openProgress } from "./ProgressCard";
 import MissionTargets from "./MissionTargets";
 import { useT } from "./i18n";
 import { greetKey } from "@/lib/i18n-core-pure";
+import { Button } from "./ui/Button";
+import { IconClose } from "./ui/icons";
+import "@/app/planet-ui.css";
 
 const NAV: Record<MorningNav, NavTarget> = { review: { panel: "studio", view: "review" }, news: { panel: "intelligence" }, tasks: { panel: "operations" }, agents: { panel: "agents" }, life: { panel: "life" }, goals: { panel: "agents" } };
 
@@ -36,8 +39,8 @@ export default function MorningCardBody({ data, err, recap, notes, speakMorning,
   const away = sn ? Math.round((Date.now() - sn.from) / 3_600_000) : 0;
   const sinceBlock = sn && !sinceEmpty(sn, notes) && (
     <div>
-      <b>{t("morning.since")}</b> <span className="muted text-xs">{away < 48 ? t("morning.hoursAgo", { n: away }) : tn("morning.daysAgo", Math.round(away / 24))}</span>
-      <ul className="since-list muted grid gap-1">
+      <b className="pu-pop-step">{t("morning.since")}</b> <span className="pu-modal-meta">{away < 48 ? t("morning.hoursAgo", { n: away }) : tn("morning.daysAgo", Math.round(away / 24))}</span>
+      <ul className="since-list pu-pop-list" style={{ marginTop: 6 }}>
         {(sn.done > 0 || sn.failed > 0) && <li><button onClick={() => go("tasks")}>🤖 {tn("since.tasks", sn.done)}{sn.failed ? t("since.failed", { n: sn.failed }) : ""}</button></li>}
         {!!sn.live && <li><button onClick={() => nav({ panel: "studio" })}>📺 {tn("since.live", sn.live)}</button></li>}
         {sn.clips > 0 && <li><button onClick={() => go("review")}>🎬 {tn("since.clips", sn.clips)}</button></li>}
@@ -49,28 +52,28 @@ export default function MorningCardBody({ data, err, recap, notes, speakMorning,
   );
 
   return (
-    <section className="glass hud-panel morning-card absolute right-3 top-16 z-20 w-[min(20rem,calc(100vw-1.5rem))] p-4 text-sm" aria-label={t(recap ? "morning.since" : "morning.aria")}>
-      <div className="mb-2 flex items-center justify-between">
-        <h2 className="hud-title">{recap ? t("morning.welcome") : (lang === "et" ? t(greetKey(new Date().getHours())) : data?.greeting ?? t("greet.morning")).toUpperCase()}</h2>
-        <button className="chip" onClick={() => close()} aria-label={t(recap ? "morning.dismissRecap" : "morning.dismiss")}>{t("common.close")}</button>
+    <section className="pu pu-pop morning-card absolute right-3 top-16 z-20 w-[min(20rem,calc(100vw-1.5rem))]" data-planet="core" aria-label={t(recap ? "morning.since" : "morning.aria")}>
+      <div className="pu-modal-head">
+        <h2 className="pu-title">{recap ? t("morning.welcome") : (lang === "et" ? t(greetKey(new Date().getHours())) : data?.greeting ?? t("greet.morning"))}</h2>
+        <Button size="sm" variant="ghost" icon={<IconClose />} label={t(recap ? "morning.dismissRecap" : "morning.dismiss")} onClick={() => close()} />
       </div>
       {recap ? sinceBlock : (
       <div aria-live="polite">
-      {err && <p className="error" role="alert">{err}</p>}
-      {!data && !err && <p className="muted">{t("morning.loading")}</p>}
+      {err && <p className="pu-error" role="alert">{err}</p>}
+      {!data && !err && <p className="pu-pop-text">{t("morning.loading")}</p>}
       {data && (
         <div className="grid gap-3">
           {data.night && <WhileYouSlept report={data.night} onOpenTask={(id) => { close(); onOpenTask(id); }} onOpenGoal={(id) => { close(); onOpenGoal(id); }} nav={nav} />}
           {data.dream && <DreamCard report={data.dream} onNav={(o) => { close(); openProgress(o); }} />}
           <RadarCards max={2} onNav={(o) => { close(); openProgress(o); }} />
-          {s?.pausedUntil && <p className="warn">{t("morning.ytPaused", { t: s.pausedUntil })}</p>}
+          {s?.pausedUntil && <p className="pu-warn">{t("morning.ytPaused", { t: s.pausedUntil })}</p>}
           {data.hero && <MorningHero hero={data.hero} onOpen={openCard} />}
           <MorningCards cards={data.cards ?? []} problems={data.work?.problems} onOpen={openCard} />
           {sinceBlock}
           <details className="mc-more">
-            <summary className="muted text-xs">{t("morning.more")}</summary>
+            <summary>{t("morning.more")}</summary>
             <div className="mt-2 grid gap-3">
-              {data.overnight && <p className="muted text-xs">🌙 {data.overnight}</p>}
+              {data.overnight && <p className="pu-modal-meta">🌙 {data.overnight}</p>}
               <div className="mc-tiles">
                 {s && <button className="mc-tile" onClick={() => go("review")}><b className="num">{s.ready}</b><span>{t("morning.tile.clips")}</span></button>}
                 {s && <button className="mc-tile" onClick={() => nav({ panel: "studio" })}><b className="num">{s.today.length}</b><span>{t("morning.tile.live")}</span></button>}
@@ -87,24 +90,24 @@ export default function MorningCardBody({ data, err, recap, notes, speakMorning,
               )}
               {data.mission && (
                 <div aria-label={t("morning.mission")}>
-                  <b>{t("morning.mission")}</b> <span className="muted text-xs">{t("morning.missionDone", { done: data.mission.done, total: data.mission.total })}</span>
+                  <b className="pu-pop-step">{t("morning.mission")}</b> <span className="pu-modal-meta">{t("morning.missionDone", { done: data.mission.done, total: data.mission.total })}</span>
                   <div className="mc-bar" aria-hidden><i style={{ width: `${(100 * data.mission.done) / Math.max(1, data.mission.total)}%` }} /></div>
                   <ul className="mt-1 grid gap-0.5">{data.mission.items.map((m) => (
-                    <li key={m.id} className={m.done ? "ok" : undefined}>{m.done ? "✓" : "○"} {lang === "et" ? t(`mission.t.${m.id}` as "mission.t.shorts") : m.label} <span className="muted text-xs">· {m.noData ? t("mission.noData") : m.progress}</span></li>))}</ul>
+                    <li key={m.id} className={m.done ? "ok" : undefined}>{m.done ? "✓" : "○"} {lang === "et" ? t(`mission.t.${m.id}` as "mission.t.shorts") : m.label} <span className="pu-modal-meta">· {m.noData ? t("mission.noData") : m.progress}</span></li>))}</ul>
                   <MissionTargets />
                 </div>
               )}
-              {s?.scout && <p className="muted text-xs">🛰 {s.scout}</p>}
-              {a && a.failed > 0 && <p className="warn text-xs">{tn("morning.failed", a.failed)}</p>}
-              {l?.next && <p className="muted text-xs">⏰ {l.next.at} · {l.next.text}</p>}
-              {cal && (cal.error ? <p className="warn text-xs" role="alert">📅 {t("morning.calFailed")}: {cal.error}</p>
-                : cal.expired ? <a className="warn text-xs underline" href="/api/life/calendar/oauth">📅 {t("morning.calExpired")}</a>
+              {s?.scout && <p className="pu-modal-meta">🛰 {s.scout}</p>}
+              {a && a.failed > 0 && <p className="pu-warn">{tn("morning.failed", a.failed)}</p>}
+              {l?.next && <p className="pu-modal-meta">⏰ {l.next.at} · {l.next.text}</p>}
+              {cal && (cal.error ? <p className="pu-warn" role="alert">📅 {t("morning.calFailed")}: {cal.error}</p>
+                : cal.expired ? <a className="pu-warn pu-link" href="/api/life/calendar/oauth">📅 {t("morning.calExpired")}</a>
                 : cal.connected
-                ? cal.today.length > 0 && <ul className="muted grid gap-1 text-xs">{cal.today.slice(0, 4).map((e, k) => <li key={k}>📅 <span className="num">{e.time}</span> · {e.title}</li>)}</ul>
-                : <a className="muted text-xs underline" href="/api/life/calendar/oauth">{t("morning.connectCal")}</a>)}
+                ? cal.today.length > 0 && <ul className="pu-modal-meta grid gap-1">{cal.today.slice(0, 4).map((e, k) => <li key={k}>📅 <span className="num">{e.time}</span> · {e.title}</li>)}</ul>
+                : <a className="pu-modal-meta pu-link" href="/api/life/calendar/oauth">{t("morning.connectCal")}</a>)}
             </div>
           </details>
-          <label className="muted flex items-center gap-2 text-xs"><input type="checkbox" checked={speakMorning} onChange={(e) => onSpeak(e.target.checked)} /> {t("morning.readAloud")}</label>
+          <label className="pu-modal-meta flex items-center gap-2"><input type="checkbox" checked={speakMorning} onChange={(e) => onSpeak(e.target.checked)} /> {t("morning.readAloud")}</label>
         </div>
       )}
       </div>

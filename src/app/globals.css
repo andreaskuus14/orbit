@@ -952,7 +952,7 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .orbit-shell[data-view="2d"] .orbit-overview { padding-bottom: 22rem; }
 .tour-layer { position: fixed; inset: 0; z-index: 90; pointer-events: none; }
 .tour-ring { position: fixed; border: 2px solid var(--cyan); border-radius: 16px; box-shadow: 0 0 0 9999px rgba(2, 4, 11, 0.55); transition: all 0.25s ease; }
-.tour-card { position: fixed; pointer-events: auto; width: min(340px, calc(100vw - 24px)); padding: 1rem; border-radius: 16px; outline: none; }
+.tour-card { position: fixed; pointer-events: auto; width: min(340px, calc(100vw - 24px)); outline: none; }
 @media (prefers-reduced-motion: reduce) { .tour-ring { transition: none; } }
 @media (max-width: 640px) { .home-desk { right: 0.5rem; bottom: calc(5.2rem + env(safe-area-inset-bottom, 0px)); width: min(22rem, calc(100vw - 1rem)); max-height: 34dvh; } }
 .cmdbar[hidden] { display: none; }

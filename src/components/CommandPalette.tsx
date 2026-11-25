@@ -5,7 +5,7 @@
 // spends: a goal, approval or prospect only opens where the owner decides it.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { validateNav } from "@/lib/nav-pure";
-import { rank, pushRecent, parseRecent, prospectRows, rowsOf, PALETTE_EVENT, OPEN_MEMORY_EVENT, type Recent } from "@/lib/palette-pure";
+import { rank, pushRecent, parseRecent, prospectRows, rowsOf, sentenceHint, PALETTE_EVENT, OPEN_MEMORY_EVENT, type Recent } from "@/lib/palette-pure";
 import { bridgeApprovals } from "@/lib/mission-pure";
 import { OPEN_SOURCE_EVENT } from "@/lib/week-pure";
 import { notify } from "@/lib/notify-pure";
@@ -14,7 +14,8 @@ import { ACTIVE_CHAT_KEY } from "@/lib/core-chats-pure";
 import { groupHits, type RankedHit, type OpenTarget } from "@/lib/search-pure";
 import { useT } from "./i18n";
 import { VOICE_ASK } from "./voice/bus";
-import { AlienScript } from "./AlienScript";
+import "@/app/planet-ui.css";
+import type { Key } from "@/lib/i18n-en-pure";
 import { COMMANDS, nav, type Command } from "./palette-commands";
 
 export { PALETTE_EVENT, OPEN_MEMORY_EVENT };
@@ -26,6 +27,7 @@ type Pool = { goals: Recent[]; approvals: Recent[]; prospects: Recent[]; people:
 const RECENT_KEY = "orbit.palette.recent";
 const STATIC = new Map<string, Command>(COMMANDS.map((c) => [c.id, c]));
 const MAX = 5; // rows per search group
+const GROUP_KEY: Record<string, Key> = { Recent: "warp.g.recent", Actions: "warp.g.actions", "Go to": "warp.g.goto", Approvals: "warp.g.approvals", Goals: "warp.g.goals", People: "warp.g.people", Prospects: "warp.g.prospects" };
 
 /** Opens a search result by its id prefix, so a recent result can be reopened later from its id alone. */
 function openById(id: string) {
@@ -173,30 +175,28 @@ export function CommandPalette() {
 
   let n = -1;
   return (
-    <dialog ref={ref} aria-label={t("warp.aria")} aria-describedby="pal-help"
-      className="glass warp mx-auto mt-[12vh] w-[calc(100vw-2rem)] max-w-xl p-0 text-[var(--ink)] backdrop:bg-black/50 backdrop:backdrop-blur-sm"
+    <dialog ref={ref} aria-label={t("warp.aria")} aria-describedby="pal-help" className="pu pu-modal pu-palette" data-planet="core"
       onClose={() => { setQ(""); setActive(0); setIsOpen(false); setPool(null); }}
       onClick={(e) => { if (e.target === e.currentTarget) e.currentTarget.close(); }}>
-      <div className="p-3">
-        <div className="warp-head"><span className="h3">Warp</span><AlienScript text="WARP DRIVE" className="warp-script" /></div>
-        <input className="field w-full" autoFocus placeholder={t("warp.placeholder")}
+      <div>
+        <input className="pu-palette-input" autoFocus placeholder={t("warp.placeholder")}
           value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKeyDown}
           role="combobox" aria-expanded="true" aria-controls="pal-list" aria-autocomplete="list" aria-label={t("warp.to")}
           aria-activedescendant={cur >= 0 ? `pal-${cur}` : undefined} spellCheck={false} autoComplete="off" />
-        <div id="pal-list" role="listbox" aria-label={t("warp.results")} className="mt-2 max-h-[55vh] overflow-y-auto">
+        <div id="pal-list" role="listbox" aria-label={t("warp.results")} className="pu-palette-list">
           {groups.filter((g) => g.items.length).map((g, gi) => (
-            <div key={g.name} role="group" aria-labelledby={`pal-g-${gi}`} className="mb-1">
-              <div id={`pal-g-${gi}`} className="h3 px-2 pb-1 pt-2">{g.name}</div>
+            <div key={g.name} role="group" aria-labelledby={`pal-g-${gi}`}>
+              <div id={`pal-g-${gi}`} className="pu-palette-group">{GROUP_KEY[g.name] ? t(GROUP_KEY[g.name]) : g.name}</div>
               {g.items.map((it) => {
                 const i = ++n;
                 return (
                   <div key={it.id} id={`pal-${i}`} role="option" aria-selected={i === cur}
-                    className={`warp-opt flex cursor-pointer items-baseline justify-between gap-3 rounded-lg px-2 py-1.5 text-sm${i === cur ? " is-on" : ""}`}
+                    className="pu-palette-opt"
                     onMouseMove={() => { if (i !== cur) setActive(i); }}
                     onMouseDown={(e) => e.preventDefault()} // keep focus in the input
                     onClick={() => choose(it)}>
-                    <span className="truncate">{it.label}</span>
-                    {it.hint && <span className="muted shrink-0 truncate text-xs max-w-[50%]">{it.hint}</span>}
+                    <span>{it.label}</span>
+                    {it.hint && <span className="pu-palette-hint">{sentenceHint(it.hint)}</span>}
                   </div>
                 );
               })}
@@ -204,7 +204,7 @@ export function CommandPalette() {
           ))}
         </div>
         <p className="sr-only" aria-live="polite">{isOpen && term ? t("warp.count", { n: flat.length }) : ""}</p>
-        <div id="pal-help" className="muted mt-2 flex gap-3 border-t border-white/10 px-1 pt-2 text-xs">
+        <div id="pal-help" className="pu-palette-foot">
           <span><kbd>↑</kbd> <kbd>↓</kbd> {t("warp.move")}</span><span><kbd>Enter</kbd> {t("warp.open")}</span><span><kbd>Esc</kbd> {t("warp.close")}</span>
         </div>
       </div>
