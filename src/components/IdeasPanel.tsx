@@ -42,9 +42,9 @@ export default function IdeasPanel({ initialUrl, onConsumed }: { initialUrl?: st
   const { shown, stale } = ideaView(b?.shown ?? [], now, area, hideStale);
   return (
     <div className="space-y-3 text-sm">
-      <form className="flex gap-1.5" aria-label="Read a video for ideas" onSubmit={(e) => { e.preventDefault(); if (url.trim()) void read(url.trim()); }}>
-        <input className="field flex-1" aria-label="YouTube link" placeholder="Paste a YouTube link…" value={url} onChange={(e) => setUrl(e.target.value)} />
-        <button className="btn" disabled={busy || !url.trim()}>{busy ? "Reading…" : "Find ideas"}</button>
+      <form className="flex gap-1.5" aria-label={t("ide.read")} onSubmit={(e) => { e.preventDefault(); if (url.trim()) void read(url.trim()); }}>
+        <input className="field flex-1" aria-label={t("ide.link")} placeholder={t("ide.linkPh")} value={url} onChange={(e) => setUrl(e.target.value)} />
+        <button className="btn" disabled={busy || !url.trim()}>{busy ? t("ide.reading") : t("ide.find")}</button>
       </form>
       <details>
         <summary className="cursor-pointer">{t("ideas.transcript.title")}</summary>
@@ -63,28 +63,28 @@ export default function IdeasPanel({ initialUrl, onConsumed }: { initialUrl?: st
             {AREAS.map((id) => <option key={id} value={id}>{AREA_INFO[id].label}</option>)}
           </select>
         </label>
-        <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={hideStale} onChange={(e) => setHideStale(e.target.checked)} />Hide stale</label>
+        <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={hideStale} onChange={(e) => setHideStale(e.target.checked)} />{t("ide.hideStale")}</label>
       </div>
       {busy && <p className="muted" role="status">{t("ideas.reading")}</p>}
       {msg && <p className={msg.ok ? "ok" : "error"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
-      {b && !shown.length && <p className="muted">{area !== "all" ? t("ideas.emptyCategory") : hideStale && stale ? "No fresh strong ideas. Turn off Hide stale to see older ideas." : "No strong ideas yet. Paste a video about side hustles, tools or channel growth."}</p>}
-      {hideStale && stale > 0 && <p className="muted text-xs">{stale} stale ideas hidden.</p>}
+      {b && !shown.length && <p className="muted">{area !== "all" ? t("ideas.emptyCategory") : hideStale && stale ? t("ide.noFresh") : t("ide.none")}</p>}
+      {hideStale && stale > 0 && <p className="muted text-xs">{t("ide.staleHidden", { n: stale })}</p>}
       <ul className="space-y-2">{shown.map((i) => (
         <li key={i.id} className={`card space-y-1${i.origin !== "transcript" && isStale(i, now) ? " opacity-50 grayscale" : ""}`}>
           <div className="flex items-baseline justify-between gap-2"><b>{i.title}</b><span className="muted text-xs">{AREA_INFO[i.area]?.label ?? i.area} · {i.score}</span></div>
           {i.summary && <p className="muted">{i.summary}</p>}
-          <p className="muted text-xs">{i.origin === "transcript" ? t("ideas.transcript.unverified") : <>{freshnessLabel(i, now)}{isStale(i, now) ? " · stale" : ""}</>}</p>
-          {i.next && <p><b>Next:</b> {i.next}</p>}
-          {!!i.comments?.length && <details className="text-xs"><summary className="cursor-pointer">{i.askers ?? i.comments.length} viewers asked: see the comments</summary>
-            <ul className="mt-1 space-y-0.5">{i.comments.map((c) => <li key={c.id}><a className="link" href={commentUrl(c)} target="_blank" rel="noopener noreferrer">“{c.text}”<span className="sr-only"> (opens YouTube)</span></a></li>)}</ul>
+          <p className="muted text-xs">{i.origin === "transcript" ? t("ideas.transcript.unverified") : <>{freshnessLabel(i, now)}{isStale(i, now) ? ` · ${t("ide.stale")}` : ""}</>}</p>
+          {i.next && <p><b>{t("ide.next")}</b> {i.next}</p>}
+          {!!i.comments?.length && <details className="text-xs"><summary className="cursor-pointer">{t("ide.asked", { n: i.askers ?? i.comments.length })}</summary>
+            <ul className="mt-1 space-y-0.5">{i.comments.map((c) => <li key={c.id}><a className="link" href={commentUrl(c)} target="_blank" rel="noopener noreferrer">“{c.text}”<span className="sr-only"> {t("ide.opensYt")}</span></a></li>)}</ul>
           </details>}
           <div className="flex items-center justify-between gap-2 text-xs">
-            {i.origin === "devsession" || i.origin === "transcript" ? <span className="muted">From: {i.videoTitle}</span>
-              : <a className="link" href={`https://www.youtube.com/watch?v=${i.video}`} target="_blank" rel="noopener noreferrer">From: {i.videoTitle} <span className="sr-only">(opens YouTube)</span></a>}
-            <button type="button" className="chip" onClick={() => call({ action: "dismiss", id: i.id }).then(setB, (e: Error) => setMsg({ ok: false, text: e.message }))}>Hide</button>
+            {i.origin === "devsession" || i.origin === "transcript" ? <span className="muted">{t("ide.from", { v: i.videoTitle ?? "" })}</span>
+              : <a className="link" href={`https://www.youtube.com/watch?v=${i.video}`} target="_blank" rel="noopener noreferrer">{t("ide.from", { v: i.videoTitle ?? "" })} <span className="sr-only">{t("ide.opensYt")}</span></a>}
+            <button type="button" className="chip" onClick={() => call({ action: "dismiss", id: i.id }).then(setB, (e: Error) => setMsg({ ok: false, text: e.message }))}>{t("ide.hide")}</button>
           </div>
         </li>))}</ul>
-      {!!b?.hidden && <p className="muted text-xs">{b.hidden} weaker or hidden ideas are saved too.</p>}
+      {!!b?.hidden && <p className="muted text-xs">{t("ide.saved", { n: b.hidden })}</p>}
     </div>
   );
 }

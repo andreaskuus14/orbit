@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pair } from "./RemoteApp";
+import { useT } from "./i18n";
 import { mmss, type ScreenView } from "@/lib/screen-pure";
 
 // /screen: read-only mission control for a tablet or second monitor (roadmap 3). Polls /api/remote/screen every 30 s,
@@ -9,6 +10,7 @@ const REFRESH_MS = 30_000;
 const KIND: Record<string, string> = { clip: "Clip", spend: "Spend", send: "Email", nego: "Reply", task: "Task" };
 
 export function ScreenApp() {
+  const { t } = useT();
   const [view, setView] = useState<(ScreenView & { at: number }) | null>(null);
   const [paired, setPaired] = useState<boolean | null>(null);
   const [off, setOff] = useState("");
@@ -44,8 +46,8 @@ export function ScreenApp() {
     return () => { document.removeEventListener("visibilitychange", take); void lock?.release().catch(() => {}); };
   }, []);
 
-  if (paired === false) return <main className="mx-auto max-w-lg space-y-4 p-6"><h1 className="text-2xl font-semibold" style={{ fontFamily: "var(--font-display)" }}>ORBIT SECOND SCREEN</h1><Pair off={off} screen onPaired={() => void load()} /></main>;
-  if (!view) return <main className="grid min-h-dvh place-items-center text-xl muted">{err || "Connecting…"}</main>;
+  if (paired === false) return <main className="mx-auto max-w-lg space-y-4 p-6"><h1 className="text-2xl font-semibold" style={{ fontFamily: "var(--font-display)" }}><span className="uppercase">{t("scr.second")}</span></h1><Pair off={off} screen onPaired={() => void load()} /></main>;
+  if (!view) return <main className="grid min-h-dvh place-items-center text-xl muted">{err || t("scr.connecting")}</main>;
 
   const clock = new Date(now);
   const stale = now - view.at > REFRESH_MS * 3;
@@ -54,8 +56,8 @@ export function ScreenApp() {
       <header className="mb-5 flex items-center gap-5">
         <Orbit on={!view.stop} busy={view.agents.some((a) => a.status === "running")} />
         <div className="flex-1">
-          <h1 className="text-3xl font-semibold tracking-widest" style={{ fontFamily: "var(--font-display)" }}>ORBIT · MISSION CONTROL</h1>
-          <p className="muted" role="status">{view.stop ? "Stop-all is ON: ORBIT is paused" : `${view.agents.filter((a) => a.status === "running").length} running · ${view.approvals.length} waiting for you`}{stale && " · not updating, check the PC"}{err && ` · ${err}`}</p>
+          <h1 className="text-3xl font-semibold tracking-widest" style={{ fontFamily: "var(--font-display)" }}><span className="uppercase">{t("scr.mc")}</span></h1>
+          <p className="muted" role="status">{view.stop ? t("scr.stopped") : t("scr.status", { r: view.agents.filter((a) => a.status === "running").length, w: view.approvals.length })}{stale && ` · ${t("scr.stale")}`}{err && ` · ${err}`}</p>
         </div>
         <div className="text-right" style={{ fontFamily: "var(--font-mono)" }}>
           <div className="text-6xl font-semibold tabular-nums">{clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
@@ -64,29 +66,29 @@ export function ScreenApp() {
       </header>
 
       <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
-        <Card title="Today">
-          {!view.brief ? <p className="muted">Brief is off.</p> : <>
+        <Card title={t("scr.today")}>
+          {!view.brief ? <p className="muted">{t("scr.briefOff")}</p> : <>
             <p className="mb-2 text-xl">{view.brief.greeting}</p>
-            {view.brief.items.length ? <ul className="space-y-2">{view.brief.items.map((i, k) => <li key={k}>{i.title}</li>)}</ul> : <p className="muted">Nothing needs you today.</p>}
+            {view.brief.items.length ? <ul className="space-y-2">{view.brief.items.map((i, k) => <li key={k}>{i.title}</li>)}</ul> : <p className="muted">{t("scr.nothing")}</p>}
           </>}
         </Card>
-        <Card title="Agents now">
+        <Card title={t("scr.agents")}>
           {view.agents.length ? <ul className="space-y-2">{view.agents.map((a) => (
             <li key={a.id}><span style={{ color: a.status === "running" ? "var(--mint)" : "var(--muted)" }}>{a.status === "running" ? "●" : "○"}</span> <b>{a.step ?? a.agent}</b> {a.title}</li>
-          ))}</ul> : <p className="muted">All quiet.</p>}
+          ))}</ul> : <p className="muted">{t("scr.quiet")}</p>}
         </Card>
-        <Card title={`Waiting for you (${view.approvals.length})`}>
-          {view.approvals.length ? <ul className="space-y-2">{view.approvals.map((a, k) => <li key={k}><span className="muted">{KIND[a.kind] ?? a.kind}</span> {a.title}</li>)}</ul> : <p className="muted">Nothing to approve.</p>}
+        <Card title={t("scr.waiting", { n: view.approvals.length })}>
+          {view.approvals.length ? <ul className="space-y-2">{view.approvals.map((a, k) => <li key={k}><span className="muted">{KIND[a.kind] ?? a.kind}</span> {a.title}</li>)}</ul> : <p className="muted">{t("scr.noApprove")}</p>}
         </Card>
-        <Card title="Night shift">
-          {!view.night ? <p className="muted">No data.</p> : !view.night.enabled ? <p className="muted">Off.</p> : <>
-            <p>{view.night.running ? "Working now" : `Window ${view.night.window}`} · {view.night.queued} queued for tonight</p>
-            {(view.night.done || view.night.toApprove || view.night.failed) ? <p className="mt-2 text-xl">{view.night.done} done · {view.night.toApprove} to approve{view.night.failed ? ` · ${view.night.failed} failed` : ""}</p> : null}
+        <Card title={t("scr.night")}>
+          {!view.night ? <p className="muted">{t("scr.noData")}</p> : !view.night.enabled ? <p className="muted">{t("scr.off")}</p> : <>
+            <p>{view.night.running ? t("scr.working") : t("scr.window", { w: view.night.window })} · {t("scr.queued", { n: view.night.queued })}</p>
+            {(view.night.done || view.night.toApprove || view.night.failed) ? <p className="mt-2 text-xl">{t("scr.done", { n: view.night.done })} · {t("scr.toApprove", { n: view.night.toApprove })}{view.night.failed ? ` · ${t("scr.failed", { n: view.night.failed })}` : ""}</p> : null}
             {view.night.stopped && <p className="muted mt-1">{view.night.stopped}</p>}
           </>}
         </Card>
         {view.focus && view.focus.endAt > now && (
-          <Card title={view.focus.phase === "focus" ? "Focus" : "Break"}>
+          <Card title={view.focus.phase === "focus" ? t("scr.focus") : t("scr.break")}>
             <div className="text-6xl font-semibold tabular-nums" style={{ fontFamily: "var(--font-mono)", color: view.focus.phase === "focus" ? "var(--amber)" : "var(--mint)" }}>{mmss(view.focus.endAt - now)}</div>
           </Card>
         )}
