@@ -5,6 +5,7 @@ import { COUNTRIES, displayName, importance, regionOf, type Story } from "@/lib/
 import { compact, linkedCountries, severity, topSources } from "@/lib/dashboard";
 import { decodeCountries, unwrapRing } from "@/lib/topo";
 import { countryByName } from "@/lib/countries-pure";
+import { useT } from "./i18n";
 
 // Country dashboard for the news globe: real facts and World Bank series (/api/news/country)
 // plus statistics computed from the country's own headlines. Pure SVG, no chart library.
@@ -39,8 +40,9 @@ export async function getJson(url: string, fallback: string) {
   }
 }
 export function ErrorNote({ error }: { error: string }) {
+  const { t } = useT();
   return error === SIGNED_OUT
-    ? <p className="muted mt-2 text-xs">Signed out · <a className="link" href="/login">Sign in</a> to load live headlines</p>
+    ? <p className="muted mt-2 text-xs">{t("cd.signedOut")} · <a className="link" href="/login">{t("cd.signIn")}</a> {t("cd.toLoad")}</p>
     : <p className="error mt-2">{error}</p>;
 }
 
@@ -62,6 +64,7 @@ export default function CountryDash({ name, id, stories, local = [], loading, er
   rank: { pos: number; of: number; count: number } | null;
   onCountry: (n: string) => void; onBack: () => void; backLabel: string;
 }) {
+  const { t } = useT();
   const [stats, setStats] = useState<Stats | { error: string } | null>(statCache.get(id) ?? null);
   useEffect(() => {
     if (statCache.has(id)) { setStats(statCache.get(id)!); return; }
@@ -97,12 +100,12 @@ export default function CountryDash({ name, id, stories, local = [], loading, er
     <section className="glass hud-panel globe-country dash panel-in" aria-live="polite" style={{ "--accent": accent } as CSSProperties}>
       <header className="dash-head">
         <div className="min-w-0">
-          <div className="dash-kicker">COUNTRY BRIEF{region ? ` · ${region.toUpperCase()}` : ""}</div>
+          <div className="dash-kicker">{t("cd.brief")}{region ? ` · ${region.toUpperCase()}` : ""}</div>
           <h2 className="dash-name">{f?.iso2 && <img className="dash-flag" src={`https://flagcdn.com/w40/${f.iso2.toLowerCase()}.png`} alt="" width={28} height={20} />}{displayName(name)}</h2>
           <div className="dash-chips">
             {f?.capital && <span>{f.capital}</span>}
-            {pop !== null && <span>{compact(pop)} people</span>}
-            {rank ? <><span>#{rank.pos}/{rank.of}</span><span>{rank.count} stories</span></> : <span>not on your feeds</span>}
+            {pop !== null && <span>{t("cd.people", { n: compact(pop) })}</span>}
+            {rank ? <><span>#{rank.pos}/{rank.of}</span><span>{t("cd.stories", { n: rank.count })}</span></> : <span>{t("cd.notOnFeeds")}</span>}
           </div>
         </div>
         <button className="dash-back" onClick={onBack}>← {backLabel}</button>
@@ -111,15 +114,15 @@ export default function CountryDash({ name, id, stories, local = [], loading, er
       <div className="dash-grid">
         {ok ? (
           <>
-            <Kpi label="GDP" pts={s.gdp} fmt={(v) => `$${compact(v)}`} rel />
-            <Kpi label="GDP GROWTH" pts={s.growth} fmt={pct1} signed />
-            <Kpi label="INFLATION" pts={s.inflation} fmt={pct1} invert />
-            <Kpi label="UNEMPLOYMENT" pts={s.unemployment} fmt={pct1} invert />
-            {year > 0 && <p className="dash-caption dash-wide">World Bank · {year}</p>}
-            {ok.partial && <p className="dash-caption dash-wide">World Bank didn&apos;t answer every request · reopen the country to try again</p>}
+            <Kpi label={t("cd.gdp")} pts={s.gdp} fmt={(v) => `$${compact(v)}`} rel />
+            <Kpi label={t("cd.gdpGrowth")} pts={s.growth} fmt={pct1} signed />
+            <Kpi label={t("cd.inflation")} pts={s.inflation} fmt={pct1} invert />
+            <Kpi label={t("cd.unemployment")} pts={s.unemployment} fmt={pct1} invert />
+            {year > 0 && <p className="dash-caption dash-wide">{t("cd.worldBank")} · {year}</p>}
+            {ok.partial && <p className="dash-caption dash-wide">{t("cd.partial")}</p>}
           </>
         ) : stats && "error" in stats ? (
-          <p className="dash-tile dash-wide text-xs muted">{stats.error}. News statistics below still work.</p>
+          <p className="dash-tile dash-wide text-xs muted">{stats.error}. {t("cd.statsStill")}</p>
         ) : (
           Array.from({ length: 4 }, (_, i) => <div key={i} className="dash-tile dash-kpi skeleton h-[5.6rem]" aria-hidden />)
         )}
@@ -128,13 +131,13 @@ export default function CountryDash({ name, id, stories, local = [], loading, er
       <div className="dash-panels">
         {stories.length > 0 && (
           <div className="dash-tile">
-            <div className="dash-label-row"><div className="dash-label">TOP STORIES</div>{top.some((st) => tr.map[st.url]) && <LangToggle tr={tr} />}</div>
+            <div className="dash-label-row"><div className="dash-label">{t("cd.top")}</div>{top.some((st) => tr.map[st.url]) && <LangToggle tr={tr} />}</div>
             <ol className="dash-top">
               {top.map((st) => (
                 <li key={st.url}>
-                  {isMajor(st) && <i className="dash-major" role="img" aria-label="Major story" />}
+                  {isMajor(st) && <i className="dash-major" role="img" aria-label={t("cd.major")} />}
                   <Headline st={st} tr={tr} />
-                  <span>{st.source ?? "unknown source"}{st.published_at ? ` · ${ago(st.published_at)}` : ""}</span>
+                  <span>{st.source ?? t("cd.unknownSource")}{st.published_at ? ` · ${ago(st.published_at)}` : ""}</span>
                 </li>
               ))}
             </ol>
@@ -144,14 +147,14 @@ export default function CountryDash({ name, id, stories, local = [], loading, er
         {local.length > 0 && (
           <div className="dash-tile">
             <div className="dash-label-row">
-              <div className="dash-label">LOCAL <span className="muted">· {displayName(name)}&apos;s own press</span></div>
+              <div className="dash-label">{t("cd.local")} <span className="muted">· {t("cd.ownPress", { name: displayName(name) })}</span></div>
               {(press.some((st) => tr.map[st.url]) || tr.failed) && <LangToggle tr={tr} />}
             </div>
             <ol className="dash-top" lang={countryByName(name)?.lang}>
               {press.map((st) => (
                 <li key={st.url}>
                   <Headline st={st} tr={tr} />
-                  <span>{st.source ?? "unknown source"}{st.published_at ? ` · ${ago(st.published_at)}` : ""}</span>
+                  <span>{st.source ?? t("cd.unknownSource")}{st.published_at ? ` · ${ago(st.published_at)}` : ""}</span>
                 </li>
               ))}
             </ol>
@@ -160,14 +163,14 @@ export default function CountryDash({ name, id, stories, local = [], loading, er
 
         {ok && (s.gdp?.length || s.growth?.length) ? (
           <div className="dash-tile">
-            <div className="dash-label">ECONOMY</div>
+            <div className="dash-label">{t("cd.economy")}</div>
             <Economy gdp={s.gdp} growth={s.growth} />
           </div>
         ) : null}
 
         {linked.length > 0 && (
           <div className="dash-tile">
-            <div className="dash-label">CONNECTIONS <span className="muted">· named in the same headlines</span></div>
+            <div className="dash-label">{t("cd.connections")} <span className="muted">· {t("cd.sameHeadlines")}</span></div>
             <LinkMap self={name} linked={linked} />
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {linked.map((x) => <button key={x.name} className="dash-link" onClick={() => onCountry(x.name)}>{displayName(x.name)} <b>{x.n}</b></button>)}
@@ -178,22 +181,22 @@ export default function CountryDash({ name, id, stories, local = [], loading, er
         {week.n > 0 && (
           <div className="dash-tile dash-cov">
             <div className="min-w-0">
-              <div className="dash-label">COVERAGE <span className="muted">· last 7 days</span></div>
-              <div className="dash-sub"><b>{week.n}</b> stories · <b>{week.major}</b> major{week.top ? <> · mostly {week.top}</> : null}</div>
+              <div className="dash-label">{t("cd.coverage")} <span className="muted">· {t("cd.last7")}</span></div>
+              <div className="dash-sub"><b>{week.n}</b> {t("cd.storiesWord")} · <b>{week.major}</b> {t("cd.majorWord")}{week.top ? <> · {t("cd.mostly")} {week.top}</> : null}</div>
             </div>
             <WeekBars counts={week.counts} />
           </div>
         )}
       </div>
 
-      <div className="dash-label mt-3 px-1">MORE HEADLINES</div>
+      <div className="dash-label mt-3 px-1">{t("cd.more")}</div>
       <ul className="mt-1.5 space-y-1.5">
         {stories.slice(3, 17).map((st) => <StoryCard key={st.url} s={st} />)}
         {loading && [0, 1, 2].map((i) => <li key={i} className="card skeleton h-14" aria-hidden />)}
       </ul>
       {error && <ErrorNote error={error} />}
-      {!loading && !stories.length && !local.length && error !== SIGNED_OUT && <p className="mt-2 text-sm">No recent headlines found.</p>}
-      <p className="dash-foot">Data: World Bank Open Data · Natural Earth · news stats from the headlines shown</p>
+      {!loading && !stories.length && !local.length && error !== SIGNED_OUT && <p className="mt-2 text-sm">{t("cd.none")}</p>}
+      <p className="dash-foot">{t("cd.foot")}</p>
     </section>
   );
 }
@@ -231,22 +234,24 @@ function useTranslations(items: Result[]): Tr {
 }
 
 function LangToggle({ tr }: { tr: Tr }) {
+  const { t } = useT();
   return (
     <span className="dash-lang">
-      {tr.failed && <span className="muted" title="Some headlines could not be translated">translation unavailable</span>}
-      <span role="group" aria-label="Headline language">
-        <button aria-pressed={tr.english} onClick={() => tr.setEnglish(true)}>English</button>
-        <button aria-pressed={!tr.english} onClick={() => tr.setEnglish(false)}>Original</button>
+      {tr.failed && <span className="muted" title={t("cd.trFailedTip")}>{t("cd.trFailed")}</span>}
+      <span role="group" aria-label={t("cd.hlLang")}>
+        <button aria-pressed={tr.english} onClick={() => tr.setEnglish(true)}>{t("cd.english")}</button>
+        <button aria-pressed={!tr.english} onClick={() => tr.setEnglish(false)}>{t("cd.original")}</button>
       </span>
     </span>
   );
 }
 
 function Headline({ st, tr }: { st: Result; tr: Tr }) {
+  const { t } = useT();
   const en = tr.english ? tr.map[st.url] : undefined;
   return (
-    <a href={safeHref(st.url)} target="_blank" rel="noreferrer noopener" lang={en ? "en" : undefined} title={en ? `Original: ${st.title}` : undefined}>
-      {en ?? st.title}{en && <small className="dash-tr" aria-label="(machine translated)">translated</small>}
+    <a href={safeHref(st.url)} target="_blank" rel="noreferrer noopener" lang={en ? "en" : undefined} title={en ? t("cd.originalTip", { title: st.title }) : undefined}>
+      {en ?? st.title}{en && <small className="dash-tr" aria-label={t("cd.machineTr")}>{t("cd.translated")}</small>}
     </a>
   );
 }
@@ -286,9 +291,10 @@ function Spark({ pts }: { pts: Point[] }) {
 
 /** GDP line with min/max on a right axis; growth % in its own band below around a zero baseline. */
 function Economy({ gdp = [], growth = [] }: { gdp?: Point[]; growth?: Point[] }) {
+  const { t } = useT();
   const uid = useSvgId();
   const years = [...new Set([...gdp, ...growth].map((p) => p.y))].sort((a, b) => a - b).slice(-15);
-  if (!years.length) return <p className="dash-sub dash-empty">No World Bank data</p>;
+  if (!years.length) return <p className="dash-sub dash-empty">{t("cd.noWb")}</p>;
   const L = 4, R = 256, n = years.length, T = 8, B = 62, Z = 96;
   const x = (y: number) => (n === 1 ? (L + R) / 2 : L + (years.indexOf(y) / (n - 1)) * (R - L));
   const g = gdp.filter((p) => years.includes(p.y)), gr = growth.filter((p) => years.includes(p.y));
@@ -301,8 +307,8 @@ function Economy({ gdp = [], growth = [] }: { gdp?: Point[]; growth?: Point[] })
   return (
     <>
       <div className="dash-eco-legend">
-        <span><i className="sw" />GDP {lastG ? <b>${compact(lastG.v)}</b> : "n/a"}</span>
-        <span><i className="sw bar" />GROWTH {lastGr ? <b className={lastGr.v >= 0 ? "good" : "bad"}>{lastGr.v > 0 ? "+" : ""}{pct1(lastGr.v)}</b> : "n/a"}</span>
+        <span><i className="sw" />{t("cd.gdp")} {lastG ? <b>${compact(lastG.v)}</b> : t("cd.na")}</span>
+        <span><i className="sw bar" />{t("cd.growth")} {lastGr ? <b className={lastGr.v >= 0 ? "good" : "bad"}>{lastGr.v > 0 ? "+" : ""}{pct1(lastGr.v)}</b> : t("cd.na")}</span>
       </div>
       <svg className="dash-eco" viewBox="0 0 300 128" role="img"
         aria-label={`GDP ${years[0]}–${years[n - 1]}${lastG ? `, latest $${compact(lastG.v)}` : ""}${lastGr ? `, growth ${pct1(lastGr.v)}` : ""}`}>
@@ -388,15 +394,16 @@ function LinkMap({ self, linked }: { self: string; linked: { name: string; n: nu
 
 // `pinned` set (even false) makes the card focusable so the globe list can pin it from the keyboard.
 export function StoryCard({ s, onCountry, lead = false, pinned }: { s: Result; onCountry?: (n: string) => void; lead?: boolean; pinned?: boolean }) {
+  const { t } = useT();
   const score = s.score ?? importance(s.title);
   const level = score >= 3 ? "major" : score >= 2 ? "key" : "";
   return (
     <li className={`card story ${level}${lead ? " lead" : ""}`} tabIndex={pinned === undefined ? undefined : 0} aria-current={pinned || undefined}>
       <div className="story-meta">
-        {level && <span className={`badge ${level}`}>{level === "major" ? "MAJOR" : "KEY"}</span>}
-        <span className="truncate">{s.source ?? "unknown source"}</span>
+        {level && <span className={`badge ${level}`}>{level === "major" ? t("cd.badgeMajor") : t("cd.badgeKey")}</span>}
+        <span className="truncate">{s.source ?? t("cd.unknownSource")}</span>
         {s.published_at && <span>· {ago(s.published_at)}</span>}
-        {s.live && <span className="live-tag">LIVE</span>}
+        {s.live && <span className="live-tag">{t("cd.live")}</span>}
       </div>
       <a className="link" href={safeHref(s.url)} target="_blank" rel="noreferrer noopener">{s.title}</a>
       {onCountry && s.countries.length > 0 && (

@@ -18,6 +18,7 @@ const ENROLL_MS = 4500;
 
 /** "Remember my voice": read three phrases, keep a rough profile on this device, set how strict open mic is about it. */
 function VoiceMatch() {
+  const { t } = useT();
   const [vp, setVp] = useState<VoicePrint>({ profile: null, sensitivity: 0 });
   const [step, setStep] = useState(-1); // index of the phrase being read
   const [msg, setMsg] = useState("");
@@ -26,12 +27,12 @@ function VoiceMatch() {
   const enroll = async () => {
     if (enrollment.on) return;
     enrollment.on = true;
-    setMsg("Starting the mic…");
+    setMsg(t("vcs.startingMic"));
     dispatchEvent(new Event(VOICE_PAUSE)); // hands-free (and its voice sampler) must not act on the phrases
     const s = startVoiceSampler();
     let heard = 0, profile: VoiceProfile | null = null;
     try {
-      if (!(await s.ready)) return setMsg("Couldn’t open the microphone.");
+      if (!(await s.ready)) return setMsg(t("vcs.noMic"));
       setMsg("");
       for (let i = 0; i < ENROLL.length; i++) {
         setStep(i);
@@ -41,23 +42,23 @@ function VoiceMatch() {
       }
       profile = heard === ENROLL.length ? s.features() : null; // the sampler keeps 20 s: all three phrases
     } finally { s.stop(); setStep(-1); enrollment.on = false; dispatchEvent(new Event(VOICE_RESUME)); }
-    if (!profile) return setMsg("Didn’t hear enough speech. Check the mic and try again, a bit closer.");
+    if (!profile) return setMsg(t("vcs.notEnough"));
     save({ profile, sensitivity: vp.sensitivity || 0.5 });
-    setMsg("Voice saved on this device.");
+    setMsg(t("vcs.saved"));
   };
   const pct = Math.round(vp.sensitivity * 100);
   return (
     <>
-      <span className="voice-sub">Remember my voice (conversation mode)</span>
-      <p className="muted text-[10px]">Rough voice match — helps ignore TV and other people, not a security lock. Audio stays in this browser; only a small profile is saved here.</p>
-      {step >= 0 ? <p role="status" aria-live="polite">Read aloud ({step + 1}/3): <b>{ENROLL[step]}</b></p>
-        : <button type="button" className="chip" onClick={() => void enroll()}>{vp.profile ? "Re-record my voice" : "Record my voice (3 phrases)"}</button>}
+      <span className="voice-sub">{t("vcs.remember")}</span>
+      <p className="muted text-[10px]">{t("vcs.matchHelp")}</p>
+      {step >= 0 ? <p role="status" aria-live="polite">{t("vcs.readAloud", { n: step + 1 })} <b>{ENROLL[step]}</b></p>
+        : <button type="button" className="chip" onClick={() => void enroll()}>{vp.profile ? t("vcs.rerecord") : t("vcs.record")}</button>}
       {msg && <span className="muted text-[10px]" role="status">{msg}</span>}
-      <label className="voice-col">Voice match <span className="num">{pct ? `strictness ${pct}%` : "Off"}</span>
+      <label className="voice-col">{t("vcs.match")} <span className="num">{pct ? t("vcs.strictness", { n: pct }) : t("vcs.off")}</span>
         <input type="range" min={0} max={100} step={5} value={pct} disabled={!vp.profile} onChange={(e) => save({ ...vp, sensitivity: Number(e.target.value) / 100 })} />
-        {!vp.profile && <span className="muted text-[10px]">Off until you record your voice.</span>}
+        {!vp.profile && <span className="muted text-[10px]">{t("vcs.offUntil")}</span>}
       </label>
-      {vp.profile && <button type="button" className="chip" onClick={() => { save({ profile: null, sensitivity: 0 }); setMsg("Voice forgotten."); }}>Forget my voice</button>}
+      {vp.profile && <button type="button" className="chip" onClick={() => { save({ profile: null, sensitivity: 0 }); setMsg(t("vcs.forgotten")); }}>{t("vcs.forget")}</button>}
     </>
   );
 }
@@ -213,62 +214,59 @@ export function VoiceControls({ voice }: { voice: VoiceInput }) {
       </button>
       {open && (
         <div ref={popRef} id={popId} className="glass voice-pop" role="dialog" aria-label={t("voice.settings")}>
-          <label className="voice-col">Hands-free (say &ldquo;Orbit&hellip;&rdquo;)
+          <label className="voice-col">{t("vcs.handsFree")}
             <select className="field" value={s.handsFree} onChange={(e) => update({ handsFree: e.target.value as HandsFree })}>
-              <option value="off">Off</option>
-              <option value="chrome" disabled={!chromeOk}>Chrome recognition (audio goes to Google while listening)</option>
-              <option value="orbit" disabled={!whisperOk && s.handsFree !== "orbit"}>ORBIT mic (best: local Whisper, echo-cancelled open mic)</option>
-              <option value="local">Local only (Whisper on this PC)</option>
+              <option value="off">{t("vcs.off")}</option>
+              <option value="chrome" disabled={!chromeOk}>{t("vcs.hfChrome")}</option>
+              <option value="orbit" disabled={!whisperOk && s.handsFree !== "orbit"}>{t("vcs.hfOrbit")}</option>
+              <option value="local">{t("vcs.hfLocal")}</option>
             </select>
-            {s.handsFree === "orbit" && <label className="voice-row"><input type="checkbox" checked={s.bargeByVoice} onChange={(e) => update({ bargeByVoice: e.target.checked })} /> Interrupt by voice (headphones). Off: only &ldquo;stop&rdquo; or &ldquo;Orbit, &hellip;&rdquo; cuts ORBIT off, so it can&rsquo;t interrupt itself through the speakers.</label>}
-            {!whisperOk && <span className="muted text-[10px]">Local Whisper didn’t load on the server (see its log), so ORBIT mic and Local only are unavailable.</span>}
-            <span className="muted text-[10px]">{s.handsFree === "chrome" ? "Chrome streams your microphone audio to Google’s speech service whenever this tab is visible and the window was used in the last minute, or while conversation mode is on."
-              : s.handsFree === "orbit" ? "Audio never leaves this PC. One open, echo-cancelled mic: talk over ORBIT to interrupt it, it answers sooner after a finished sentence. English, or Estonian with the language set to Eesti. The first use downloads the model; the first Estonian use downloads another ~1 GB model and voice pauses until it's done."
-              : s.handsFree === "local" ? "Audio never leaves this PC. Say “Orbit, …” in one go; ORBIT stops listening while it talks (click the mic to interrupt). English, or Estonian with the language set to Eesti; the first use downloads the model (Estonian: another ~1 GB; voice pauses until it's done)."
-              : "ORBIT only listens when you click the mic (Ctrl+M)."}</span>
+            {s.handsFree === "orbit" && <label className="voice-row"><input type="checkbox" checked={s.bargeByVoice} onChange={(e) => update({ bargeByVoice: e.target.checked })} /> {t("vcs.barge")}</label>}
+            {!whisperOk && <span className="muted text-[10px]">{t("vcs.noWhisper")}</span>}
+            <span className="muted text-[10px]">{s.handsFree === "chrome" ? t("vcs.hfChromeHelp") : s.handsFree === "orbit" ? t("vcs.hfOrbitHelp") : s.handsFree === "local" ? t("vcs.hfLocalHelp") : t("vcs.hfOffHelp")}</span>
           </label>
-          <label className="voice-col">Question transcription
+          <label className="voice-col">{t("vcs.transcription")}
             <select className="field" value={pttEngine ?? s.engine} disabled={s.handsFree === "local" || s.handsFree === "orbit"} onChange={(e) => update({ engine: e.target.value === "whisper" ? "whisper" : "chrome" })}>
-              <option value="chrome" disabled={!chromeOk}>Chrome (fast; audio goes to Google)</option>
-              <option value="whisper">Local Whisper (on this PC)</option>
+              <option value="chrome" disabled={!chromeOk}>{t("vcs.trChrome")}</option>
+              <option value="whisper">{t("vcs.trWhisper")}</option>
             </select>
-            {(s.handsFree === "local" || s.handsFree === "orbit") && <span className="muted text-[10px]">Local hands-free keeps the mic button on Whisper too.</span>}
+            {(s.handsFree === "local" || s.handsFree === "orbit") && <span className="muted text-[10px]">{t("vcs.trLocalNote")}</span>}
           </label>
-          <p className="muted text-[10px] voice-note">Local means the audio stays on this PC. Your words (text) still go to Claude to answer; memories are stored in your Supabase.</p>
-          <label className="voice-col">Language (Chrome)
+          <p className="muted text-[10px] voice-note">{t("vcs.localNote")}</p>
+          <label className="voice-col">{t("vcs.lang")}
             <select className="field" value={s.lang} onChange={(e) => update({ lang: e.target.value })}>
-              <option value="en-US">English (US)</option>
-              <option value="en-GB">English (UK)</option>
-              <option value="en-IE">English (Ireland)</option>
-              <option value="et-EE">Eesti</option>
+              <option value="en-US">{t("vcs.enUS")}</option>
+              <option value="en-GB">{t("vcs.enGB")}</option>
+              <option value="en-IE">{t("vcs.enIE")}</option>
+              <option value="et-EE">{"Eesti"}</option>
             </select>
           </label>
-          <label className="voice-col">Conversation mode (&ldquo;Orbit, let&rsquo;s talk&rdquo;)
+          <label className="voice-col">{t("vcs.conv")}
             <select className="field" value={s.conversation} onChange={(e) => update({ conversation: e.target.value === "once" ? "once" : "stay" })}>
-              <option value="stay">Stays on until I say stop</option>
-              <option value="once">One follow-up only</option>
+              <option value="stay">{t("vcs.convStay")}</option>
+              <option value="once">{t("vcs.convOnce")}</option>
             </select>
             <span className="muted text-[10px]">{t("voice.convHelp")}</span>
           </label>
           <VoiceMatch />
           <DeskVoiceToggle />
-          <span className="voice-sub">Spoken answers</span>
-          <label className="voice-row"><input type="checkbox" checked={s.speak} onChange={(e) => update({ speak: e.target.checked })} /> Speak answers</label>
+          <span className="voice-sub">{t("vcs.spoken")}</span>
+          <label className="voice-row"><input type="checkbox" checked={s.speak} onChange={(e) => update({ speak: e.target.checked })} /> {t("vcs.speak")}</label>
           <SpeakFirstToggle />
-          <label className="voice-col">Voice
+          <label className="voice-col">{t("vcs.voice")}
             <select className="field" value={s.voiceURI ?? ""} onChange={(e) => { update({ voiceURI: e.target.value || null }); if (e.target.value.startsWith("kokoro:")) warmNaturalVoice(); }}>
-              <option value="">Default</option>
-              <optgroup label="Natural (runs on this PC, ~90 MB first download)">
-                <option value="kokoro:af_heart">Heart (US, warm)</option>
-                <option value="kokoro:af_bella">Bella (US)</option>
-                <option value="kokoro:bf_emma">Emma (UK)</option>
-                <option value="kokoro:bm_george">George (UK)</option>
-                <option value="kokoro:am_michael">Michael (US)</option>
+              <option value="">{t("vcs.default")}</option>
+              <optgroup label={t("vcs.natural")}>
+                <option value="kokoro:af_heart">{t("vcs.heart")}</option>
+                <option value="kokoro:af_bella">{`Bella (${t("vcs.us")})`}</option>
+                <option value="kokoro:bf_emma">{`Emma (${t("vcs.uk")})`}</option>
+                <option value="kokoro:bm_george">{`George (${t("vcs.uk")})`}</option>
+                <option value="kokoro:am_michael">{`Michael (${t("vcs.us")})`}</option>
               </optgroup>
               {voices.map((v) => <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>)}
             </select>
           </label>
-          <label className="voice-col">Speed <span className="num">{s.rate.toFixed(2)}×</span>
+          <label className="voice-col">{t("vcs.speed")} <span className="num">{s.rate.toFixed(2)}×</span>
             <input type="range" min={0.8} max={1.4} step={0.05} value={s.rate} onChange={(e) => update({ rate: Number(e.target.value) })} />
           </label>
         </div>

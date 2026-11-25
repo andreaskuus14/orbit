@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TwinCard } from "./TwinCard";
+import { useT } from "./i18n";
 import { contentHash, spendContent } from "@/lib/approval-pure";
 
 // Clip Factory → "AI Story": idea → Claude's script (editable) → Higgsfield price → Approve → Short in the review queue.
@@ -29,12 +30,7 @@ const LENGTHS = [30, 45, 60];
 const VOICES: [string, string][] = [["kokoro:af_heart", "Heart (local, free)"], ["kokoro:af_bella", "Bella (local)"], ["kokoro:am_michael", "Michael (local)"], ["kokoro:am_fenrir", "Fenrir (local)"],
   ["kokoro:bf_emma", "Emma, British (local)"], ["kokoro:bm_george", "George, British (local)"], ["none", "No voice (captions only)"], ["hf", "Higgsfield voice (credits)…"]];
 const CONNECT = "claude mcp add -s user --transport http higgsfield https://mcp.higgsfield.ai/mcp";
-const HELP: Record<ErrKind, string> = {
-  not_connected: `Higgsfield isn't connected to Claude Code on this PC. In a terminal run: ${CONNECT} — then start claude, type /mcp, pick higgsfield and sign in with your Higgsfield account. Then get the cost again.`,
-  credits: "Not enough Higgsfield credits for this story. Top up on higgsfield.ai, or use fewer scenes / a local voice.",
-  paid_plan: "This model needs a paid Higgsfield plan. Switch Motion to \"Stills\" (images + Ken Burns), or set ORBIT_HIGGSFIELD_*_MODEL to a model your plan includes.",
-  other: "",
-};
+const HELP = { not_connected: "sty.err.notConnected", credits: "sty.err.credits", paid_plan: "sty.err.paidPlan" } as const;
 const ICON = { pending: "⏳", done: "✓", failed: "⚠" } as const;
 const busyStatus = (s: StoryJob["status"]) => s === "generating" || s === "assembling";
 
@@ -46,6 +42,7 @@ async function api<T>(body?: unknown): Promise<T> {
 }
 
 export default function StoryPanel({ active, seed, onOpenClip, onChanged }: { active: boolean; seed?: { idea?: string; story?: string } | null /* Pipeline board: prefill an idea or select a story */; onOpenClip: (job: string, clip: string) => void; onChanged: () => void }) {
+  const { t } = useT();
   const [d, setD] = useState<Data | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
@@ -67,8 +64,8 @@ export default function StoryPanel({ active, seed, onOpenClip, onChanged }: { ac
   const working = !!job && busyStatus(job.status);
   useEffect(() => { // poll while a story is being made
     if (!active || !working) return;
-    const t = setInterval(() => { if (!document.hidden) void load(); }, 2500);
-    return () => clearInterval(t);
+    const iv = setInterval(() => { if (!document.hidden) void load(); }, 2500);
+    return () => clearInterval(iv);
   }, [active, working, load]);
   const wasWorking = useRef(false); // finished → refresh Clip Factory so the new clip shows in Clips
   useEffect(() => { if (wasWorking.current && !working) onChanged(); wasWorking.current = working; }, [working, onChanged]);
@@ -107,86 +104,86 @@ export default function StoryPanel({ active, seed, onOpenClip, onChanged }: { ac
 
   return (
     <div className="space-y-3">
-      <section className="card" aria-label="AI story">
-        <h3 className="hud-title studio-title mb-2 !text-[0.7rem]">AI STORY</h3>
-        <p className="muted mb-2 text-xs">Claude writes the script, Higgsfield makes the characters and shots (a talking drama speaks its own lines), ORBIT edits it into a Short. You see the price first; nothing is generated until you approve.{d?.dryRun && " (Dry run: fake Higgsfield, no credits.)"}</p>
+      <section className="card" aria-label={t("sty.title")}>
+        <h3 className="hud-title studio-title mb-2 !text-[0.7rem]">{t("sty.title")}</h3>
+        <p className="muted mb-2 text-xs">{t("sty.help")}{d?.dryRun && ` ${t("sty.dryRun")}`}</p>
         <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); void write(); }}>
-          <textarea className="field w-full !px-2 !py-1 !text-xs" rows={3} maxLength={1000} placeholder={f.format === "drama" ? "Your idea, e.g. she finds messages from her best friend on his phone" : "Your idea, e.g. a lighthouse keeper finds a letter from himself, dated tomorrow"} value={f.idea} onChange={(e) => setF({ ...f, idea: e.target.value })} aria-label="Story idea" id="story-idea" />
-          <input className="field w-full !px-2 !py-1 !text-xs" maxLength={200} placeholder="Style (optional), e.g. moody watercolor, Pixar-like 3D" value={f.style} onChange={(e) => setF({ ...f, style: e.target.value })} aria-label="Visual style" />
+          <textarea className="field w-full !px-2 !py-1 !text-xs" rows={3} maxLength={1000} placeholder={f.format === "drama" ? t("sty.ideaPhDrama") : t("sty.ideaPh")} value={f.idea} onChange={(e) => setF({ ...f, idea: e.target.value })} aria-label={t("sty.idea")} id="story-idea" />
+          <input className="field w-full !px-2 !py-1 !text-xs" maxLength={200} placeholder={t("sty.stylePh")} value={f.style} onChange={(e) => setF({ ...f, style: e.target.value })} aria-label={t("sty.style")} />
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="muted">Format</span>
-            <button type="button" className="chip" aria-pressed={f.format === "drama"} onClick={() => setF({ ...f, format: "drama" })} title="Fruit-head characters act and speak their own lines (video with lip-sync), hard cuts, subtitles">Talking drama (video)</button>
-            <button type="button" className="chip" aria-pressed={f.format === "stills"} onClick={() => setF({ ...f, format: "stills" })}>Narrated story</button>
+            <span className="muted">{t("sty.format")}</span>
+            <button type="button" className="chip" aria-pressed={f.format === "drama"} onClick={() => setF({ ...f, format: "drama" })} title={t("sty.dramaTip")}>{t("sty.drama")}</button>
+            <button type="button" className="chip" aria-pressed={f.format === "stills"} onClick={() => setF({ ...f, format: "stills" })}>{t("sty.narrated")}</button>
             {f.format === "drama" && <>
-              <label className="muted ml-2" htmlFor="story-model">Video model</label>
+              <label className="muted ml-2" htmlFor="story-model">{t("sty.videoModel")}</label>
               <select id="story-model" className="field !px-2 !py-1 !text-xs" value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })}>
-                {MODELS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+                {MODELS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
               </select>
-              <button type="submit" className="btn ml-auto" disabled={!!busy || f.idea.trim().length < 3}>{busy === "write" ? "Writing…" : "✍ Write drama"}</button>
+              <button type="submit" className="btn ml-auto" disabled={!!busy || f.idea.trim().length < 3}>{busy === "write" ? t("sty.writing") : `✍ ${t("sty.writeDrama")}`}</button>
             </>}
           </div>
           {f.format === "stills" && <><div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="muted">Length</span>
+            <span className="muted">{t("sty.length")}</span>
             {LENGTHS.map((l) => <button key={l} type="button" className="chip num" aria-pressed={f.length === l} onClick={() => setF({ ...f, length: l })}>{l} s</button>)}
-            <span className="muted ml-2">Motion</span>
-            <button type="button" className="chip" aria-pressed={f.motion === "stills"} onClick={() => setF({ ...f, motion: "stills" })}>Stills + Ken Burns</button>
-            <button type="button" className="chip" aria-pressed={f.motion === "video"} onClick={() => setF({ ...f, motion: "video" })} title="Video models usually need a paid Higgsfield plan">Video clips (paid plans)</button>
+            <span className="muted ml-2">{t("sty.motion")}</span>
+            <button type="button" className="chip" aria-pressed={f.motion === "stills"} onClick={() => setF({ ...f, motion: "stills" })}>{t("sty.stills")}</button>
+            <button type="button" className="chip" aria-pressed={f.motion === "video"} onClick={() => setF({ ...f, motion: "video" })} title={t("sty.videoTip")}>{t("sty.videoClips")}</button>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <label className="muted" htmlFor="story-voice">Voice</label>
+            <label className="muted" htmlFor="story-voice">{t("sty.voice")}</label>
             <select id="story-voice" className="field !px-2 !py-1 !text-xs" value={f.voice} onChange={(e) => setF({ ...f, voice: e.target.value })}>
               {VOICES.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
             </select>
-            {f.voice === "hf" && <input className="field !px-2 !py-1 !text-xs" maxLength={80} placeholder="Higgsfield voice id" value={f.hfVoice} onChange={(e) => setF({ ...f, hfVoice: e.target.value })} aria-label="Higgsfield voice id" />}
-            <button type="submit" className="btn ml-auto" disabled={!!busy || f.idea.trim().length < 3 || (f.voice === "hf" && !f.hfVoice.trim())}>{busy === "write" ? "Writing…" : "✍ Write story"}</button>
+            {f.voice === "hf" && <input className="field !px-2 !py-1 !text-xs" maxLength={80} placeholder={t("sty.hfVoice")} value={f.hfVoice} onChange={(e) => setF({ ...f, hfVoice: e.target.value })} aria-label={t("sty.hfVoice")} />}
+            <button type="submit" className="btn ml-auto" disabled={!!busy || f.idea.trim().length < 3 || (f.voice === "hf" && !f.hfVoice.trim())}>{busy === "write" ? t("sty.writing") : `✍ ${t("sty.writeStory")}`}</button>
           </div></>}
         </form>
         {err && <p className="error mt-2 text-xs" role="alert">{err}</p>}
       </section>
 
       {job && story && (
-        <section className="card" aria-label="Story script">
+        <section className="card" aria-label={t("sty.script")}>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="hud-title studio-title !text-[0.7rem]">SCRIPT</h3>
+            <h3 className="hud-title studio-title !text-[0.7rem]">{t("sty.scriptHead")}</h3>
             {d && d.stories.length > 1 && (
-              <select className="field !px-2 !py-1 !text-xs" value={job.id} onChange={(e) => { setSel(e.target.value); setDraft(null); }} aria-label="Pick a story">
+              <select className="field !px-2 !py-1 !text-xs" value={job.id} onChange={(e) => { setSel(e.target.value); setDraft(null); }} aria-label={t("sty.pick")}>
                 {d.stories.map((s) => <option key={s.id} value={s.id}>{s.story.title} · {s.status}</option>)}
               </select>
             )}
           </div>
           {job.draft ? (
-            <p className="text-xs">Drafted by CORE: {job.draft.count} × {job.draft.kind} · {job.draft.model} · {job.draft.aspect}
+            <p className="text-xs">{t("sty.draftedBy")} {job.draft.count} × {job.draft.kind} · {job.draft.model} · {job.draft.aspect}
               {job.items.map((it) => <span key={it.key} className="muted num ml-2 whitespace-nowrap" title={it.error}>{it.status ? ICON[it.status] : ""}{typeof it.credits === "number" && !it.jobId ? ` ${it.credits} cr` : ""}</span>)}
               <span className="muted mt-1 block">{job.draft.prompt}</span></p>
           ) : drama ? <fieldset disabled={!editable || !!busy} className="space-y-2">
-            <input className="field w-full !px-2 !py-1 !text-sm" value={story.title} maxLength={100} onChange={(e) => setDraft({ ...story, title: e.target.value })} aria-label="Title" />
-            {!!story.titles && story.titles.length > 1 && <p className="flex flex-wrap gap-1 text-xs"><span className="muted">Titles:</span>{story.titles.map((t) => <button key={t} type="button" className="chip" aria-pressed={t === story.title} onClick={() => setDraft({ ...story, title: t })}>{t}</button>)}</p>}
+            <input className="field w-full !px-2 !py-1 !text-sm" value={story.title} maxLength={100} onChange={(e) => setDraft({ ...story, title: e.target.value })} aria-label={t("sty.titleField")} />
+            {!!story.titles && story.titles.length > 1 && <p className="flex flex-wrap gap-1 text-xs"><span className="muted">{t("sty.titles")}</span>{story.titles.map((x) => <button key={x} type="button" className="chip" aria-pressed={x === story.title} onClick={() => setDraft({ ...story, title: x })}>{x}</button>)}</p>}
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              <input className="field min-w-0 flex-1 !px-2 !py-1 !text-xs" value={story.hook} maxLength={40} placeholder="Small on-screen hook text (optional)" onChange={(e) => setDraft({ ...story, hook: e.target.value })} aria-label="Hook text" />
-              <label className="muted" htmlFor="drama-model">Video model</label>
+              <input className="field min-w-0 flex-1 !px-2 !py-1 !text-xs" value={story.hook} maxLength={40} placeholder={t("sty.hookPh")} onChange={(e) => setDraft({ ...story, hook: e.target.value })} aria-label={t("sty.hook")} />
+              <label className="muted" htmlFor="drama-model">{t("sty.videoModel")}</label>
               <select id="drama-model" className="field !px-2 !py-1 !text-xs" value={model ?? job.opts.model} onChange={(e) => setModel(e.target.value === job.opts.model ? null : e.target.value)}>
-                {MODELS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+                {MODELS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
               </select>
             </div>
-            {!!story.hooks && story.hooks.length > 1 && <div className="flex flex-wrap gap-1 text-xs" role="group" aria-label="Opening line options">
-              <span className="muted">Opening line:</span>
+            {!!story.hooks && story.hooks.length > 1 && <div className="flex flex-wrap gap-1 text-xs" role="group" aria-label={t("sty.openingOpts")}>
+              <span className="muted">{t("sty.opening")}</span>
               {story.hooks.map((h) => <button key={h} type="button" className="chip" aria-pressed={h === story.scenes[0]?.narration} onClick={() => setScene(0, { narration: h })}>“{h}”</button>)}
             </div>}
-            <ul className="grid gap-2 sm:grid-cols-3" aria-label="Characters">
+            <ul className="grid gap-2 sm:grid-cols-3" aria-label={t("sty.characters")}>
               {(story.characters ?? []).map((c, i) => {
                 const it = job.items.find((x) => x.key === `char-${i}`);
                 const used = job.items.some((x) => x.refs?.includes(`char-${i}`) && x.jobId);
                 return (
                   <li key={i} className="rounded border p-2 text-xs" style={{ borderColor: "rgba(255,214,224,0.12)" }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {it?.file && job.clipJob && <img src={media(job.clipJob, it.file)} alt={`${c.name} reference`} className="mb-1 aspect-[9/16] w-full rounded object-cover" />}
+                    {it?.file && job.clipJob && <img src={media(job.clipJob, it.file)} alt={t("sty.charRef", { name: c.name })} className="mb-1 aspect-[9/16] w-full rounded object-cover" />}
                     <div className="mb-1 flex items-center gap-1">
-                      <input className="field min-w-0 flex-1 !px-1 !py-0.5 !text-xs" maxLength={30} value={c.name} onChange={(e) => setChar(i, { name: e.target.value })} aria-label={`Character ${i + 1} name`} />
+                      <input className="field min-w-0 flex-1 !px-1 !py-0.5 !text-xs" maxLength={30} value={c.name} onChange={(e) => setChar(i, { name: e.target.value })} aria-label={t("sty.charName", { n: i + 1 })} />
                       <span className="muted num whitespace-nowrap" title={it?.error}>{cost(it)}</span>
                     </div>
-                    <textarea className="field w-full !px-1 !py-0.5 !text-xs" rows={3} maxLength={400} value={c.look} onChange={(e) => setChar(i, { look: e.target.value })} aria-label={`${c.name} look`} />
-                    <input className="field mt-1 w-full !px-1 !py-0.5 !text-xs" maxLength={120} value={c.voice} onChange={(e) => setChar(i, { voice: e.target.value })} aria-label={`${c.name} voice`} />
-                    {it?.jobId && it.status === "done" && !used && <button type="button" className="chip mt-1" onClick={() => void redo(it.key)}>↻ Regenerate</button>}
+                    <textarea className="field w-full !px-1 !py-0.5 !text-xs" rows={3} maxLength={400} value={c.look} onChange={(e) => setChar(i, { look: e.target.value })} aria-label={t("sty.charLook", { name: c.name })} />
+                    <input className="field mt-1 w-full !px-1 !py-0.5 !text-xs" maxLength={120} value={c.voice} onChange={(e) => setChar(i, { voice: e.target.value })} aria-label={t("sty.charVoice", { name: c.name })} />
+                    {it?.jobId && it.status === "done" && !used && <button type="button" className="chip mt-1" onClick={() => void redo(it.key)}>↻ {t("sty.regen")}</button>}
                   </li>
                 );
               })}
@@ -197,46 +194,46 @@ export default function StoryPanel({ active, seed, onOpenClip, onChanged }: { ac
                 return (
                   <li key={i} className="rounded border p-2 text-xs" style={{ borderColor: "rgba(255,214,224,0.12)" }}>
                     <div className="mb-1 flex flex-wrap items-center gap-2">
-                      <b>Shot {i + 1}</b>
-                      <input className="field w-14 !px-1 !py-0.5 !text-xs" type="number" min={4} max={6} step={1} value={s.sec} onChange={(e) => setScene(i, { sec: Number(e.target.value) })} aria-label={`Shot ${i + 1} seconds`} />
+                      <b>{t("sty.shot", { n: i + 1 })}</b>
+                      <input className="field w-14 !px-1 !py-0.5 !text-xs" type="number" min={4} max={6} step={1} value={s.sec} onChange={(e) => setScene(i, { sec: Number(e.target.value) })} aria-label={t("sty.shotSec", { n: i + 1 })} />
                       <span className="muted">s</span>
-                      <input className="field min-w-0 flex-1 !px-1 !py-0.5 !text-xs" maxLength={80} value={s.camera} onChange={(e) => setScene(i, { camera: e.target.value })} aria-label={`Shot ${i + 1} camera`} />
+                      <input className="field min-w-0 flex-1 !px-1 !py-0.5 !text-xs" maxLength={80} value={s.camera} onChange={(e) => setScene(i, { camera: e.target.value })} aria-label={t("sty.shotCam", { n: i + 1 })} />
                       <span className="muted num whitespace-nowrap" title={it?.error}>{cost(it)}</span>
-                      {it?.jobId && it.status === "done" && <button type="button" className="chip" onClick={() => void redo(it.key)}>↻ Regenerate this shot</button>}
+                      {it?.jobId && it.status === "done" && <button type="button" className="chip" onClick={() => void redo(it.key)}>↻ {t("sty.regenShot")}</button>}
                     </div>
-                    <textarea className="field w-full !px-2 !py-1 !text-xs" rows={2} maxLength={1200} value={s.visual} onChange={(e) => setScene(i, { visual: e.target.value })} aria-label={`Shot ${i + 1} setting and action`} />
+                    <textarea className="field w-full !px-2 !py-1 !text-xs" rows={2} maxLength={1200} value={s.visual} onChange={(e) => setScene(i, { visual: e.target.value })} aria-label={t("sty.shotAction", { n: i + 1 })} />
                     <div className="mt-1 flex flex-wrap items-center gap-1">
-                      <select className="field !px-1 !py-0.5 !text-xs" value={s.speaker} onChange={(e) => setScene(i, { speaker: e.target.value })} aria-label={`Shot ${i + 1} speaker`}>
+                      <select className="field !px-1 !py-0.5 !text-xs" value={s.speaker} onChange={(e) => setScene(i, { speaker: e.target.value })} aria-label={t("sty.shotSpeaker", { n: i + 1 })}>
                         {(story.characters ?? []).map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
                       </select>
-                      <input className="field min-w-0 flex-[3] !px-1 !py-0.5 !text-xs" maxLength={300} value={s.narration} onChange={(e) => setScene(i, { narration: e.target.value })} aria-label={`Shot ${i + 1} spoken line`} />
-                      <input className="field min-w-0 flex-1 !px-1 !py-0.5 !text-xs" maxLength={80} value={s.beat ?? ""} placeholder="emotion" onChange={(e) => setScene(i, { beat: e.target.value })} aria-label={`Shot ${i + 1} emotion`} />
+                      <input className="field min-w-0 flex-[3] !px-1 !py-0.5 !text-xs" maxLength={300} value={s.narration} onChange={(e) => setScene(i, { narration: e.target.value })} aria-label={t("sty.shotLine", { n: i + 1 })} />
+                      <input className="field min-w-0 flex-1 !px-1 !py-0.5 !text-xs" maxLength={80} value={s.beat ?? ""} placeholder={t("sty.emotion")} onChange={(e) => setScene(i, { beat: e.target.value })} aria-label={t("sty.shotEmotion", { n: i + 1 })} />
                     </div>
                   </li>
                 );
               })}
             </ol>
           </fieldset> : <fieldset disabled={!editable || !!busy} className="space-y-2">
-            <input className="field w-full !px-2 !py-1 !text-sm" value={story.title} maxLength={100} onChange={(e) => setDraft({ ...story, title: e.target.value })} aria-label="Title" />
-            <input className="field w-full !px-2 !py-1 !text-xs" value={story.hook} maxLength={80} onChange={(e) => setDraft({ ...story, hook: e.target.value })} aria-label="Hook text" />
+            <input className="field w-full !px-2 !py-1 !text-sm" value={story.title} maxLength={100} onChange={(e) => setDraft({ ...story, title: e.target.value })} aria-label={t("sty.titleField")} />
+            <input className="field w-full !px-2 !py-1 !text-xs" value={story.hook} maxLength={80} onChange={(e) => setDraft({ ...story, hook: e.target.value })} aria-label={t("sty.hook")} />
             <ol className="space-y-2">
               {story.scenes.map((s, i) => {
                 const items = job.items.filter((it) => it.scene === i);
                 return (
                   <li key={i} className="rounded border p-2 text-xs" style={{ borderColor: "rgba(255,214,224,0.12)" }}>
                     <div className="mb-1 flex flex-wrap items-center gap-2">
-                      <b>Scene {i + 1}</b>
-                      <input className="field w-16 !px-1 !py-0.5 !text-xs" type="number" min={2.5} max={12} step={0.5} value={s.sec} onChange={(e) => setScene(i, { sec: Number(e.target.value) })} aria-label={`Scene ${i + 1} seconds`} />
+                      <b>{t("sty.scene", { n: i + 1 })}</b>
+                      <input className="field w-16 !px-1 !py-0.5 !text-xs" type="number" min={2.5} max={12} step={0.5} value={s.sec} onChange={(e) => setScene(i, { sec: Number(e.target.value) })} aria-label={t("sty.sceneSec", { n: i + 1 })} />
                       <span className="muted">s</span>
-                      <input className="field min-w-0 flex-1 !px-1 !py-0.5 !text-xs" maxLength={80} value={s.camera} onChange={(e) => setScene(i, { camera: e.target.value })} aria-label={`Scene ${i + 1} camera`} />
+                      <input className="field min-w-0 flex-1 !px-1 !py-0.5 !text-xs" maxLength={80} value={s.camera} onChange={(e) => setScene(i, { camera: e.target.value })} aria-label={t("sty.sceneCam", { n: i + 1 })} />
                       {items.map((it) => (
                         <span key={it.key} className="muted num whitespace-nowrap" title={it.error}>
                           {it.status ? ICON[it.status] : ""} {it.kind}{typeof it.credits === "number" && !it.jobId ? ` · ${it.credits} cr` : ""}
                         </span>
                       ))}
                     </div>
-                    <textarea className="field w-full !px-2 !py-1 !text-xs" rows={2} maxLength={1200} value={s.visual} onChange={(e) => setScene(i, { visual: e.target.value })} aria-label={`Scene ${i + 1} picture prompt`} />
-                    <textarea className="field mt-1 w-full !px-2 !py-1 !text-xs" rows={2} maxLength={400} value={s.narration} onChange={(e) => setScene(i, { narration: e.target.value })} aria-label={`Scene ${i + 1} narration`} />
+                    <textarea className="field w-full !px-2 !py-1 !text-xs" rows={2} maxLength={1200} value={s.visual} onChange={(e) => setScene(i, { visual: e.target.value })} aria-label={t("sty.scenePic", { n: i + 1 })} />
+                    <textarea className="field mt-1 w-full !px-2 !py-1 !text-xs" rows={2} maxLength={400} value={s.narration} onChange={(e) => setScene(i, { narration: e.target.value })} aria-label={t("sty.sceneNarr", { n: i + 1 })} />
                   </li>
                 );
               })}
@@ -244,20 +241,20 @@ export default function StoryPanel({ active, seed, onOpenClip, onChanged }: { ac
           </fieldset>}
 
           <div className="mt-2 space-y-2 text-xs" role="status">
-            <p className="muted">{job.step}{job.quote && !draft ? ` · plan: ${job.quote.plan ?? "?"} · balance: ${job.quote.balance ?? "?"} credits` : ""}</p>
-            {job.error && <p className="error" role="alert">{HELP[job.error.kind] || job.error.message}{job.error.kind !== "other" && <span className="muted block">{job.error.message}</span>}</p>}
-            {job.error?.kind === "not_connected" && <button className="chip" onClick={() => navigator.clipboard?.writeText(CONNECT)}>Copy connect command</button>}
+            <p className="muted">{job.step}{job.quote && !draft ? ` · ${t("sty.planBal", { plan: job.quote.plan ?? "?", bal: job.quote.balance ?? "?" })}` : ""}</p>
+            {job.error && <p className="error" role="alert">{job.error.kind !== "other" ? t(HELP[job.error.kind], { cmd: CONNECT }) : job.error.message}{job.error.kind !== "other" && <span className="muted block">{job.error.message}</span>}</p>}
+            {job.error?.kind === "not_connected" && <button className="chip" onClick={() => navigator.clipboard?.writeText(CONNECT)}>{t("sty.copyConnect")}</button>}
             {job.warnings.map((w) => <p key={w} className="muted">⚠ {w}</p>)}
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
-            {(job.status !== "done" || draft || model) && !working && <button className="chip" onClick={() => void getCost()} disabled={!!busy}>{busy === "quote" || busy === "edit" ? "Asking Higgsfield…" : draft || model ? "Save & get cost" : castStep ? "💰 Get cost of the characters" : "💰 Get cost"}</button>}
+            {(job.status !== "done" || draft || model) && !working && <button className="chip" onClick={() => void getCost()} disabled={!!busy}>{busy === "quote" || busy === "edit" ? t("sty.asking") : draft || model ? t("sty.saveCost") : castStep ? `💰 ${t("sty.costChars")}` : `💰 ${t("sty.cost")}`}</button>}
             {job.status !== "done" && !working && priced && (
               <button className="btn" disabled={!!busy || short} onClick={() => void contentHash(spendContent(job.quote?.fingerprint ?? "", total)).then((seen) => act("approve", { action: "approve", id: job.id, credits: total, seen }))}>
-                {busy === "approve" ? "Starting…" : !total ? "✓ Resume (no new credits)" : castStep ? `✓ Approve characters (${total} credits)` : `✓ Approve & generate (${total} credits)`}
+                {busy === "approve" ? t("sty.starting") : !total ? `✓ ${t("sty.resume")}` : castStep ? `✓ ${t("sty.approveChars", { n: total })}` : `✓ ${t("sty.approveGen", { n: total })}`}
               </button>
             )}
-            {castStep && !priced && <span className="muted self-center text-xs">Step 1 of 2: the character pictures (cheap). You'll see them before paying for the video shots.</span>}
-            {job.status === "done" && job.clipJob && <button className="btn" onClick={() => onOpenClip(job.clipJob!, "clip-1")}>🎬 Open in Clips to review</button>}
+            {castStep && !priced && <span className="muted self-center text-xs">{t("sty.step1")}</span>}
+            {job.status === "done" && job.clipJob && <button className="btn" onClick={() => onOpenClip(job.clipJob!, "clip-1")}>🎬 {t("sty.openClips")}</button>}
           </div>
           {job.status !== "done" && !working && priced && total > 0 && <TwinCard decision={{ kind: "spend", ref: job.id, title: job.draft ? `Higgsfield ${job.draft.count} ${job.draft.kind} draft` : `AI Story: ${job.story.title}`, detail: job.draft ? job.draft.prompt : job.opts.idea, credits: total }} />}
         </section>
