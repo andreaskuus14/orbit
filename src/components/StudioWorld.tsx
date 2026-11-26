@@ -10,6 +10,7 @@ import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
+import FrameWorld from "./FrameWorld";
 import { smoothDamp } from "@/lib/smooth-damp-pure";
 import { FrameMark } from "./dev-timing";
 import { oneCanvasOn, StageIn, WorldScene } from "./Stage";
@@ -455,6 +456,8 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
   const wallChips = useMemo(() => studioChips(videos, (n) => `${compactNumber(n)} ${t("sx.v.views").toLowerCase()}`,
     (v) => [[t("sx.v.views"), compactNumber(v.views)], [t("w8.date" as never), v.publishedAt ? new Date(v.publishedAt).toLocaleDateString() : ""]]), [videos, t]);
   const [wallFocus, setWallFocus] = useState<string | null>(null);
+  const frameOn = !flat && !staged && worldTier(q.bloomScale, q.msaa) > 0; // v10: the owner's studio frame is the scene on tier > 0
+  const wallPick = useCallback((id: string) => { setWallFocus((f) => (f === id ? null : id)); window.dispatchEvent(new CustomEvent(WORLD_PICK, { detail: { world: "studio", id } })); }, []);
   const moons = useMemo(() => layout(live ? videos : GHOSTS, new Set(ratio.keys())), [live, videos, ratio]);
   const comets = moons.filter((m) => m.hot).slice(0, 5);
   const sel = videos.find((v) => v.id === selected) ?? null;
@@ -515,7 +518,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
       {/* Flag on: the scene renders inside the galaxy's canvas (see Stage.tsx); dpr/antialias then follow the galaxy canvas. */}
       {!flat && later && (staged
         ? (paused ? null : <StageIn><WorldScene fov={STUDIO_CAM.fov} position={STUDIO_CAM.pos}>{scene}</WorldScene></StageIn>)
-        : <PlanetBoundary name="studio-scene" quiet><Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: STUDIO_CAM.pos, fov: STUDIO_CAM.fov }} dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>{scene}</Canvas>{mode === "channel" && !selected && <ChipLayer rig={rig} chips={wallChips} focus={wallFocus} onPick={(id) => { setWallFocus((f) => (f === id ? null : id)); window.dispatchEvent(new CustomEvent(WORLD_PICK, { detail: { world: "studio", id } })); }} />}</PlanetBoundary>)}
+        : frameOn ? <FrameWorld id="studio" chips={wallChips} onPick={wallPick} reduced={reduced} paused={paused} glow="#f43f5e" /> : <PlanetBoundary name="studio-scene" quiet><Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: STUDIO_CAM.pos, fov: STUDIO_CAM.fov }} dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>{scene}</Canvas>{mode === "channel" && !selected && <ChipLayer rig={rig} chips={wallChips} focus={wallFocus} onPick={(id) => { setWallFocus((f) => (f === id ? null : id)); window.dispatchEvent(new CustomEvent(WORLD_PICK, { detail: { world: "studio", id } })); }} />}</PlanetBoundary>)}
 
       <div aria-hidden className="studio-vignette pointer-events-none absolute inset-0 z-[1]" />
 

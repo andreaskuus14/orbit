@@ -48,3 +48,11 @@ test("public/worlds stays inside the budget and the frames are licensed", () => 
     assert.match(readFileSync("public/worlds/LICENSES.md", "utf8"), /Depth Anything V2/);
   });
 
+
+test("memory, agents, studio and gamedev render their frame on tier > 0 and keep the 3D as fallback", () => {
+  for (const [file, id] of [["MemoryWorld", "memory"], ["AgentsStation", "agents"], ["StudioWorld", "studio"], ["DevWorld", "gamedev"]] as const) {
+    const src = readFileSync(`src/components/${file}.tsx`, "utf8");
+    assert.ok(src.includes(`<FrameWorld id="${id}"`), file); assert.match(src, /frameOn \? <FrameWorld|frameOn \? <FrameWorld|: frameOn \? <FrameWorld/, file);
+    assert.match(src, /worldTier\(q\.bloomScale, q\.msaa\) > 0/, file); assert.ok(src.includes("<Canvas"), `${file} keeps its procedural canvas`);
+  }
+});
