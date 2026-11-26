@@ -1,6 +1,6 @@
 # World assets: licences
 
-All files here except `textures/waternormals.webp` are **CC0 1.0 (public domain)** from [Poly Haven](https://polyhaven.com/license): free for any use, commercial included, no credit required.
+The `plates/` files are the owner's own Higgsfield renders (cropped matte-painting backdrops, no baked text), used with his approval; the folder budget is 25 MB (raised from 15 MB for them). All other files here except `textures/waternormals.webp` are **CC0 1.0 (public domain)** from [Poly Haven](https://polyhaven.com/license): free for any use, commercial included, no credit required.
 Models were re-encoded (glTF binary, meshopt geometry, 512 px webp textures, simplified meshes); HDRIs are the 1k versions.
 
 | File | Source | Licence |
@@ -23,6 +23,8 @@ Models were re-encoded (glTF binary, meshopt geometry, 512 px webp textures, sim
 | textures/cedar_planks_diff.webp, textures/cedar_planks_nor.webp, textures/cedar_planks_rough.webp | https://polyhaven.com/a/japanese_cedar_planks | CC0 1.0 |
 | textures/corrugated_iron_02_diff.webp, textures/corrugated_iron_02_nor.webp, textures/corrugated_iron_02_rough.webp | https://polyhaven.com/a/corrugated_iron_02 | CC0 1.0 |
 | textures/white_stucco_diff.webp, textures/white_stucco_nor.webp, textures/white_stucco_rough.webp | https://polyhaven.com/a/white_stucco | CC0 1.0 |
+| plates/vault-back.webp | owner's Higgsfield renders (vault frame, dome and door wall) | Owner's own renders: cropped, text/UI-free, 2x upscaled, webp |
+| plates/vault-balcony.webp | owner's Higgsfield renders (vault zoom frame, arched balconies) | Owner's own renders: cropped, text/UI-free, 2x upscaled, webp |
 | textures/waternormals.webp | https://github.com/mrdoob/three.js/blob/dev/examples/textures/waternormals.jpg | MIT (three.js, https://github.com/mrdoob/three.js/blob/dev/LICENSE): commercial use fine, keep the notice |
 
 Textures are the 1k Poly Haven maps (diffuse, OpenGL normal, displacement as height) re-encoded to 512 px webp (height 256 px grey).
