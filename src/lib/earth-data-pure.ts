@@ -12,7 +12,7 @@ export type EarthWeather = {
   isobars: { hpa: number; lines: [number, number][][] }[];
   centres: { kind: "H" | "L"; lon: number; lat: number; hpa: number; label: string }[];
   /** a spiral per news system (storm = 5+ outlets), in its region colour */
-  swirls: { lon: number; lat: number; outlets: number; color: string; storm: boolean; rel: number }[];
+  swirls: { lon: number; lat: number; outlets: number; color: string; storm: boolean; rel: number; tex: "purple" | "red" | "blue" }[];
   fronts: { from: { lon: number; lat: number }; to: { lon: number; lat: number }; type: FrontType; title: string }[];
 };
 export type EarthData = { rings: EarthRing[]; arcs: EarthArc[]; towns: TownNews[]; timeline: { title: string; time: string; source: string }[];
@@ -28,7 +28,7 @@ export function earthWeather(hs: Hotspot[]): EarthWeather {
   ];
   const fr = w.fronts.flatMap((f) => { const a = at.get(f.from), b = at.get(f.to); return a && b ? [{ from: { lon: a.lon, lat: a.lat }, to: { lon: b.lon, lat: b.lat }, type: frontType(f, w.systems), title: f.title }] : []; });
   const top = Math.max(1, ...w.systems.map((s) => s.outlets)); // levels are relative to the busiest system, so a quiet day still reads
-  const swirls = w.systems.slice(0, 10).map((s) => { const l = stormLevel(s.outlets, top); return { lon: s.lon, lat: s.lat, outlets: s.outlets, color: l.color, storm: l.key === "crisis" || l.key === "rising", rel: s.outlets / top }; });
+  const swirls = w.systems.slice(0, 10).map((s) => { const l = stormLevel(s.outlets, top); return { lon: s.lon, lat: s.lat, outlets: s.outlets, color: l.color, storm: l.key === "crisis" || l.key === "rising", rel: s.outlets / top, tex: l.tex }; });
   return { isobars: w.isobars.map((i) => ({ hpa: i.hpa, lines: i.lines })), centres, swirls, fronts: fr };
 }
 

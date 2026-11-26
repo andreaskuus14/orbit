@@ -32,7 +32,7 @@ export const markerDeg = (outlets: number) => 0.9 + 0.5 * Math.sqrt(Math.max(0, 
 
 /** News-weather levels as on the legend: how hot a system is against the busiest one. Colours are shared by the swirls and the legend. */
 export const LEVELS = [
-  { key: "crisis", min: 0.7, color: "#c04bff" }, { key: "rising", min: 0.4, color: "#ff7a3c" }, { key: "ongoing", min: 0.18, color: "#f2b35e" }, { key: "stable", min: 0, color: "#3fd6a0" },
+  { key: "crisis", min: 0.7, color: "#b44bff", tex: "purple" }, { key: "rising", min: 0.4, color: "#ff5a3c", tex: "red" }, { key: "ongoing", min: 0.18, color: "#3aa7ff", tex: "blue" }, { key: "stable", min: 0, color: "#3fd6a0", tex: "blue" },
 ] as const;
 export function stormLevel(outlets: number, max: number): (typeof LEVELS)[number] {
   const r = max > 0 ? outlets / max : 0;

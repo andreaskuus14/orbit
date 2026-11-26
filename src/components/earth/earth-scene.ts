@@ -69,7 +69,7 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   // uGrade = 1: the command-centre look (dusk over the whole near side: saturated land, strong city lights); 0: the real time of day
   float litG = mix(lit, .5, uGrade), nightG = mix(1. - smoothstep(-.2, .08, d), .95, uGrade);
   day = mix(vec3(dot(day, vec3(.3,.59,.11))), day, 1. + .5*uGrade);
-  day *= mix(vec3(1.), vec3(.62,.92,1.08), uGrade); // blue-green land, deserts stay warm but quiet
+  day *= mix(vec3(1.), vec3(.5,.88,1.1), uGrade); // blue-green land, deserts stay warm but quiet
   vec3 lights = pow(max(night, 0.), vec3(mix(1., .72, uGrade))) * mix(1.6, 3.4, uGrade);
   vec3 c = day * .82 * (0.16 + 1.0*sqrt(max(d, 0.)) + .1*uGrade) * mix(.35, 1., litG) + lights * vec3(1.,.74,.4) * uLights * nightG; // uLights: off at city zoom, where 600 m/px lights through a missing imagery tile read as cream blocks
   vec3 Hh = normalize(uSun + V); float spec = pow(max(dot(vN, Hh), 0.), 140.) * .18 * lit * (1. - smoothstep(.06,.14, (day.r+day.g+day.b)/3.)); // sun glint on the sea
@@ -165,16 +165,14 @@ void main(){ \n#include <logdepthbuf_fragment>\n float core = exp(-vS*vS*22.), s
 const plainVS = `${LOG} void main(){ gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); \n#include <logdepthbuf_vertex>\n }`;
 const lineFS = `${LOGF} uniform vec3 uColor; uniform float uOp;
 void main(){ \n#include <logdepthbuf_fragment>\n gl_FragColor = vec4(uColor, .55 * uOp); }`;
-// a cyclone seen from orbit: three logarithmic spiral arms with a finer second texture, a clear eye with a bright wall, an outer glow
-const swirlFS = `${LOGF} uniform vec3 uColor; uniform float uT; uniform float uOp; varying vec2 vUv;
-void main(){ \n#include <logdepthbuf_fragment>\n vec2 p = vUv*2.-1.; float r = length(p); if (r > 1.) discard; float a = atan(p.y, p.x), t = uT * .22;
-  float sp = 3.*a + 6.5*log(r + .06) - t;
-  float arm = smoothstep(.2, .95, .5 + .5*sin(sp)) * (.72 + .28*sin(13.*a + 16.*r - t*2.5));
-  float body = smoothstep(1., .25, r) * smoothstep(.05, .16, r);
-  float wall = exp(-pow((r - .12) * 14., 2.));
-  float f = arm * body * .62 + wall * .55 + exp(-r*r*4.) * .2;
-  vec3 c = uColor * (.75 + .5*wall + .3*arm) + vec3(1.) * wall * .12;
-  gl_FragColor = vec4(c, clamp(f, 0., 1.) * uOp); }`;
+// a cyclone seen from orbit: the owner's rendered storm photo (public/ui/storms, see LICENSES.md) turning slowly, tinted by level,
+// with a dark eye and a soft glow. Falls back to nothing until the texture loads.
+const swirlFS = `${LOGF} uniform sampler2D uTex; uniform vec3 uColor; uniform float uT; uniform float uOp; varying vec2 vUv;
+void main(){ \n#include <logdepthbuf_fragment>\n vec2 p = vUv*2.-1.; float r = length(p); if (r > 1.) discard; float ang = -uT * .12, cs = cos(ang), sn = sin(ang);
+  vec2 q = vec2(p.x*cs - p.y*sn, p.x*sn + p.y*cs) * .5 + .5; vec4 t = texture2D(uTex, q);
+  float edge = smoothstep(1., .72, r), glow = exp(-r*r*5.) * .22;
+  vec3 c = mix(t.rgb, t.rgb * uColor * 1.6, .35) * 1.25 + uColor * glow;
+  gl_FragColor = vec4(c, clamp(t.a * 1.15 * edge + glow, 0., 1.) * uOp); }`;
 // a weather-chart front as a flat ribbon: a coloured line with its symbols on one side (cold: triangles, warm: half circles,
 // occluded: both in turn). uN = symbols along the ribbon, uKind 0/1/2.
 const frontFS = `${LOGF} uniform vec3 uColor; uniform float uT; uniform float uOp; uniform float uN; uniform float uKind; varying vec2 vUv;
@@ -183,7 +181,8 @@ void main(){ \n#include <logdepthbuf_fragment>\n float v = vUv.y * 2. - 1., u = 
   float h = v - .2, tri = step(0., h) * step(h, .8 * (1. - abs(px) / 1.1)), semi = step(0., h) * step(length(vec2(px * .95, h)), .78);
   float teeth = uKind < .5 ? tri : uKind < 1.5 ? semi : (mod(floor(u), 2.) < 1. ? tri : semi);
   float run = .75 + .25 * sin(vUv.x * 40. - uT * 2.);
-  float a = clamp(line + teeth * .95 + glowK, 0., 1.) * run * smoothstep(0., .04, vUv.x) * smoothstep(1., .96, vUv.x) * uOp;
+  float ax = fract(vUv.x * uN * .5 - uT * .15), ay = abs(v), chev = smoothstep(.07, .02, abs(ax - .5 + ay * .22)) * step(ay, .62);
+  float a = clamp(line + teeth * .95 + glowK + chev * .85, 0., 1.) * run * smoothstep(0., .04, vUv.x) * smoothstep(1., .96, vUv.x) * uOp;
   gl_FragColor = vec4(uColor * (1. + line * .6), a); }`;
 const beamFS = `${LOGF} uniform vec3 uColor; uniform float uOp; uniform float uT; varying vec2 vUv;
 void main(){ \n#include <logdepthbuf_fragment>\n float a = pow(clamp(1. - vUv.y, 0., 1.), 1.6) * uOp; float side = 1. - abs(vUv.x*2.-1.);
@@ -546,6 +545,8 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   const own: THREE.BufferGeometry[] = [];
   const borderMat = new THREE.ShaderMaterial({ vertexShader: borderVS, fragmentShader: borderFS, transparent: true, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
     uniforms: { uColor: { value: col(ACCENT) }, uOp: { value: 0 }, uRes: { value: new THREE.Vector2(W(), H()) }, uPx: { value: 4.2 } } });
+  const stormTexs: Record<string, THREE.Texture> = {};
+  function stormTex(k: string) { return (stormTexs[k] ??= new THREE.TextureLoader().load(`/ui/storms/${k}.png`, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; })); }
   function buildWeather(w: EarthWeather) {
     for (const g of own.splice(0)) g.dispose();
     const pos: number[] = [];
@@ -570,7 +571,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     }
     for (const sw of w.swirls) {
       const side = (2 * (4 + 9 * Math.sqrt(sw.rel)) * Math.PI) / 180;
-      const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: swirlFS, uniforms: { uColor: { value: col(sw.color) }, uT: { value: 0 }, uOp: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+      const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: swirlFS, uniforms: { uTex: { value: stormTex(sw.tex) }, uColor: { value: col(sw.color) }, uT: { value: 0 }, uOp: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(side, side), m); mesh.applyMatrix4(tangentAt(sw.lon, sw.lat, 0.003)); layer.add(mesh);
       glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: sw.storm ? 1 : 0.7, kind: "wx" });
     }

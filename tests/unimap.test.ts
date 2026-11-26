@@ -138,3 +138,10 @@ test("stormLevel: relative to the busiest system, so a quiet day still has colou
   const w = earthWeather([h("Ukraine", 31, 49, 30, ["a", "b", "c"]), h("Chile", -71, -33, 1, ["z"])]);
   assert.ok(new Set(w.swirls.map((s) => s.color)).size >= 2, "more than one colour");
 });
+
+test("stormLevel maps each level to a storm texture", () => {
+  assert.equal(stormLevel(3, 3).tex, "purple");
+  assert.equal(stormLevel(2, 3).tex, "red");
+  assert.equal(stormLevel(1, 3).tex, "blue");
+  assert.equal(stormLevel(1, 20).tex, "blue");
+});
