@@ -1,11 +1,11 @@
 "use client";
-// The live news weather drawn over the world plate: cyclone swirls (the owner's storm photos, turning), typed fronts with chevrons that
+// The live news weather drawn over the world plate: cyclone swirls where the plate has no painted storm (the owner's storm photos, turning), typed fronts with chevrons that
 // run from origin to destination, isobars and H/L centres. Positions come from earthWeather(hotspots) through the plate's own mapping.
 // The plate's baked weather (tint fields, three painted cyclones) stays: it is the picture; this layer is the data.
 import { useEffect, useMemo, useRef } from "react";
 import type { Hotspot } from "@/lib/geo";
 import { earthWeather } from "@/lib/earth-data-pure";
-import { onPlate, PLATE, platePoint } from "@/lib/frame-map-pure";
+import { nearPainted, onPlate, PLATE, platePoint } from "@/lib/frame-map-pure";
 
 const FRONT = { cold: "#4f9bff", warm: "#ff5a4f", occluded: "#b57aff" } as const;
 const P = (lon: number, lat: number) => platePoint(lon, lat, "world");
@@ -53,8 +53,8 @@ export default function FrameWeather({ hotspots, reduced }: { hotspots: Hotspot[
           ctx.beginPath(); ctx.moveTo(p.x - ux * 5 - uy * 5, p.y - uy * 5 + ux * 5); ctx.lineTo(p.x + ux * 3, p.y + uy * 3); ctx.lineTo(p.x - ux * 5 + uy * 5, p.y - uy * 5 - ux * 5); ctx.stroke(); }
       }
       // cyclones: the storm photo turning, sized by outlets
-      for (const s of w.swirls) {
-        const p = P(s.lon, s.lat); if (!onPlate(p, "world")) continue;
+      for (const s of w.swirls.filter((x) => x.storm).slice(0, 3)) { // only real storms (crisis, rising), at most three: the rest would be noise on the plate
+        const p = P(s.lon, s.lat); if (!onPlate(p, "world") || nearPainted(p)) continue; // the plate paints three cyclones; live ones go where it has none
         const im = imgs[s.tex]; if (!im.complete || !im.naturalWidth) continue;
         const r = 34 + 52 * Math.sqrt(s.rel);
         ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(reduced ? 0 : -t * 0.18); ctx.globalAlpha = s.storm ? 0.95 : 0.7; ctx.drawImage(im, -r, -r, r * 2, r * 2); ctx.restore();

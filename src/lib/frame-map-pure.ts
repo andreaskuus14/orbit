@@ -112,3 +112,9 @@ export function dolly(k: number, maxZoom = 3.4): number {
 }
 /** Crossfade for the same k: the plate fades out over the last 45 % of the dolly while the next level fades in. */
 export function plateOpacity(k: number): number { return k <= 0.55 ? 1 : k >= 1 ? 0 : 1 - (k - 0.55) / 0.45; }
+
+/** The world plate's painted cyclones (plate px, radius): live swirls keep clear of them so a storm is never drawn twice. */
+export const PAINTED_STORMS: readonly (readonly [number, number, number])[] = [[405, 383, 95], [878, 470, 80], [800, 250, 85]];
+export function nearPainted(p: { x: number; y: number }, pad = 40): boolean {
+  return PAINTED_STORMS.some(([x, y, r]) => Math.hypot(p.x - x, p.y - y) < r + pad);
+}

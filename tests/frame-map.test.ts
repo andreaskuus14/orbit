@@ -72,3 +72,8 @@ test("pointerNorm clamps and easeOffset converges", () => {
   let o: [number, number] = [0, 0]; for (let i = 0; i < 60; i++) o = easeOffset(o, [1, -1], 1 / 60);
   assert.ok(o[0] > 0.9 && o[1] < -0.9);
 });
+
+import { nearPainted } from "../src/lib/frame-map-pure.ts";
+test("nearPainted: the painted Atlantic storm blocks a live swirl on top of it, open ocean does not", () => {
+  assert.ok(nearPainted({ x: 405, y: 383 })); assert.ok(nearPainted({ x: 470, y: 400 })); assert.ok(!nearPainted({ x: 1000, y: 600 }));
+});
