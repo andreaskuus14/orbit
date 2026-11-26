@@ -28,3 +28,12 @@ Models were re-encoded (glTF binary, meshopt geometry, 512 px webp textures, sim
 | textures/waternormals.webp | https://github.com/mrdoob/three.js/blob/dev/examples/textures/waternormals.jpg | MIT (three.js, https://github.com/mrdoob/three.js/blob/dev/LICENSE): commercial use fine, keep the notice |
 
 Textures are the 1k Poly Haven maps (diffuse, OpenGL normal, displacement as height) re-encoded to 512 px webp (height 256 px grey).
+
+## v10 frame scenes (public/worlds/frames/)
+
+| File | Source | Licence |
+|---|---|---|
+| frames/<id>.webp, frames/zoom-<id>.webp | owner's Higgsfield renders (text-free plates, or crops with baked text inpainted by scripts/frame-scenes/build.py), 2048 px wide webp | Owner's own renders |
+| frames/<id>-depth.webp, frames/zoom-<id>-depth.webp | Depth Anything V2 Small run offline (https://huggingface.co/depth-anything/Depth-Anything-V2-Small) on those renders, 512 px grey webp | Apache-2.0 (model); the depth maps are derived from the owner's own renders |
+
+Frame budget: the whole public/worlds folder stays under 60 MB (FRAME_BUDGET_BYTES in src/lib/frame-scene-pure.ts, checked by tests/frame-scene.test.ts). The 25 MB cap above still covers the registered real assets (ASSETS).

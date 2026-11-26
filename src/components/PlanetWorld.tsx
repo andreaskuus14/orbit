@@ -5,7 +5,7 @@
 // compile, lean quality, GL recovery, paused frameloop. LIFE data is read from ORBIT's own API and never leaves it.
 import { WorldEmblem } from "./WorldEmblem";
 import { WorldHeaderArt } from "./WorldHeaderArt";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
 import { ChipLayer, ChipProjector, FlyTo, ShiftForPanel, WorldFX, WorldLights, useChipRig, type FlyGoal } from "./world-kit";
@@ -17,6 +17,9 @@ import { useGlRecovery } from "./useGlRecovery";
 import { useLeanQuality } from "./useLeanQuality";
 import { useMountLater, WarmCompile } from "./WarmCompile";
 import { worldTier } from "@/lib/world-realism-pure";
+import { hasFrame } from "@/lib/frame-scene-pure";
+
+const FrameScene = lazy(() => import("./FrameScene")); // v10: the owner's frame as a 2.5D scene on tier > 0
 import type { QualityMode } from "@/lib/quality-pure";
 import { planetById } from "@/lib/planets";
 import type { PlanetWorldId } from "@/lib/planet-worlds-pure";
@@ -68,9 +71,18 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
     window.dispatchEvent(new CustomEvent(WORLD_PICK, { detail: { world: id, id: cid, lod: c.lod ?? 0 } }));
   }, [chips, cam.min, cam.max, id]);
 
+  const frameOn = !flat && hasFrame(id) && worldTier(q.bloomScale, q.msaa) > 0;
+  const framePick = useCallback((cid: string) => { // the frame zooms itself; the panel still gets orbit:world-pick
+    const c = chips.find((x) => x.id === cid); if (!c) return;
+    window.dispatchEvent(new CustomEvent(WORLD_PICK, { detail: { world: id, id: cid, lod: c.lod ?? 0 } }));
+  }, [chips, id]);
+
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label={`${planet.name}: ${t(`planet.${id}.blurb`)}`} style={{ background: th.bg }}>
-      {!flat && later && (<PlanetBoundary name={`${id}-scene`} quiet>
+      {frameOn && later && model && hasFrame(id) && (<PlanetBoundary name={`${id}-frame`} quiet><Suspense fallback={null}>
+        <FrameScene id={id} chips={chips} onPick={framePick} reduced={reduced} paused={paused} glow={th.glow} back={t("link.back")} />
+      </Suspense></PlanetBoundary>)}
+      {!flat && !frameOn && later && (<PlanetBoundary name={`${id}-scene`} quiet>
         <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : reduced ? "demand" : "always"} camera={{ position: cam.pos, fov: 45, near: 0.1, far: 300 }}
           dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
           {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
