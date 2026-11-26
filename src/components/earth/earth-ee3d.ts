@@ -193,7 +193,7 @@ export function createEe3d(o: EeOpts) {
     const centre = want[0] && tiles.get(`${want[0].x}/${want[0].y}`);
     k += ((centre?.state === "ready" ? target : 0) - k) * 0.12; if (k < 0.002) k = 0;
     shared.uOp.value = Math.min(1, k * 1.15);
-    shared.uC.value.set(...toXYZ(p.lon, p.lat));
+    shared.uC.value.set(...toXYZ(p.lon, p.lat, o.groundAt(p.lon, p.lat) / R)); // on the (raised) ground, not at sea level
     shared.uR.value = (Math.min(Math.max(0.9, Math.min(2.6, 0.6 + p.alt * 0.95)) * 1000, coveredM(p)) ) / R;
     for (const t of tiles.values()) for (const m of [t.ground, t.bld, t.trees]) if (m) m.visible = k > 0.01;
     hud.style.opacity = String(k);
