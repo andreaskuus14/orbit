@@ -383,7 +383,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     if (Math.abs(lon - 24.76) < 0.15 && Math.abs(lat - 59.44) < 0.06) return Promise.resolve();
     if (!focusCache.has(key)) {
       for (let i = patches.findIndex((q, k) => k >= 3 && q !== dyn); patches.length > (dyn ? 5 : 4) && i >= 0; i = patches.findIndex((q, k) => k >= 3 && q !== dyn)) dropPatch(patches[i]);
-      focusCache.set(key, patch({ w: lon - 0.3, e: lon + 0.3, s: lat - 0.12, n: lat + 0.12 }, 14, 12, 6, 260, 200, 0.5, 90, 0.004));
+      focusCache.set(key, patch({ w: lon - 0.3, e: lon + 0.3, s: lat - 0.12, n: lat + 0.12 }, 14, 12, 6, 260, 200, 0.5, 90, 0.004).then(() => undefined));
     }
     return focusCache.get(key)!;
   }
