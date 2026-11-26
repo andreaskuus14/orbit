@@ -261,3 +261,94 @@ html[data-motion="off"] .pu :not(.pu-spin), html[data-motion="off"] .pu *::befor
 .pu-dialog-input:focus { box-shadow: 0 0 0 2px var(--pu-accent-ink, #8590a3); }
 .pu-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 @keyframes pu-dialog-in { from { opacity: 0; transform: scale(0.96); } }
+
+/* Native <dialog> modal in the kit look (EveningCapture, ShortcutsOverlay): put className="pu pu-modal" and data-planet on the
+   <dialog>. A real <dialog> keeps showModal(), the focus trap, Esc and the dialog[open] checks other overlays rely on. */
+.pu-modal { width: min(34rem, calc(100vw - 2rem)); max-height: min(80dvh, 40rem); overflow-y: auto; margin: auto; padding: 20px; color: var(--pu-ink);
+  background: var(--pu-glass-float); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 0; border-radius: var(--pu-r-xl); box-shadow: var(--pu-e3), var(--pu-highlight); }
+.pu-modal[open] { animation: pu-dialog-in var(--dur-quick) var(--ease-out); }
+.pu-modal::backdrop { background: rgba(2, 3, 8, 0.55); backdrop-filter: blur(3px); }
+.pu-modal-head { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+.pu-modal-head .pu-title { flex: 1; min-width: 0; }
+.pu-modal-body { display: grid; gap: 10px; }
+.pu-modal-label { margin: 0; font: var(--pu-meta); color: var(--pu-ink-2); }
+.pu-modal-note { margin: 0; font: var(--pu-body); color: var(--pu-ink); padding: 10px 12px; background: var(--pu-raised); border-radius: var(--pu-r-md); box-shadow: inset 0 0 0 1px var(--pu-line); }
+.pu-modal-field { width: 100%; min-height: 6.5rem; resize: vertical; padding: 10px 12px; font: var(--pu-lead); color: var(--pu-ink); background: var(--pu-raised);
+  border: 0; border-radius: var(--pu-r-lg); box-shadow: inset 0 0 0 1px var(--pu-line); }
+.pu-modal-field:focus { box-shadow: inset 0 0 0 1px var(--pu-accent-line), 0 0 0 4px var(--pu-accent-soft); }
+.pu-modal-field:disabled { opacity: 0.6; }
+.pu-modal-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pu-modal-meta { font: var(--pu-caption); color: var(--pu-ink-3); margin: 0; }
+.pu-modal-status { margin: 0; font: var(--pu-meta); color: var(--pu-good); }
+.pu-modal-status[data-bad] { color: var(--pu-bad); }
+.pu-modal kbd { font: var(--pu-caption); font-family: var(--pu-font); padding: 1px 6px; border-radius: var(--pu-r-xs); color: var(--pu-ink); background: var(--pu-raised); border: 0; box-shadow: inset 0 0 0 1px var(--pu-line-strong); }
+.pu-modal-group { margin: 0 0 4px; font: var(--pu-caption); color: var(--pu-ink-2); }
+.pu-modal .keys-list { display: grid; gap: 6px; margin: 0 0 14px; }
+.pu-modal .keys-list > div { display: grid; grid-template-columns: 7.5rem 1fr; align-items: baseline; gap: 12px; font: var(--pu-meta); }
+.pu-modal .keys-list dd { margin: 0; color: var(--pu-ink-2); }
+@media (prefers-reduced-motion: reduce) { .pu-modal[open] { animation: none; } }
+
+/* Floating cards on the galaxy (What's new, Morning, tour step): same glass as .pu-modal, placed by the caller's own classes
+   (absolute/fixed + left/top). className="pu pu-pop" + data-planet; reuses .pu-modal-head/-note/-meta/-status/-actions inside. */
+.pu-pop { padding: 16px; color: var(--pu-ink); font: var(--pu-body); background: var(--pu-glass-float);
+  backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 0; border-radius: var(--pu-r-xl); box-shadow: var(--pu-e3), var(--pu-highlight); }
+.pu.pu-pop::before { display: none; } /* no boot shimmer: a calm surface */
+.pu-pop .pu-title { font: var(--pu-lead); font-weight: 600; }
+.pu-pop .pu-modal-head { margin-bottom: 10px; }
+.pu-pop .pu-modal-head .pu-modal-meta { font-weight: 450; }
+.pu-pop-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.pu-pop-step { margin: 0 0 4px; font: var(--pu-body); font-weight: 600; color: var(--pu-ink); }
+.pu-pop-text { margin: 0; font: var(--pu-meta); color: var(--pu-ink-2); }
+.pu-pop-list { margin: 0 0 12px; padding: 0; list-style: none; display: grid; gap: 6px; font: var(--pu-body); color: var(--pu-ink); }
+.pu-pop-list button { text-align: left; background: none; border: 0; padding: 0; color: var(--pu-ink-2); font: var(--pu-meta); cursor: pointer; }
+.pu-pop-list button:hover { color: var(--pu-ink); }
+.pu-pop-foot { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.pu-pop-foot > .pu-spacer { flex: 1; }
+.pu-link { color: var(--pu-accent-ink); text-decoration: underline; text-underline-offset: 2px; }
+.pu-pop .pu-error { margin: 0; font: var(--pu-meta); color: var(--pu-bad); }
+.pu-pop .pu-warn { margin: 0; font: var(--pu-meta); color: var(--pu-warn); }
+/* Morning card inner parts (tiles, best Short, mission bar) take the kit surface instead of the old cyan glow */
+.pu-pop .mc-tile { border: 0; border-radius: var(--pu-r-md); background: var(--pu-raised); box-shadow: inset 0 0 0 1px var(--pu-line); }
+.pu-pop .mc-tile:hover { background: var(--pu-press); box-shadow: inset 0 0 0 1px var(--pu-line-strong); }
+.pu-pop .mc-tile b { font-family: var(--pu-font); font-weight: 600; font-size: 1.25rem; color: var(--pu-ink); text-shadow: none; font-variant-numeric: tabular-nums; }
+.pu-pop .mc-tile span { font: var(--pu-caption); color: var(--pu-ink-3); }
+.pu-pop .mc-hero { border: 0; border-radius: var(--pu-r-lg); box-shadow: inset 0 0 0 1px var(--pu-line); }
+.pu-pop .mc-hero-k { font: var(--pu-caption); letter-spacing: 0; color: var(--pu-ink-2); }
+.pu-pop .mc-hero-v { text-shadow: none; }
+.pu-pop .mc-bar { height: 3px; border-radius: 2px; background: var(--pu-line); }
+.pu-pop .mc-bar i { background: var(--pu-accent); box-shadow: none; border-radius: inherit; }
+.pu-pop details > summary { cursor: pointer; font: var(--pu-meta); color: var(--pu-ink-2); }
+.pu-pop .ok { color: var(--pu-good); }
+
+/* Command palette (a .pu-modal near the top) */
+.pu-palette { width: min(36rem, calc(100vw - 2rem)); margin: 12vh auto auto; padding: 12px; overflow-y: visible; }
+.pu-palette-input { width: 100%; height: 44px; padding: 0 14px; font: var(--pu-lead); letter-spacing: -0.01em; color: var(--pu-ink); background: var(--pu-raised);
+  border: 0; border-radius: var(--pu-r-lg); box-shadow: inset 0 0 0 1px var(--pu-line); }
+.pu-palette-input::placeholder { color: var(--pu-ink-3); }
+.pu-palette-input:focus { box-shadow: inset 0 0 0 1px var(--pu-accent-line), 0 0 0 4px var(--pu-accent-soft); }
+.pu-palette-list { margin-top: 8px; max-height: 55vh; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--pu-line-strong) transparent; }
+.pu-palette-group { padding: 8px 10px 4px; font: var(--pu-caption); color: var(--pu-ink-2); }
+.pu-palette-opt { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-height: 36px; padding: 8px 10px; border-radius: var(--pu-r-md);
+  font: var(--pu-body); color: var(--pu-ink); cursor: pointer; }
+.pu-palette-opt[aria-selected="true"] { background: var(--pu-press); box-shadow: inset 2px 0 0 var(--pu-accent); }
+.pu-palette-opt > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pu-palette-hint { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--pu-meta); color: var(--pu-ink-3); }
+.pu-palette-foot { display: flex; gap: 14px; margin-top: 8px; padding: 10px 6px 0; box-shadow: 0 -1px 0 var(--pu-line); font: var(--pu-caption); color: var(--pu-ink-3); }
+
+/* Tour step card (fixed, placed by Tour.tsx) */
+.pu-tour-card { font: var(--pu-body); }
+.pu-tour-card .pu-modal-meta { margin-bottom: 2px; }
+
+/* Text compare dialog (VAULT) */
+.pu-modal.pu-wide { width: min(64rem, calc(100vw - 2rem)); max-height: 90dvh; }
+.pu-modal-select { min-width: 0; max-width: 100%; height: var(--pu-h-md); padding: 0 10px; color: var(--pu-ink); font: var(--pu-body); background: var(--pu-raised); border: 0; border-radius: var(--pu-r-md); box-shadow: inset 0 0 0 1px var(--pu-line-strong); }
+.pu-modal-pre { margin: 0; padding: 10px 12px; max-height: 40dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 18px; font-family: var(--font-jetbrains), ui-monospace, "SFMono-Regular", Consolas, monospace; color: var(--pu-ink);
+  background: var(--pu-raised); border-radius: var(--pu-r-md); box-shadow: inset 0 0 0 1px var(--pu-line); }
+.pu-modal-pre.pu-changes { max-height: 45dvh; display: grid; gap: 4px; list-style: none; }
+.pu-modal-pre .pu-add { color: var(--pu-good); } .pu-modal-pre .pu-del { color: var(--pu-bad); }
+/* Small section label that also works outside a .pu root (DEV and AGENTS panels): sentence case, no caps, no glow */
+.pu-kicker { margin: 0; font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--pu-ink-2, #a9b2c3); }
+.pu-pop:focus-visible { box-shadow: var(--pu-e3), var(--pu-highlight); border-radius: var(--pu-r-xl); } /* focus moved in by code (tour card): no ring on the card itself */
+.pu-modal-body { align-content: start; }

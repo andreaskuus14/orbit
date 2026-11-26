@@ -3,6 +3,9 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { vaultTextDiff } from "@/lib/vault-text-diff-pure";
 import { useT } from "./i18n";
+import { Button } from "./ui/Button";
+import { IconClose } from "./ui/icons";
+import "@/app/planet-ui.css";
 
 type Preview = { text: string; truncated: boolean };
 type PreviewState = { name: string; preview?: Preview; failed?: boolean };
@@ -47,12 +50,12 @@ function TextPreview({ name, state }: { name: string; state: PreviewState | null
   const t = labels[lang];
   const title = useId();
   const preview = state?.preview;
-  return <section className="min-w-0 space-y-1" aria-labelledby={title}>
-    <h4 id={title} className="break-all font-semibold">{name}</h4>
-    {state?.failed ? <p className="error" role="alert">{t.failed}</p> : preview ? <>
-      <pre tabIndex={0} aria-labelledby={title} className="card max-h-[40dvh] overflow-auto whitespace-pre-wrap break-words text-xs">{preview.text}</pre>
-      {preview.truncated && <p className="muted text-xs">{t.truncated}</p>}
-    </> : <p className="muted" role="status">{t.loading}</p>}
+  return <section className="pu-modal-body" style={{ minWidth: 0 }} aria-labelledby={title}>
+    <h4 id={title} className="pu-pop-step" style={{ overflowWrap: "anywhere" }}>{name}</h4>
+    {state?.failed ? <p className="pu-modal-status" data-bad="" role="alert">{t.failed}</p> : preview ? <>
+      <pre tabIndex={0} aria-labelledby={title} className="pu-modal-pre">{preview.text}</pre>
+      {preview.truncated && <p className="pu-modal-meta">{t.truncated}</p>}
+    </> : <p className="pu-modal-meta" role="status">{t.loading}</p>}
   </section>;
 }
 
@@ -60,13 +63,13 @@ function TextChanges({ left, right, first, second }: { left: string; right: stri
   const { lang } = useT();
   const t = labels[lang];
   const result = vaultTextDiff(first.text, second.text);
-  return <div className="space-y-2">
-    <p className="break-all text-sm">{left} → {right}</p>
-    {(first.truncated || second.truncated) && <p className="muted text-xs">{t.truncated}</p>}
+  return <div className="pu-modal-body">
+    <p className="pu-modal-label" style={{ overflowWrap: "anywhere" }}>{left} → {right}</p>
+    {(first.truncated || second.truncated) && <p className="pu-modal-meta">{t.truncated}</p>}
     {!result ? <p role="status">{t.tooLarge}</p> : !result.total ? <p role="status">{t.same}</p> : <>
-      <ol tabIndex={0} className="card max-h-[45dvh] space-y-1 overflow-auto font-mono text-xs">
-        {result.changes.map(({ kind, line, text }) => <li key={`${kind}-${line}`} className="whitespace-pre-wrap break-words">
-          <span className={kind === "added" ? "text-emerald-300" : "text-rose-300"}>
+      <ol tabIndex={0} className="pu-modal-pre pu-changes">
+        {result.changes.map(({ kind, line, text }) => <li key={`${kind}-${line}`}>
+          <span className={kind === "added" ? "pu-add" : "pu-del"}>
             {kind === "added" ? "+" : "−"} {t[kind]} {line}
           </span>{`  ${text}`}
         </li>)}
@@ -83,10 +86,10 @@ function Comparison({ name, selected }: { name: string; selected: string }) {
   const second = usePreview(selected);
   const [showChanges, setShowChanges] = useState(false);
   const ready = first?.preview && second?.preview;
-  return <div className="space-y-3">
-    {ready && <button type="button" className="chip" onClick={() => setShowChanges((show) => !show)}>
+  return <div className="pu-modal-body" style={{ gap: 12 }}>
+    {ready && <div className="pu-modal-actions"><Button size="sm" onClick={() => setShowChanges((show) => !show)}>
       {showChanges ? t.previews : t.changes}
-    </button>}
+    </Button></div>}
     {showChanges && first?.preview && second?.preview
       ? <TextChanges left={name} right={selected} first={first.preview} second={second.preview} />
       : <div className="grid gap-3 sm:grid-cols-2">
@@ -106,14 +109,16 @@ export function VaultTextCompare({ name, others }: { name: string; others: strin
   if (!others.length) return null;
   const selected = others.includes(other) ? other : "";
   return <>
-    <button type="button" className="btn" onClick={() => { dialog.current?.showModal(); setOpen(true); }}>{t.open}</button>
-    <dialog ref={dialog} aria-labelledby={title} className="m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-5xl overflow-auto rounded border border-white/20 bg-[#0b1320] p-4 text-inherit backdrop:bg-black/70" onClose={() => setOpen(false)}>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 id={title} className="h3">{t.open}</h3>
-        <button type="button" className="chip" onClick={() => dialog.current?.close()}>{t.close}</button>
+    <Button onClick={() => { dialog.current?.showModal(); setOpen(true); }}>{t.open}</Button>
+    <dialog ref={dialog} aria-labelledby={title} className="pu pu-modal pu-wide" data-planet="vault" onClose={() => setOpen(false)}
+      onClick={(e) => { if (e.target === e.currentTarget) e.currentTarget.close(); }}>
+      <div className="pu-modal-head">
+        <span className="pu-mark" aria-hidden="true" />
+        <h3 id={title} className="pu-title">{t.open}</h3>
+        <Button variant="ghost" icon={<IconClose />} label={t.close} onClick={() => dialog.current?.close()} />
       </div>
-      <label className="mb-3 flex flex-wrap items-center gap-2">{t.other}
-        <select className="field min-w-0 max-w-full" value={selected} onChange={(e) => setOther(e.target.value)}>
+      <label className="pu-modal-actions" style={{ marginBottom: 12 }}><span className="pu-modal-label">{t.other}</span>
+        <select className="pu-modal-select" value={selected} onChange={(e) => setOther(e.target.value)}>
           <option value="">{t.choose}</option>
           {others.map((file) => <option key={file}>{file}</option>)}
         </select>

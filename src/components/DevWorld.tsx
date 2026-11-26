@@ -8,9 +8,11 @@ import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
-import { EffectComposer, Bloom, Vignette, ToneMapping } from "@react-three/postprocessing";
-import { ToneMappingMode } from "postprocessing";
+import { ChipLayer, ChipProjector, ShiftForPanel, WorldFX, WorldLights, useChipRig } from "./world-kit";
+import { DevIslandScene, devChips } from "./DevIsland";
+import { devIsland } from "@/lib/worlds-v3-pure";
 import { useGlRecovery } from "./useGlRecovery";
+import { worldTier } from "@/lib/world-realism-pure";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
 import { FrameMark } from "./dev-timing";
@@ -60,120 +62,7 @@ const TOOLS = {
 // so Bloom never sees NaN/negative output.
 
 const PLATFORM_COLOR: Record<Platform, string> = { roblox: "#60a5fa", web: "#c084fc", other: "#5eead4" };
-const STAGE_SIZE: Record<Stage, number> = { idea: 0.18, prototype: 0.24, alpha: 0.3, beta: 0.36, live: 0.42 };
 const SEVERITY_COLOR: Record<Severity, string> = { crash: "#ff4d6d", major: "#ef4444", minor: "#f59e0b", polish: "#94a3b8" };
-const MAX_PARTICLES = 300;
-const orbitR = (i: number) => 2.3 + i * 0.75;
-
-/** Where game i is at time t (written into `out`). */
-function gamePos(i: number, t: number, out: THREE.Vector3) {
-  const r = orbitR(i), a = i * 2.39996 + (t * 0.35) / Math.sqrt(r); // golden-angle spread, outer worlds slower
-  return out.set(Math.cos(a) * r, Math.sin(i * 1.7) * 0.25, Math.sin(a) * r);
-}
-
-/* ---------- scene ---------- */
-
-function ForgeStar({ reduced }: { reduced: boolean }) {
-  const ring = useRef<THREE.Mesh>(null);
-  useFrame((_, dt) => { if (ring.current && !reduced) ring.current.rotation.z += dt * 0.3; });
-  return (
-    <group>
-      <mesh><sphereGeometry args={[0.65, 48, 48]} /><meshBasicMaterial color={[2, 1.15, 0.45]} toneMapped={false} /></mesh>
-      <mesh ref={ring} rotation-x={Math.PI / 2.4}><torusGeometry args={[1, 0.015, 8, 96]} /><meshBasicMaterial color="#fdba74" transparent opacity={0.5} /></mesh>
-      <pointLight intensity={2.4} decay={0} color="#ffd8a8" />
-    </group>
-  );
-}
-
-function OrbitPath({ r }: { r: number }) {
-  return (
-    <mesh rotation-x={-Math.PI / 2}>
-      <ringGeometry args={[r - 0.006, r + 0.006, 128]} />
-      <meshBasicMaterial color="#67e8f9" transparent opacity={0.08} side={THREE.DoubleSide} depthWrite={false} />
-    </mesh>
-  );
-}
-
-function Island({ game, i, selected, reduced, onPick, onHover }: {
-  game: Game; i: number; selected: boolean; reduced: boolean;
-  onPick: (id: string) => void; onHover: (id: string | null, x: number, y: number) => void;
-}) {
-  const ref = useRef<THREE.Group>(null);
-  const size = STAGE_SIZE[game.stage], color = PLATFORM_COLOR[game.platform];
-  useFrame(({ clock }) => {
-    if (!ref.current) return;
-    gamePos(i, reduced ? 0 : clock.elapsedTime, ref.current.position);
-    if (!reduced) ref.current.rotation.y = clock.elapsedTime * 0.2;
-  });
-  return (
-    <group ref={ref}>
-      <mesh
-        onClick={(e) => { e.stopPropagation(); if (e.delta <= 5) onPick(game.id); }}
-        onPointerMove={(e) => { e.stopPropagation(); onHover(game.id, e.nativeEvent.clientX, e.nativeEvent.clientY); }}
-        onPointerOut={(e) => onHover(null, e.nativeEvent.clientX, e.nativeEvent.clientY)}>
-        <icosahedronGeometry args={[size, 1]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={selected ? 0.5 : 0.18} flatShading roughness={0.7} />
-      </mesh>
-      {selected && <mesh rotation-x={Math.PI / 2}><torusGeometry args={[size + 0.12, 0.012, 8, 64]} /><meshBasicMaterial color="#a5f3fc" /></mesh>}
-    </group>
-  );
-}
-
-/** One instanced mesh for every active bug: each circles its game on its own tilted orbit. */
-function BugSwarm({ games, bugs, reduced }: { games: Game[]; bugs: Bug[]; reduced: boolean }) {
-  const ref = useRef<THREE.InstancedMesh>(null);
-  const parts = useMemo(() => {
-    const index = new Map(games.map((g, i) => [g.id, i]));
-    return bugs.filter(isActive).slice(0, MAX_PARTICLES).flatMap((b, k) => {
-      const gi = index.get(b.game);
-      if (gi === undefined) return [];
-      const h = (k * 0.618034) % 1; // deterministic spread, no Math.random so it doesn't jump on re-render
-      return [{ gi, sev: b.severity, rad: STAGE_SIZE[games[gi].stage] + 0.16 + h * 0.18, phase: k * 2.1, speed: 1.1 + h, tilt: (h - 0.5) * 2.2, scale: b.severity === "crash" ? 1.5 : 1 }];
-    });
-  }, [games, bugs]);
-  useLayoutEffect(() => {
-    const m = ref.current;
-    if (!m) return;
-    const c = new THREE.Color();
-    parts.forEach((p, k) => m.setColorAt(k, c.set(SEVERITY_COLOR[p.sev])));
-    if (m.instanceColor) m.instanceColor.needsUpdate = true;
-  }, [parts]);
-  const tmp = useMemo(() => ({ o: new THREE.Object3D(), g: new THREE.Vector3(), v: new THREE.Vector3(), x: new THREE.Vector3(1, 0, 0) }), []);
-  useFrame(({ clock }) => {
-    const m = ref.current;
-    if (!m) return;
-    const t = reduced ? 0 : clock.elapsedTime;
-    parts.forEach((p, k) => {
-      const a = p.phase + t * p.speed;
-      tmp.v.set(Math.cos(a) * p.rad, 0, Math.sin(a) * p.rad).applyAxisAngle(tmp.x, p.tilt);
-      tmp.o.position.copy(gamePos(p.gi, t, tmp.g)).add(tmp.v);
-      tmp.o.scale.setScalar(p.scale);
-      tmp.o.updateMatrix();
-      m.setMatrixAt(k, tmp.o.matrix);
-    });
-    m.instanceMatrix.needsUpdate = true;
-  });
-  if (!parts.length) return null;
-  // key: the instance count is fixed at creation, so a new count needs a new mesh (R3F disposes the old one).
-  return (
-    <instancedMesh key={parts.length} ref={ref} args={[undefined, undefined, parts.length]} frustumCulled={false}>
-      <sphereGeometry args={[0.035, 8, 8]} />
-      <meshBasicMaterial />
-    </instancedMesh>
-  );
-}
-
-/** Keeps the system clear of the left-hand shell on wide screens. */
-function Rig() {
-  const camera = useThree((s) => s.camera);
-  const size = useThree((s) => s.size);
-  useEffect(() => {
-    if (size.width >= 900) camera.setViewOffset(size.width, size.height, -220, 0, size.width, size.height); // the shell sits on the left
-    else camera.clearViewOffset();
-    (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
-  }, [camera, size]);
-  return null;
-}
 
 /* ---------- data + UI ---------- */
 
@@ -183,20 +72,6 @@ type K = (key: string, vars?: Record<string, string | number>) => string;
 // A screen-look "Fix with docs" fires before GAME DEV mounts: hold the error until the panel takes it.
 let pendingFix = "";
 if (typeof window !== "undefined") addEventListener(LUAU_FIX_EVENT, (e) => { pendingFix = String((e as CustomEvent<string>).detail ?? ""); });
-
-type TipHandle = { move: (id: string | null, x: number, y: number) => void };
-/** The island tooltip keeps its own state, so hovering re-renders only this span, not the Canvas or the shell. */
-const HoverTip = forwardRef<TipHandle, { label: (id: string) => string | null }>(function HoverTip({ label }, ref) {
-  const [h, setH] = useState<{ id: string | null; x: number; y: number }>({ id: null, x: 0, y: 0 });
-  useImperativeHandle(ref, () => ({ move: (id, x, y) => setH((p) => (p.id === id && Math.abs(p.x - x) < 2 && Math.abs(p.y - y) < 2 ? p : { id, x, y })) }), []);
-  const text = h.id ? label(h.id) : null;
-  if (!text) return null;
-  return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-      <span className="globe-tip" style={{ transform: `translate(${h.x + 14}px, ${h.y + 12}px)` }}>{text}</span>
-    </div>
-  );
-});
 
 type GameTask = { id: string; agent: string; title: string; status: string; created_at: string; started_at?: string | null; finished_at?: string | null };
 
@@ -215,7 +90,6 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
   const [tool, setTool] = useState<ToolId | null>(null);
   const [opened, setOpened] = useState<ReadonlySet<ToolId>>(new Set()); // keep-tools mounted once opened
   const [toolsOpen, setToolsOpen] = useState(false);
-  const tip = useRef<TipHandle>(null);
   const open = useCallback((id: ToolId | null) => { setTool(id); setToolsOpen(false); if (id && KEEP_TOOLS.includes(id)) setOpened((s) => (s.has(id) ? s : new Set(s).add(id))); }, []);
 
   const [sites, setSites] = useState<{ slug: string; mtime: number; preview: string }[] | null | "err">(null); // CORE's built sites, shown as results
@@ -288,7 +162,6 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
   const deleteGame = useCallback((g: Game) => { const w = latest.current; if (w && undoable(removeGame(w, g.id), k("gx.deleted", { name: g.name }), `gd-del-${g.id}`)) { setSelected(null); open(null); } }, [undoable, k, open]);
   const deleteBug = useCallback((b: Bug) => { const w = latest.current; if (w) undoable(removeBug(w, b.id), k("gx.bugDeleted"), `gd-del-${b.id}`); }, [undoable, k]);
 
-  const onHover = useCallback((id: string | null, x: number, y: number) => { tip.current?.move(id, x, y); document.body.style.cursor = id ? "pointer" : ""; }, []);
   useEffect(() => () => { document.body.style.cursor = ""; }, [paused]); // leaving mid-hover must not keep the hand cursor
 
   /* ---- Needs you (shared list for this planet) + Working on it (QA playtests started here) ---- */
@@ -315,9 +188,11 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
   const gk = game?.id ?? ""; // game-scoped tools remount on a game switch, so no tool keeps the previous game's context
   const lastGk = useRef(gk);
   useEffect(() => { if (lastGk.current !== gk) { lastGk.current = gk; setFix(undefined); } }, [gk]); // a fix prompt never follows you to another game
-  const far = Math.max(9, orbitR(games.length) * 1.5);
+  const far = 17;
+  const island = useMemo(() => devIsland(world, { selected, running: (tasks ?? []).filter((x) => x.status === "running" || x.status === "queued").length }), [world, selected, tasks]);
+  const islandChips = useMemo(() => devChips(island, k), [island, k]);
+  const chipRig = useChipRig();
   const pickGame = useCallback((id: string) => { setSelected(id); open(null); setAdding(false); }, [open]);
-  const tipLabel = useCallback((id: string) => { const g = games.find((x) => x.id === id); return g && world ? k("gx.tip", { name: g.name, n: bugStats(world, g.id).active }) : null; }, [games, world, k]);
 
   const status = !world ? (loadErr ? k("gx.errTitle") : k("gx.loading")) : c.games ? k("gx.status", { g: c.games, b: c.open }) : k("gx.statusNone");
   const menu: MenuItem[] = [
@@ -331,32 +206,25 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
   return (
     <div className="gamedev absolute inset-0 globe-in" aria-label={k("gx.title")}>
       {/* quiet: no WebGL (no GPU) drops the 3D, the panel keeps working */}
-      {!flat && <PlanetBoundary name="creation-scene" quiet><Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, far * 0.45, far], fov: 42 }}
+      {!flat && <PlanetBoundary name="creation-scene" quiet><Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 4.2, far], fov: 42 }}
         dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         <WarmCompile world="creation" />
         {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
-        <color attach="background" args={["#02030a"]} />
+        <color attach="background" args={["#050311"]} />
+        <fog attach="fog" args={["#050311", 30, 70]} />
         <Stars radius={70} depth={40} count={reduced ? Math.min(1500, q.stars) : q.stars} factor={2.4} fade speed={reduced ? 0 : 0.35} />
-        <ambientLight intensity={0.35} />
-        <ForgeStar reduced={reduced} />
-        {games.map((g, i) => <OrbitPath key={`p-${g.id}`} r={orbitR(i)} />)}
-        {games.map((g, i) => <Island key={g.id} game={g} i={i} selected={g.id === selected} reduced={reduced} onPick={pickGame} onHover={onHover} />)}
-        <BugSwarm games={games} bugs={bugs} reduced={reduced} />
-        <OrbitControls makeDefault enablePan={false} minDistance={3} maxDistance={far * 2} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
-        <Rig />
-        {!paused && <ZoomRig home={far * Math.hypot(1, 0.45)} reduced={reduced} />}
-        {q.bloomScale > 0 && (
-          <EffectComposer multisampling={q.msaa}>
-            <Bloom intensity={(reduced ? 0.3 : 0.5) * q.bloomScale} luminanceThreshold={0.75} luminanceSmoothing={0.3} mipmapBlur />
-            <Vignette offset={0.25} darkness={0.75} />
-            <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-          </EffectComposer>
-        )}
+        <WorldLights color="#7dd3fc" keyLight="#ffe6c8" tier={worldTier(q.bloomScale, q.msaa)} sky="#1a1035" reach={9} />
+        <DevIslandScene s={island} reduced={reduced} />
+        <ChipProjector rig={chipRig} chips={islandChips} />
+        <OrbitControls makeDefault enablePan={false} target={[0, 1.2, 0]} minDistance={6} maxDistance={40} maxPolarAngle={Math.PI / 1.9} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
+        <ShiftForPanel px={-460} />
+        {!paused && <ZoomRig home={Math.hypot(far, 4.2)} reduced={reduced} />}
+        <WorldFX scale={q.bloomScale} msaa={q.msaa} reduced={reduced} threshold={0.8} strength={0.8} />
         {process.env.NODE_ENV === "development" && <FrameMark name="creation" />}
       </Canvas></PlanetBoundary>}
+      {!flat && <ChipLayer rig={chipRig} chips={islandChips} onPick={(id) => { if (id.startsWith("g:")) pickGame(id.slice(2)); }} />}
 
-      <HoverTip ref={tip} label={tipLabel} />
-      {world && c.games > 0 && <p className="pu gd-caption pu-num" data-planet="creation" aria-hidden="true">{(() => { const n = bugs.filter((b) => isActive(b) && b.severity === "crash").length; return n ? k("gx.caption", { g: c.games, b: c.open, c: n }) : k("gx.status", { g: c.games, b: c.open }); })()}</p>}
+      {world && c.games > 0 && <p data-chip-block className="pu gd-caption pu-num" data-planet="creation" aria-hidden="true">{(() => { const n = bugs.filter((b) => isActive(b) && b.severity === "crash").length; return n ? k("gx.caption", { g: c.games, b: c.open, c: n }) : k("gx.status", { g: c.games, b: c.open }); })()}</p>}
 
       <div className="gd-wrap">
       <PlanetShell planet="creation" className="gd-shell" title={k("gx.title")} status={status}

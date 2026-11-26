@@ -67,5 +67,5 @@ test("DevWorld: no static tool imports, no confirm(), no emoji, stars and bloom 
   assert.ok(!/\bconfirm\(/.test(src));
   assert.ok(!/\p{Extended_Pictographic}/u.test(src), "emoji in DevWorld");
   assert.match(src, /q\.stars/);
-  assert.match(src, /q\.bloomScale > 0 &&/);
+  assert.match(src, /q\.bloomScale > 0 &&|<WorldFX scale={q\.bloomScale}/); // WorldFX draws nothing at scale 0
 });

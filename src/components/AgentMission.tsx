@@ -8,6 +8,7 @@ import { CHAIN_TITLE } from "@/lib/chains-pure";
 import { excerpt, timeAgo, traceLines } from "@/lib/mission-pure";
 import { linkToHash } from "@/lib/deeplink-pure";
 import { useT } from "./i18n";
+import "@/app/planet-ui.css";
 import { STATUS_LABEL, agentStatus, currentTask, type AgentStatus } from "@/lib/station-pure";
 
 // MISSION CONTROL: one agent's live view in the station panel. Data: /api/tasks?agent= (3 s), /api/tasks/:id for the live trace + approvals.
@@ -82,7 +83,7 @@ export default function AgentMission({ agent, onClose, status: given, visible = 
       <button className="chip" onClick={onClose}>{t("agm.all")}</button>
       <header className="flex items-start justify-between gap-2">
         <div>
-          <div className="hud-title uppercase">{t("agm.mc")}</div>
+          <div className="pu-kicker">{t("agm.mc")}</div>
           <h2 ref={title} tabIndex={-1} className="text-lg font-semibold outline-none" style={{ color: agent.color }}>{agent.name}</h2>
           {agent.role && <p className="muted text-xs">{agent.role}</p>}
         </div>
@@ -95,7 +96,7 @@ export default function AgentMission({ agent, onClose, status: given, visible = 
         <section className="card space-y-2" aria-label={t("agm.curTask")}>
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <div className="hud-title text-[0.7rem] uppercase">{t("agm.current")}</div>
+              <div className="pu-kicker">{t("agm.current")}</div>
               <p className="text-sm font-medium break-words">{cur.title}</p>
               <p className="muted text-xs">{cur.started_at ? t("agm.started", { ago: timeAgo(cur.started_at, now) }) : t("agm.queued", { ago: timeAgo(cur.created_at, now) })}</p>
             </div>
@@ -104,7 +105,7 @@ export default function AgentMission({ agent, onClose, status: given, visible = 
 
           {holder && (
             <div className="space-y-2 rounded-lg border p-2 text-xs" style={{ borderColor: "rgba(251,191,36,0.4)" }} aria-label={t("agm.pending")}>
-              <div className="hud-title text-[0.7rem] uppercase" style={{ color: "#fbbf24" }}>{t("agm.needs")}</div>
+              <div className="pu-kicker" style={{ color: "#fbbf24" }}>{t("agm.needs")}</div>
               {pend.map((p, i) => (
                 <p key={i} className="break-words"><b>{p.tool.replace(/_/g, " ")}</b>{holder.agent !== agent.slug ? <span className="muted"> · {t("agm.via", { who: holder.agent })}</span> : null}: {String(p.input.title ?? p.input.name ?? p.input.query ?? "").slice(0, 200)}</p>
               ))}
@@ -129,7 +130,7 @@ export default function AgentMission({ agent, onClose, status: given, visible = 
       <a className="btn inline-block" href={ops()}>{t("agt.giveTask", { name: agent.name })}</a>
 
       <section aria-label={t("agm.recent")}>
-        <div className="hud-title uppercase">{t("agm.recent")}</div>
+        <div className="pu-kicker">{t("agm.recent")}</div>
         {!tasks ? <p className="muted text-xs">{t("agm.loading")}</p> : !recent.length ? <p className="muted text-xs">{t("agm.none")}</p> : (
           <ul className="mt-1 space-y-2 text-xs">
             {recent.map((x) => (

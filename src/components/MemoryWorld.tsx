@@ -2,7 +2,7 @@
 // MEMORY world: every memory is a star. Positions come from /api/memories/map (server-side layout from embeddings),
 // links are faint threads, CORE-learned memories carry a ring. The one calm surface on the right (MemoryShell) holds the
 // main job: find or remember, Needs you, Recent; a memory, the map options, the timeline and people open in its sheet.
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type RootState, type ThreeEvent } from "@react-three/fiber";
 import { OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
@@ -12,6 +12,7 @@ import { useGlRecovery } from "./useGlRecovery";
 import type { MemoryPanel } from "./panels"; // passed in by Orbit: the public demo must not bundle panels (Supabase client)
 import { beliefsPending, takeBeliefsRequest } from "./BeliefsPanel";
 import { studyPending } from "./StudyCards";
+import { worldTier } from "@/lib/world-realism-pure";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
@@ -29,6 +30,9 @@ import { PeoplePanel, usePeople } from "./PeopleRing";
 import { MEMORY_SHEET_EVENT, MemoryShell } from "./MemoryShell";
 import { Button } from "./ui";
 import dynamic from "next/dynamic";
+import { ChipLayer, ChipProjector, Crystals, Motes, PlanetGround, WorldLights, useChipRig, type Chip } from "./world-kit";
+import { memoryClusters } from "@/lib/planet-scenes-pure";
+import { memoryCity } from "@/lib/worlds-v3-pure";
 
 const Chronicle = dynamic(() => import("./Chronicle"), { ssr: false }); // its own canvas, loaded only when he opens Chronicle
 
@@ -135,6 +139,37 @@ const sparkFrag = /* glsl */ `
   varying vec3 vC;
   void main() { vec2 p = gl_PointCoord * 2.0 - 1.0; float a = max(1.0 - dot(p, p), 0.0);
     gl_FragColor = vec4(clamp(vC * 1.3 * a * a * a, 0.0, 1.2), 1.0); }`;
+
+/** v3: the memories as a crystal city on a planet under the star map: one district per kind on its own plateau, a spire at the
+ *  weighted centre, glowing threads from each district to the spire and its nearest neighbours. ~6 draw calls in all. */
+function MemoryGround({ items, reduced }: { items: Star[]; reduced: boolean }) {
+  const { clusters, ground } = useMemo(() => memoryClusters(items), [items]);
+  const city = useMemo(() => memoryCity(clusters, ground), [clusters, ground]);
+  const crystals = useMemo(() => [
+    ...clusters.flatMap((c) => { const col = new THREE.Color(kindColor(c.kind)).lerp(new THREE.Color("#7c3aed"), 0.55).lerp(new THREE.Color("#f59e0b"), 0.12).getStyle();
+      return c.crystals.map((k, i) => ({ at: [k.at[0], ground + 0.5, k.at[2]] as [number, number, number], h: k.h * 0.8, w: k.h * 0.26, tilt: k.tilt, color: col, glow: i ? 1 : 1.7 })); }),
+    { at: [city.spire.x, ground + 0.6, city.spire.z] as [number, number, number], h: city.spire.h, w: city.spire.h * 0.22, color: "#c084fc", glow: 2 },
+    ...city.crown.map((k) => ({ at: [k.at[0], ground + 0.6, k.at[2]] as [number, number, number], h: k.h, w: k.h * 0.28, color: "#a855f7", glow: 1.3 })),
+  ], [clusters, ground, city]);
+  const threads = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(city.threads.flat(2), 3)); return g; }, [city]);
+  const plates = useRef<THREE.InstancedMesh>(null), rings = useRef<THREE.InstancedMesh>(null);
+  useLayoutEffect(() => { const o = new THREE.Object3D();
+    city.plateaus.forEach((p, i) => { o.position.set(p.x, ground + 0.2, p.z); o.rotation.set(0, i, 0); o.scale.set(p.r, 0.6, p.r); o.updateMatrix(); plates.current?.setMatrixAt(i, o.matrix);
+      o.position.set(p.x, ground + 0.52, p.z); o.rotation.set(-Math.PI / 2, 0, 0); o.scale.set(p.r * 1.02, p.r * 1.02, 1); o.updateMatrix(); rings.current?.setMatrixAt(i, o.matrix); });
+    for (const m of [plates.current, rings.current]) if (m) { m.count = city.plateaus.length; m.instanceMatrix.needsUpdate = true; m.computeBoundingSphere(); } }, [city, ground]);
+  useEffect(() => () => threads.dispose(), [threads]);
+  const n = Math.max(1, city.plateaus.length);
+  return (<group>
+    <group position={[0, ground, 0]}><PlanetGround glow="#8b5cf6" a="#07050f" b="#1a1230" R={140} /></group>
+    <instancedMesh ref={plates} args={[undefined, undefined, n]}><cylinderGeometry args={[1, 1.15, 1, 9]} /><meshStandardMaterial color="#1c1530" roughness={0.85} flatShading /></instancedMesh>
+    <instancedMesh ref={rings} args={[undefined, undefined, n]}><ringGeometry args={[0.94, 1, 48]} /><meshBasicMaterial color={new THREE.Color("#c4b5fd").multiplyScalar(1.6)} toneMapped={false} /></instancedMesh>
+    <lineSegments geometry={threads}><lineBasicMaterial color={new THREE.Color("#a78bfa").multiplyScalar(2)} transparent opacity={0.7} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} /></lineSegments>
+    <mesh position={[city.spire.x, ground + 0.35, city.spire.z]} rotation-x={-Math.PI / 2}><ringGeometry args={[2.3, 2.45, 64]} /><meshBasicMaterial color={new THREE.Color("#e9d5ff").multiplyScalar(1.8)} toneMapped={false} /></mesh>
+    <pointLight position={[city.spire.x, ground + city.spire.h * 0.7, city.spire.z]} intensity={40} distance={26} decay={1.5} color="#e9b8ff" />
+    <Crystals items={crystals} reduced={reduced} intensity={1.5} />
+    <group position={[0, ground, 0]}><Motes count={reduced ? 120 : 320} color="#c4b5fd" spread={30} height={10} reduced={reduced} /></group>
+  </group>);
+}
 
 /** Faint obsidian rings far behind the constellation, turning very slowly: the megastructure the memories live in. */
 const FAR_RINGS = [{ r: 16, spin: 0.02 }, { r: 26, spin: -0.014 }, { r: 38, spin: 0.01 }, { r: 52, spin: -0.007 }, { r: 68, spin: 0.005 }] as const;
@@ -473,6 +508,11 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   const pick = useCallback((i: number) => { const m = data?.items[i]; if (m) setOpenId(m.id); }, [data]);
   const kinds = useMemo(() => [...new Set(data?.items.map((m) => m.kind))].sort(), [data]);
   const kindName = (k: string) => { const v = t(`mp.k.${k}` as Key); return v === `mp.k.${k}` ? k.charAt(0).toUpperCase() + k.slice(1) : v; };
+  const rig = useChipRig();
+  const memChips = useMemo<Chip[]>(() => { if (!data) return []; const { clusters, ground } = memoryClusters(data.items);
+    const sp = memoryCity(clusters, ground).spire;
+    return [{ id: "all", at: [sp.x, ground + sp.h + 1.2, sp.z] as [number, number, number], title: t("w3.all" as Key), value: String(data.items.length), color: "#e9d5ff", prio: 30 },
+      ...clusters.slice(0, 8).map((c, i) => ({ id: c.kind, at: [c.x, ground + 3.6, c.z] as [number, number, number], title: kindName(c.kind), value: tn("overview.memories", c.count), color: kindColor(c.kind), prio: 20 - i }))]; }, [data, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   const onCreated = (s: RootState) => { glr.onCreated(s); s.raycaster.params.Points = { threshold: 0.45 }; };
   const labels = useMemo(() => { // the open star, its connections and the hovered one: precise labels drawn by Projector
     const out: { i: number; main: boolean }[] = [];
@@ -497,13 +537,16 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
       {showMap && river && <Chronicle reduced={reduced} quality={quality} paused={paused} slot={slot} />}
       {!flat && later && seenMap && !river && (
         <div className="mp-canvas" hidden={mode !== "map"}>
-        <Canvas key={glr.key} onCreated={onCreated} frameloop={!showMap ? "never" : demand ? "demand" : "always"} camera={{ position: [0, 6, 46], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: false }}
+        <Canvas key={glr.key} onCreated={onCreated} frameloop={!showMap ? "never" : demand ? "demand" : "always"} camera={{ position: [0, 13, 44], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: false }}
           onPointerMissed={() => setHover(null)} style={{ cursor: hover !== null ? "pointer" : undefined }}>
           {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
           <WarmCompile world="memory" />
           <color attach="background" args={[BG]} />
           <Stars radius={120} depth={60} count={reduced ? 800 : Math.min(3000, q.stars)} factor={2.2} fade speed={reduced ? 0 : 0.2} />
           <FarRings reduced={reduced} />
+          <WorldLights color="#8b5cf6" keyLight="#e9dcff" tier={worldTier(q.bloomScale, q.msaa)} sky="#140c2a" reach={30} />
+          {data && <MemoryGround items={data.items} reduced={reduced} />}
+          {!query.trim() && <ChipProjector rig={rig} chips={memChips} />}
           {data && <Constellation data={data} at={when} hi={hi} searching={!!query.trim()} reduced={reduced} lite={q.bloomScale === 0} onHover={setHover} onPick={pick} />}
           {data && <FocusLines items={data.items} from={sel} to={near} />}
           {data?.graph && !query.trim() && sel === null && <ClusterHalos graph={data.graph} items={data.items} />}
@@ -519,6 +562,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
             </EffectComposer>
           )}
         </Canvas>
+        {!query.trim() && <ChipLayer rig={rig} chips={memChips} />}
         <div className="mp-labels" aria-hidden="true">{labels.map((l) => { const m = data!.items[l.i]; return (
           <div key={`${m.id}-${l.main ? "m" : "n"}`} ref={(el) => { if (el) labelEls.current.set(l.i, el); else labelEls.current.delete(l.i); }} className="memory-star-label" data-main={l.main ? "" : undefined}>
             <b>{m.kind === "journal" ? t("mp.journal") : m.title}</b>{l.main && <span>{kindName(m.kind)}{isLearned(m.source) ? ` · ${t("mp.d.learned")}` : ""}</span>}</div>); })}</div>

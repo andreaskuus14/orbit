@@ -36,6 +36,10 @@ import { useT } from "./i18n";
 import { BackToSimple, PlanetHome, useManual } from "./PlanetHome";
 import { Button, ErrorState, Loading, PlanetShell } from "./ui";
 import { taskWork } from "@/lib/planet-page-pure";
+import { CREW_R, CrewDeck, DOT, crewAngle } from "./AgentCrew";
+import { ChipLayer, ChipProjector, Realism, useChipRig, type Chip } from "./world-kit";
+import { worldTier } from "@/lib/world-realism-pure";
+
 
 // AGENTS → a floating obsidian ring station (alien megastructure theme): each agent is a ship circling its docking lane,
 // glowing by status, plotted live on a holographic tactical map behind the station.
@@ -535,6 +539,10 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   const list = useMemo(() => agents ?? [], [agents]);
   // A team's parent row (agent nova, "running" for the whole chain) is bookkeeping, not Nova's own work.
   const status = useMemo(() => { const own = tasks.filter((t) => !t.title.startsWith(CHAIN_TITLE)); return Object.fromEntries(list.map((a) => [a.slug, agentStatus(own, a.slug, a.stats.running)])) as Record<string, AgentStatus>; }, [list, tasks]);
+  const rig = useChipRig();
+  const crewChips = useMemo<Chip[]>(() => list.map((a, i) => { const an = crewAngle(i, list.length), st = status[a.slug] ?? "idle", cur = currentTask(tasks, a.slug);
+    return { id: a.slug, at: [Math.cos(an) * CREW_R, 1.7, Math.sin(an) * CREW_R] as [number, number, number], title: a.name, value: STATUS_LABEL[st],
+      sub: cur && (cur.status === "running" || cur.status === "queued" || cur.status === "awaiting_approval") ? clipLine(cur.title, 34) : a.role, color: a.color, dot: DOT[st], prio: st === "idle" ? 1 : 5 }; }), [list, status, tasks]);
   const names = useMemo(() => Object.fromEntries(list.map((a) => [a.slug, a.name])), [list]);
   // Hologram over each working drone: its running task's name (at most 4, so the station stays cheap and readable).
   const running = useMemo(() => {
@@ -554,8 +562,11 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
         <WarmCompile world="agents" />
         {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
         <color attach="background" args={["#020308"]} />
+        <Realism tier={worldTier(q.bloomScale, q.msaa)} sky="#0b1430" horizon="#60a5fa" />
         <Stars radius={70} depth={40} count={reduced ? Math.min(1500, q.stars) : q.stars} factor={2.4} fade speed={reduced ? 0 : 0.35} />
         <ambientLight intensity={0.35} />
+        <CrewDeck list={list} status={status} reduced={reduced} onPick={setSelected} />
+        <ChipProjector rig={rig} chips={crewChips} />
         <Station list={list} status={status} selected={selected} reduced={reduced} lite={q.bloomScale === 0} dust={q.bloomScale === 0 ? 80 : q.bloomScale < 0.9 ? 180 : 320} handoffs={handoffs} running={running} onPick={setSelected} onHover={onHover} />
         <OrbitControls makeDefault enablePan={false} minDistance={2} maxDistance={HOME * 2.5} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
         <Follow index={list.findIndex((a) => a.slug === selected)} n={list.length} reduced={reduced} />
@@ -572,6 +583,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
         {process.env.NODE_ENV === "development" && <FrameMark name="agents" />}
       </Canvas></PlanetBoundary>}
 
+      {!flat && <ChipLayer rig={rig} chips={crewChips} onPick={setSelected} />}
       <HoverTip ref={tip} label={(id) => { const a = list.find((x) => x.slug === id); return a ? `${a.name} · ${currentTask(tasks, a.slug)?.title.slice(0, 60) ?? STATUS_LABEL[status[a.slug]]}` : null; }} />
 
       {/* Kit shell (design-language.md): one header (dot, name, status, "…", close), plain words, kit states. */}

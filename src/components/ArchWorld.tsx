@@ -3,7 +3,7 @@
 // Quantities and euros are computed in arch-pure.ts from the geometry, never by the AI. Learning tool, not certification.
 import { PlanetBoundary } from "./PlanetBoundary";
 import { WarmCompile } from "./WarmCompile";
-import { memo, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import * as THREE from "three";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
@@ -56,6 +56,8 @@ import { IfcOpen } from "./LocalAi";
 import { OpenInBlender } from "./BlenderEntry";
 import { ArchRender } from "./ArchRender";
 import { ArchHouse, ArchLook, ArchSiteLook } from "./ArchHouse";
+import { ArchDims, KickFrames, archChips } from "./ArchIsland";
+import { ChipLayer, ChipProjector, useChipRig } from "./world-kit";
 import { designHouse } from "@/lib/arch-design-pure";
 import { roofTop } from "@/lib/arch-mesh-pure";
 import { defaultSite, readSite, toModel, type Site } from "@/lib/arch-site-pure";
@@ -274,6 +276,13 @@ function Walker({ rects, plot, onExit }: { rects: Rect[]; plot: { w: number; d: 
   return null;
 }
 
+/** Opens the realistic look wide enough to show the whole cliff site (lawn radius r), once per project. */
+function StartWide({ r }: { r: number }) {
+  const camera = useThree((s) => s.camera), invalidate = useThree((s) => s.invalidate);
+  useLayoutEffect(() => { const d = Math.max(30, r * 2.9); camera.position.set(d * 0.62, d * 0.5, d * 0.62); camera.lookAt(0, 0, 0); invalidate(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return null;
+}
+
 type ArchWorldProps = { onClose: () => void; reduced: boolean; flat?: boolean; quality?: QualityMode; paused?: boolean };
 export default function ArchWorld(props: ArchWorldProps) {
   const { t } = useT();
@@ -296,6 +305,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const { t: tr, tn, lang } = useT();
   const eur = (n: number) => money(n, lang);
   const glr = useGlRecovery();
+  const chipRig = useChipRig();
   const r3f = useRef<RootState | null>(null);
   // crit screenshot: render once and read the canvas in the same task (no preserveDrawingBuffer needed); stays on this PC until he clicks
   const shoot = () => new Promise<{ blob: Blob; w: number; h: number } | null>((ok) => {
@@ -340,7 +350,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
     } catch { return null; }
   }, [dome, sun.date, at.lat, at.lon, north]);
   const SR = site.on ? 90 : 40; // the light (and its shadow box) reaches further when the neighbours are out
-  const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * SR, Math.max(0.5, sunInfo.dir.y * SR), sunInfo.dir.z * SR] : [-14, 22, 12];
+  const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * SR, Math.max(0.5, sunInfo.dir.y * SR), sunInfo.dir.z * SR] : [-34, 4.5, -16]; // no sun study: a low evening sun behind the house
   const night = sun.on && !!sunInfo && sunInfo.pos.elevationDeg < 0;
   // ARCH studio (5.1–5.4): an open splat scan replaces the model in the canvas; the worker parses and depth-sorts it.
   const [scan, setScan] = useState<ScanData | null>(null), [flip, setFlip] = useState(false), [bump, setBump] = useState(0);
@@ -350,7 +360,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const budget = splatBudget(qualityPreset.dpr);
   // the realistic look (ArchHouse): the plain model view of his own house; blueprint, hologram, scans and opened IFC keep their look
   const real = !scan && !holo && !bp && !ifc;
-  const bg = scan ? SCAN_BG : holo ? HOLO_C.bg : bp ? BP.bg : night ? "#1c2230" : real ? "#cfdbe6" : BG;
+  const bg = scan ? SCAN_BG : holo ? HOLO_C.bg : bp ? BP.bg : night ? "#1c2230" : real ? (sun.on ? "#cfdbe6" : "#c99a7c") : BG;
   const grab = useRef<(() => HTMLCanvasElement) | null>(null);
   const [cmd, setCmd] = useState("");
   const [busy, setBusy] = useState(false);
@@ -534,6 +544,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   // The calm panel (design-language.md § Shell): the ask box first, then Needs you → Working on it → Results; all tools behind "…".
   const topM = Math.round(solid.reduce((m, p) => Math.max(m, p.y + p.h), 0) * 10) / 10;
   const saveNote = save.status !== "idle" && !lesson ? ` · ${tr(`arch.save.${save.status}` as Key)}` : "";
+  const dimChips = archChips(view.parts, topM, `${num(q.slabM2, lang, 1)} m²`, eur(cost.total), (key) => tr(key as Key));
   const status = <span className="pu-num">{tr("arch.status", { area: num(q.slabM2, lang, 1), cost: eur(cost.total) })}{saveNote}</span>;
   const canDraw = !lesson && !scan && !ifc;
   const menu: MenuItem[] = [
@@ -554,7 +565,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         <Live on={!paused && loop} />
         {quality === "auto" && loop && <PerformanceMonitor onDecline={qualityPreset.onDecline} /> /* fps only means something while it loops */}
           <color attach="background" args={[bg]} />
-          <fog attach="fog" args={[bg, real ? 90 : 60, real ? 260 : 140]} />
+          <fog attach="fog" args={[bg, real ? 140 : 60, real ? 600 : 140]} />
           {real ? <ArchLook sun={lightPos} night={night} reach={lookReach} effects={{ ao: qualityPreset.bloomScale > 0, bloom: qualityPreset.bloomScale, msaa: qualityPreset.msaa }} /> : <>
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />
           <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={shadowMap(qualityPreset.bloomScale)} shadow-bias={-0.0004} shadow-camera-left={-SR} shadow-camera-right={SR} shadow-camera-top={SR} shadow-camera-bottom={-SR} shadow-camera-far={SR * 3} /></>}
@@ -590,9 +601,12 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
             {sunInfo && sunInfo.pos.elevationDeg > 0 && <mesh position={[sunInfo.dir.x * DOME_R, sunInfo.dir.y * DOME_R, sunInfo.dir.z * DOME_R]}><sphereGeometry args={[0.45, 12, 8]} /><meshBasicMaterial color="#ffe9a8" toneMapped={false} /></mesh>}
           </group>}
           {walk && !paused && <Walker key={scan?.name ?? "model"} rects={scan ? noRects : rects} plot={scanPlot ?? plotWD} onExit={() => setWalk(false)} />}
+          {real && !walk && !lesson && <><ArchDims parts={view.parts} top={topM} /><ChipProjector rig={chipRig} chips={dimChips} throttle={0} /><KickFrames /></>}
+          {real && <StartWide key={project} r={Math.max(view.plot.w, view.plot.d) * 0.72} />}
           <OrbitControls makeDefault enabled={!walk} enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced && !walk} autoRotateSpeed={0.8} />
         </Canvas></PlanetBoundary>
       )}
+      {!flat && real && !walk && !lesson && <ChipLayer rig={chipRig} chips={dimChips} />}
 
       <div className="arch-wrap absolute inset-x-3 bottom-32 z-[14] flex max-h-[40dvh] min-[900px]:inset-x-auto min-[900px]:bottom-auto min-[900px]:right-3 min-[900px]:top-[4.5rem] min-[900px]:max-h-[calc(100dvh-11rem)] min-[900px]:w-[440px]">
       <PlanetShell planet="arch" className="arch" title={tr("arch.title")} status={status} menu={menu} menuLabel={tr("arch.menu.label")}

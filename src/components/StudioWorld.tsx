@@ -24,6 +24,10 @@ import StudioProduction from "./StudioProduction";
 import StudioDrafts from "./StudioDrafts";
 import LastShorts from "./LastShorts";
 import { StudioShell, type ToolOpen } from "./StudioShell";
+import { ScreenWall, studioChips } from "./StudioScreens";
+import { ChipLayer, ChipProjector, Realism, useChipRig } from "./world-kit";
+import { worldTier } from "@/lib/world-realism-pure";
+
 import { IconBack, toast, uiSound } from "./ui";
 import { TOOL_MENU, ago, paceText } from "@/lib/studio-shell-pure";
 import type { StudioMode as Mode } from "@/lib/studio-ui-pure";
@@ -446,6 +450,8 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
   const now = live ? Date.parse(live.fetchedAt) || Date.now() : 0;
   const hot = useMemo(() => takeoff(videos, now), [videos, now]);
   const ratio = useMemo(() => new Map(hot.map((h) => [h.id, h.ratio])), [hot]);
+  const rig = useChipRig();
+  const wallChips = useMemo(() => studioChips(videos, (n) => `${compactNumber(n)} ${t("sx.v.views").toLowerCase()}`), [videos, t]);
   const moons = useMemo(() => layout(live ? videos : GHOSTS, new Set(ratio.keys())), [live, videos, ratio]);
   const comets = moons.filter((m) => m.hot).slice(0, 5);
   const sel = videos.find((v) => v.id === selected) ?? null;
@@ -465,6 +471,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
       <WarmCompile world="studio" />
       {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
       <color attach="background" args={["#03050b"]} />
+      <Realism tier={worldTier(q.bloomScale, q.msaa)} sky="#1a0b1e" horizon="#f43f5e" />
       <StageDeck reduced={reduced} />
       <LightScreen reduced={reduced} />
       {q.bloomScale > 0 && !calm && <Rays reduced={reduced} />}{/* planet page: a calm stage, no light rays, fewer and still stars */}
@@ -478,6 +485,8 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
         {live && views28 !== null && <Hologram text={t("sx.holoViews", { n: compactNumber(views28) })} position={[0, PLANET_R + 2.2, 0]} size={0.18} color="#c4b5fd" reduced={reduced} />}
         {comets.map((m) => <Comet key={m.v.id} m={m} reduced={reduced} onPick={pick} />)}
       </WarmIn>
+      {live && videos.length > 0 && <ScreenWall videos={videos} />}
+      {mode === "channel" && !selected && <ChipProjector rig={rig} chips={wallChips} />}
       <Moons moons={moons} selected={selected} ghost={!live} reduced={reduced} onPick={pick} onHover={onHover} />
       <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={20} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
       <StudioCamera mode={mode} reduced={reduced} />
@@ -498,7 +507,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
       {/* Flag on: the scene renders inside the galaxy's canvas (see Stage.tsx); dpr/antialias then follow the galaxy canvas. */}
       {!flat && later && (staged
         ? (paused ? null : <StageIn><WorldScene fov={45} position={[0, 4.2, 11]}>{scene}</WorldScene></StageIn>)
-        : <PlanetBoundary name="studio-scene" quiet><Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>{scene}</Canvas></PlanetBoundary>)}
+        : <PlanetBoundary name="studio-scene" quiet><Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>{scene}</Canvas>{mode === "channel" && !selected && <ChipLayer rig={rig} chips={wallChips} />}</PlanetBoundary>)}
 
       <div aria-hidden className="studio-vignette pointer-events-none absolute inset-0 z-[1]" />
 

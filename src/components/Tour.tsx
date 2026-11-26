@@ -4,6 +4,8 @@
 // words. Shown once per browser; nothing is sent anywhere.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "./i18n";
+import { Button } from "./ui/Button";
+import "@/app/planet-ui.css";
 
 export const TOUR_EVENT = "orbit:tour";
 const KEY = "orbit.tour.v1";
@@ -53,15 +55,15 @@ export function Tour({ ready }: { ready: boolean /* home is on screen and booted
   return (
     <div className="tour-layer" onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } if (e.key === "ArrowRight") next(); if (e.key === "ArrowLeft" && step) setStep(step - 1); }}>
       {rect && <span className="tour-ring" aria-hidden="true" style={{ left: rect.left - 6, top: rect.top - 6, width: rect.width + 12, height: rect.height + 12 }} />}
-      <div ref={card} tabIndex={-1} className="glass tour-card" role="dialog" aria-modal="false" aria-labelledby="tour-title" style={pos}>
-        <p className="muted text-[11px]">{t("intro.count", { n: step + 1, of: STEPS.length })}</p>
-        <h2 id="tour-title" className="text-base font-semibold">{t(`intro.${s.id}.title`)}</h2>
-        <p className="mt-1 text-sm">{t(`intro.${s.id}.body`)}</p>
-        <div className="mt-3 flex items-center gap-2">
-          <button type="button" className="link text-xs" onClick={close}>{t("intro.skip")}</button>
-          <span className="flex-1" />
-          {step > 0 && <button type="button" className="chip" onClick={() => setStep(step - 1)}>{t("intro.back")}</button>}
-          <button type="button" className="btn px-4 py-1 text-sm" onClick={next}>{t(last ? "intro.done" : "intro.next")}</button>
+      <div ref={card} tabIndex={-1} className="pu pu-pop pu-tour-card tour-card" data-planet="core" role="dialog" aria-modal="false" aria-labelledby="tour-title" style={pos}>
+        <p className="pu-modal-meta">{t("intro.count", { n: step + 1, of: STEPS.length })}</p>
+        <h2 id="tour-title" className="pu-title">{t(`intro.${s.id}.title`)}</h2>
+        <p className="pu-pop-text" style={{ marginTop: 4 }}>{t(`intro.${s.id}.body`)}</p>
+        <div className="pu-pop-foot">
+          <Button size="sm" variant="ghost" onClick={close}>{t("intro.skip")}</Button>
+          <span className="pu-spacer" />
+          {step > 0 && <Button size="sm" onClick={() => setStep(step - 1)}>{t("intro.back")}</Button>}
+          <Button size="sm" variant="primary" onClick={next}>{t(last ? "intro.done" : "intro.next")}</Button>
         </div>
       </div>
     </div>
