@@ -3,21 +3,20 @@
 // preset) keeps the procedural look. Sources and licences: public/worlds/LICENSES.md.
 
 export type WorldId = "gamedev" | "memory" | "arch" | "life" | "vault" | "studio" | "agents";
-export type AssetId = "fort" | "tree" | "rocks" | "cliff" | "shrub" | "fern" | "flower" | "moonRock"
-  | "plateVaultBack" | "plateVaultSide" | "lantern" | "chest" | "hdriNight" | "hdriDay"
+export type AssetId = "fort" | "tree" | "rocks" | "shrub" | "fern" | "flower" | "moonRock"
+  | "plateVaultBack" | "plateVaultSide" | "lantern" | "chest" | "hdriNight" | "hdriDay" | "hdriDusk"
   | "grassD" | "grassN" | "cliffD" | "cliffN" | "mtnD" | "mtnN" | "mtnH" | "waterN"
-  | "woodD" | "woodN" | "woodR" | "roofD" | "roofN" | "roofR" | "stuccoD" | "stuccoN" | "stuccoR";
+  | "plasterD" | "plasterN" | "plasterR" | "sidingD" | "sidingN" | "sidingR" | "lawnD" | "lawnN" | "lawnR" | "firD";
 
 export type Asset = { file: string; source: string; worlds: WorldId[] };
 
 export const ASSETS: Record<AssetId, Asset> = {
   fort: { file: "models/modular_fort_01.glb", source: "https://polyhaven.com/a/modular_fort_01", worlds: ["gamedev"] },
-  tree: { file: "models/island_tree_01.glb", source: "https://polyhaven.com/a/island_tree_01", worlds: ["gamedev", "life", "arch"] },
+  tree: { file: "models/island_tree_01.glb", source: "https://polyhaven.com/a/island_tree_01", worlds: ["gamedev", "life"] },
   rocks: { file: "models/rock_moss_set_01.glb", source: "https://polyhaven.com/a/rock_moss_set_01", worlds: ["gamedev", "life", "arch"] },
-  cliff: { file: "models/coastal_cliff_02.glb", source: "https://polyhaven.com/a/coastal_cliff_02", worlds: ["arch"] },
-  shrub: { file: "models/shrub_01.glb", source: "https://polyhaven.com/a/shrub_01", worlds: ["life", "gamedev", "arch"] },
-  fern: { file: "models/fern_02.glb", source: "https://polyhaven.com/a/fern_02", worlds: ["life", "arch"] },
-  flower: { file: "models/celandine_01.glb", source: "https://polyhaven.com/a/celandine_01", worlds: ["life", "arch"] },
+  shrub: { file: "models/shrub_01.glb", source: "https://polyhaven.com/a/shrub_01", worlds: ["life", "gamedev"] },
+  fern: { file: "models/fern_02.glb", source: "https://polyhaven.com/a/fern_02", worlds: ["life"] },
+  flower: { file: "models/celandine_01.glb", source: "https://polyhaven.com/a/celandine_01", worlds: ["life"] },
   moonRock: { file: "models/moon_rock_03.glb", source: "https://polyhaven.com/a/moon_rock_03", worlds: ["memory"] },
   // v9 matte plates: cleaned crops of the owner's own Higgsfield frames (no baked text/UI), used as far backdrops behind the live 3D.
   plateVaultBack: { file: "plates/vault-back.webp", source: "owner's Higgsfield renders (vault frame, dome and door wall)", worlds: ["vault"] },
@@ -26,25 +25,29 @@ export const ASSETS: Record<AssetId, Asset> = {
   chest: { file: "models/metal_tool_chest.glb", source: "https://polyhaven.com/a/metal_tool_chest", worlds: ["vault"] },
   hdriNight: { file: "hdri/moonless_golf.hdr", source: "https://polyhaven.com/a/moonless_golf", worlds: ["memory"] },
   hdriDay: { file: "hdri/kloofendal_48d_partly_cloudy_puresky.hdr", source: "https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky", worlds: ["arch"] },
+  // v11: golden-hour sky for the ARCH editor (image light, reflections and the visible sky); the day one stays for the sun study.
+  hdriDusk: { file: "hdri/belfast_sunset_puresky.hdr", source: "https://polyhaven.com/a/belfast_sunset_puresky", worlds: ["arch"] },
   // v6 textures (512 px webp): ground and cliff rock for the islands, mountain rock + its height for ARCH, water ripples.
-  grassD: { file: "textures/leafy_grass_diff.webp", source: "https://polyhaven.com/a/leafy_grass", worlds: ["gamedev", "arch"] },
-  grassN: { file: "textures/leafy_grass_nor.webp", source: "https://polyhaven.com/a/leafy_grass", worlds: ["gamedev", "arch"] },
-  cliffD: { file: "textures/rock_face_03_diff.webp", source: "https://polyhaven.com/a/rock_face_03", worlds: ["gamedev", "arch"] },
-  cliffN: { file: "textures/rock_face_03_nor.webp", source: "https://polyhaven.com/a/rock_face_03", worlds: ["gamedev", "arch"] },
+  grassD: { file: "textures/leafy_grass_diff.webp", source: "https://polyhaven.com/a/leafy_grass", worlds: ["gamedev"] },
+  grassN: { file: "textures/leafy_grass_nor.webp", source: "https://polyhaven.com/a/leafy_grass", worlds: ["gamedev"] },
+  cliffD: { file: "textures/rock_face_03_diff.webp", source: "https://polyhaven.com/a/rock_face_03", worlds: ["gamedev"] },
+  cliffN: { file: "textures/rock_face_03_nor.webp", source: "https://polyhaven.com/a/rock_face_03", worlds: ["gamedev"] },
   mtnD: { file: "textures/aerial_rocks_02_diff.webp", source: "https://polyhaven.com/a/aerial_rocks_02", worlds: ["arch"] },
   mtnN: { file: "textures/aerial_rocks_02_nor.webp", source: "https://polyhaven.com/a/aerial_rocks_02", worlds: ["arch"] },
   mtnH: { file: "textures/aerial_rocks_02_height.webp", source: "https://polyhaven.com/a/aerial_rocks_02", worlds: ["arch"] },
   waterN: { file: "textures/waternormals.webp", source: "https://github.com/mrdoob/three.js/blob/dev/examples/textures/waternormals.jpg", worlds: ["gamedev", "life", "arch"] },
-  // v7 (ARCH house skin): cedar cladding, dark ribbed metal roof, stucco. Diffuse 512 px, normal (OpenGL) 512 px, roughness 256 px grey.
-  woodD: { file: "textures/cedar_planks_diff.webp", source: "https://polyhaven.com/a/japanese_cedar_planks", worlds: ["arch"] },
-  woodN: { file: "textures/cedar_planks_nor.webp", source: "https://polyhaven.com/a/japanese_cedar_planks", worlds: ["arch"] },
-  woodR: { file: "textures/cedar_planks_rough.webp", source: "https://polyhaven.com/a/japanese_cedar_planks", worlds: ["arch"] },
-  roofD: { file: "textures/corrugated_iron_02_diff.webp", source: "https://polyhaven.com/a/corrugated_iron_02", worlds: ["arch"] },
-  roofN: { file: "textures/corrugated_iron_02_nor.webp", source: "https://polyhaven.com/a/corrugated_iron_02", worlds: ["arch"] },
-  roofR: { file: "textures/corrugated_iron_02_rough.webp", source: "https://polyhaven.com/a/corrugated_iron_02", worlds: ["arch"] },
-  stuccoD: { file: "textures/white_stucco_diff.webp", source: "https://polyhaven.com/a/white_stucco", worlds: ["arch"] },
-  stuccoN: { file: "textures/white_stucco_nor.webp", source: "https://polyhaven.com/a/white_stucco", worlds: ["arch"] },
-  stuccoR: { file: "textures/white_stucco_rough.webp", source: "https://polyhaven.com/a/white_stucco", worlds: ["arch"] },
+  // v12 (ARCH house and meadow), all Poly Haven CC0: trowelled render, weathered board cladding (turned so the boards stand vertical), mown-lawn grass, conifers.
+  // Diffuse and normal 1024 px (lawn normal 512), roughness 512 px grey, all webp. The conifers are impostors: fir_sapling_medium (2 of its 3 variants) rendered from the front and the side by scripts/arch-real/fir-bake.mjs + fir-atlas.py into one RGBA atlas.
+  plasterD: { file: "textures/painted_plaster_wall_diff.webp", source: "https://polyhaven.com/a/painted_plaster_wall", worlds: ["arch"] },
+  plasterN: { file: "textures/painted_plaster_wall_nor.webp", source: "https://polyhaven.com/a/painted_plaster_wall", worlds: ["arch"] },
+  plasterR: { file: "textures/painted_plaster_wall_rough.webp", source: "https://polyhaven.com/a/painted_plaster_wall", worlds: ["arch"] },
+  sidingD: { file: "textures/weathered_plank_siding_diff.webp", source: "https://polyhaven.com/a/weathered_plank_siding", worlds: ["arch"] },
+  sidingN: { file: "textures/weathered_plank_siding_nor.webp", source: "https://polyhaven.com/a/weathered_plank_siding", worlds: ["arch"] },
+  sidingR: { file: "textures/weathered_plank_siding_rough.webp", source: "https://polyhaven.com/a/weathered_plank_siding", worlds: ["arch"] },
+  lawnD: { file: "textures/grass_ground_diff.webp", source: "https://polyhaven.com/a/grass_ground", worlds: ["arch"] },
+  lawnN: { file: "textures/grass_ground_nor.webp", source: "https://polyhaven.com/a/grass_ground", worlds: ["arch"] },
+  lawnR: { file: "textures/grass_ground_rough.webp", source: "https://polyhaven.com/a/grass_ground", worlds: ["arch"] },
+  firD: { file: "textures/fir_impostors.webp", source: "https://polyhaven.com/a/fir_sapling_medium", worlds: ["arch"] },
 };
 
 /** Whole folder may not pass this (bytes); one world's own files may not pass PER_WORLD. */

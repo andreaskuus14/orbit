@@ -22,17 +22,18 @@ export function groundHeight(rho: number, a: number, r: number): number {
 }
 
 /** Ground height at a world position (x, z): where to stand a tree. Same function as the mesh, so nothing floats or sinks. */
-export function groundY(x: number, z: number, r: number): number {
+export function groundY(x: number, z: number, r: number, h: HeightFn = groundHeight): number {
   const a = Math.atan2(z, x), rho = Math.hypot(x, z) / rimRadius(a, r);
-  return rho >= 1 ? groundHeight(1, a, r) : groundHeight(rho, a, r);
+  return rho >= 1 ? h(1, a, r) : h(rho, a, r);
 }
+type HeightFn = (rho: number, a: number, r: number) => number;
 
 /** Meadow colour factor (r, g, b multipliers for the grass texture, which is a dry yellow-brown): lush green in patches of lighter and
  *  darker grass, drier and browner towards the rim. */
 export function meadowTint(x: number, z: number, rho: number): [number, number, number] {
   const n = 0.5 + 0.5 * (Math.sin(x * 0.31 + Math.sin(z * 0.23) * 2) * 0.5 + Math.sin(z * 0.37 - x * 0.11 + 1.7) * 0.3 + Math.sin((x + z) * 0.83) * 0.2);
   const rim = sstep(0.75, 1, rho);
-  return [0.36 * (0.8 + 0.55 * n) * (1 + 0.2 * rim), (0.82 + 0.36 * n) * (1 - 0.3 * rim), 0.5 * (0.85 + 0.3 * n) * (1 - 0.15 * rim)];
+  return [0.42 * (0.72 + 0.75 * n) * (1 + 0.2 * rim), (0.66 + 0.5 * n) * (1 - 0.3 * rim), 0.5 * (0.8 + 0.4 * n) * (1 - 0.15 * rim)];
 }
 
 export const RINGS = [0, 0.14, 0.28, 0.42, 0.55, 0.66, 0.75, 0.81, 0.86, 0.9, 0.93, 0.96, 0.98, 1];
@@ -40,14 +41,14 @@ export const RINGS = [0, 0.14, 0.28, 0.42, 0.55, 0.66, 0.75, 0.81, 0.86, 0.9, 0.
 export type GroundMesh = { pos: Float32Array; col: Float32Array; idx: Uint32Array; rim: number[] };
 
 /** Polar grid: RINGS.length rings of `segs` points (the centre ring collapses to one point), triangles between them. */
-export function groundMesh(r: number, segs = 96): GroundMesh {
+export function groundMesh(r: number, segs = 96, height: HeightFn = groundHeight): GroundMesh {
   const n = RINGS.length, pos = new Float32Array((1 + (n - 1) * segs) * 3), col = new Float32Array(pos.length), idx: number[] = [];
   const put = (i: number, x: number, y: number, z: number, rho: number) => { pos.set([x, y, z], i * 3); col.set(meadowTint(x, z, rho), i * 3); };
-  put(0, 0, groundHeight(0, 0, r), 0, 0);
+  put(0, 0, height(0, 0, r), 0, 0);
   const at = (ring: number, s: number) => 1 + (ring - 1) * segs + (s % segs);
   for (let k = 1; k < n; k++) for (let s = 0; s < segs; s++) {
     const a = (s / segs) * TAU, rho = RINGS[k], rad = rimRadius(a, r) * rho;
-    put(at(k, s), Math.cos(a) * rad, groundHeight(rho, a, r), Math.sin(a) * rad, rho);
+    put(at(k, s), Math.cos(a) * rad, height(rho, a, r), Math.sin(a) * rad, rho);
   }
   for (let s = 0; s < segs; s++) idx.push(0, at(1, s + 1), at(1, s)); // winding: normals up (+y)
   for (let k = 1; k < n - 1; k++) for (let s = 0; s < segs; s++) {
@@ -95,4 +96,101 @@ export function meadowSpots(r: number, n: number, fp: { x0: number; x1: number; 
     out.push({ x, z, k: hash(i + 77) });
   }
   return out;
+}
+
+// ---------- v11: the meadow (the editor's site): open grass with soft swells, a mid tree line that frames the house, a far forest edge ----------
+
+/** Radius (m) of the detailed meadow for a plot: wide enough that its rim is lost in the haze, never under 60 m. */
+export const meadowRadius = (plot: { w: number; d: number }) => Math.max(60, Math.max(plot.w, plot.d) * 2.2);
+
+/** Meadow height: dead flat round the house (0.35 r), then soft swells up to ~1.4 m, easing back to 0 at the rim so the far plane joins with no step. */
+export function meadowHeight(rho: number, a: number, r: number): number {
+  const amp = Math.min(1.4, 0.016 * r) * sstep(0.35, 0.65, rho) * (1 - sstep(0.88, 1, rho));
+  return amp * (Math.sin(a * 2 + rho * 4) * 0.55 + Math.sin(a * 5 - rho * 8 + 1) * 0.3 + Math.sin(a * 3 + rho * 2 + 4) * 0.15);
+}
+
+export type TreeSpot = { x: number; z: number; kind: "spruce" | "birch" | "pine"; s: number; a: number };
+type Rect = { x0: number; x1: number; z0: number; z1: number };
+const angDiff = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+
+/** The trees. `mid`: real trees 24-46 m out (inside radius r), at least 16 m clear of the house and never in the sector the default camera looks
+ *  through (camAz = atan2(z, x) of the camera as seen from the house), so they stand behind and beside it. `far` (optional, off by default: the forest edge is drawn by the editor as a texture): cheap trees 0.8-0.97 r all
+ *  round. Deterministic. */
+export function treePlan(r: number, fp: Rect | null, camAz = Math.PI / 4, nMid = 14, nFar = 0): { mid: TreeSpot[]; far: TreeSpot[] } {
+  const hash = (i: number) => { const v = Math.sin(i * 91.7 + 13.13) * 43758.5453; return v - Math.floor(v); };
+  const kind = (k: number): TreeSpot["kind"] => (k < 0.5 ? "spruce" : k < 0.78 ? "birch" : "pine");
+  const half = fp ? Math.hypot(fp.x1 - fp.x0, fp.z1 - fp.z0) / 2 : 6, cx = fp ? (fp.x0 + fp.x1) / 2 : 0, cz = fp ? (fp.z0 + fp.z1) / 2 : 0;
+  const inner = Math.max(half + 20, 0.34 * r), outer = Math.max(inner + 6, 0.7 * r);
+  const mid: TreeSpot[] = [];
+  for (let i = 0; mid.length < nMid && i < nMid * 12; i++) {
+    const a = hash(i) * Math.PI * 2, d = inner + (outer - inner) * Math.sqrt(hash(i + 400)), x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
+    if (angDiff(a, camAz) < 0.95 && d < 0.62 * r) continue; // keep the camera's side open
+    if (mid.some((t) => Math.hypot(t.x - x, t.z - z) < 7)) continue;
+    mid.push({ x, z, kind: kind(hash(i + 800)), s: 0.7 + hash(i + 1200) * 0.35, a });
+  }
+  const far: TreeSpot[] = Array.from({ length: nFar }, (_, i) => {
+    const a = ((i + hash(i + 50) * 0.9) / nFar) * Math.PI * 2, d = r * (0.8 + hash(i + 90) * 0.17);
+    return { x: Math.cos(a) * d, z: Math.sin(a) * d, kind: kind(hash(i + 130)), s: 1.3 + hash(i + 170) * 0.8, a };
+  });
+  return { mid, far };
+}
+
+/** Bushes and ferns round each mid tree, low and close to the trunk, so the lawn between stays open. */
+export function undergrowth(trees: TreeSpot[], per = 3): { x: number; z: number; k: number }[] {
+  const out: { x: number; z: number; k: number }[] = [];
+  trees.forEach((t, i) => { for (let j = 0; j < per; j++) { const a = (i * 7 + j * 2.1) % (Math.PI * 2), d = 1.6 + ((i * 3 + j) % 5) * 0.55; out.push({ x: t.x + Math.cos(a) * d, z: t.z + Math.sin(a) * d, k: ((i * 5 + j * 3) % 10) / 10 }); } });
+  return out;
+}
+
+/** The ground beyond the lawn: rings out to `reach` x the rim, flat at 0, coloured by the same function as the lawn so there is no seam; the
+ *  first ring is the lawn's own rim ring. Distant rings are coarse (the haze hides them). */
+export function farMesh(r: number, segs = 96, rings = [1, 1.25, 1.7, 2.5, 4, 7, 12]): { pos: Float32Array; col: Float32Array; idx: Uint32Array } {
+  const n = rings.length, pos = new Float32Array(n * segs * 3), col = new Float32Array(pos.length), idx: number[] = [];
+  for (let k = 0; k < n; k++) for (let s = 0; s < segs; s++) {
+    const a = (s / segs) * TAU, rad = rimRadius(a, r) * rings[k], i = k * segs + s, x = Math.cos(a) * rad, z = Math.sin(a) * rad;
+    pos.set([x, 0, z], i * 3); col.set(meadowTint(x, z, 1), i * 3);
+  }
+  for (let k = 0; k < n - 1; k++) for (let s = 0; s < segs; s++) {
+    const a = k * segs + s, b = k * segs + ((s + 1) % segs), c = (k + 1) * segs + s, d = (k + 1) * segs + ((s + 1) % segs);
+    idx.push(a, b, c, b, d, c);
+  }
+  return { pos, col, idx: Uint32Array.from(idx) };
+}
+
+/** v12: the far tree line. `n` conifers 170-380 m out (on the far plane, in the haze: from the opening shot's low camera the horizon is only ~4 degrees above the
+ *  meadow, so trees any nearer would stand above the frame) all round the house, in groups with open gaps between so the line reads as a forest edge, not a ring. Heights 14-24 m. Deterministic; the editor draws them as real fir models without shadows. */
+export type HorizonTree = { x: number; z: number; h: number; ry: number; v: 0 | 1 };
+export function horizonTrees(n = 110, rMin = 170, rMax = 380, seed = 5): HorizonTree[] {
+  const hash = (i: number) => { const v = Math.sin((i + seed * 23) * 53.771) * 43758.5453; return v - Math.floor(v); };
+  const density = (a: number) => 0.5 + 0.5 * (Math.sin(a * 3 + seed) * 0.6 + Math.sin(a * 7 + 2) * 0.4); // 0..1: groups and gaps round the circle
+  const out: HorizonTree[] = [];
+  for (let i = 0; out.length < n && i < n * 40; i++) {
+    const a = hash(i) * TAU;
+    if (hash(i + 700) > 0.3 + 0.7 * density(a)) continue;
+    const d = rMin + (rMax - rMin) * Math.pow(hash(i + 300), 0.8);
+    out.push({ x: Math.cos(a) * d, z: Math.sin(a) * d, h: 14 + 10 * hash(i + 900), ry: hash(i + 1100) * TAU, v: hash(i + 1300) < 0.5 ? 0 : 1 });
+  }
+  return out;
+}
+
+// ---------- v12: conifer impostors ----------
+/** The two baked fir variants (fir_sapling_medium a and c, scripts/arch-real/fir-bake.mjs): `h` the real tree's height in the model (m), `side` the square window
+ *  the bake looked through (m), 1.06 x the tree's biggest size, with the trunk's foot 1.5 % above the window's bottom. Row 0 of the atlas is variant 0. */
+export const FIR_CARDS = [{ h: 8.826, side: 9.356 }, { h: 5.907, side: 6.261 }] as const;
+/** Scale that makes variant `v` a tree `height` metres tall. */
+export const firScale = (v: 0 | 1, height: number) => height / FIR_CARDS[v].h;
+
+export type CardMesh = { pos: Float32Array; nor: Float32Array; uv: Float32Array; idx: Uint16Array };
+/** A tree as two crossed cards (front view on one, side view on the other), 1 unit = the bake's window, foot at y = 0 (scale by firScale * side). Each card is
+ *  made twice, back to back, with the normals pointing up: light then falls evenly on both faces instead of one going black. Atlas: 2 columns (front | side) x 2 rows. */
+export function firCardMesh(v: 0 | 1): CardMesh {
+  const pos: number[] = [], nor: number[] = [], uv: number[] = [], idx: number[] = [], y0 = -0.015, y1 = 0.985, u0 = 0, vTop = 1 - v * 0.5;
+  const quad = (along: "x" | "z", cell: 0 | 1, back: boolean) => {
+    const base = pos.length / 3, a = back ? 0.5 : -0.5, b = -a;
+    const c = [[a, y0], [b, y0], [b, y1], [a, y1]];
+    c.forEach(([s, y], k) => { pos.push(along === "x" ? s : 0, y, along === "x" ? 0 : s); nor.push(0, 1, 0); const t = k === 0 || k === 3 ? 0 : 1; uv.push(u0 + cell * 0.5 + t * 0.5, k < 2 ? vTop - 0.5 : vTop); });
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  };
+  for (const back of [false, true]) { quad("x", 0, back); quad("z", 1, back); }
+  return { pos: Float32Array.from(pos), nor: Float32Array.from(nor), uv: Float32Array.from(uv), idx: Uint16Array.from(idx) };
 }

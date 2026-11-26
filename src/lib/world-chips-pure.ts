@@ -4,7 +4,7 @@
 
 export type Box = { x: number; y: number; w: number; h: number };
 /** x/y: anchor on screen (px). w/h: the chip's measured size. prio: higher places first. on: false = behind camera / off. */
-export type ChipIn = { id: string; x: number; y: number; w: number; h: number; prio: number; on: boolean };
+export type ChipIn = { id: string; x: number; y: number; w: number; h: number; prio: number; on: boolean; /** a dimension label: tried first centred on its anchor (it sits on its line) */ centre?: boolean };
 export type ChipOut = { x: number; y: number; side: "up" | "down" | "left" | "right" } | null;
 
 const LIFT = 14; // chip sits this far above its anchor (room for the stem)
@@ -17,6 +17,7 @@ export function layoutChips(chips: ChipIn[], view: { w: number; h: number }, blo
   for (const c of order) {
     if (!c.on || !Number.isFinite(c.x) || !Number.isFinite(c.y) || c.w <= 0) { out.set(c.id, null); continue; }
     const tries: [number, number, NonNullable<ChipOut>["side"]][] = [
+      ...(c.centre ? [[c.x - c.w / 2, c.y - c.h / 2, "up"] as [number, number, "up"]] : []),
       [c.x - c.w / 2, c.y - c.h - LIFT, "up"],
       [c.x - c.w / 2, c.y + LIFT, "down"],
       [c.x + LIFT, c.y - c.h / 2, "right"],

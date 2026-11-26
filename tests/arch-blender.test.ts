@@ -125,7 +125,7 @@ test("the Blender scene is the preview's geometry: meshes per part with UVs, gla
   const L = houseLines(sc).join("\n");
   assert.match(L, /from_pydata/); assert.match(L, /uv_layers\.new/);
   assert.match(L, /'Transmission Weight'\]\.default_value = 1\.0/); // Blender 4.x/5.x Principled BSDF names
-  assert.match(L, /pmat\('glass'/); assert.match(L, /pmat\('roofMetal'.*'?\(0\.5, 60/s, "standing seams");
+  assert.match(L, /pmat\('glass(Lit)?'/); assert.match(L, /pmat\('roofMetal'.*'?\(0\.5, 60/s, "standing seams");
   assert.match(L, /ShaderNodeTexBrick/);
   assert.match(L, /obj\["p4"\] = o/, "the roof is an object a fly-through can lift");
   const py = blenderScript(sc, { site, date: new Date("2026-06-21T12:00:00Z"), quality: "preview" });

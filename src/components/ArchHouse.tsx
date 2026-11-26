@@ -9,13 +9,14 @@ import * as THREE from "three";
 import { shadowMap } from "@/lib/arch-shell-pure";
 import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Edges, Environment, Sky } from "@react-three/drei";
-import { EffectComposer, Bloom, N8AO, SMAA, ToneMapping } from "@react-three/postprocessing";
+import { EffectComposer, Bloom, HueSaturation, N8AO, SMAA, ToneMapping, Vignette } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { houseMesh, roofTop, siteLayout, type SiteLayout } from "@/lib/arch-mesh-pure";
+import { meadowRadius, treePlan } from "@/lib/arch-ground-pure";
+import { shotSector } from "@/lib/arch-camera-pure";
 import { isOpening, type Part, type Scene } from "@/lib/arch-pure";
 import { archMaterials } from "./arch-textures";
-import { ArchCliff } from "./ArchIsland";
 import { AssetEnv, RealOr } from "./world-assets";
 import { RealGround, RealPlants } from "./ArchGround";
 import { useTex } from "./world-surfaces";
@@ -24,10 +25,11 @@ const GOLD = "#c9a24a";
 /** Build "print" height for the ▶ Build replay: everything above it is clipped away (shared by every house material). */
 const CLIP = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e5);
 
-type HouseProps = { scene: Scene; hideRoof: boolean; fail: ReadonlySet<string>; selected: string | null; onPick: (id: string) => void; front?: (t: number) => number };
+type HouseProps = { scene: Scene; glow?: number /* lit windows: 0 off, ~1.3 dusk, ~2.4 night */; hideRoof: boolean; fail: ReadonlySet<string>; selected: string | null; onPick: (id: string) => void; front?: (t: number) => number };
 
-export const ArchHouse = memo(function ArchHouse({ scene, hideRoof, fail, selected, onPick, front }: HouseProps) {
+export const ArchHouse = memo(function ArchHouse({ scene, glow = 1.3, hideRoof, fail, selected, onPick, front }: HouseProps) {
   const mats = useMemo(archMaterials, []);
+  useEffect(() => { (mats.glassLit as THREE.MeshPhysicalMaterial).emissiveIntensity = glow; }, [mats, glow]);
   const gl = useThree((s) => s.gl);
   const mesh = useMemo(() => houseMesh(scene, { hideRoof, fail }), [scene, hideRoof, fail]);
   const geos = useMemo(() => mesh.groups.map((g) => {
@@ -48,32 +50,31 @@ export const ArchHouse = memo(function ArchHouse({ scene, hideRoof, fail, select
   const sel = selected ? scene.parts.find((p) => p.id === selected) : undefined;
   return <group>
     <RealOr fallback={null}><HouseSkin /></RealOr>
-    {geos.map(({ geo, g }, i) => <mesh key={`${g.mat}-${g.lift}-${i}`} geometry={geo} material={mats[g.mat]} castShadow={g.mat !== "glass"} receiveShadow onClick={pick(g.tri)} renderOrder={g.mat === "glass" ? 1 : 0} />)}
+    {geos.map(({ geo, g }, i) => <mesh key={`${g.mat}-${g.lift}-${i}`} geometry={geo} material={mats[g.mat]} castShadow receiveShadow onClick={pick(g.tri)} />)}
     {sel && <Outline p={sel} parts={scene.parts} />}
   </group>;
 });
 
-/** v7, tier 1+: Poly Haven PBR maps (CC0) on the cladding, stucco and metal roof. The house geometry is untouched; the shared materials get
- *  colour, normal and roughness maps while this is mounted and go back to the drawn ones after (low tier never loads any of it). */
+/** v12, tier 1+: Poly Haven PBR maps (CC0) on the walls: trowelled render (grey_plaster_03) and weathered board cladding (weathered_plank_siding, turned a
+ *  quarter so the boards stand vertical, as on a Nordic gable), each with colour, normal and roughness maps. The house geometry is untouched; the shared
+ *  materials get the maps while this is mounted and go back to the drawn ones after (low tier never loads any of it). The roof keeps its modelled
+ *  standing seams (arch-mesh-pure) in dark zinc: a corrugated sheet texture would fight them. */
 function HouseSkin() {
   const mats = useMemo(archMaterials, []);
-  const t = useTex("woodD", "woodN", "woodR", "roofD", "roofN", "roofR", "stuccoD", "stuccoN", "stuccoR");
+  const t = useTex("sidingD", "sidingN", "sidingR", "plasterD", "plasterN", "plasterR");
   useEffect(() => {
     const own: THREE.Texture[] = [];
-    const tile = (src: THREE.Texture, m: number) => { const c = src.clone(); c.repeat.set(1 / m, 1 / m); c.needsUpdate = true; own.push(c); return c; };
+    const tile = (src: THREE.Texture, m: number, turn = false) => { const c = src.clone(); c.repeat.set(1 / m, 1 / m); if (turn) { c.center.set(0.5, 0.5); c.rotation = Math.PI / 2; } c.needsUpdate = true; own.push(c); return c; };
     const skins = [
-      { k: "timber" as const, m: 1.1, d: t[0], n: t[1], r: t[2], color: "#c9bba5", rough: 1, metal: 0, ns: 0.9 },
-      { k: "roofMetal" as const, m: 1.6, d: t[3], n: t[4], r: t[5], color: "#8e949c", rough: 1, metal: 0.65, ns: 1.3 },
-      { k: "plaster" as const, m: 1.8, d: t[6], n: t[7], r: t[8], color: "#f3ece0", rough: 1, metal: 0, ns: 0.8 },
+      { k: "timber" as const, m: 1.5, turn: true, d: t[0], n: t[1], r: t[2], color: "#8c8279", rough: 1, metal: 0, ns: 1.6 },
+      { k: "plaster" as const, m: 2.4, turn: false, d: t[3], n: t[4], r: t[5], color: "#eceae6", rough: 1, metal: 0, ns: 3.2 },
     ];
-    const gl = mats.glass as THREE.MeshPhysicalMaterial, glKeep = { color: gl.color.clone(), opacity: gl.opacity, env: gl.envMapIntensity };
-    gl.color.set("#b4c6d0"); gl.opacity = 0.72; gl.envMapIntensity = 4; // the sky (HDRI) shows in the windows
     const was = skins.map((x) => { const m = mats[x.k] as THREE.MeshStandardMaterial;
       const keep = { map: m.map, normalMap: m.normalMap, roughnessMap: m.roughnessMap, bumpMap: m.bumpMap, color: m.color.clone(), roughness: m.roughness, metalness: m.metalness, ns: m.normalScale.clone() };
-      m.map = tile(x.d, x.m); m.normalMap = tile(x.n, x.m); m.roughnessMap = tile(x.r, x.m); m.bumpMap = null; m.color.set(x.color); m.roughness = x.rough; m.metalness = x.metal; m.normalScale.set(x.ns, x.ns);
+      m.map = tile(x.d, x.m, x.turn); m.normalMap = tile(x.n, x.m, x.turn); m.roughnessMap = tile(x.r, x.m, x.turn); m.bumpMap = null; m.color.set(x.color).multiplyScalar(x.k === "plaster" ? 1.3 : 1.35); m.roughness = x.rough; m.metalness = x.metal; m.normalScale.set(x.ns, x.ns);
       m.needsUpdate = true; return [m, keep] as const; });
     return () => { for (const [m, k] of was) { m.map = k.map; m.normalMap = k.normalMap; m.roughnessMap = k.roughnessMap; m.bumpMap = k.bumpMap; m.color.copy(k.color); m.roughness = k.roughness; m.metalness = k.metalness; m.normalScale.copy(k.ns); m.needsUpdate = true; }
-      gl.color.copy(glKeep.color); gl.opacity = glKeep.opacity; gl.envMapIntensity = glKeep.env; own.forEach((x) => x.dispose()); };
+      own.forEach((x) => x.dispose()); };
   }, [mats, t]);
   return null;
 }
@@ -102,44 +103,43 @@ const TREE = (() => {
 })();
 const LEAF = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true });
 
-function Instanced({ geo, items }: { geo: THREE.BufferGeometry; items: { x: number; z: number; s: number }[] }) {
+function Instanced({ geo, items, far = false }: { geo: THREE.BufferGeometry; items: { x: number; z: number; s: number }[]; far?: boolean }) {
   const ref = useRef<THREE.InstancedMesh>(null);
   useEffect(() => {
     const m = ref.current; if (!m) return;
     const o = new THREE.Object3D(), c = new THREE.Color();
     items.forEach((t, i) => {
-      o.position.set(t.x, 0, t.z); o.rotation.set(0, (t.x * 13.1 + t.z * 7.7) % 6.28, 0); o.scale.setScalar(t.s); o.updateMatrix();
+      o.position.set(t.x, far ? -0.3 : 0, t.z); o.rotation.set(0, (t.x * 13.1 + t.z * 7.7) % 6.28, 0); o.scale.setScalar(t.s); o.updateMatrix();
       m.setMatrixAt(i, o.matrix); m.setColorAt(i, c.setHSL(0, 0, 0.85 + ((i * 0.37) % 0.3)));
     });
     m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
     m.computeBoundingSphere();
   }, [items]);
   if (!items.length) return null;
-  return <instancedMesh key={items.length} ref={ref} args={[geo, LEAF, items.length]} castShadow receiveShadow />;
+  return <instancedMesh key={items.length} ref={ref} args={[geo, LEAF, items.length]} castShadow={!far} receiveShadow={!far} frustumCulled={!far} />;
 }
 
 const Rect = ({ r, y, mat }: { r: { x0: number; x1: number; z0: number; z1: number }; y: number; mat: THREE.Material }) =>
   <mesh position={[(r.x0 + r.x1) / 2, y / 2, (r.z0 + r.z1) / 2]} material={mat} receiveShadow><boxGeometry args={[r.x1 - r.x0, y, r.z1 - r.z0]} /></mesh>;
 
-/** Ground, gravel drip strip round the house, the path to the front door, trees and shrubs. Tier 1+: real grass terrain that rolls into the
- *  cliff, real trees and plants (./ArchGround); tier 0 and while loading: the drawn lawn disc and low-poly trees. */
+/** Ground, gravel drip strip round the house, the path to the front door, trees and shrubs. Tier 1+: the meadow (./ArchGround): real grass, a
+ *  tree line that frames the house, a forest edge at the haze; tier 0 and while loading: the drawn lawn disc and low-poly trees. */
 export const ArchSiteLook = memo(function ArchSiteLook({ scene }: { scene: Scene }) {
   const mats = useMemo(archMaterials, []);
   const s: SiteLayout = useMemo(() => siteLayout(scene), [scene]);
-  const big = Math.max(scene.plot.w, scene.plot.d) * 3, r = big * 0.24;
-  const by = (k: string) => s.trees.filter((t) => t.kind === k);
+  const r = useMemo(() => meadowRadius(scene.plot), [scene.plot]);
+  const mid = useMemo(() => treePlan(r, s.footprint, shotSector(), 14, 0).mid, [r, s.footprint]);
+  const by = (k: string) => mid.filter((t) => t.kind === k).map((t) => ({ x: t.x, z: t.z, s: t.s * 0.9 }));
   return <group>
     <RealOr fallback={<>
-      <mesh rotation-x={-Math.PI / 2} material={mats.lawn} receiveShadow><circleGeometry args={[r, 64]} /></mesh>
-      <ArchCliff r={r} />
+      <mesh rotation-x={-Math.PI / 2} material={mats.lawn} receiveShadow><circleGeometry args={[r * 1.6, 64]} /></mesh>
       <Instanced geo={TREE.spruce} items={by("spruce")} />
       <Instanced geo={TREE.birch} items={by("birch")} />
       <Instanced geo={TREE.pine} items={by("pine")} />
       <Instanced geo={TREE.shrub} items={s.shrubs} />
     </>}>
-      <RealGround r={r} />
-      <ArchCliff r={r} noRock />
-      <RealPlants site={s} r={r} />
+      <RealGround r={r} fp={s.footprint} />
+      <RealPlants r={r} fp={s.footprint} />
     </RealOr>
     {s.gravel.map((r, i) => <Rect key={i} r={r} y={0.03} mat={mats.gravel} />)}
     {s.path && <Rect r={s.path} y={0.04} mat={mats.paving} />}
@@ -147,9 +147,15 @@ export const ArchSiteLook = memo(function ArchSiteLook({ scene }: { scene: Scene
 });
 
 // ---------- light ----------
-type LookProps = { bare?: boolean /* v10: a plate is the backdrop, so no drawn sky dome */; sun: [number, number, number]; night: boolean; reach: number; effects: { ao: boolean; bloom: number; msaa: number } };
-/** Physical sky from the sun direction, image light from that sky, a sun with soft shadows fitted to the plot, and the effects. */
-export function ArchLook({ sun, night, reach, effects, bare = false }: LookProps) {
+/** Azimuth of the sun in belfast_sunset_puresky.hdr (Poly Haven, CC0), atan2(z, x) in the file's frame; the sky is turned so it lies where the key light is. */
+export const DUSK_SUN_AZ = 0.754;
+/** Linear colour of the haze under that sky's horizon: the fog, so the far ground melts into the sky instead of ending in a line. */
+export const DUSK_FOG: [number, number, number] = [0.42, 0.39, 0.43];
+type LookProps = { golden?: boolean /* v11: the golden-hour sky is the backdrop (no sun study running) */; sun: [number, number, number]; night: boolean; reach: number; effects: { ao: boolean; bloom: number; msaa: number } };
+/** Light and sky. By default a golden-hour Poly Haven HDRI is the visible sky, the image light and what the glass reflects, with the key light
+ *  turned to match it. With the sun study on (or at night) it falls back to the physical sky dome and the day HDRI. Soft shadows fitted to the
+ *  plot, ambient occlusion, a little bloom on the brightest lights only, and ACES tone mapping. */
+export function ArchLook({ sun, night, reach, effects, golden = false }: LookProps) {
   const gl = useThree((s) => s.gl);
   const dir = useMemo(() => new THREE.Vector3(...sun).normalize(), [sun]);
   const pos = useMemo(() => dir.clone().multiplyScalar(reach * 1.6), [dir, reach]);
@@ -162,18 +168,22 @@ export function ArchLook({ sun, night, reach, effects, bare = false }: LookProps
     return () => { gl.toneMapping = prev[0]; gl.toneMappingExposure = prev[1]; };
   }, [gl, fx]);
   const procEnv = <Environment frames={1} resolution={128} environmentIntensity={night ? 0.08 : 0.45}>{!night && <Sky {...sky} />}</Environment>;
+  const dusk = golden && !night, turn = DUSK_SUN_AZ - (Math.atan2(sun[2], sun[0]) + 1.1); // the glow sits ~60 degrees nearer the camera's view than the key light, so it is in frame
   return <>
-    {!night && !bare && <Sky {...sky} />}
-    {/* tier 1+ by day: a real Poly Haven sky (CC0) lights the scene and is what the glass reflects; tier 0, night and while loading: the drawn sky */}
-    {night ? procEnv : <RealOr fallback={procEnv}><AssetEnv id="hdriDay" intensity={low ? 0.5 : 0.75} /></RealOr>}
-    <hemisphereLight args={low ? ["#ffd9b8", "#5e5038", night ? 0.04 : 0.2] : ["#dfe9f5", "#6b7a52", night ? 0.04 : 0.15]} />
-    <directionalLight position={pos} intensity={night ? 0.05 : low ? 4.2 : 3.4} color={low ? "#ffb877" : "#fff5e6"} castShadow
-      shadow-mapSize={shadowMap(effects.bloom)} shadow-bias={-0.0002} shadow-normalBias={0.03} shadow-radius={3}
+    {!night && !dusk && <Sky {...sky} />}
+    {/* tier 1+: a real Poly Haven sky (CC0) is the light and what the glass reflects; tier 0, night and while loading: the drawn sky */}
+    {night ? procEnv : dusk ? <RealOr fallback={<><Sky {...sky} />{procEnv}</>}><AssetEnv id="hdriDusk" background intensity={0.55} rotation={turn} blur={0.03} sky={0.7} /></RealOr>
+      : <RealOr fallback={procEnv}><AssetEnv id="hdriDay" intensity={low ? 0.5 : 0.75} /></RealOr>}
+    <hemisphereLight args={low ? ["#a9bddc", "#7a6a42", night ? 0.04 : 0.45] : ["#dfe9f5", "#6b7a52", night ? 0.04 : 0.15]} />
+    <directionalLight position={pos} intensity={night ? 0.05 : low ? 6.2 : 3.4} color={low ? "#ffbb80" : "#fff5e6"} castShadow
+      shadow-mapSize={shadowMap(effects.bloom)} shadow-bias={-0.0004} shadow-normalBias={0.045} shadow-radius={4}
       shadow-camera-left={-reach} shadow-camera-right={reach} shadow-camera-top={reach} shadow-camera-bottom={-reach} shadow-camera-near={1} shadow-camera-far={reach * 4} />
     {fx && <EffectComposer multisampling={0} enableNormalPass={false}>
       {effects.ao ? <N8AO halfRes={effects.bloom < 0.8} aoRadius={1.6} distanceFalloff={0.8} intensity={2.2} quality={effects.bloom < 0.8 ? "performance" : "medium"} /> : <></>}
-      {effects.bloom > 0 ? <Bloom intensity={0.22 * effects.bloom} luminanceThreshold={0.92} luminanceSmoothing={0.1} mipmapBlur /> : <></>}
+      {effects.bloom > 0 ? <Bloom intensity={0.2 * effects.bloom} luminanceThreshold={1.15} luminanceSmoothing={0.12} mipmapBlur /> : <></>}
       <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+      <HueSaturation saturation={golden ? 0.06 : 0} />
+      <Vignette eskil={false} offset={0.28} darkness={golden ? 0.45 : 0} />
       {effects.msaa ? <SMAA /> : <></>}
     </EffectComposer>}
   </>;

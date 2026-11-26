@@ -23,12 +23,12 @@ test("low tier downloads nothing; fit and fort pieces", () => {
   assert.match(fortPiece("tower"), /tower_round/); assert.match(fortPiece("hall"), /thick_corner/);
 });
 
-test("ARCH v7: real trees, plants, grass and house skin are in the arch set and stay under its budget", () => {
+test("ARCH v12: real conifers, lawn grass and house skin are in the arch set and stay under its budget", () => {
   const ids = assetsFor("arch");
-  for (const id of ["tree", "shrub", "fern", "flower", "rocks", "grassD", "grassN", "cliffD", "cliffN", "woodD", "woodN", "woodR", "roofD", "roofN", "roofR", "stuccoD", "stuccoN", "stuccoR"] as AssetId[]) assert.ok(ids.includes(id), id);
+  for (const id of ["firD", "rocks", "plasterD", "plasterN", "plasterR", "sidingD", "sidingN", "sidingR", "lawnD", "lawnN", "lawnR"] as AssetId[]) assert.ok(ids.includes(id), id);
   const bytes = ids.reduce((s, id) => s + size(id), 0);
   assert.ok(bytes <= PER_WORLD, `arch ${bytes}`);
-  for (const id of ids) if (/^(wood|roof|stucco)/.test(id)) assert.ok(size(id) < 100_000, `${id} stays small`); // textures are 512 px webp
+  for (const id of ids) if (/^((plaster|siding|lawn)[DNR]|firD)$/.test(id)) assert.ok(size(id) < 300_000, `${id} stays small`); // textures are 1024 px webp (roughness and lawn normal 512)
 });
 
 test("v9 matte plates: owner's renders are registered for VAULT, documented, and the folder cap is 25 MB", () => {

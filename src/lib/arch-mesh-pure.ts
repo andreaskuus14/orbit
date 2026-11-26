@@ -13,7 +13,7 @@ import { isInteriorDoor, isOpening, isStraightWall, RULES, ridgeOf, roofForm, st
 import { wallPieces } from "./arch-ifc-pure.ts";
 
 export const MATS = ["plaster", "timber", "brick", "concrete", "inner", "plinth", "floor", "deck", "roofMetal", "roofTile", "roofMembrane",
-  "fascia", "gutter", "frame", "glass", "sill", "doorExt", "doorInt", "metal", "stair", "prop", "trim", "coping", "fail"] as const;
+  "fascia", "gutter", "frame", "glass", "glassLit", "sill", "doorExt", "doorInt", "metal", "stair", "prop", "trim", "coping", "fail"] as const;
 export type MatKey = (typeof MATS)[number];
 type V3 = [number, number, number];
 /** lift: the roof part this group belongs to (Blender's fly-through lifts the roof away), or null. tri[i] = the part triangle i came from. */
@@ -23,9 +23,10 @@ export type MeshOpts = { hideRoof?: boolean; fail?: ReadonlySet<string> };
 
 /** Opening and roof detail sizes (m): what a joiner and a roofer would use, kept in one place. */
 export const DETAIL = {
-  reveal: 0.12, frame: 0.07, frameDepth: 0.08, mullion: 0.06, paneMax: 1.0, transomFrom: 1.9, glass: 0.024,
+  reveal: 0.19, frame: 0.07, frameDepth: 0.08, mullion: 0.06, paneMax: 1.0, transomFrom: 1.9, glass: 0.024,
   sillOut: 0.05, leaf: 0.05, roofT: 0.22, fascia: 0.03, gutterW: 0.12, gutterH: 0.1, pipe: 0.08, parapet: 0.45, parapetT: 0.25,
   corner: 0.12, riser: 0.19, gableOverhang: 0.3, eaveOverhang: 0.5,
+  casing: 0.09, casingOut: 0.025, sash: 0.045, plinthH: 0.3, plinthOut: 0.025, seamEvery: 0.55, seamW: 0.028, seamH: 0.035, canopyOut: 1.1,
 };
 const EPS = 1e-6;
 const FACADE_MAT: Record<Facade, MatKey> = { plaster: "plaster", timber: "timber", brick: "brick", concrete: "concrete" };
@@ -35,6 +36,7 @@ const OUTER_NAME = /outer|exterior|välis/i;
 class Builder {
   private map = new Map<string, MeshGroup>();
   part = "";
+  frontId = ""; // the front door: it gets a step and a canopy
   lift: string | null = null;
   get groups() { return [...this.map.values()].filter((g) => g.pos.length); }
   private g(mat: MatKey): MeshGroup {
@@ -129,12 +131,18 @@ export function wallMat(p: Part, facade: MatKey, fail?: ReadonlySet<string>): Ma
 /** Which wall piece an opening sits in: for a shell the piece on its face, for a straight wall the wall itself. */
 function pieceFor(o: Part, pieces: { face?: string; box: WallBox }[]) { return pieces.find((q) => !q.face || q.face === o.face); }
 
+/** Which windows glow at dusk: about two in three, by a fixed hash of the id (a lived-in house, and the same on every render). */
+export function windowLit(id: string): boolean {
+  let h = 7; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h % 3 !== 0;
+}
+
 /** Window or door detail inside its hole. Exported for tests. */
-export function openingDetail(b: Builder, o: Part, box: WallBox, wall: Part) {
+export function openingDetail(b: Builder, o: Part, box: WallBox, wall: Part, casing = true) {
   const ns = o.face === "n" || o.face === "s", sg = o.face === "s" || o.face === "e" ? 1 : -1;
   const t = ns ? box.d : box.w, cw = ns ? box.z : box.x, outer = cw + sg * t / 2, inner = cw - sg * t / 2;
   const c = ns ? o.x : o.z, u0 = c - o.w / 2, u1 = c + o.w / 2, y0 = o.y, y1 = o.y + o.h;
-  const D = DETAIL, r = Math.min(D.reveal, t * 0.4), fb = D.frame, fd = Math.min(D.frameDepth, t - r);
+  const D = DETAIL, r = Math.min(D.reveal, t * 0.6), fb = D.frame, fd = Math.min(D.frameDepth, t - r);
   const f0 = outer - sg * r, f1 = f0 - sg * fd; // the frame's outer and inner planes (depth along the wall normal)
   const put = (mat: MatKey, a0: number, a1: number, b0: number, b1: number, d0: number, d1: number) => {
     const [lo, hi] = d0 < d1 ? [d0, d1] : [d1, d0];
@@ -147,8 +155,18 @@ export function openingDetail(b: Builder, o: Part, box: WallBox, wall: Part) {
     const panes = o.w > 1.3 ? Math.max(2, Math.round(o.w / D.paneMax)) : 1;
     for (let i = 1; i < panes; i++) { const m = u0 + (o.w * i) / panes; put("frame", m - D.mullion / 2, m + D.mullion / 2, y0 + fb, y1 - fb, f0, f1); }
     if (o.h >= D.transomFrom) { const ty = y0 + o.h * 0.72; put("frame", u0 + fb, u1 - fb, ty - D.mullion / 2, ty + D.mullion / 2, f0, f1); }
-    const gm = (f0 + f1) / 2;
-    put("glass", u0 + fb, u1 - fb, y0 + fb, y1 - fb, gm - D.glass / 2, gm + D.glass / 2);
+    const gm = (f0 + f1) / 2, lit = windowLit(o.id);
+    put(lit ? "glassLit" : "glass", u0 + fb, u1 - fb, y0 + fb, y1 - fb, gm - D.glass / 2, gm + D.glass / 2);
+    { // the sash: a slimmer frame inside the fixed one, a hair proud of the glass on both faces (a real window has two frame depths)
+      const s0 = D.sash, d0 = gm - 0.032, d1 = gm + 0.032, a0 = u0 + fb, a1 = u1 - fb, b0 = y0 + fb, b1 = y1 - fb;
+      put("frame", a0, a0 + s0, b0, b1, d0, d1); put("frame", a1 - s0, a1, b0, b1, d0, d1);
+      put("frame", a0 + s0, a1 - s0, b1 - s0, b1, d0, d1); put("frame", a0 + s0, a1 - s0, b0, b0 + s0, d0, d1);
+    }
+    if (casing) { // painted casing boards round the opening, proud of the facade
+      const c = D.casing, o2 = outer + sg * D.casingOut, o1 = outer - sg * 0.005;
+      put("trim", u0 - c, u0, y0 - 0.02, y1 + c, o1, o2); put("trim", u1, u1 + c, y0 - 0.02, y1 + c, o1, o2);
+      put("trim", u0 - c, u1 + c, y1, y1 + c, o1, o2 + sg * 0.015); // head board with a small drip
+    }
     if (o.y > wall.y + 0.05) {
       put("sill", u0 - 0.03, u1 + 0.03, y0 - 0.025, y0 + 0.005, f0, outer + sg * D.sillOut); // folded metal sill, sheds rain past the render
       put("inner", u0 - 0.02, u1 + 0.02, y0 - 0.02, y0, f1, inner - sg * 0.02); // window board inside
@@ -164,6 +182,12 @@ export function openingDetail(b: Builder, o: Part, box: WallBox, wall: Part) {
     put("metal", hx, hx + 0.03, y0 + 0.9, y0 + (ext ? 1.3 : 1.05), face, face + sg * 0.06);
     put("metal", hx, hx + 0.03, y0 + 0.9, y0 + 1.05, sg > 0 ? l0 : l1, (sg > 0 ? l0 : l1) - sg * 0.06);
     if (ext) put("sill", u0, u1, y0 - 0.005, y0 + 0.02, outer + sg * 0.03, inner); // threshold
+    if (casing) { const c = D.casing, o2 = outer + sg * D.casingOut, o1 = outer - sg * 0.005; put("trim", u0 - c, u0, y0, y1 + c, o1, o2); put("trim", u1, u1 + c, y0, y1 + c, o1, o2); put("trim", u0 - c, u1 + c, y1, y1 + c, o1, o2 + sg * 0.015); }
+    if (ext && o.id === b.frontId && o.y < 0.3) { // front door: a concrete step and a slim steel canopy
+      put("concrete", u0 - 0.3, u1 + 0.3, 0, 0.12, outer, outer + sg * 0.9);
+      put("fascia", u0 - 0.45, u1 + 0.45, y1 + 0.2, y1 + 0.26, outer, outer + sg * D.canopyOut);
+      put("metal", u0 - 0.45, u0 - 0.4, y1 + 0.26, y1 + 0.31, outer, outer + sg * D.canopyOut); put("metal", u1 + 0.4, u1 + 0.45, y1 + 0.26, y1 + 0.31, outer, outer + sg * D.canopyOut); // upstands
+    }
   }
 }
 
@@ -180,7 +204,12 @@ function wallMesh(b: Builder, wall: Part, openings: Part[], facade: MatKey, fail
       if (ax) b.box(mat, r.u0, r.u1, r.y0, r.y1, bx.z - bx.d / 2, bx.z + bx.d / 2);
       else b.box(mat, bx.x - bx.w / 2, bx.x + bx.w / 2, r.y0, r.y1, r.u0, r.u1);
     }
-    for (const o of here) openingDetail(b, o, bx, wall);
+    for (const o of here) openingDetail(b, o, bx, wall, mat !== "inner");
+    if (mat !== "inner" && bx.y < 0.05 && pc.face) { // a concrete plinth band at the foot of an outer wall, broken at the doors
+      const sg = pc.face === "s" || pc.face === "e" ? 1 : -1, t = ax ? bx.d : bx.w, c = ax ? bx.z : bx.x, outer = c + sg * t / 2, O = DETAIL.plinthOut;
+      const doors = here.filter((o) => o.kind === "door").map((o): [number, number] => { const u = ax ? o.x : o.z; return [u - o.w / 2 - 0.1, u + o.w / 2 + 0.1]; });
+      for (const [a, z] of minus(lo, hi, doors)) { b.part = wall.id; if (ax) b.box("plinth", a, z, 0, DETAIL.plinthH, Math.min(outer, outer + sg * O), Math.max(outer, outer + sg * O)); else b.box("plinth", Math.min(outer, outer + sg * O), Math.max(outer, outer + sg * O), 0, DETAIL.plinthH, a, z); }
+    }
   }
   if (trim && !isStraightWall(wall)) { // timber corner boards, a hand's width proud of the cladding
     b.part = wall.id;
@@ -276,7 +305,11 @@ function roofMesh(b: Builder, p: Part, parts: Part[], roofMat: MatKey, gableMat:
   if (form === "gable" || form === "shed") {
     const u = (c: number) => p.y + (form === "gable" ? Math.min(c - bc0, bc1 - c) : c - bc0) * tan; // underside of the roof at c
     const cm = (bc0 + bc1) / 2;
-    const slope = (from: number, to: number) => b.prism(roofMat, [[from, u(from)], [to, u(to)], [to, u(to) + tv], [from, u(from) + tv]], ax, a0, a1, "fascia");
+    const slope = (from: number, to: number) => {
+      b.prism(roofMat, [[from, u(from)], [to, u(to)], [to, u(to) + tv], [from, u(from) + tv]], ax, a0, a1, "fascia");
+      if (roofMat === "roofMetal") for (let a = a0 + 0.3; a + D.seamW < a1 - 0.1; a += D.seamEvery) // standing seams: a rib every 0.55 m down the slope
+        b.prism("roofMetal", [[from, u(from) + tv], [to, u(to) + tv], [to, u(to) + tv + D.seamH], [from, u(from) + tv + D.seamH]], ax, a, a + D.seamW);
+    };
     if (form === "gable") {
       slope(c0, cm); slope(cm, c1);
       const top = p.y + (cm - bc0) * tan + tv;
@@ -332,16 +365,28 @@ function stairMesh(b: Builder, p: Part) {
 const PROP_MAT: [RegExp, MatKey][] = [[/canopy/i, "roofMetal"], [/step|paving|pad/i, "concrete"], [/deck|bench|terrace/i, "deck"], [/post|rail/i, "metal"]];
 export const propMat = (name: string): MatKey => PROP_MAT.find(([re]) => re.test(name))?.[1] ?? "prop";
 
+const CHIMNEY = /chimney|korsten|flue|smoke/i;
+/** A brick stack with a concrete cap and a steel flue pot (only when the model has a part named chimney). */
+function chimneyMesh(b: Builder, p: Part) {
+  b.part = p.id;
+  const x0 = p.x - p.w / 2, x1 = p.x + p.w / 2, z0 = p.z - p.d / 2, z1 = p.z + p.d / 2, top = p.y + p.h;
+  b.box("brick", x0, x1, p.y, top, z0, z1);
+  b.box("coping", x0 - 0.05, x1 + 0.05, top, top + 0.07, z0 - 0.05, z1 + 0.05);
+  const cx = p.x, cz = p.z, k = Math.min(p.w, p.d) * 0.22;
+  b.box("metal", cx - k, cx + k, top + 0.07, top + 0.42, cz - k, cz + k);
+}
+
 /** The whole house. Hidden parts (view filters) should be left out of `scene.parts` by the caller. */
 export function houseMesh(scene: Scene, o: MeshOpts = {}): HouseMesh {
   const st = styleOf(scene), facade = FACADE_MAT[st.facade], gable = FACADE_MAT[st.gable ?? st.facade], roofMat = ROOF_MAT[st.roofMat];
   const b = new Builder(), parts = scene.parts, openings = parts.filter((p) => isOpening(p.kind) && p.host && p.face);
+  b.frontId = frontDoor(parts)?.id ?? "";
   const T = RULES.wallThick;
   for (const p of parts) {
     b.part = p.id; b.lift = null;
     const fail = o.fail?.has(p.id);
     if (p.kind === "wall") {
-      wallMesh(b, p, openings, facade, o.fail, st.facade === "timber");
+      wallMesh(b, p, openings, facade, o.fail, st.facade === "timber" || st.facade === "plaster"); // corner boards: on board cladding, and on render (the painted corner boards of a Nordic villa)
       if (!isStraightWall(p) && p.y > 0.3) { // the floor zone between storeys, faced like the walls (a stairwell hole in the slab never opens the facade)
         const below = parts.filter((q) => q.kind === "wall" && q !== p && q.y + q.h <= p.y + 0.01 && Math.abs(q.x - p.x) < (q.w + p.w) / 2 && Math.abs(q.z - p.z) < (q.d + p.d) / 2);
         const tb = below.length ? Math.max(...below.map((q) => q.y + q.h)) : p.y;
@@ -362,6 +407,7 @@ export function houseMesh(scene: Scene, o: MeshOpts = {}): HouseMesh {
       }
     } else if (p.kind === "foundation") b.box(fail ? "fail" : "plinth", p.x - p.w / 2, p.x + p.w / 2, p.y, p.y + p.h, p.z - p.d / 2, p.z + p.d / 2);
     else if (p.kind === "stair") stairMesh(b, p);
+    else if (p.kind === "prop" && CHIMNEY.test(p.name)) chimneyMesh(b, p);
     else if (p.kind === "prop") b.box(propMat(p.name), p.x - p.w / 2, p.x + p.w / 2, p.y, p.y + p.h, p.z - p.d / 2, p.z + p.d / 2);
   }
   const groups = b.groups, min: V3 = [Infinity, Infinity, Infinity], max: V3 = [-Infinity, -Infinity, -Infinity];

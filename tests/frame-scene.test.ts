@@ -67,9 +67,9 @@ test("no label slot sits under the world's side panel, and slots do not stack", 
   }
 });
 
-test("ARCH and CORE keep their tool on top of a plate backdrop that never takes pointer events", () => {
+test("CORE keeps its tool on top of a plate backdrop that never takes pointer events (ARCH no longer has one)", () => {
   const arch = readFileSync("src/components/ArchWorld.tsx", "utf8"), core = readFileSync("src/components/CoreChat.tsx", "utf8"), bd = readFileSync("src/components/FrameBackdrop.tsx", "utf8");
-  assert.ok(arch.includes('<FrameBackdrop id="arch"') && arch.includes("<Canvas") && arch.includes("bare={plateOn}"));
+  assert.ok(!arch.includes("<FrameBackdrop") && arch.includes("<Canvas"));
   assert.ok(core.includes('<FrameBackdrop id="core"') && core.includes("<CorePresence size=\"lg\" className=\"core-stage-orb\""));
   assert.match(bd, /pointer-events-none/); assert.match(bd, /worldTier\(w\.bloom, w\.msaa\) > 0/);
 });

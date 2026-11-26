@@ -36,3 +36,10 @@ test("bad numbers are hidden, not thrown", () => {
   assert.equal(r.get("n"), null);
   assert.equal(r.get("z"), null);
 });
+
+test("a dimension label sits centred on its anchor; if that is taken it falls back to the usual spots", () => {
+  const dim = layoutChips([{ ...chip("d", 400, 400), centre: true }], view, []).get("d")!;
+  assert.equal(dim.x, 400 - 60); assert.equal(dim.y, 400 - 20);
+  const two = layoutChips([{ ...chip("a", 400, 400), centre: true, prio: 9 }, { ...chip("b", 400, 400), centre: true, prio: 1 }], view, []);
+  assert.ok(two.get("a")); assert.notDeepEqual(two.get("b"), two.get("a"));
+});
