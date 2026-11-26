@@ -1,22 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readView, escBack, currentTab, detailFor, detailStale, overlaps, TABS, DETAIL_MAX_TILES } from "../src/lib/intel-view-pure.ts";
+import { readWeather, escBack, detailFor, detailStale, overlaps, TABS, DETAIL_MAX_TILES } from "../src/lib/intel-view-pure.ts";
 
 const store = (o: Record<string, string>) => (k: string) => o[k] ?? null;
-test("view: new key wins, old keys migrate, Earth by default", () => {
-  assert.equal(readView(store({})), "earth");
-  assert.equal(readView(store({ "orbit.intel.map": "classic" })), "classic");
-  assert.equal(readView(store({ "orbit.earth.view": "weather" })), "weather");
-  assert.equal(readView(store({ "orbit.earth.view": "weather", "orbit.newsWeather.view": "classic" })), "classic");
-  assert.equal(readView(store({ "orbit.earth.view": "earth", "orbit.newsWeather.view": "classic" })), "earth");
+test("weather layer: saved choice wins, an old weather-map choice turns it on, off by default", () => {
+  assert.equal(readWeather(store({})), false);
+  assert.equal(readWeather(store({ "orbit.intel.weather": "on" })), true);
+  assert.equal(readWeather(store({ "orbit.intel.weather": "off", "orbit.intel.map": "weather" })), false);
+  assert.equal(readWeather(store({ "orbit.intel.map": "weather" })), true);
+  assert.equal(readWeather(store({ "orbit.earth.view": "weather" })), true);
+  assert.equal(readWeather(store({ "orbit.intel.map": "classic" })), false);
 });
-test("every view has a lit tab and a way back to the Earth", () => {
-  for (const v of ["earth", "weather", "classic"] as const) for (const p of ["orbit", "country", "region", "town"] as const) {
-    const tab = currentTab(v, p);
-    assert.ok(TABS.some((t) => t.id === tab));
-    const b = escBack(v, p);
-    if (v === "earth" && p === "orbit") assert.equal(b, null); else assert.deepEqual(b, { view: "earth", place: "orbit" });
-  }
+test("one map: four tabs, all places, no Classic or Weather tab", () => {
+  assert.deepEqual(TABS.map((t) => t.id), ["orbit", "country", "region", "town"]);
+});
+test("Esc from any place goes to the whole Earth; at the whole Earth it does nothing", () => {
+  for (const p of ["country", "region", "town"] as const) assert.equal(escBack(p), "orbit");
+  assert.equal(escBack("orbit"), null);
 });
 test("detail: sharper when lower, inside the tile budget, none from far out", () => {
   assert.equal(detailFor(10, 46, 9000, 1440), null);

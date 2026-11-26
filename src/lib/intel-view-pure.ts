@@ -1,36 +1,27 @@
-// INTELLIGENCE map views: one state for the whole planet (Earth, News weather, Classic map), one tab bar that is always on
-// screen, Esc steps back toward the Earth. Also the Earth's sharp-tile choice per altitude. Used by NewsGlobe/IntelBar/earth-scene.
+// INTELLIGENCE: one map (the Earth). The bar's tabs fly the camera between four places; news weather is a layer you switch on at
+// orbit, not another map; Esc always steps back to the whole Earth. Also the Earth's sharp-tile choice per altitude.
+// Used by NewsGlobe/IntelBar/earth-scene.
 
-export type MapView = "earth" | "weather" | "classic";
 export type Place = "orbit" | "country" | "region" | "town";
-export type Tab = { id: Place | "weather" | "classic"; key: string };
+export type Tab = { id: Place; key: string };
 
-/** The bar, left to right: the four Earth places, then the two other maps. */
+/** The bar, left to right: the four places the camera flies to. */
 export const TABS: readonly Tab[] = [
   { id: "orbit", key: "earth.earth" }, { id: "country", key: "earth.estonia" }, { id: "region", key: "earth.towns" }, { id: "town", key: "earth.tallinn" },
-  { id: "weather", key: "earth.weather" }, { id: "classic", key: "earth.classic" },
 ];
 
-export const VIEW_KEY = "orbit.intel.map";
-const OLD_EARTH = "orbit.earth.view", OLD_WEATHER = "orbit.newsWeather.view";
-
-/** The saved view. Older builds kept two keys (Earth on/off, weather/classic); they map onto the one view. Default: Earth. */
-export function readView(get: (k: string) => string | null): MapView {
-  const v = get(VIEW_KEY);
-  if (v === "earth" || v === "weather" || v === "classic") return v;
-  if (get(OLD_EARTH) !== "weather") return "earth";
-  return get(OLD_WEATHER) === "classic" ? "classic" : "weather";
+/** Saved on/off for the news-weather layer. */
+export const WEATHER_KEY = "orbit.intel.weather";
+/** Older builds saved a map choice ("weather" meant the news-weather map): that becomes the layer being on. Default: off. */
+export function readWeather(get: (k: string) => string | null): boolean {
+  const v = get(WEATHER_KEY);
+  if (v === "on" || v === "off") return v === "on";
+  return get("orbit.intel.map") === "weather" || get("orbit.earth.view") === "weather";
 }
 
-/** Which tab is lit: the Earth place the camera is at, or the other map. */
-export function currentTab(view: MapView, place: Place): Tab["id"] {
-  return view === "earth" ? place : view;
-}
-
-/** Esc, one step back: another map → Earth; a close-up on the Earth → the whole Earth; the whole Earth → nothing (null). */
-export function escBack(view: MapView, place: Place): { view: MapView; place: Place } | null {
-  if (view !== "earth") return { view: "earth", place: "orbit" };
-  return place === "orbit" ? null : { view: "earth", place: "orbit" };
+/** Esc, one step back: anywhere below the whole Earth → the whole Earth; at the whole Earth → nothing (ORBIT's own Esc takes it). */
+export function escBack(place: Place): Place | null {
+  return place === "orbit" ? null : "orbit";
 }
 
 /* ---------- Earth: sharp tiles for the place in view ---------- */

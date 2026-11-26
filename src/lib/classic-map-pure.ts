@@ -1,4 +1,4 @@
-// Classic map v2 (Intelligence): pure helpers for the news layer on the photoreal globe.
+// Intelligence map: pure helpers for the news layer on the photoreal Earth (label placement, ring size, sun). Used by earth-scene.ts.
 export type Box = { x: number; y: number; w: number; h: number };
 export type LabelIn = { id: string; x: number; y: number; w: number; h: number; rank: number; facing: number };
 export type LabelOut = { id: string; x: number; y: number; show: boolean };
@@ -33,21 +33,6 @@ export function declutter(items: LabelIn[], zones: Box[], screen: { w: number; h
 export function ringSize(count: number, max: number) {
   const k = Math.sqrt(Math.min(1, Math.max(0, count) / Math.max(1, max)));
   return 0.07 + 0.2 * k;
-}
-
-/** Arcs between related countries: pairs that share stories (same URL), strongest first; falls back to the busiest country
- *  linked to the next few when no stories are shared. */
-export function relatedPairs(hs: { name: string; stories: { url: string }[] }[], limit = 8): [string, string, number][] {
-  const by = new Map<string, Set<string>>();
-  for (const h of hs) for (const s of h.stories) (by.get(s.url) ?? by.set(s.url, new Set()).get(s.url)!).add(h.name);
-  const w = new Map<string, number>();
-  for (const names of by.values()) {
-    const l = [...names].sort();
-    for (let i = 0; i < l.length; i++) for (let j = i + 1; j < l.length; j++) { const k = `${l[i]}|${l[j]}`; w.set(k, (w.get(k) ?? 0) + 1); }
-  }
-  const pairs = [...w].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, limit).map(([k, n]) => { const [a, b] = k.split("|"); return [a, b, n] as [string, string, number]; });
-  if (pairs.length) return pairs;
-  return hs.slice(1, Math.min(hs.length, 6)).map((h) => [hs[0].name, h.name, 1] as [string, string, number]);
 }
 
 /** Sun position (lat/lon in degrees) at a time, the same simple model the Earth view uses. */
