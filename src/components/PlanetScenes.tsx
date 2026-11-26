@@ -14,6 +14,7 @@ import { BIZ_STAGES, GATE_ANGLE, GATE_COLOR, VAULT_KIND_COLOR, bizScene, bytes, 
 import { STAGE_COLOR } from "@/lib/living-galaxy-pure";
 import { MattePlate } from "./world-plates";
 import { ChandelierDetail, VaultArches, VaultBanners, VaultStatues } from "./VaultHallProps";
+import { BizHubDetail } from "./BizHub";
 import { CargoPods, Freighters, PodTrack, VaultShelfProps, trackMatrix, type FleetApi } from "./world-props";
 
 type T = (k: never, v?: Record<string, string | number>) => string;
@@ -372,6 +373,7 @@ function TradeHub({ m, reduced, hull }: { m: ReturnType<typeof bizScene>; reduce
     <OrbitalPlanet at={[30, -95, -70]} r={95} sun={[-1, 0.3, 0.4]} reduced={reduced} air="#ff9a4d" />
     <directionalLight position={[-20, 8, 10]} intensity={2} color="#ffc48a" />
     {m.tiers.map((t, i) => <WindowRing key={t.stage} r={t.r + 0.36} y0={t.y - 0.7} rows={3} n={Math.round(t.r * 22)} color="#ffcf8a" k={2} lit={0.5} seed={20 + i} />)}
+    <BizHubDetail topY={m.tiers[4].y} topR={m.tiers[4].r} />
     {/* bay frames (dark) with glowing lips in the deal's stage colour */}
     <instancedMesh ref={bays} args={[undefined, undefined, Math.max(1, m.ships.length)]} material={hull}><boxGeometry args={[0.95, 0.7, 0.12]} /></instancedMesh>
     <instancedMesh ref={lips} args={[undefined, undefined, Math.max(1, m.ships.length)]}><boxGeometry args={[0.8, 0.04, 0.16]} /><meshBasicMaterial toneMapped={false} /></instancedMesh>
