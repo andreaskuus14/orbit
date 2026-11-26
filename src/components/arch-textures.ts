@@ -46,7 +46,7 @@ const TEX: Partial<Record<MatKey | "lawn" | "gravel" | "paving" | "glow", { m: n
     speckle(c, n, r, 10); },
     bump: (c, n) => { const g = c.createLinearGradient(0, 0, 0, n / 3); g.addColorStop(0, "#303030"); g.addColorStop(1, "#d0d0d0"); c.fillStyle = g; for (let row = 0; row < 3; row++) { c.save(); c.translate(0, row * n / 3); c.fillRect(0, 0, n, n / 3); c.restore(); } } },
   roofMembrane: { m: 3, color: (c, n, r) => { c.fillStyle = "#45474a"; c.fillRect(0, 0, n, n); speckle(c, n, r, 14); } },
-  plinth: { m: 2, color: (c, n, r) => { c.fillStyle = "#8d8a84"; c.fillRect(0, 0, n, n); blotch(c, n, r, "#76736d", 10, 0.3); speckle(c, n, r, 20); } },
+  plinth: { m: 2, color: (c, n, r) => { c.fillStyle = "#b4b1ab"; c.fillRect(0, 0, n, n); blotch(c, n, r, "#76736d", 10, 0.3); speckle(c, n, r, 20); } },
   floor: { m: 2, color: (c, n, r) => { const k = 12; for (let i = 0; i < k; i++) { const t = 0.85 + r() * 0.25; c.fillStyle = `rgb(${Math.round(176 * t)},${Math.round(140 * t)},${Math.round(98 * t)})`; c.fillRect(0, i * n / k, n, n / k); } c.fillStyle = "rgba(60,40,20,0.3)"; for (let i = 0; i < k; i++) c.fillRect(0, i * n / k, n, 1); speckle(c, n, r, 8); } },
   deck: { m: 1.4, color: (c, n, r) => { const k = 10; for (let i = 0; i < k; i++) { const t = 0.8 + r() * 0.3; c.fillStyle = `rgb(${Math.round(128 * t)},${Math.round(106 * t)},${Math.round(84 * t)})`; c.fillRect(0, i * n / k, n, n / k - 3); } speckle(c, n, r, 10); } },
   lawn: { m: 6, size: 512, color: (c, n, r) => { c.fillStyle = "#6d8a46"; c.fillRect(0, 0, n, n); blotch(c, n, r, "#58733a", 40, 0.35); blotch(c, n, r, "#8aa35a", 30, 0.25);
@@ -75,7 +75,7 @@ type Spec = { color?: string; rough: number; metal?: number; tex?: keyof typeof 
 const SPEC: Record<MatKey, Spec> = {
   plaster: { rough: 0.92, tex: "plaster", bump: 0.6 }, timber: { rough: 0.8, tex: "timber", bump: 1.2 }, brick: { rough: 0.9, tex: "brick", bump: 1 }, concrete: { rough: 0.85, tex: "concrete", bump: 0.5 },
   inner: { color: "#f2efe9", rough: 0.9 }, plinth: { rough: 0.9, tex: "plinth" }, floor: { rough: 0.6, tex: "floor" }, deck: { rough: 0.8, tex: "deck" },
-  roofMetal: { rough: 0.42, metal: 0.55, tex: "roofMetal", bump: 1.5 }, roofTile: { rough: 0.75, tex: "roofTile", bump: 1.5 }, roofMembrane: { rough: 0.9, tex: "roofMembrane" },
+  roofMetal: { rough: 0.34, metal: 0.6, tex: "roofMetal", bump: 1.5 }, roofTile: { rough: 0.75, tex: "roofTile", bump: 1.5 }, roofMembrane: { rough: 0.9, tex: "roofMembrane" },
   fascia: { color: "#2f3236", rough: 0.6 }, gutter: { color: "#4a4e53", rough: 0.35, metal: 0.7 }, frame: { color: "#33373b", rough: 0.45, metal: 0.2 }, glass: { rough: 0.04 }, glassLit: { rough: 0.04 },
   sill: { color: "#55595e", rough: 0.4, metal: 0.6 }, doorExt: { color: "#3b2e25", rough: 0.55 }, doorInt: { color: "#efece6", rough: 0.6 }, metal: { color: "#1d1f21", rough: 0.35, metal: 0.8 },
   stair: { color: "#b3946c", rough: 0.6 }, prop: { color: "#9b8a74", rough: 0.8 }, trim: { rough: 0.8, tex: "trim" }, coping: { color: "#5d6166", rough: 0.4, metal: 0.6 }, fail: { color: "#dc2626", rough: 0.7 },
@@ -113,8 +113,8 @@ export function archMaterials(): ArchMaterials {
   out.glass = new THREE.MeshPhysicalMaterial(pane);
   const glow = TEX.glow!, lit = new THREE.MeshPhysicalMaterial({ ...pane, emissive: new THREE.Color("#ffffff"), emissiveMap: canvasTex("glow", glow.color, glow.size ?? 128, glow.m, true), emissiveIntensity: 1.3 });
   out.glassLit = lit;
-  for (const k of ["plaster", "timber", "brick", "concrete", "plinth"] as const) weather(out[k] as THREE.MeshStandardMaterial, k === "plinth" || k === "concrete" ? 0.7 : 1);
-  out.lawn = make({ rough: 1, tex: "lawn" }); out.gravel = make({ rough: 1, tex: "gravel", bump: 1 }); out.paving = make({ rough: 0.85, tex: "paving" });
+  for (const k of ["plaster", "timber", "brick", "concrete", "plinth"] as const) weather(out[k] as THREE.MeshStandardMaterial, k === "plinth" || k === "concrete" ? 0.3 : 1);
+  out.lawn = make({ rough: 1, tex: "lawn" }); out.gravel = make({ rough: 1, tex: "gravel", bump: 0.4, color: "#c4c8cc" }); out.paving = make({ rough: 0.85, tex: "paving" });
   cache = out;
   return out;
 }

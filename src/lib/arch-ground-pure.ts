@@ -157,9 +157,40 @@ export function farMesh(r: number, segs = 96, rings = [1, 1.25, 1.7, 2.5, 4, 7, 
   return { pos, col, idx: Uint32Array.from(idx) };
 }
 
-export type Silhouette = { x: number; w: number; h: number; conifer: boolean };
-/** Tree silhouettes for the forest edge texture (one tile, repeated round the ring): x across 0..1 (wraps), w a fraction of the tile width, h of its height (0.35-0.95). Deterministic. */
-export function silhouettes(n = 44, seed = 1): Silhouette[] {
-  const hash = (i: number) => { const v = Math.sin((i + seed * 57) * 45.233) * 43758.5453; return v - Math.floor(v); };
-  return Array.from({ length: n }, (_, i) => { const conifer = hash(i + 300) < 0.62, h = 0.35 + hash(i + 100) * 0.6; return { x: (i + hash(i) * 0.9) / n, w: (conifer ? 0.05 : 0.07) * h + 0.004, h, conifer }; });
+/** v12: the far tree line. `n` conifers 170-380 m out (on the far plane, in the haze: from the opening shot's low camera the horizon is only ~4 degrees above the
+ *  meadow, so trees any nearer would stand above the frame) all round the house, in groups with open gaps between so the line reads as a forest edge, not a ring. Heights 14-24 m. Deterministic; the editor draws them as real fir models without shadows. */
+export type HorizonTree = { x: number; z: number; h: number; ry: number; v: 0 | 1 };
+export function horizonTrees(n = 110, rMin = 170, rMax = 380, seed = 5): HorizonTree[] {
+  const hash = (i: number) => { const v = Math.sin((i + seed * 23) * 53.771) * 43758.5453; return v - Math.floor(v); };
+  const density = (a: number) => 0.5 + 0.5 * (Math.sin(a * 3 + seed) * 0.6 + Math.sin(a * 7 + 2) * 0.4); // 0..1: groups and gaps round the circle
+  const out: HorizonTree[] = [];
+  for (let i = 0; out.length < n && i < n * 40; i++) {
+    const a = hash(i) * TAU;
+    if (hash(i + 700) > 0.3 + 0.7 * density(a)) continue;
+    const d = rMin + (rMax - rMin) * Math.pow(hash(i + 300), 0.8);
+    out.push({ x: Math.cos(a) * d, z: Math.sin(a) * d, h: 14 + 10 * hash(i + 900), ry: hash(i + 1100) * TAU, v: hash(i + 1300) < 0.5 ? 0 : 1 });
+  }
+  return out;
+}
+
+// ---------- v12: conifer impostors ----------
+/** The two baked fir variants (fir_sapling_medium a and c, scripts/arch-real/fir-bake.mjs): `h` the real tree's height in the model (m), `side` the square window
+ *  the bake looked through (m), 1.06 x the tree's biggest size, with the trunk's foot 1.5 % above the window's bottom. Row 0 of the atlas is variant 0. */
+export const FIR_CARDS = [{ h: 8.826, side: 9.356 }, { h: 5.907, side: 6.261 }] as const;
+/** Scale that makes variant `v` a tree `height` metres tall. */
+export const firScale = (v: 0 | 1, height: number) => height / FIR_CARDS[v].h;
+
+export type CardMesh = { pos: Float32Array; nor: Float32Array; uv: Float32Array; idx: Uint16Array };
+/** A tree as two crossed cards (front view on one, side view on the other), 1 unit = the bake's window, foot at y = 0 (scale by firScale * side). Each card is
+ *  made twice, back to back, with the normals pointing up: light then falls evenly on both faces instead of one going black. Atlas: 2 columns (front | side) x 2 rows. */
+export function firCardMesh(v: 0 | 1): CardMesh {
+  const pos: number[] = [], nor: number[] = [], uv: number[] = [], idx: number[] = [], y0 = -0.015, y1 = 0.985, u0 = 0, vTop = 1 - v * 0.5;
+  const quad = (along: "x" | "z", cell: 0 | 1, back: boolean) => {
+    const base = pos.length / 3, a = back ? 0.5 : -0.5, b = -a;
+    const c = [[a, y0], [b, y0], [b, y1], [a, y1]];
+    c.forEach(([s, y], k) => { pos.push(along === "x" ? s : 0, y, along === "x" ? 0 : s); nor.push(0, 1, 0); const t = k === 0 || k === 3 ? 0 : 1; uv.push(u0 + cell * 0.5 + t * 0.5, k < 2 ? vTop - 0.5 : vTop); });
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  };
+  for (const back of [false, true]) { quad("x", 0, back); quad("z", 1, back); }
+  return { pos: Float32Array.from(pos), nor: Float32Array.from(nor), uv: Float32Array.from(uv), idx: Uint16Array.from(idx) };
 }

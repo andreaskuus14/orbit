@@ -23,7 +23,7 @@ export type MeshOpts = { hideRoof?: boolean; fail?: ReadonlySet<string> };
 
 /** Opening and roof detail sizes (m): what a joiner and a roofer would use, kept in one place. */
 export const DETAIL = {
-  reveal: 0.12, frame: 0.07, frameDepth: 0.08, mullion: 0.06, paneMax: 1.0, transomFrom: 1.9, glass: 0.024,
+  reveal: 0.19, frame: 0.07, frameDepth: 0.08, mullion: 0.06, paneMax: 1.0, transomFrom: 1.9, glass: 0.024,
   sillOut: 0.05, leaf: 0.05, roofT: 0.22, fascia: 0.03, gutterW: 0.12, gutterH: 0.1, pipe: 0.08, parapet: 0.45, parapetT: 0.25,
   corner: 0.12, riser: 0.19, gableOverhang: 0.3, eaveOverhang: 0.5,
   casing: 0.09, casingOut: 0.025, sash: 0.045, plinthH: 0.3, plinthOut: 0.025, seamEvery: 0.55, seamW: 0.028, seamH: 0.035, canopyOut: 1.1,
@@ -142,7 +142,7 @@ export function openingDetail(b: Builder, o: Part, box: WallBox, wall: Part, cas
   const ns = o.face === "n" || o.face === "s", sg = o.face === "s" || o.face === "e" ? 1 : -1;
   const t = ns ? box.d : box.w, cw = ns ? box.z : box.x, outer = cw + sg * t / 2, inner = cw - sg * t / 2;
   const c = ns ? o.x : o.z, u0 = c - o.w / 2, u1 = c + o.w / 2, y0 = o.y, y1 = o.y + o.h;
-  const D = DETAIL, r = Math.min(D.reveal, t * 0.4), fb = D.frame, fd = Math.min(D.frameDepth, t - r);
+  const D = DETAIL, r = Math.min(D.reveal, t * 0.6), fb = D.frame, fd = Math.min(D.frameDepth, t - r);
   const f0 = outer - sg * r, f1 = f0 - sg * fd; // the frame's outer and inner planes (depth along the wall normal)
   const put = (mat: MatKey, a0: number, a1: number, b0: number, b1: number, d0: number, d1: number) => {
     const [lo, hi] = d0 < d1 ? [d0, d1] : [d1, d0];
@@ -386,7 +386,7 @@ export function houseMesh(scene: Scene, o: MeshOpts = {}): HouseMesh {
     b.part = p.id; b.lift = null;
     const fail = o.fail?.has(p.id);
     if (p.kind === "wall") {
-      wallMesh(b, p, openings, facade, o.fail, st.facade === "timber");
+      wallMesh(b, p, openings, facade, o.fail, st.facade === "timber" || st.facade === "plaster"); // corner boards: on board cladding, and on render (the painted corner boards of a Nordic villa)
       if (!isStraightWall(p) && p.y > 0.3) { // the floor zone between storeys, faced like the walls (a stairwell hole in the slab never opens the facade)
         const below = parts.filter((q) => q.kind === "wall" && q !== p && q.y + q.h <= p.y + 0.01 && Math.abs(q.x - p.x) < (q.w + p.w) / 2 && Math.abs(q.z - p.z) < (q.d + p.d) / 2);
         const tb = below.length ? Math.max(...below.map((q) => q.y + q.h)) : p.y;

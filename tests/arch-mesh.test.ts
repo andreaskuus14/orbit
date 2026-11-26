@@ -31,6 +31,14 @@ test("a shell is four walls with real thickness, not a solid box: nothing fills 
   }
 });
 
+test("v12: window reveals are deep (glass 20 cm behind the facade) and a rendered house gets painted corner boards", () => {
+  const m = houseMesh(scene([shell, win()])), zs = glass(m)[0].pos.filter((_, i) => i % 3 === 2);
+  assert.ok(Math.max(...zs) <= 4 - 0.2 + 1e-6, `glass ${Math.max(...zs)}`);
+  const trim = of(houseMesh(scene([shell], { style: { facade: "plaster", roofMat: "metal" } })), "trim");
+  const xs = trim.flatMap((g) => g.pos.filter((_, i) => i % 3 === 0));
+  assert.ok(xs.some((x) => x > 5.01) && xs.some((x) => x < -5.01), "boards stand proud of the render at the corners");
+});
+
 test("a window is a hole with reveals, a frame set back, glass, an outside sill and an inside board", () => {
   const m = houseMesh(scene([shell, win()]));
   assert.ok(glass(m).length && of(m, "frame").length && of(m, "sill").length && of(m, "inner").length);
@@ -118,9 +126,9 @@ const tris = (m: ReturnType<typeof houseMesh>, mat: string) => of(m, mat).reduce
 test("windows get a sash inside the frame and painted casing boards round the opening; no window is see-through glass material", () => {
   const plain = houseMesh(scene([shell]));
   const m = houseMesh(scene([shell, win()]));
-  assert.ok(tris(m, "trim") >= 3 * 12, "left, right and head casing boards");
+  assert.ok(tris(m, "trim") - tris(plain, "trim") >= 3 * 12, "left, right and head casing boards");
   assert.ok(tris(m, "frame") >= 8 * 12, "outer frame + sash bars");
-  assert.equal(tris(plain, "trim"), 0);
+  assert.equal(tris(plain, "trim"), 4 * 12, "a plain rendered shell has only its four corner boards");
   const zs = of(m, "trim").flatMap((g) => g.pos.filter((_, i) => i % 3 === 2));
   assert.ok(Math.max(...zs) > 4 - 0.01 && Math.max(...zs) < 4 + 0.06, "casing stands a few cm proud of the outer face");
 });

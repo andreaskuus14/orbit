@@ -359,7 +359,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
     } catch { return null; }
   }, [dome, sun.date, at.lat, at.lon, north]);
   const SR = site.on ? 90 : 40; // the light (and its shadow box) reaches further when the neighbours are out
-  const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * SR, Math.max(0.5, sunInfo.dir.y * SR), sunInfo.dir.z * SR] : [-30, 7, 14]; // no sun study: a low evening sun from the south-west, raking the south and west faces (the opening shot looks from the south-east)
+  const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * SR, Math.max(0.5, sunInfo.dir.y * SR), sunInfo.dir.z * SR] : [-14, 12, 31]; // no sun study: a low evening sun (20 degrees up) from the south-south-west: it lights the south face the opening shot sees and throws the house's shadow across the lawn to the right of it
   const night = sun.on && !!sunInfo && sunInfo.pos.elevationDeg < 0;
   // ARCH studio (5.1–5.4): an open splat scan replaces the model in the canvas; the worker parses and depth-sorts it.
   const [scan, setScan] = useState<ScanData | null>(null), [flip, setFlip] = useState(false), [bump, setBump] = useState(0);
@@ -576,7 +576,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         <Live on={!paused && loop} />
         {quality === "auto" && loop && <PerformanceMonitor onDecline={qualityPreset.onDecline} /> /* fps only means something while it loops */}
           <color attach="background" args={[golden ? dusk : bg]} />
-          <fog attach="fog" args={golden ? [dusk, 70, 520] : [bg, real ? 140 : 60, real ? 600 : 140]} />
+          <fog attach="fog" args={golden ? [dusk, 90, 560] : [bg, real ? 140 : 60, real ? 600 : 140]} />
           <WorldTierSet tier={worldTier(qualityPreset.bloomScale, qualityPreset.msaa)} />
           {real ? <ArchLook sun={lightPos} night={night} reach={lookReach} effects={{ ao: qualityPreset.bloomScale > 0, bloom: qualityPreset.bloomScale, msaa: qualityPreset.msaa }} golden={golden} /> : <>
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />

@@ -97,10 +97,25 @@ test("far ground: starts on the lawn's rim ring, flat, indices in range, colours
   assert.ok(Math.hypot(far.pos[far.pos.length - 3], far.pos[far.pos.length - 1]) > r * 10);
 });
 
-import { silhouettes } from "../src/lib/arch-ground-pure.ts";
-test("forest-edge silhouettes: n of them across the tile, mixed conifers and round crowns, deterministic", () => {
-  const s = silhouettes(44, 1);
-  assert.equal(s.length, 44); assert.deepEqual(s, silhouettes(44, 1)); assert.notDeepEqual(s, silhouettes(44, 2));
-  for (const t of s) { assert.ok(t.x >= 0 && t.x < 1.02); assert.ok(t.h >= 0.35 && t.h <= 0.95 && t.w > 0); }
-  const c = s.filter((t) => t.conifer).length; assert.ok(c > 16 && c < 38, `${c}`);
+import { FIR_CARDS, firCardMesh, firScale, horizonTrees } from "../src/lib/arch-ground-pure.ts";
+test("horizon trees: deterministic, 170-380 m out, 14-24 m tall, two variants, in groups with gaps (not a ring)", () => {
+  const t = horizonTrees();
+  assert.deepEqual(t, horizonTrees()); assert.notDeepEqual(t, horizonTrees(110, 170, 380, 6));
+  assert.equal(t.length, 110);
+  for (const x of t) { const d = Math.hypot(x.x, x.z); assert.ok(d >= 170 - 1e-6 && d <= 380 + 1e-6, `${d}`); assert.ok(x.h >= 14 && x.h <= 24); assert.ok(x.v === 0 || x.v === 1); }
+  assert.ok(t.some((x) => x.v === 0) && t.some((x) => x.v === 1));
+  const bins = new Array(12).fill(0); for (const x of t) bins[Math.floor(((Math.atan2(x.z, x.x) + Math.PI) / (2 * Math.PI)) * 12) % 12]++;
+  assert.ok(Math.max(...bins) >= 2 * Math.max(1, Math.min(...bins)), `groups and gaps: ${bins}`);
+});
+
+test("fir impostor card: two crossed cards, each twice back to back, normals up, uvs inside the right atlas cell, indices in range", () => {
+  for (const v of [0, 1] as const) {
+    const m = firCardMesh(v), n = m.pos.length / 3;
+    assert.equal(n, 16); assert.equal(m.idx.length, 24); for (const i of m.idx) assert.ok(i < n);
+    for (let i = 0; i < n; i++) { assert.deepEqual([m.nor[i * 3], m.nor[i * 3 + 1], m.nor[i * 3 + 2]], [0, 1, 0]); assert.ok(m.pos[i * 3 + 1] >= -0.0151 && m.pos[i * 3 + 1] <= 0.9851); }
+    const vTop = 1 - v * 0.5; for (let i = 0; i < n; i++) { const u = m.uv[i * 2], w = m.uv[i * 2 + 1]; assert.ok(u >= 0 && u <= 1 && w >= vTop - 0.5 - 1e-9 && w <= vTop + 1e-9, `row ${v}`); }
+    const xs = new Set<number>(), zs = new Set<number>(); for (let i = 0; i < n; i++) { xs.add(Math.round(m.pos[i * 3] * 100)); zs.add(Math.round(m.pos[i * 3 + 2] * 100)); }
+    assert.ok(xs.has(50) && xs.has(-50) && zs.has(50) && zs.has(-50), "one card along x, one along z");
+  }
+  assert.ok(Math.abs(firScale(0, FIR_CARDS[0].h) - 1) < 1e-9); assert.ok(Math.abs(firScale(1, 2 * FIR_CARDS[1].h) - 2) < 1e-9);
 });

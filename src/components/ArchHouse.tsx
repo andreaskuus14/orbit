@@ -9,7 +9,7 @@ import * as THREE from "three";
 import { shadowMap } from "@/lib/arch-shell-pure";
 import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Edges, Environment, Sky } from "@react-three/drei";
-import { EffectComposer, Bloom, N8AO, SMAA, ToneMapping } from "@react-three/postprocessing";
+import { EffectComposer, Bloom, HueSaturation, N8AO, SMAA, ToneMapping, Vignette } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { houseMesh, roofTop, siteLayout, type SiteLayout } from "@/lib/arch-mesh-pure";
@@ -18,7 +18,7 @@ import { shotSector } from "@/lib/arch-camera-pure";
 import { isOpening, type Part, type Scene } from "@/lib/arch-pure";
 import { archMaterials } from "./arch-textures";
 import { AssetEnv, RealOr } from "./world-assets";
-import { RealGround, RealPlants, TreeLine } from "./ArchGround";
+import { RealGround, RealPlants } from "./ArchGround";
 import { useTex } from "./world-surfaces";
 
 const GOLD = "#c9a24a";
@@ -55,22 +55,23 @@ export const ArchHouse = memo(function ArchHouse({ scene, glow = 1.3, hideRoof, 
   </group>;
 });
 
-/** v7, tier 1+: Poly Haven PBR maps (CC0) on the cladding and the stucco. The house geometry is untouched; the shared materials get
- *  colour, normal and roughness maps while this is mounted and go back to the drawn ones after (low tier never loads any of it). The roof
- *  keeps its modelled standing seams (arch-mesh-pure) in dark zinc: a corrugated sheet texture would fight them. */
+/** v12, tier 1+: Poly Haven PBR maps (CC0) on the walls: trowelled render (grey_plaster_03) and weathered board cladding (weathered_plank_siding, turned a
+ *  quarter so the boards stand vertical, as on a Nordic gable), each with colour, normal and roughness maps. The house geometry is untouched; the shared
+ *  materials get the maps while this is mounted and go back to the drawn ones after (low tier never loads any of it). The roof keeps its modelled
+ *  standing seams (arch-mesh-pure) in dark zinc: a corrugated sheet texture would fight them. */
 function HouseSkin() {
   const mats = useMemo(archMaterials, []);
-  const t = useTex("woodD", "woodN", "woodR", "stuccoD", "stuccoN", "stuccoR");
+  const t = useTex("sidingD", "sidingN", "sidingR", "plasterD", "plasterN", "plasterR");
   useEffect(() => {
     const own: THREE.Texture[] = [];
-    const tile = (src: THREE.Texture, m: number) => { const c = src.clone(); c.repeat.set(1 / m, 1 / m); c.needsUpdate = true; own.push(c); return c; };
+    const tile = (src: THREE.Texture, m: number, turn = false) => { const c = src.clone(); c.repeat.set(1 / m, 1 / m); if (turn) { c.center.set(0.5, 0.5); c.rotation = Math.PI / 2; } c.needsUpdate = true; own.push(c); return c; };
     const skins = [
-      { k: "timber" as const, m: 1.1, d: t[0], n: t[1], r: t[2], color: "#c9bba5", rough: 1, metal: 0, ns: 0.9 },
-      { k: "plaster" as const, m: 1.8, d: t[3], n: t[4], r: t[5], color: "#e4e1da", rough: 1, metal: 0, ns: 1.6 },
+      { k: "timber" as const, m: 1.5, turn: true, d: t[0], n: t[1], r: t[2], color: "#8c8279", rough: 1, metal: 0, ns: 1.6 },
+      { k: "plaster" as const, m: 2.4, turn: false, d: t[3], n: t[4], r: t[5], color: "#eceae6", rough: 1, metal: 0, ns: 3.2 },
     ];
     const was = skins.map((x) => { const m = mats[x.k] as THREE.MeshStandardMaterial;
       const keep = { map: m.map, normalMap: m.normalMap, roughnessMap: m.roughnessMap, bumpMap: m.bumpMap, color: m.color.clone(), roughness: m.roughness, metalness: m.metalness, ns: m.normalScale.clone() };
-      m.map = tile(x.d, x.m); m.normalMap = tile(x.n, x.m); m.roughnessMap = tile(x.r, x.m); m.bumpMap = null; m.color.set(x.color); m.roughness = x.rough; m.metalness = x.metal; m.normalScale.set(x.ns, x.ns);
+      m.map = tile(x.d, x.m, x.turn); m.normalMap = tile(x.n, x.m, x.turn); m.roughnessMap = tile(x.r, x.m, x.turn); m.bumpMap = null; m.color.set(x.color).multiplyScalar(x.k === "plaster" ? 1.3 : 1.35); m.roughness = x.rough; m.metalness = x.metal; m.normalScale.set(x.ns, x.ns);
       m.needsUpdate = true; return [m, keep] as const; });
     return () => { for (const [m, k] of was) { m.map = k.map; m.normalMap = k.normalMap; m.roughnessMap = k.roughnessMap; m.bumpMap = k.bumpMap; m.color.copy(k.color); m.roughness = k.roughness; m.metalness = k.metalness; m.normalScale.copy(k.ns); m.needsUpdate = true; }
       own.forEach((x) => x.dispose()); };
@@ -137,9 +138,8 @@ export const ArchSiteLook = memo(function ArchSiteLook({ scene }: { scene: Scene
       <Instanced geo={TREE.pine} items={by("pine")} />
       <Instanced geo={TREE.shrub} items={s.shrubs} />
     </>}>
-      <RealGround r={r} />
-      <RealPlants site={s} r={r} />
-      <TreeLine r={r} />
+      <RealGround r={r} fp={s.footprint} />
+      <RealPlants r={r} fp={s.footprint} />
     </RealOr>
     {s.gravel.map((r, i) => <Rect key={i} r={r} y={0.03} mat={mats.gravel} />)}
     {s.path && <Rect r={s.path} y={0.04} mat={mats.paving} />}
@@ -150,7 +150,7 @@ export const ArchSiteLook = memo(function ArchSiteLook({ scene }: { scene: Scene
 /** Azimuth of the sun in belfast_sunset_puresky.hdr (Poly Haven, CC0), atan2(z, x) in the file's frame; the sky is turned so it lies where the key light is. */
 export const DUSK_SUN_AZ = 0.754;
 /** Linear colour of the haze under that sky's horizon: the fog, so the far ground melts into the sky instead of ending in a line. */
-export const DUSK_FOG: [number, number, number] = [0.62, 0.52, 0.55];
+export const DUSK_FOG: [number, number, number] = [0.42, 0.39, 0.43];
 type LookProps = { golden?: boolean /* v11: the golden-hour sky is the backdrop (no sun study running) */; sun: [number, number, number]; night: boolean; reach: number; effects: { ao: boolean; bloom: number; msaa: number } };
 /** Light and sky. By default a golden-hour Poly Haven HDRI is the visible sky, the image light and what the glass reflects, with the key light
  *  turned to match it. With the sun study on (or at night) it falls back to the physical sky dome and the day HDRI. Soft shadows fitted to the
@@ -174,14 +174,16 @@ export function ArchLook({ sun, night, reach, effects, golden = false }: LookPro
     {/* tier 1+: a real Poly Haven sky (CC0) is the light and what the glass reflects; tier 0, night and while loading: the drawn sky */}
     {night ? procEnv : dusk ? <RealOr fallback={<><Sky {...sky} />{procEnv}</>}><AssetEnv id="hdriDusk" background intensity={0.55} rotation={turn} blur={0.03} sky={0.7} /></RealOr>
       : <RealOr fallback={procEnv}><AssetEnv id="hdriDay" intensity={low ? 0.5 : 0.75} /></RealOr>}
-    <hemisphereLight args={low ? ["#ffd9b8", "#5e5038", night ? 0.04 : 0.2] : ["#dfe9f5", "#6b7a52", night ? 0.04 : 0.15]} />
-    <directionalLight position={pos} intensity={night ? 0.05 : low ? 4.2 : 3.4} color={low ? "#ffc58f" : "#fff5e6"} castShadow
-      shadow-mapSize={shadowMap(effects.bloom)} shadow-bias={-0.0002} shadow-normalBias={0.03} shadow-radius={4}
+    <hemisphereLight args={low ? ["#a9bddc", "#7a6a42", night ? 0.04 : 0.45] : ["#dfe9f5", "#6b7a52", night ? 0.04 : 0.15]} />
+    <directionalLight position={pos} intensity={night ? 0.05 : low ? 6.2 : 3.4} color={low ? "#ffbb80" : "#fff5e6"} castShadow
+      shadow-mapSize={shadowMap(effects.bloom)} shadow-bias={-0.0004} shadow-normalBias={0.045} shadow-radius={4}
       shadow-camera-left={-reach} shadow-camera-right={reach} shadow-camera-top={reach} shadow-camera-bottom={-reach} shadow-camera-near={1} shadow-camera-far={reach * 4} />
     {fx && <EffectComposer multisampling={0} enableNormalPass={false}>
       {effects.ao ? <N8AO halfRes={effects.bloom < 0.8} aoRadius={1.6} distanceFalloff={0.8} intensity={2.2} quality={effects.bloom < 0.8 ? "performance" : "medium"} /> : <></>}
       {effects.bloom > 0 ? <Bloom intensity={0.2 * effects.bloom} luminanceThreshold={1.15} luminanceSmoothing={0.12} mipmapBlur /> : <></>}
       <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+      <HueSaturation saturation={golden ? 0.06 : 0} />
+      <Vignette eskil={false} offset={0.28} darkness={golden ? 0.45 : 0} />
       {effects.msaa ? <SMAA /> : <></>}
     </EffectComposer>}
   </>;
