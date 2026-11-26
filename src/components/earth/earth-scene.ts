@@ -19,7 +19,7 @@ import { createEe3d, EE3D_CSS } from "./earth-ee3d";
 import { clampAltAt } from "@/lib/earth-ee3d-pure";
 import { GROUND_PX, GROUND_TILES, STYLE, buildingEdge, coverCircle, drawGround, edgeAlpha, groundFade, metresPerUnit, withOpenSea, EXT, type Ctx, type Ground } from "@/lib/earth-ground-pure";
 export type { EarthData };
-export type EarthOpts = { tileUrl: (k: TileKind, z: number, x: number, y: number) => string; sunMs?: number; dpr?: number; onTown?: (t: TownNews) => void; rightInset?: () => number; zones?: () => Rect[]; topLimit?: () => number; preserve?: boolean; buildingsUrl?: (x: number, y: number) => string; home?: { lon: number; lat: number; name: string;
+export type EarthOpts = { tileUrl: (k: TileKind, z: number, x: number, y: number) => string; sunMs?: number; dpr?: number; onTown?: (t: TownNews) => void; rightInset?: () => number; zones?: () => Rect[]; topLimit?: () => number; preserve?: boolean; buildingsUrl?: (x: number, y: number) => string; home?: { lon: number; lat: number; name: string };
   /** Estonia close-up from Land Board data (earth-ee3d.ts): LOD2 tile meshes and orthophoto tiles. */
   eeMeshUrl?: (x: number, y: number) => string; eeOrthoUrl?: (z: number, x: number, y: number) => string; eeMaxTiles?: number };
 

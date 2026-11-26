@@ -224,7 +224,7 @@ export function createEe3d(o: EeOpts) {
   function fitStage() {
     const now = performance.now(); if (now - fitAt < 500) return; fitAt = now;
     const st = document.querySelector(".intel-stage")?.getBoundingClientRect(), hb = o.hud.getBoundingClientRect();
-    const b = st && st.width > 0 ? [st.top - hb.top, hb.right - st.right, hb.bottom - st.bottom, st.left - hb.left].map((v) => Math.max(0, v)) : [0, 0, 0, 0];
+    const b = st && st.width > 0 ? [st.top - hb.top, hb.right - st.right, hb.bottom - st.bottom, st.left - hb.left].map((v) => Math.max(0, v)) : [70, 0, 0, 0]; // no stage (stills, phones): below the title, like topLimit
     Object.assign(hud.style, { top: `${b[0]}px`, right: `${b[1]}px`, bottom: `${b[2]}px`, left: `${b[3]}px` });
   }
   function hudFrame(p: Pose) {
