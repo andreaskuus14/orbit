@@ -4,7 +4,8 @@
 
 export type WorldId = "gamedev" | "memory" | "arch" | "life" | "vault" | "studio" | "agents";
 export type AssetId = "fort" | "tree" | "rocks" | "cliff" | "shrub" | "fern" | "flower" | "moonRock"
-  | "lantern" | "chest" | "hdriNight" | "hdriDay";
+  | "lantern" | "chest" | "hdriNight" | "hdriDay"
+  | "grassD" | "grassN" | "cliffD" | "cliffN" | "mtnD" | "mtnN" | "mtnH" | "waterN";
 
 export type Asset = { file: string; source: string; worlds: WorldId[] };
 
@@ -21,6 +22,15 @@ export const ASSETS: Record<AssetId, Asset> = {
   chest: { file: "models/metal_tool_chest.glb", source: "https://polyhaven.com/a/metal_tool_chest", worlds: ["vault"] },
   hdriNight: { file: "hdri/moonless_golf.hdr", source: "https://polyhaven.com/a/moonless_golf", worlds: ["memory"] },
   hdriDay: { file: "hdri/kloofendal_48d_partly_cloudy_puresky.hdr", source: "https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky", worlds: ["arch"] },
+  // v6 textures (512 px webp): ground and cliff rock for the islands, mountain rock + its height for ARCH, water ripples.
+  grassD: { file: "textures/leafy_grass_diff.webp", source: "https://polyhaven.com/a/leafy_grass", worlds: ["gamedev"] },
+  grassN: { file: "textures/leafy_grass_nor.webp", source: "https://polyhaven.com/a/leafy_grass", worlds: ["gamedev"] },
+  cliffD: { file: "textures/rock_face_03_diff.webp", source: "https://polyhaven.com/a/rock_face_03", worlds: ["gamedev"] },
+  cliffN: { file: "textures/rock_face_03_nor.webp", source: "https://polyhaven.com/a/rock_face_03", worlds: ["gamedev"] },
+  mtnD: { file: "textures/aerial_rocks_02_diff.webp", source: "https://polyhaven.com/a/aerial_rocks_02", worlds: ["arch"] },
+  mtnN: { file: "textures/aerial_rocks_02_nor.webp", source: "https://polyhaven.com/a/aerial_rocks_02", worlds: ["arch"] },
+  mtnH: { file: "textures/aerial_rocks_02_height.webp", source: "https://polyhaven.com/a/aerial_rocks_02", worlds: ["arch"] },
+  waterN: { file: "textures/waternormals.webp", source: "https://github.com/mrdoob/three.js/blob/dev/examples/textures/waternormals.jpg", worlds: ["gamedev", "life", "arch"] },
 };
 
 /** Whole folder may not pass this (bytes); one world's own files may not pass PER_WORLD. */

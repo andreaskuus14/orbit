@@ -30,6 +30,7 @@ import { PeoplePanel, usePeople } from "./PeopleRing";
 import { MEMORY_SHEET_EVENT, MemoryShell } from "./MemoryShell";
 import { Button } from "./ui";
 import dynamic from "next/dynamic";
+import { crystalCluster } from "@/lib/world-surfaces-pure";
 import { ChipLayer, ChipProjector, Crystals, Motes, PlanetGround, WorldLights, useChipRig, type Chip, type Inst } from "./world-kit";
 import { memoryClusters } from "@/lib/planet-scenes-pure";
 import { AssetEnv, AssetMany, RealOr } from "./world-assets";
@@ -141,6 +142,7 @@ const sparkFrag = /* glsl */ `
   void main() { vec2 p = gl_PointCoord * 2.0 - 1.0; float a = max(1.0 - dot(p, p), 0.0);
     gl_FragColor = vec4(clamp(vC * 1.3 * a * a * a, 0.0, 1.2), 1.0); }`;
 
+const SPIRE = 1.7;
 /** v3: the memories as a crystal city on a planet under the star map: one district per kind on its own plateau, a spire at the
  *  weighted centre, glowing threads from each district to the spire and its nearest neighbours. ~6 draw calls in all. */
 function MemoryGround({ items, reduced }: { items: Star[]; reduced: boolean }) {
@@ -148,8 +150,10 @@ function MemoryGround({ items, reduced }: { items: Star[]; reduced: boolean }) {
   const city = useMemo(() => memoryCity(clusters, ground), [clusters, ground]);
   const crystals = useMemo(() => [
     ...clusters.flatMap((c) => { const col = new THREE.Color(kindColor(c.kind)).lerp(new THREE.Color("#7c3aed"), 0.55).lerp(new THREE.Color("#f59e0b"), 0.12).getStyle();
-      return c.crystals.map((k, i) => ({ at: [k.at[0], ground + 0.5, k.at[2]] as [number, number, number], h: k.h * 0.8, w: k.h * 0.26, tilt: k.tilt, color: col, glow: i ? 1 : 1.7 })); }),
-    { at: [city.spire.x, ground + 0.6, city.spire.z] as [number, number, number], h: city.spire.h, w: city.spire.h * 0.22, color: "#c084fc", glow: 2 },
+      // v6: each crystal grows as a cluster (smaller ones leaning out round its foot), the district's big one gets more
+      return c.crystals.flatMap((k, i) => crystalCluster({ at: [k.at[0], ground + 0.5, k.at[2]], h: k.h * 0.8, w: k.h * 0.26, tilt: k.tilt, color: col, glow: i ? 1 : 1.7 }, i * 13 + c.kind.length, i ? 2 : 4)); }),
+    // the spire: much taller than v5 (x SPIRE), ringed by its own cluster
+    ...crystalCluster({ at: [city.spire.x, ground + 0.6, city.spire.z], h: city.spire.h * SPIRE, w: city.spire.h * 0.2, color: "#c084fc", glow: 2 }, 7, 6),
     ...city.crown.map((k) => ({ at: [k.at[0], ground + 0.6, k.at[2]] as [number, number, number], h: k.h, w: k.h * 0.28, color: "#a855f7", glow: 1.3 })),
   ], [clusters, ground, city]);
   const threads = useMemo(() => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(city.threads.flat(2), 3)); return g; }, [city]);
@@ -171,7 +175,7 @@ function MemoryGround({ items, reduced }: { items: Star[]; reduced: boolean }) {
     <instancedMesh ref={rings} args={[undefined, undefined, n]}><ringGeometry args={[0.94, 1, 48]} /><meshBasicMaterial color={new THREE.Color("#c4b5fd").multiplyScalar(1.6)} toneMapped={false} /></instancedMesh>
     <lineSegments geometry={threads}><lineBasicMaterial color={new THREE.Color("#a78bfa").multiplyScalar(2)} transparent opacity={0.7} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} /></lineSegments>
     <mesh position={[city.spire.x, ground + 0.35, city.spire.z]} rotation-x={-Math.PI / 2}><ringGeometry args={[2.3, 2.45, 64]} /><meshBasicMaterial color={new THREE.Color("#e9d5ff").multiplyScalar(1.8)} toneMapped={false} /></mesh>
-    <pointLight position={[city.spire.x, ground + city.spire.h * 0.7, city.spire.z]} intensity={40} distance={26} decay={1.5} color="#e9b8ff" />
+    <pointLight position={[city.spire.x, ground + city.spire.h * SPIRE * 0.6, city.spire.z]} intensity={40} distance={26} decay={1.5} color="#e9b8ff" />
     <Crystals items={crystals} reduced={reduced} intensity={1.5} />
     <group position={[0, ground, 0]}><Motes count={reduced ? 120 : 320} color="#c4b5fd" spread={30} height={10} reduced={reduced} /></group>
   </group>);
