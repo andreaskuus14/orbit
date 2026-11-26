@@ -7,14 +7,14 @@ import { useThree } from "@react-three/fiber";
 import { Line } from "@react-three/drei";
 import { archFootprint, metres, rng } from "@/lib/worlds-v3-pure";
 import type { Chip, Inst } from "./world-kit";
-import { AssetEnv, AssetMany, RealOr } from "./world-assets";
+import { AssetMany, RealOr } from "./world-assets";
 import { Mountains, Water, type Range } from "./world-surfaces";
 
 export const LIME = "#b6f23a";
 type P = { kind: string; x: number; y: number; z: number; w: number; d: number; h: number };
 
 /** Rock under the lawn disc (radius r), the fjord far below, a ring of snow-capped mountains. */
-export function ArchCliff({ r }: { r: number }) {
+export function ArchCliff({ r, noRock = false }: { r: number; noRock?: boolean }) {
   const rock = useMemo(() => { const g = new THREE.CylinderGeometry(r, r * 0.55, r * 0.7, 28, 4, true); g.translate(0, -r * 0.35 - 0.02, 0);
     const p = g.attributes.position, rand = rng(13);
     for (let i = 0; i < p.count; i++) { const top = p.getY(i) > -0.1; const k = top ? 1 : 0.85 + rand() * 0.3; p.setX(i, p.getX(i) * k); p.setZ(i, p.getZ(i) * k); }
@@ -36,7 +36,7 @@ export function ArchCliff({ r }: { r: number }) {
   const ranges = useMemo(() => Array.from({ length: 6 }, (_, i): Range => { const a = (i / 6) * Math.PI * 2 + 0.4, d = r * 9.5;
     return { at: [Math.cos(a) * d, -r * 0.92, Math.sin(a) * d], w: r * 11, d: r * 4.5, h: r * (1.3 + (i % 3) * 0.35), ry: -a + Math.PI / 2, seed: i * 1.7 + 0.3 }; }), [r]);
   return <group>
-    <mesh geometry={rock} castShadow receiveShadow><meshStandardMaterial color="#4d4640" roughness={0.95} flatShading side={THREE.DoubleSide} /></mesh>
+    {!noRock && <mesh geometry={rock} castShadow receiveShadow><meshStandardMaterial color="#4d4640" roughness={0.95} flatShading side={THREE.DoubleSide} /></mesh>}
     <RealOr fallback={<mesh rotation-x={-Math.PI / 2} position={[0, -r * 0.9, 0]}><circleGeometry args={[r * 12, 64]} /><meshStandardMaterial color="#20384a" metalness={0.6} roughness={0.12} /></mesh>}>
       {/* v6: the fjord as real water (ripples, sky reflection, darker in the deep middle) */}
       <Water position={[0, -r * 0.9, 0]} scale={[r * 12, r * 12, 1]} deep="#0d2a3a" shallow="#2d6670" ripple={0.9 / r} foam={0} reduced={false} />
@@ -47,7 +47,6 @@ export function ArchCliff({ r }: { r: number }) {
     </>}>
       <AssetMany id="cliff" items={real.walls} uniform={false} />
       <Mountains ranges={ranges} />
-      <AssetEnv id="hdriDay" intensity={0.5} />
     </RealOr>
   </group>;
 }

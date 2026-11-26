@@ -22,3 +22,11 @@ test("low tier downloads nothing; fit and fort pieces", () => {
   assert.deepEqual(fitScale([0, 1, 1], [1, 1, 1], false), [1, 1, 1]);
   assert.match(fortPiece("tower"), /tower_round/); assert.match(fortPiece("hall"), /thick_corner/);
 });
+
+test("ARCH v7: real trees, plants, grass and house skin are in the arch set and stay under its budget", () => {
+  const ids = assetsFor("arch");
+  for (const id of ["tree", "shrub", "fern", "flower", "rocks", "grassD", "grassN", "cliffD", "cliffN", "woodD", "woodN", "woodR", "roofD", "roofN", "roofR", "stuccoD", "stuccoN", "stuccoR"] as AssetId[]) assert.ok(ids.includes(id), id);
+  const bytes = ids.reduce((s, id) => s + size(id), 0);
+  assert.ok(bytes <= PER_WORLD, `arch ${bytes}`);
+  for (const id of ids) if (/^(wood|roof|stucco)/.test(id)) assert.ok(size(id) < 100_000, `${id} stays small`); // textures are 512 px webp
+});

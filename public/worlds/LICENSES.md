@@ -20,6 +20,9 @@ Models were re-encoded (glTF binary, meshopt geometry, 512 px webp textures, sim
 | textures/leafy_grass_diff.webp, textures/leafy_grass_nor.webp | https://polyhaven.com/a/leafy_grass | CC0 1.0 |
 | textures/rock_face_03_diff.webp, textures/rock_face_03_nor.webp | https://polyhaven.com/a/rock_face_03 | CC0 1.0 |
 | textures/aerial_rocks_02_diff.webp, textures/aerial_rocks_02_nor.webp, textures/aerial_rocks_02_height.webp | https://polyhaven.com/a/aerial_rocks_02 | CC0 1.0 |
+| textures/cedar_planks_diff.webp, textures/cedar_planks_nor.webp, textures/cedar_planks_rough.webp | https://polyhaven.com/a/japanese_cedar_planks | CC0 1.0 |
+| textures/corrugated_iron_02_diff.webp, textures/corrugated_iron_02_nor.webp, textures/corrugated_iron_02_rough.webp | https://polyhaven.com/a/corrugated_iron_02 | CC0 1.0 |
+| textures/white_stucco_diff.webp, textures/white_stucco_nor.webp, textures/white_stucco_rough.webp | https://polyhaven.com/a/white_stucco | CC0 1.0 |
 | textures/waternormals.webp | https://github.com/mrdoob/three.js/blob/dev/examples/textures/waternormals.jpg | MIT (three.js, https://github.com/mrdoob/three.js/blob/dev/LICENSE): commercial use fine, keep the notice |
 
 Textures are the 1k Poly Haven maps (diffuse, OpenGL normal, displacement as height) re-encoded to 512 px webp (height 256 px grey).
