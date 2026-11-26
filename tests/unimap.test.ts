@@ -49,7 +49,7 @@ test("borderLines: close points are merged, the ring's last point is kept", () =
   const dense: [number, number][] = Array.from({ length: 101 }, (_, i) => [i * 0.001, 0]);
   const b = borderLines([{ name: "X", id: "x", rings: [dense] }], {}, 0.04);
   assert.ok(b.segments < 10 && b.segments >= 2);
-  assert.equal(b.lonlat[b.lonlat.length - 2], Math.fround(dense[100][0]));
+  assert.ok(Math.abs(b.lonlat[b.lonlat.length - 2] - 0.1) <= 0.04, "ends at the ring's end, snapped to the grid");
 });
 
 const h = (name: string, lon: number, lat: number, n: number, urls: string[]): Hotspot => ({ name, lon, lat, count: n, stories: urls.map((u) => ({ title: `${name} ${u}`, url: u, source: `s-${name}-${u}`, published_at: null })) } as unknown as Hotspot);
@@ -74,4 +74,18 @@ test("markerDeg: small, grows with outlets, capped (a big story is not a huge ri
   assert.ok(markerDeg(1) < markerDeg(9) && markerDeg(9) < markerDeg(30));
   assert.equal(markerDeg(30), markerDeg(400));
   assert.ok(markerDeg(30) < 4 && markerDeg(0) < 1.5);
+});
+
+test("borderLines: a border two countries share is drawn once, with the busier country's weight", () => {
+  const shared: [number, number][] = [[10, 50], [10, 51], [10, 52]];
+  const a = { name: "A", id: "1", rings: [[...shared, [9, 52] as [number, number]]] }, b = { name: "B", id: "2", rings: [[[11, 52] as [number, number], ...shared.slice().reverse()]] };
+  const one = borderLines([a, b], { A: 1 }, 0.04), solo = borderLines([a], { A: 1 }, 0.04);
+  assert.ok(one.segments < solo.segments + 3 + 2, "no doubled line");
+  const sharedSegs = [...one.lonlat].map((_, i) => i).filter((i) => i % 4 === 0 && one.lonlat[i] === 10 && one.lonlat[i + 2] === 10);
+  assert.equal(sharedSegs.length, 2, "the two shared segments exist once each");
+  assert.ok(sharedSegs.every((i) => one.weight[i / 4] === Math.fround(newsWeight(1, 1))));
+});
+test("earthWeather: every news system gets a swirl, storms flagged", () => {
+  const w = earthWeather([h("Ukraine", 31, 49, 30, ["a", "b", "c", "d", "e", "f"]), h("Chile", -71, -33, 1, ["z"])]);
+  assert.ok(w.swirls.length >= 1 && w.swirls.every((s) => Number.isFinite(s.lon) && /^#/.test(s.color) && s.outlets >= 1));
 });

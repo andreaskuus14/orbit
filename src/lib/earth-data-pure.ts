@@ -10,6 +10,8 @@ export type EarthArc = { from: { lon: number; lat: number }; to: { lon: number; 
 export type EarthWeather = {
   isobars: { hpa: number; lines: [number, number][][] }[];
   centres: { kind: "H" | "L"; lon: number; lat: number; hpa: number; label: string }[];
+  /** a spiral per news system (storm = 5+ outlets), in its region colour */
+  swirls: { lon: number; lat: number; outlets: number; color: string; storm: boolean }[];
   fronts: { from: { lon: number; lat: number }; to: { lon: number; lat: number }; type: FrontType; title: string }[];
 };
 export type EarthData = { rings: EarthRing[]; arcs: EarthArc[]; towns: TownNews[]; timeline: { title: string; time: string; source: string }[];
@@ -22,7 +24,8 @@ export function earthWeather(hs: Hotspot[]): EarthWeather {
     ...highs(w.systems).map((h) => ({ kind: "H" as const, lon: h.lon, lat: h.lat, hpa: w.hpa[`H:${h.region}`], label: h.region })),
   ];
   const fr = w.fronts.flatMap((f) => { const a = at.get(f.from), b = at.get(f.to); return a && b ? [{ from: { lon: a.lon, lat: a.lat }, to: { lon: b.lon, lat: b.lat }, type: frontType(f, w.systems), title: f.title }] : []; });
-  return { isobars: w.isobars.map((i) => ({ hpa: i.hpa, lines: i.lines })), centres, fronts: fr };
+  const swirls = w.systems.slice(0, 10).map((s) => ({ lon: s.lon, lat: s.lat, outlets: s.outlets, color: s.color, storm: s.kind === "storm" }));
+  return { isobars: w.isobars.map((i) => ({ hpa: i.hpa, lines: i.lines })), centres, swirls, fronts: fr };
 }
 
 const hhmm = (iso: string | null, tz = "Europe/Tallinn") => {

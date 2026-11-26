@@ -10,6 +10,7 @@ import { countryByName, findCountry } from "@/lib/countries-pure";
 import { useManual } from "./planet-manual";
 import EarthView from "./earth/EarthView";
 import IntelBar from "./intel/IntelBar";
+import NewsWeatherLayer from "./news-weather/NewsWeatherLayer";
 import { escBack, readWeather, WEATHER_KEY, type Place } from "@/lib/intel-view-pure";
 import type { QualityMode } from "@/lib/quality-pure";
 
@@ -31,6 +32,8 @@ export default function NewsGlobe({ reduced, focus: goTo, paused = false }: { on
   const [shot, setShot] = useState<{ place: Place; n: number } | null>(null);
   const [wx, setWx] = useState(() => { try { return readWeather((k) => localStorage.getItem(k)); } catch { return false; } });
   const [failed, setFailed] = useState(false);
+  const [brief, setBrief] = useState(false); // the spoken news-weather tour, over the map; the bar stays on top
+  const noop = useCallback(() => {}, []);
   const onTab = useCallback((id: Place) => { setPlace(id); setShot((s) => ({ place: id, n: (s?.n ?? 0) + 1 })); }, []);
   const onWeather = useCallback(() => setWx((on) => { try { localStorage.setItem(WEATHER_KEY, on ? "off" : "on"); } catch { /* this tab only */ } return !on; }), []);
   // Simple page: the globe's own search, country list and regions are tools (behind More in the INTELLIGENCE panel); the public demo has no panel, so it keeps them.
@@ -119,17 +122,17 @@ export default function NewsGlobe({ reduced, focus: goTo, paused = false }: { on
 
   // Esc, one step back: a country card closes; any close-up flies back to the whole Earth. From the whole Earth it falls through
   // to ORBIT's own Esc (closes the planet). Not while typing or in a dialog.
-  const escRef = useRef({ selected, place });
-  escRef.current = { selected, place };
+  const escRef = useRef({ selected, place, brief });
+  escRef.current = { selected, place, brief };
   useEffect(() => {
     if (paused) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       const el = e.target as HTMLElement | null;
       if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return;
-      if (document.querySelector("dialog[open], :popover-open, [aria-modal=true]")) return;
+      if (document.querySelector("dialog[open], :popover-open, [aria-modal=true], [data-news-weather][data-tour]")) return; // the tour has its own Esc
       const c = escRef.current;
-      if (c.selected) { setSelected(null); } else {
+      if (c.brief) { setBrief(false); } else if (c.selected) { setSelected(null); } else {
         const b = escBack(c.place);
         if (!b) return;
         onTab(b);
@@ -176,8 +179,9 @@ export default function NewsGlobe({ reduced, focus: goTo, paused = false }: { on
           onCountry={setSelected} onBack={() => setSelected(null)} backLabel={search ? "Results" : "All countries"} />
       )}
 
-      <EarthView on={!failed} shot={shot} weather={wx} focus={focusPt} reduced={reduced} paused={paused} onPlace={setPlace} onFail={() => setFailed(true)} />
-      <IntelBar place={place} onTab={onTab} weather={wx} onWeather={onWeather} />
+      <EarthView on={!failed} shot={shot} weather={wx} focus={focusPt} reduced={reduced} paused={paused || brief} onPlace={setPlace} onFail={() => setFailed(true)} />
+      <NewsWeatherLayer on={brief} reduced={reduced} paused={paused} onActive={noop} />
+      <IntelBar place={place} onTab={onTab} weather={wx} onWeather={onWeather} brief={brief} onBrief={() => setBrief((b) => !b)} />
     </div>
   );
 }

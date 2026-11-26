@@ -12,7 +12,7 @@ export type EarthViewDetail = { lon: number; lat: number; alt: number };
 
 const fmtAlt = (a: number) => (a >= 100 ? `${Math.round(a).toLocaleString("en")} km` : `${a.toFixed(1)} km`);
 
-export default function IntelBar({ place, onTab, weather, onWeather }: { place: Place; onTab: (id: Place) => void; weather: boolean; onWeather: () => void }) {
+export default function IntelBar({ place, onTab, weather, onWeather, brief, onBrief }: { place: Place; onTab: (id: Place) => void; weather: boolean; onWeather: () => void; brief: boolean; onBrief: () => void }) {
   const { t, lang } = useT();
   const [pos, setPos] = useState<EarthViewDetail | null>(null);
   useEffect(() => {
@@ -32,6 +32,7 @@ export default function IntelBar({ place, onTab, weather, onWeather }: { place: 
         ))}
         {(!pos || pos.alt > LAYER.hotspots.lo) && <button type="button" data-intel-layer="weather" aria-pressed={weather} aria-current={weather ? "true" : undefined}
           className="intel-tab intel-gap" onClick={onWeather}>{t("earth.weather")}</button>}
+        <button type="button" data-intel-layer="briefing" aria-pressed={brief} aria-current={brief ? "true" : undefined} className="intel-tab" onClick={onBrief}>{t("earth.briefing")}</button>
       </div>
       <div className="intel-status" title={t("earth.escHint")}>
         {where && <span className="intel-where">{where}</span>}

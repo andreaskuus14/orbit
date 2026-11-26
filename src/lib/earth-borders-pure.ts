@@ -16,18 +16,24 @@ export function newsWeight(count: number, max: number): number {
  */
 export function borderLines(shapes: CountryShape[], news: Record<string, number>, minDeg = 0.04): Borders {
   const max = Math.max(1, ...Object.values(news));
+  const g = minDeg > 0 ? minDeg : 0, snap = (v: number) => (g ? Math.round(v / g) * g : v);
+  const seen = new Map<string, number>(); // a border two countries share is one line (the busier country's weight)
   const ll: number[] = [], w: number[] = [];
   for (const c of shapes) {
     if (c.name === "Antarctica") continue;
     const k = newsWeight(news[c.name] ?? 0, max);
     for (const ring of c.rings) {
-      let last = ring[0];
+      let lx = snap(ring[0][0]), ly = snap(ring[0][1]), rawX = ring[0][0];
       for (let i = 1; i < ring.length; i++) {
-        const p = ring[i], end = i === ring.length - 1;
-        if (!end && Math.hypot(p[0] - last[0], p[1] - last[1]) < minDeg) continue;
-        const cut = Math.abs(p[0] - last[0]) > 180 || (Math.abs(last[0]) > 179.9 && Math.abs(p[0]) > 179.9 && Math.sign(last[0]) === Math.sign(p[0]));
-        if (!cut) { ll.push(last[0], last[1], p[0], p[1]); w.push(k); }
-        last = p;
+        const x = snap(ring[i][0]), y = snap(ring[i][1]);
+        if (x === lx && y === ly) continue;
+        const cut = Math.abs(ring[i][0] - rawX) > 180 || (Math.abs(rawX) > 179.9 && Math.abs(ring[i][0]) > 179.9 && Math.sign(rawX) === Math.sign(ring[i][0]));
+        rawX = ring[i][0];
+        if (!cut) {
+          const a = `${lx.toFixed(3)},${ly.toFixed(3)}`, b = `${x.toFixed(3)},${y.toFixed(3)}`, key = a < b ? `${a}|${b}` : `${b}|${a}`, at = seen.get(key);
+          if (at === undefined) { seen.set(key, w.length); ll.push(lx, ly, x, y); w.push(k); } else if (k > w[at]) w[at] = k;
+        }
+        lx = x; ly = y;
       }
     }
   }
