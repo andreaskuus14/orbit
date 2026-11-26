@@ -19,13 +19,14 @@ export function zoomLevel(dist: number, min: number, max: number, prev: Lod = 0)
 }
 
 /**
- * Does a chip show? Overview chips (lod 0) always do; finer chips need the zoom level, and single items (lod 2) also
+ * Does a chip show? Overview chips (lod 0) show until you are down at single items; finer chips need the zoom level, and single items (lod 2) also
  * need to be near the camera, so zooming toward one area reveals that area's items only.
  * near: camera-to-anchor distance; reach: how close a single item must be (world units).
  */
 export function chipShows(lod: Lod | undefined, level: Lod, near: number, reach: number): boolean {
   const l = lod ?? 0;
   if (l > level) return false;
+  if (level - l >= 2) return false; // at item level the whole-world counts step aside (declutter)
   if (l === 2) return near <= reach;
   return true;
 }
@@ -45,4 +46,4 @@ export function flyTo(lod: Lod | undefined, min: number, max: number): number {
 }
 
 /** Item reach for lod-2 chips: a share of the zoom range, never under the min distance. */
-export const itemReach = (min: number, max: number) => Math.max(min * 1.6, min + (max - min) * 0.35);
+export const itemReach = (min: number, max: number) => Math.max(min * 1.6, min + (max - min) * 0.2);

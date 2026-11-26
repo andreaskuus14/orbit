@@ -110,6 +110,7 @@ for (const id of IDS) {
     if (!hit) { console.log(`${id}: no chip ${pre}`); break; }
     await page.waitForTimeout(Number(process.env.WV_ZWAIT || 6000));
     await page.screenshot({ path: `${OUT}/${TAG}-${id}-${i ? "zoom" : "mid"}.png`, timeout: 120_000 });
+    if (process.env.WV_DEBUG) console.log(await page.evaluate(() => { const e = document.querySelector(".wchip-focus"); return e ? `focus ${e.dataset.id} op=${getComputedStyle(e).opacity} ${e.style.transform} lod=${e.parentElement?.dataset.lod}` : "no focus chip"; }));
   }
   console.log(`${id}: shot${errs.length ? ` (page errors: ${errs.slice(0, 2).join(" | ")})` : ""}`);
   await ctx.close();

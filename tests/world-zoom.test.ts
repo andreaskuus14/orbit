@@ -22,9 +22,10 @@ test("zoom level holds near a border (no flicker)", () => {
   assert.equal(zoomLevel(border, 6, 30, 0), 0);
 });
 
-test("overview chips always show; items only when zoomed in and near", () => {
+test("overview chips show until item level; items only when zoomed in and near", () => {
   assert.ok(chipShows(0, 0, 50, 5));
-  assert.ok(chipShows(undefined, 2, 50, 5));
+  assert.ok(chipShows(0, 1, 50, 5));
+  assert.ok(!chipShows(undefined, 2, 50, 5));
   assert.ok(!chipShows(1, 0, 1, 5));
   assert.ok(chipShows(1, 1, 50, 5));
   assert.ok(!chipShows(2, 1, 1, 5));
@@ -42,5 +43,5 @@ test("a click flies one level deeper", () => {
   assert.ok(d0 > d1 && d1 > d2 && d2 === 6);
   assert.equal(zoomLevel(d0, 6, 30), 1);
   assert.equal(zoomLevel(d1, 6, 30), 2);
-  assert.ok(itemReach(6, 30) >= 9.6);
+  assert.ok(itemReach(6, 30) >= 9.6 && itemReach(6, 30) < 12);
 });

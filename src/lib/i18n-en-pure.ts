@@ -971,7 +971,7 @@ const BASE = {
   "mp.a.title": "Add a memory", "mp.m.add": "Add with details", "mp.m.map": "Map options", "mp.m.timeline": "Timeline", "mp.m.people": "People", "mp.m.mapOnly": "Only the map",
   "mp.m.knows": "What ORBIT knows", "mp.m.review": "Review", "mp.m.all": "All tools", "mp.show": "Show Memory",
   "mp.map.title": "Map", "mp.map.project": "Project", "mp.map.all": "All projects", "mp.map.replay": "Replay", "mp.map.pause": "Pause", "mp.map.now": "Now", "mp.map.live": "Now · live",
-  "mp.map.day": "Day in your memory history", "mp.map.time": "Memory timeline", "mp.map.legend": "Colours", "mp.map.ring": "Ring: learned by CORE",
+  "w8.saved": "Saved", "mp.map.day": "Day in your memory history", "mp.map.time": "Memory timeline", "mp.map.legend": "Colours", "mp.map.ring": "Ring: learned by CORE",
   "mp.map.help": "Close stars are similar memories. Lines are links. Drag to turn, scroll to zoom, click a star to open it.", "mp.map.clusters": "Groups", "mp.map.bridge": "“{t}” joins {a} and {b}",
   "mp.k.note": "Note", "mp.k.idea": "Idea", "mp.k.link": "Link", "mp.k.document": "Document", "mp.k.image": "Image", "mp.k.research": "Research", "mp.k.conversation": "Conversation",
   "mp.k.project": "Project", "mp.k.preference": "Preference", "mp.k.decision": "Decision", "mp.k.goal": "Goal", "mp.k.journal": "Journal", "mp.k.episode": "Episode",
