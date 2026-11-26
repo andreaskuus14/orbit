@@ -213,11 +213,19 @@ export function Plate({ r, h = 0.35, y = 0, color = "#151a24", rim, metal = 0.7,
 
 /* ---------- crystals ---------- */
 
-/** Hexagonal crystal: prism with a pointed tip, base at y = 0, height 1. */
+/** Quartz-like crystal (v6): an uneven six-sided prism, a little narrower at the top, ending in a termination of
+ *  unequal faces with an off-centre tip, flat facets. Base at y = 0, height 1, radius ~0.3. */
 export function crystalGeometry() {
-  const g = new THREE.LatheGeometry([new THREE.Vector2(0, 0), new THREE.Vector2(0.28, 0.02), new THREE.Vector2(0.3, 0.72), new THREE.Vector2(0, 1)], 6);
-  g.computeVertexNormals();
-  return g.toNonIndexed();
+  const R = [0.3, 0.25, 0.31, 0.27, 0.29, 0.24], ring = (y: number, k: number, dx = 0, dz = 0) => R.map((r, i) => { const a = (i / 6) * Math.PI * 2;
+    return new THREE.Vector3(Math.cos(a) * r * k + dx, y + (i % 2 ? 0.02 : -0.015) * (y > 0.5 ? 1 : 0), Math.sin(a) * r * k + dz); });
+  const b0 = ring(0, 0.92), b1 = ring(0.66, 0.86), b2 = ring(0.8, 0.52, 0.03, -0.02), tip = new THREE.Vector3(0.05, 1, -0.03), bot = new THREE.Vector3(0, -0.04, 0);
+  const pos: number[] = [], tri = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3) => pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+  for (let i = 0; i < 6; i++) { const j = (i + 1) % 6;
+    tri(b0[i], b1[j], b0[j]); tri(b0[i], b1[i], b1[j]); // prism side
+    tri(b1[i], b2[j], b1[j]); tri(b1[i], b2[i], b2[j]); // bevel
+    tri(b2[i], tip, b2[j]); tri(b0[j], bot, b0[i]); } // point, base
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals();
+  return g;
 }
 export type CrystalIn = { at: [number, number, number]; h: number; w?: number; tilt?: [number, number]; color: string; glow?: number };
 

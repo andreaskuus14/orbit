@@ -48,8 +48,11 @@ function useParts(id: AssetId, node?: string) {
 }
 
 /** One node of a model at many places. items[].s is the target size (w, h, d); uniform keeps proportions (fit to h). */
-export function AssetMany({ id, node, items, uniform = true, shadow = true }: { id: AssetId; node?: string; items: Inst[]; uniform?: boolean; shadow?: boolean }) {
-  const { parts, size, base } = useParts(id, node);
+export function AssetMany({ id, node, items, uniform = true, shadow = true, tint }: { id: AssetId; node?: string; items: Inst[]; uniform?: boolean; shadow?: boolean;
+  /** v6: recolour leaf materials (name has "leaves"/"leaf") to this colour, keeping the texture's light and shade (blossom). */
+  tint?: string }) {
+  const { parts: raw, size, base } = useParts(id, node);
+  const parts = useMemo(() => tint ? raw.map((p) => ({ ...p, mat: Array.isArray(p.mat) ? p.mat.map((m) => tinted(m, tint)) : tinted(p.mat, tint) })) : raw, [raw, tint]);
   const refs = useRef<(THREE.InstancedMesh | null)[]>([]);
   useLayoutEffect(() => {
     const o = new THREE.Object3D(), m = new THREE.Matrix4();
@@ -58,6 +61,15 @@ export function AssetMany({ id, node, items, uniform = true, shadow = true }: { 
   }, [items, parts, size, base, uniform]);
   if (!items.length) return null;
   return <>{parts.map((p, j) => <instancedMesh key={`${j}:${items.length}`} ref={(r) => { refs.current[j] = r; }} args={[p.geo, p.mat, items.length]} castShadow={shadow} receiveShadow={shadow} />)}</>;
+}
+
+function tinted(m: THREE.Material, tint: string): THREE.Material {
+  if (!/lea(f|ves)/i.test(m.name)) return m;
+  const c = m.clone() as THREE.MeshStandardMaterial, col = new THREE.Color(tint);
+  c.onBeforeCompile = (s) => { s.uniforms.uTint = { value: col }; s.fragmentShader = s.fragmentShader.replace("#include <common>", "#include <common>\nuniform vec3 uTint;").replace("#include <map_fragment>",
+    "#include <map_fragment>\n diffuseColor.rgb = uTint * (0.55 + 2.4 * dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11)));"); };
+  c.customProgramCacheKey = () => `tint${tint}`;
+  return c;
 }
 
 /** A Poly Haven HDRI as the scene's lighting (and optionally background). */
