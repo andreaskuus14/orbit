@@ -71,3 +71,13 @@ test("ARCH shows the plate through the ground: shadow-only ground, no cosmetic t
   const s = readFileSync("src/components/ArchWorld.tsx", "utf8");
   assert.ok(s.includes("plateOn ? <shadowMaterial") && s.includes("!plateOn && <gridHelper") && s.includes("!ifc && !plateOn && <Trees"));
 });
+
+import { INTEL_GRADE, LIVE_DIM, LIVE_THIN, linesUrl, plateGrade } from "../src/lib/frame-fx-pure.ts";
+test("Intelligence plates are darker and simpler: grade, line masks on disk, live overlays dimmer and thinner", () => {
+  assert.ok(INTEL_GRADE.dark >= 0.12 && INTEL_GRADE.dark <= 0.2 && INTEL_GRADE.sat < 1 && INTEL_GRADE.vig > 0.3);
+  assert.ok(INTEL_GRADE.lineKnock >= 0.6 && INTEL_GRADE.lineKnock <= 0.7 && INTEL_GRADE.haloKnock > 0 && INTEL_GRADE.haloKnock < INTEL_GRADE.lineKnock);
+  for (const id of ["world", "europe", "estonia", "tallinn", "village"]) { assert.ok(statSync(`public${linesUrl(id)}`).size > 200); assert.equal(plateGrade(id).lines, linesUrl(id)); }
+  assert.ok(plateGrade("world").sat < plateGrade("europe").sat); assert.equal(plateGrade("europe").sat, INTEL_GRADE.sat);
+  assert.ok(Math.abs(1 - LIVE_DIM - 0.3) < 1e-9 && LIVE_THIN < 1);
+  const gl = readFileSync("src/components/intel/plate-gl.ts", "utf8"); assert.ok(gl.includes("uniform sampler2D ln") && gl.includes("warm"));
+});

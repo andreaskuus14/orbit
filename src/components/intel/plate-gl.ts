@@ -4,7 +4,7 @@ import { easeOffset, shiftFor } from "@/lib/frame-parallax-pure";
 
 const load = (src: string) => new Promise<HTMLImageElement>((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src; });
 
-const FS = `precision highp float; uniform sampler2D c, d; uniform vec2 o; uniform float k, t, sat, vig, tint; uniform vec4 st[3]; uniform vec3 sx[3]; varying vec2 v;
+const FS = `precision highp float; uniform sampler2D c, d; uniform vec2 o; uniform sampler2D ln; uniform float k, t, sat, vig, tint, lk, dk, hk; uniform vec4 st[3]; uniform vec3 sx[3]; varying vec2 v;
 float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(h(i), h(i + vec2(1., 0.)), f.x), mix(h(i + vec2(0., 1.)), h(i + vec2(1., 1.)), f.x), f.y); }
 void main(){
@@ -23,13 +23,17 @@ void main(){
   col = mix(vec3(l), col, sat * (1. - .65 * calm)); col *= 1. - .22 * calm;
   float mx = max(col.r, max(col.g, col.b)), sa = (mx - min(col.r, min(col.g, col.b))) / max(mx, .001); // the painted weather tint is the loud saturated colour: grade it down hard
   col = mix(col, vec3(l) * .92, tint * smoothstep(.28, .62, sa));
+  float L = texture2D(ln, u).r, line = smoothstep(.45, .75, L), halo = clamp(L / .38, 0., 1.) * (1. - line); // painted glow network: line trace + halo
+  col = mix(col, mix(vec3(l), col, .4) * .38, lk * line); col *= 1. - hk * halo;
+  float warm = smoothstep(.5, .85, l) * smoothstep(.04, .22, col.r - col.b); // city lights stay warm and crisp
+  col *= 1. - dk * (1. - warm);
   col *= 1. - vig * smoothstep(.35, 1.0, length(v - .5) * 1.5);
   gl_FragColor = vec4(col, 1.);
 }`;
-export type PlateFx = { storms?: { x: number; y: number; r: number; dir: number; period: number }[]; sat?: number; vig?: number; calm?: number; tint?: number };
+export type PlateFx = { storms?: { x: number; y: number; r: number; dir: number; period: number }[]; sat?: number; vig?: number; calm?: number; tint?: number; lines?: string; lineKnock?: number; haloKnock?: number; dark?: number };
 export async function createPlateGL(canvas: HTMLCanvasElement, src: string, depthSrc: string, strength: number, fx: PlateFx = {}): Promise<{ setTarget: (x: number, y: number) => void; dispose: () => void } | null> {
-  let img: HTMLImageElement, dep: HTMLImageElement;
-  try { [img, dep] = await Promise.all([load(src), load(depthSrc)]); } catch { return null; }
+  let img: HTMLImageElement, dep: HTMLImageElement, lnI: HTMLImageElement | null = null;
+  try { [img, dep, lnI] = await Promise.all([load(src), load(depthSrc), fx.lines ? load(fx.lines).catch(() => null) : Promise.resolve(null)]); } catch { return null; }
   const gl = canvas.getContext("webgl", { antialias: false, alpha: false });
   if (!gl) return null;
   const sh = (t: number, s: string) => { const o = gl.createShader(t)!; gl.shaderSource(o, s); gl.compileShader(o); return o; };
@@ -48,6 +52,8 @@ export async function createPlateGL(canvas: HTMLCanvasElement, src: string, dept
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t;
   };
   const t0 = tex(0, img), t1 = tex(1, dep);
+  const t2 = lnI ? tex(2, lnI) : (() => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255])); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; })();
+  gl.uniform1i(gl.getUniformLocation(pr, "ln"), 2); gl.uniform1f(gl.getUniformLocation(pr, "lk"), lnI ? fx.lineKnock ?? 0 : 0); gl.uniform1f(gl.getUniformLocation(pr, "hk"), lnI ? fx.haloKnock ?? 0 : 0); gl.uniform1f(gl.getUniformLocation(pr, "dk"), fx.dark ?? 0);
   gl.uniform1i(gl.getUniformLocation(pr, "c"), 0); gl.uniform1i(gl.getUniformLocation(pr, "d"), 1); gl.uniform1f(gl.getUniformLocation(pr, "k"), strength);
   const uo = gl.getUniformLocation(pr, "o"), ut = gl.getUniformLocation(pr, "t");
   gl.uniform1f(gl.getUniformLocation(pr, "sat"), fx.sat ?? 1); gl.uniform1f(gl.getUniformLocation(pr, "vig"), fx.vig ?? 0); gl.uniform1f(gl.getUniformLocation(pr, "tint"), fx.tint ?? 0);
@@ -63,5 +69,5 @@ export async function createPlateGL(canvas: HTMLCanvasElement, src: string, dept
   };
   raf = requestAnimationFrame(draw);
   void shiftFor; // the shader does the same arithmetic as shiftFor (tested in tests/frame-map.test.ts)
-  return { setTarget: (x, y) => { tgt = [x, y]; }, dispose: () => { dead = true; cancelAnimationFrame(raf); gl.deleteTexture(t0); gl.deleteTexture(t1); gl.deleteBuffer(buf); gl.deleteProgram(pr); gl.getExtension("WEBGL_lose_context")?.loseContext(); } };
+  return { setTarget: (x, y) => { tgt = [x, y]; }, dispose: () => { dead = true; cancelAnimationFrame(raf); gl.deleteTexture(t0); gl.deleteTexture(t1); gl.deleteTexture(t2); gl.deleteBuffer(buf); gl.deleteProgram(pr); gl.getExtension("WEBGL_lose_context")?.loseContext(); } };
 }

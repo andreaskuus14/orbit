@@ -10,6 +10,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { distKm, x2lon, y2lat, arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, townLinks, lerpPose, moveMs, zoneFade, type Rect, MIN_ALT, wheelZoom } from "@/lib/earth-pure";
+import { LIVE_DIM, LIVE_THIN } from "@/lib/frame-fx-pure";
 import { detailFor, detailStale } from "@/lib/intel-view-pure";
 
 import type { EarthData, EarthWeather } from "@/lib/earth-data-pure";
@@ -573,7 +574,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       const side = (2 * (4 + 9 * Math.sqrt(sw.rel)) * Math.PI) / 180;
       const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: swirlFS, uniforms: { uTex: { value: stormTex(sw.tex) }, uColor: { value: col(sw.color) }, uT: { value: 0 }, uOp: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(side, side), m); mesh.applyMatrix4(tangentAt(sw.lon, sw.lat, 0.003)); layer.add(mesh);
-      glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: sw.storm ? 1 : 0.7, kind: "wx" });
+      glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: (sw.storm ? 1 : 0.7) * LIVE_DIM, kind: "wx" });
     }
     for (const c of w.centres) label(`<b>${c.kind}</b><i>${c.hpa}</i>`, c.lon, c.lat, 0.004, LAYER.hotspots.lo, LAYER.hotspots.hi, `wx wx-${c.kind}`);
   }
@@ -610,8 +611,8 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     for (const a of d.arcs.filter((x) => distKm(x.from, x.to) < 8000).slice(0, 4)) { // short, neat arcs only: a long one would leave the globe
       const pts = arcPoints(a.from, a.to, 80, 0.07).map((p) => new THREE.Vector3(...p));
       const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: glowFS, uniforms: { uColor: { value: col(ACCENT) }, uT: { value: 0 }, uOp: { value: 1 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
-      layer.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 120, 0.0009, 5), m));
-      glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: 0.7, kind: "arc" });
+      layer.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 120, 0.0009 * LIVE_THIN, 5), m));
+      glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: 0.7 * LIVE_DIM, kind: "arc" });
     }
     buildWeather(d.weather); buildBorders(d.hot);
     const max = Math.max(1, ...d.towns.map((t) => t.count));
@@ -635,8 +636,8 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       for (const [a, b] of townLinks(townsOnly.slice(0, 30), 6)) {
         const pts = arcPoints(a, b, 48, 0).map((p) => new THREE.Vector3(...p));
         const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: glowFS, uniforms: { uColor: { value: col("#7fe4ff") }, uT: { value: 0 }, uOp: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
-        layer.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 64, 0.00022, 5), m));
-        glow.push({ m, lo: 50, hi: 2500, base: 0.35 });
+        layer.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 64, 0.00022 * LIVE_THIN, 5), m));
+        glow.push({ m, lo: 50, hi: 2500, base: 0.35 * LIVE_DIM });
       }
     }
     for (const t of d.towns.filter((x) => x.kind === "district").slice(0, 8)) {
@@ -745,7 +746,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     wxK = glide(wxK, wxOn, dt);
     fK = glide(fK, fOn, dt); fMat.uniforms.uOp.value = fK * band(alt, 40, 1e9, 0.8); fMat.uniforms.uT.value = t; fMesh.visible = fK > 0.01;
     if (fMesh.visible) fMesh.scale.setScalar(Math.max(40, alt * 0.075) / EARTH_KM * 2);
-    borderMat.uniforms.uOp.value = borderK(alt) * (1 - 0.35 * wxK); borderMat.uniforms.uRes.value.set(w, h); // weather on: the borders step back
+    borderMat.uniforms.uOp.value = borderK(alt) * LIVE_DIM * (1 - 0.35 * wxK); borderMat.uniforms.uRes.value.set(w, h); // weather on: the borders step back
     const fwd = cam.getWorldDirection(fwdV);
     timeline.style.opacity = String(band(alt, 3000, 1e9, 0.8));
     lower.style.opacity = String(band(alt, 3000, 1e9, 0.8));

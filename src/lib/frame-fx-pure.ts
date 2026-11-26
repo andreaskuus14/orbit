@@ -71,3 +71,17 @@ export function stormsFrom(painted: readonly (readonly [number, number, number])
 /** Plate calming: desaturate and darken the painted weather tint and the night glow (0 = original, 1 = full). */
 export const WORLD_GRADE = { sat: 0.85, tint: 0.55, tintK: 0.8, vig: 0.3 }; // tintK: how far the loud saturated weather colour is pulled to grey
 export type { Vec2 };
+
+// ---- Intelligence plates: darker, simpler, still detailed (owner: "the web is too bright") ----
+/** Every Intelligence plate: about 15 % darker, a little less saturated, a stronger vignette; the painted glow network
+ *  (public/ui/frames/<id>-lines.png, made by scripts/frame-scenes/lines.py) is knocked down 65 % with its halo 35 %. Warm city lights are exempt. */
+export const INTEL_GRADE = { dark: 0.15, sat: 0.92, vig: 0.38, lineKnock: 0.65, haloKnock: 0.35 } as const;
+export const linesUrl = (id: string) => `/ui/frames/${id}-lines.png`;
+/** The plate options for plate-gl: the shared grade, the world's own extras on top (its sat multiplies). */
+export function plateGrade(id: string): { sat: number; vig: number; dark: number; lineKnock: number; haloKnock: number; lines: string } {
+  const w = id === "world";
+  return { sat: INTEL_GRADE.sat * (w ? WORLD_GRADE.sat : 1), vig: Math.max(INTEL_GRADE.vig, w ? WORLD_GRADE.vig : 0), dark: INTEL_GRADE.dark, lineKnock: INTEL_GRADE.lineKnock, haloKnock: INTEL_GRADE.haloKnock, lines: linesUrl(id) };
+}
+/** Live overlays (arcs, borders, swirl glow) match: about 30 % dimmer and thinner. */
+export const LIVE_DIM = 0.7;
+export const LIVE_THIN = 0.7;
