@@ -16,10 +16,13 @@ import type { EarthData } from "@/lib/earth-data-pure";
 import { BUILDINGS_MAX_ALT, BZ, TOTAL as MAX_BUILDINGS, extrude, tilesAround, type Building } from "@/lib/earth-buildings-pure";
 import { LIGHT_GLSL } from "@/lib/earth-light-pure";
 import { createEe3d, EE3D_CSS } from "./earth-ee3d";
+import { createEeLabels, EE_LABELS_CSS } from "./earth-ee-labels";
 import { clampAltAt } from "@/lib/earth-ee3d-pure";
 import { GROUND_PX, GROUND_TILES, STYLE, buildingEdge, coverCircle, drawGround, edgeAlpha, groundFade, metresPerUnit, withOpenSea, EXT, type Ctx, type Ground } from "@/lib/earth-ground-pure";
 export type { EarthData };
 export type EarthOpts = { tileUrl: (k: TileKind, z: number, x: number, y: number) => string; sunMs?: number; dpr?: number; onTown?: (t: TownNews) => void; rightInset?: () => number; zones?: () => Rect[]; topLimit?: () => number; preserve?: boolean; buildingsUrl?: (x: number, y: number) => string; home?: { lon: number; lat: number; name: string };
+  /** Estonia close-up labels: districts and landmarks of one z13 tile (/api/earth/ee-places). */
+  eePlacesUrl?: (x: number, y: number) => string;
   /** Estonia close-up from Land Board data (earth-ee3d.ts): LOD2 tile meshes and orthophoto tiles. */
   eeMeshUrl?: (x: number, y: number) => string; eeOrthoUrl?: (z: number, x: number, y: number) => string; eeMaxTiles?: number };
 
@@ -499,6 +502,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   const scrim = document.createElement("div"); scrim.className = "earth-scrim"; hud.appendChild(scrim);
   const ee = o.eeMeshUrl && o.eeOrthoUrl ? createEe3d({ scene, hud, sun: sunV, camU: U.uCam, groundAt, meshUrl: o.eeMeshUrl, orthoUrl: o.eeOrthoUrl, maxTiles: o.eeMaxTiles }) : null;
   const labelLayer = document.createElement("div"); labelLayer.className = "earth-labels"; hud.appendChild(labelLayer);
+  const eel = ee && o.eePlacesUrl ? createEeLabels(hud, o.eePlacesUrl) : null;
   function label(html: string, lon: number, lat: number, h: number, lo: number, hi: number, cls: string, town?: TownNews) {
     const el = document.createElement("div"); el.className = `earth-label ${cls}`; el.innerHTML = html; labelLayer.appendChild(el);
     if (town && o.onTown) { el.style.pointerEvents = "auto"; el.onclick = () => o.onTown!(town); }
@@ -562,11 +566,10 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       });
     }
     layer.traverse((x) => { x.renderOrder = 10; }); // story light draws after the (transparent) terrain
-    // the timeline of today's stories, and the "Near you" list
+    eel?.setNews(d.towns); // the close-up's news pins (the Intelligence panel's "Near you" is the list: no second box here)
+    // the timeline of today's stories
     timeline.innerHTML = d.timeline.slice(0, 7).map((s) => `<div><time>${esc(s.time)}</time><span title="${esc(s.title)}">${esc(cut(s.title, 40))}</span></div>`).join("");
     const home = o.home ?? { lon: 24.7536, lat: 59.437, name: "Tallinn" };
-    const near = d.towns.filter((t) => Math.hypot((t.lon - home.lon) * Math.cos(home.lat * Math.PI / 180), t.lat - home.lat) * 111 < 40).slice(0, 6);
-    nearEl.innerHTML = `<h4>Near you</h4>` + near.map((t) => `<div><b>${esc(t.name)}</b><span>${esc(cut(t.stories[0]?.title ?? "", 44))}</span><i>${t.count}</i></div>`).join("");
     const big = d.towns.find((t) => t.kind !== "district" && t.name !== home.name) ?? d.towns[0];
     card.innerHTML = big ? `<small>${esc(big.name)} · ${big.count} local stories</small>` + big.stories.slice(0, 3).map((s) => `<p>${esc(cut(s.title, 70))}<em>${esc(s.source ?? "")}</em></p>`).join("") : "";
     if (big) cardAt = new THREE.Vector3(...toXYZ(big.lon, big.lat, 40 / EARTH_KM));
@@ -574,7 +577,6 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     lower.innerHTML = lead ? `<small>Most covered · ${lead.outlets} outlets</small><b>${esc(cut(lead.title, 80))}</b>` : "";
   }
   const timeline = document.createElement("div"); timeline.className = "earth-timeline"; hud.appendChild(timeline);
-  const nearEl = document.createElement("div"); nearEl.className = "earth-near"; hud.appendChild(nearEl);
   const card = document.createElement("div"); card.className = "earth-card"; hud.appendChild(card);
   const lower = document.createElement("div"); lower.className = "earth-lower"; hud.appendChild(lower);
   const place = document.createElement("div"); place.className = "earth-place"; hud.appendChild(place);
@@ -608,15 +610,15 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   // HUD text boxes, in host px: rings, beams and labels stay out of them
   // HUD boxes are read at most every 250 ms (reading them every frame, after the labels moved, forced a layout per frame)
   let zCache: Rect[] = [], zAt = -1e9, zKey = "";
-  const zonesNow = (nearOn: boolean, cardOn: boolean): Rect[] => {
-    const now = performance.now(), key = `${nearOn}${cardOn}${+lower.style.opacity > 0}`;
+  const zonesNow = (eeOn: boolean, cardOn: boolean): Rect[] => {
+    const now = performance.now(), key = `${eeOn}${cardOn}${+lower.style.opacity > 0}`;
     if (now - zAt < 250 && key === zKey) return zCache;
     zAt = now; zKey = key;
     const b = host.getBoundingClientRect(), out: Rect[] = [...(o.zones?.() ?? [])];
     const add = (z: HTMLElement, pad: number) => { if (!z.offsetHeight) return; const r = z.getBoundingClientRect(); out.push([r.left - b.left - pad, r.top - b.top - pad, r.right - b.left + pad, r.bottom - b.top + pad]); };
     for (const z of [lower, timeline]) if (+z.style.opacity !== 0) add(z, 8);
     add(place, 10); add(readout, 10);
-    if (nearOn) add(nearEl, 14);
+    if (eeOn) hud.querySelectorAll<HTMLElement>(".ee-compass, .ee-alt, .ee-scale, .ee-coords, .ee-credit").forEach((z) => add(z, 6)); // the close-up HUD
     if (cardOn) add(card, 10);
     return (zCache = out);
   };
@@ -648,8 +650,8 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const fwd = cam.getWorldDirection(fwdV);
     timeline.style.opacity = String(band(alt, 3000, 1e9, 0.8));
     lower.style.opacity = String(band(alt, 3000, 1e9, 0.8));
-    const nearA = band(alt, 0.5, 30, 0.8), cA = band(alt, 60, 700, 0.6);
-    const zones = zonesNow(nearA > 0.1, cA > 0.1);
+    const cA = band(alt, 60, 700, 0.6);
+    const zones = zonesNow(eeK > 0.1, cA > 0.1);
     for (const g of glow) {
       let a = g.base * band(alt, g.lo, g.hi, 0.8);
       if (a > 0.005 && g.pts) {
@@ -666,7 +668,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const taken: Rect[] = [...zones], topY = o.topLimit?.() ?? 70;
     if (edgeW !== w) { edgeW = w; const hb = host.getBoundingClientRect(), tb = timeline.getBoundingClientRect(); edgeR = tb.width ? Math.min(w, tb.right - hb.left + 32) : w; } // the panel's left edge: labels stay left of it
     for (const l of labels) {
-      const a = band(alt, l.lo, l.hi, 0.6);
+      const a = band(alt, l.lo, l.hi, 0.6) * (l.town && eel ? 1 - eeK : 1); // in the close-up the news pins take over
       const facing = l.p.dot(cam.position) > l.p.lengthSq() * 0.999999 && tmp.copy(l.p).sub(cam.position).dot(fwd) > 0;
       v.copy(l.p).project(cam);
       let on = a > 0.02 && facing && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
@@ -682,6 +684,13 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       l.el.style.opacity = on ? String(a) : "0";
       if (on) l.el.style.transform = `translate(${(l.flip ? x - 2 * l.ox - l.w : x).toFixed(1)}px, ${y.toFixed(1)}px)`;
     }
+    if (eel) eel.frame((lon, lat, hm) => {
+      tmp.set(...toXYZ(lon, lat, (groundAt(lon, lat) + hm) / (EARTH_KM * 1000)));
+      const km = tmp.distanceTo(cam.position) * EARTH_KM;
+      if (tmp.clone().sub(cam.position).dot(fwd) <= 0) return null;
+      tmp.project(cam); if (Math.abs(tmp.x) > 1.05 || Math.abs(tmp.y) > 1.05) return null;
+      return { x: ((tmp.x + 1) / 2) * w, y: ((1 - tmp.y) / 2) * h, km };
+    }, p, eeK, [8, topY + 4, edgeR - 8, h - 8], taken);
     const moving = Math.abs(Math.log(alt / (lastAlt || alt))) > 0.004; lastAlt = alt;
     ret.style.opacity = moving ? "0.7" : "0";
     const ns = p.lat >= 0 ? "N" : "S", ew = p.lon >= 0 ? "E" : "W";
@@ -689,7 +698,6 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const lvl = levelAt(alt);
     hud.dataset.level = lvl;
     place.textContent = lvl !== "orbit" && regionName ? regionName : names[lvl];
-    nearEl.style.opacity = String(nearA);
     card.style.opacity = String(cA);
     if (cardAt && cA > 0) { v.copy(cardAt).project(cam); card.style.transform = `translate(${Math.min(w - inset() - 312, Math.max(32, ((v.x + 1) / 2) * w + 24))}px, ${Math.min(h - 220, Math.max(topY + 8, ((1 - v.y) / 2) * h - 40))}px)`; } // inside the free stage
   }
@@ -739,7 +747,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     ready: ready.then(() => terrainReady),
     setData, frame, flyTo, playPath, focusPlace, putBuildings,
     /** Tiles still loading (for the stills script). */
-    loading: () => bBusy + (ee?.loading() ?? 0),
+    loading: () => bBusy + (ee?.loading() ?? 0) + (eel?.loading() ?? 0),
     /** Puts the sun where it is at a moment (ms since 1970). */
     setSun,
     /** Where the camera is now (EarthView asks for the region's news once it settles). */
@@ -749,7 +757,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     stop() { cancelAnimationFrame(raf); },
     renderPathAt(p: Shot[], ms: number) { frame(poseAt(p, ms).pose, ms); const gl = renderer.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.finish(); },
     dispose() {
-      disposed = true; cancelAnimationFrame(raf); ro?.disconnect(); removeEventListener("pointerup", up); ee?.dispose();
+      disposed = true; cancelAnimationFrame(raf); ro?.disconnect(); removeEventListener("pointerup", up); ee?.dispose(); eel?.dispose();
       scene.traverse((x) => { const m = x as THREE.Mesh; m.geometry?.dispose(); const mat = m.material as THREE.ShaderMaterial | undefined; if (mat) { for (const u of Object.values(mat.uniforms ?? {})) (u.value as THREE.Texture)?.isTexture && (u.value as THREE.Texture).dispose(); mat.dispose(); } });
       composer.dispose(); renderer.dispose(); renderer.forceContextLoss(); el.remove(); hud.remove(); // give the GPU memory back now, not at GC
     },
@@ -758,7 +766,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
 export type Earth = ReturnType<typeof createEarth>;
 
 /** HUD styles (kept here so the app and the motion test look the same). */
-export const EARTH_CSS = EE3D_CSS + `
+export const EARTH_CSS = EE3D_CSS + EE_LABELS_CSS + `
 .earth-host{--pr:0px;position:absolute;inset:0;overflow:hidden;background:#02040a;font-family:var(--font-inter,Inter,system-ui,sans-serif);font-feature-settings:"tnum" 1;color:#eef2f7;--accent:#f2b35e;--ui:#eef2f7;--g:32px}
 .earth-hud{position:absolute;inset:0;pointer-events:none}
 @media (min-width:900px){.earth-host{--pr:32rem}}
@@ -786,11 +794,6 @@ export const EARTH_CSS = EE3D_CSS + `
 .earth-lower{position:absolute;left:var(--g);bottom:84px;max-width:620px;text-shadow:0 2px 20px rgba(0,0,0,.7)}
 .earth-lower small,.earth-card small{display:block;font-size:12px;color:var(--accent)}
 .earth-lower b{display:block;font-family:var(--font-serif,Georgia,serif);font-size:30px;font-weight:400;line-height:1.18;margin-top:6px;letter-spacing:-.01em}
-.earth-near{position:absolute;right:calc(var(--pr) + var(--g));top:28px;width:272px;padding:10px 14px 6px;margin-right:-14px;background:linear-gradient(180deg,rgba(1,3,8,.72),rgba(1,3,8,.55));border-top:1px solid rgba(238,242,247,.35);text-shadow:0 1px 3px rgba(0,0,0,.85)}
-.earth-near h4{margin:0 0 6px;font-size:13px;font-weight:600}
-.earth-near div{display:grid;grid-template-columns:1fr auto;gap:1px 12px;padding:8px 0;border-top:1px solid rgba(238,242,247,.12)}
-.earth-near b{font-size:12px;font-weight:600}.earth-near span{grid-column:1;font-size:11px;color:rgba(238,242,247,.74);line-height:1.35}
-.earth-near i{grid-row:1/3;grid-column:2;font-style:normal;color:var(--accent);font-size:13px;align-self:start}
 .earth-card{position:absolute;left:0;top:0;width:280px;padding:12px 0 0 14px;border-left:1px solid var(--accent);text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 18px rgba(0,0,0,.6)}
 .earth-card p{margin:8px 0 0;font-size:13px;line-height:1.35}.earth-card em{display:block;font-style:normal;font-size:11px;color:rgba(238,242,247,.6);margin-top:2px}
 .earth-reticle{position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;transition:opacity .32s cubic-bezier(.23,1,.32,1)}

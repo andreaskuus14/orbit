@@ -11,6 +11,7 @@ import { tileMesh, emptyMesh } from "../../src/lib/earth-ee3d-store.ts";
 import { encodeMesh, ORTHO_URL } from "../../src/lib/earth-ee3d-pure.ts";
 import { parseGround } from "../../src/lib/earth-ground-pure.ts";
 import { tileBox } from "../../src/lib/earth-buildings-pure.ts";
+import { tilePlaces } from "../../src/lib/earth-ee-places-store.ts";
 const out = path.resolve(process.argv[2] ?? "/tmp/earth-real"), tmp = process.env.EARTH_TMP ?? "/tmp/earth-h", cache = process.env.EE_CACHE ?? "/tmp/ee3dcache";
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
 mkdirSync(out, { recursive: true }); mkdirSync(`${tmp}/tiles`, { recursive: true }); mkdirSync(`${tmp}/osm`, { recursive: true });
@@ -37,6 +38,17 @@ async function osmTile(x, y) {
   for (const r of rels.values()) if (r.tags?.type === "multipolygon" && keep(r.tags)) els.push({ type: "relation", tags: r.tags, members: r.members.filter((m) => m.type === "way" && ways.has(m.ref)).map((m) => ({ type: "way", role: m.role, geometry: geo(ways.get(m.ref)) })) });
   const body = Buffer.from(JSON.stringify({ x, y, ...parseGround({ elements: els }, x, y) })); writeFileSync(f, body); return body;
 }
+// labels: Overpass is blocked here, so the OSM API's raw map data for the z13 tile, in eight strips (same parser as the app)
+async function osmBox(b) {
+  const els = new Map();
+  for (let i = 0; i < 8; i++) {
+    const s = b.s + ((b.n - b.s) * i) / 8, n = b.s + ((b.n - b.s) * (i + 1)) / 8;
+    await new Promise((r) => setTimeout(r, 1200));
+    const r = await fetch(`https://api.openstreetmap.org/api/0.6/map.json?bbox=${b.w},${s},${b.e},${n}`, { headers: { "User-Agent": "ORBIT stills (dev)" } });
+    if (r.ok) for (const el of (await r.json()).elements) els.set(`${el.type}${el.id}`, el);
+  }
+  return { elements: [...els.values()] };
+}
 const srv = createServer(async (req, res) => {
   const u = new URL(req.url, "http://x"), x = +u.searchParams.get("x"), y = +u.searchParams.get("y");
   try {
@@ -44,6 +56,7 @@ const srv = createServer(async (req, res) => {
     if (u.pathname === "/data.json") return res.end(readFileSync(`${tmp}/data.json`));
     if (u.pathname === "/bundle-r.js") return res.end(readFileSync(`${tmp}/bundle-r.js`));
     if (u.pathname === "/b") { res.setHeader("Content-Type", "application/json"); const p = osmChain.then(() => osmTile(x, y)); osmChain = p.catch(() => {}); return res.end(await p); }
+    if (u.pathname === "/eep") { res.setHeader("Content-Type", "application/json"); const p = osmChain.then(() => tilePlaces(`${tmp}/places`, x, y, osmBox)); osmChain = p.catch(() => {}); return res.end(JSON.stringify({ places: await p })); }
     if (u.pathname === "/ee3d") { const m = await tileMesh(cache, x, y, fetch, true); res.setHeader("Content-Type", "application/octet-stream"); return res.end(Buffer.from(m && m !== "pending" ? encodeMesh(m) : emptyMesh(x, y))); }
     const k = u.pathname === "/eo" ? "eo" : u.searchParams.get("k"), z = +u.searchParams.get("z"), f = `${tmp}/tiles/${k}_${z}_${x}_${y}`;
     if (!existsSync(f)) { const r = await fetch(UP[k](z, x, y)); if (!r.ok) throw 0; writeFileSync(f, Buffer.from(await r.arrayBuffer())); }
@@ -60,14 +73,14 @@ const places = {
 };
 const views = { "400m": { alt: 0.4, tilt: 58 }, "1.2km": { alt: 1.2, tilt: 52 } };
 const suns = { day: T(10, 0), dusk: T(19, 40) };
-const only = process.env.SHOTS?.split(","), mode = process.env.MODE ?? "both";
+const only = process.env.SHOTS?.split(","), mode = process.env.MODE ?? "after";
 for (const real of mode === "both" ? [true, false] : [mode === "after"]) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   page.on("console", (m) => { if (process.env.DEBUG || (m.type() === "error" && !/404|Failed to load/.test(m.text()))) console.log("page:", m.text().slice(0, 300)); });
   await page.goto(`http://127.0.0.1:${srv.address().port}/${real ? "?ee=1" : ""}`, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => window.earthReady, null, { timeout: 0 }); await page.evaluate(() => window.earthReady);
   for (const [pn, pl] of Object.entries(places)) for (const [vn, v] of Object.entries(views)) for (const [sn, sun] of Object.entries(suns)) {
-    const name = `${real ? "after" : "before"}-${pn}-${vn}-${sn}.jpg`;
+    const name = `${real ? "hud" : "before"}-${pn}-${vn}-${sn}.jpg`;
     if (only && !only.some((s) => name.includes(s))) continue;
     if (!real && sn === "dusk" && vn === "400m") continue;
     const t0 = Date.now();

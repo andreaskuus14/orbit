@@ -8,7 +8,7 @@ import * as THREE from "three";
 import { LIGHT_GLSL } from "@/lib/earth-light-pure";
 import { lat2y, lon2x, x2lon, y2lat, toXYZ, type Pose } from "@/lib/earth-pure";
 import { ATTRIBUTION, EE_FULL, EE_MAX_ALT, EZ, TRI_BUDGET, decodeMesh, eeTilesAround, inEstonia, orthoTiles, tileMetres, tris, type EMesh } from "@/lib/earth-ee3d-pure";
-import { coveredRadius, treeSpots, wallTint } from "@/lib/earth-ee3d-look-pure";
+import { coveredRadius, oldTown, treeSpots, wallTint } from "@/lib/earth-ee3d-look-pure";
 
 export type EeOpts = {
   scene: THREE.Scene; hud: HTMLElement; sun: THREE.Vector3; camU: { value: THREE.Vector3 };
@@ -22,7 +22,6 @@ const LOG = `#include <common>\n#include <logdepthbuf_pars_vertex>\n`, LOGF = `#
 // shared: fade the layer's edge (circle around the camera target) and the distance haze, like the scene's other close-up layers
 const EDGE = `uniform vec3 uC; uniform float uR; uniform vec3 uCam; uniform float uOp;
 float edgeK(vec3 w){ return 1. - smoothstep(uR * .55, uR, length(w - uC)); }
-float dither(vec2 p){ p = floor(p * .5); return fract(52.9829189 * fract(dot(p, vec2(.06711056, .00583715)))); }
 vec3 haze(vec3 c, vec3 w, float lit){ float d = length(uCam - w) * 6371.; return mix(c, vec3(.33,.4,.5) * mix(.08, .9, lit), (1. - exp(-d * .09)) * .45); }`;
 
 const gVS = `${LOG} varying vec2 vUv; varying vec3 vW; void main(){ vUv = uv; vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
@@ -37,12 +36,14 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   c = haze(mix(night, day, lit), vW, lit);
   gl_FragColor = vec4(c, uOp * edgeK(vW)); }`;
 
-const bVS = `${LOG} attribute vec2 uvm; attribute vec4 nk; attribute vec3 tint; attribute vec3 wall; varying vec2 vUv; varying vec3 vN; varying float vRoof; varying vec3 vTint; varying vec3 vWall; varying vec3 vW;
-void main(){ vUv = uvm; vN = nk.xyz; vRoof = nk.w; vTint = tint; vWall = wall; vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
-const bFS = `${LOGF}${LIGHT_GLSL}${EDGE} uniform sampler2D uMap; uniform vec3 uSun; varying vec2 vUv; varying vec3 vN; varying float vRoof; varying vec3 vTint; varying vec3 vWall; varying vec3 vW;
+const bVS = `${LOG}${EDGE} attribute vec2 uvm; attribute vec4 nk; attribute vec3 tint; attribute vec3 wall; varying vec2 vUv; varying vec3 vN; varying float vRoof; varying vec3 vTint; varying vec3 vWall; varying vec3 vW; varying float vK;
+void main(){ vUv = uvm; vN = nk.xyz; vRoof = nk.w; vTint = tint; vWall = wall; vec4 w = modelMatrix*vec4(position,1.);
+  vK = edgeK(w.xyz); w.xyz -= normalize(w.xyz) * wall.y * (1. - vK) / 6371000.; // at the loaded area's edge buildings sink into the ground (no speckle)
+  vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
+const bFS = `${LOGF}${LIGHT_GLSL}${EDGE} uniform sampler2D uMap; uniform vec3 uSun; varying vec2 vUv; varying vec3 vN; varying float vRoof; varying vec3 vTint; varying vec3 vWall; varying vec3 vW; varying float vK;
 float hb(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void main(){ \n#include <logdepthbuf_fragment>\n
-  if (edgeK(vW) < dither(gl_FragCoord.xy)) discard;
+  if (vK < .02) discard;
   vec3 up = normalize(vW); float s = dot(up, uSun), lit = dayK(s), on = lightsK(s), dusk = duskK(s);
   vec3 N = normalize(vN); float diff = max(dot(N, uSun), 0.), sky = .5 + .5 * dot(N, up);
   vec3 sunC = mix(vec3(1.,.97,.92), vec3(1.,.58,.32), dusk);
@@ -55,6 +56,7 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   float win = (1. - smoothstep(.12, .3, max(fwidth(g.x), fwidth(g.y)))) * (1. - roof) * step(.34, f.x) * step(f.x, .66) * step(.3, f.y) * step(f.y, .74) * step(1., id.y) * step(vWall.y + 1.2, vWall.z) * step(4., vWall.z);
   alb = mix(alb, vec3(.05,.055,.065), win * .6);
   alb *= mix(.55, 1., smoothstep(0., 2.5, vWall.y) * (1. - roof) + roof);
+  alb *= mix(mix(.74, 1., smoothstep(0., 1.4, vWall.z - vWall.y)), mix(.8, 1., smoothstep(.55, 1., vWall.y / max(vWall.z, 1.))), roof); // soft shade under the eaves and down the roof slope
   float wl = mix(1.25, 1., roof); // walls a touch brighter: plaster in sun
   vec3 c = alb * wl * (sky * (mix(.03, .3, lit) + .12 * dusk) * mix(vec3(1.), vec3(.8,.88,1.08), 1. - roof) + diff * .9 * lit * sunC);
   c += vec3(.03,.045,.07) * win * lit * sky; // glass reflects the sky
@@ -65,12 +67,13 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   c += SODIUM * .05 * on * (1. - roof) * (1. - smoothstep(0., 7., vWall.y)); // street light on the ground floors
   gl_FragColor = vec4(haze(c, vW, lit), uOp); }`;
 
-const tVS = `${LOG} attribute vec3 tcol; varying vec3 vCol; varying vec3 vN; varying vec3 vW; varying float vY;
-void main(){ vCol = tcol; vY = position.y; vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.); vW = w.xyz;
+const tVS = `${LOG}${EDGE} attribute vec3 tcol; varying vec3 vCol; varying vec3 vN; varying vec3 vW; varying float vY; varying float vK;
+void main(){ vCol = tcol; vY = position.y; vK = edgeK((modelMatrix * instanceMatrix * vec4(0., 0., 0., 1.)).xyz); // trees shrink away at the edge
+  vec4 w = modelMatrix * instanceMatrix * vec4(position * vK, 1.); vW = w.xyz;
   vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal); gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
-const tFS = `${LOGF}${LIGHT_GLSL}${EDGE} uniform vec3 uSun; varying vec3 vCol; varying vec3 vN; varying vec3 vW; varying float vY;
+const tFS = `${LOGF}${LIGHT_GLSL}${EDGE} uniform vec3 uSun; varying vec3 vCol; varying vec3 vN; varying vec3 vW; varying float vY; varying float vK;
 void main(){ \n#include <logdepthbuf_fragment>\n
-  if (edgeK(vW) < dither(gl_FragCoord.xy)) discard;
+  if (vK < .05) discard;
   vec3 up = normalize(vW); float s = dot(up, uSun), lit = dayK(s), dusk = duskK(s);
   vec3 N = normalize(vN); float diff = max(dot(N, uSun), 0.) * .8 + .2, sky = .55 + .45 * dot(N, up);
   vec3 c = vCol * (sky * .35 + diff * 1.1 * mix(vec3(1.), vec3(1.,.6,.35), dusk)) * mix(.55, 1., vY); // darker toward the trunk
@@ -145,7 +148,7 @@ export function createEe3d(o: EeOpts) {
         const v0 = m.bStart[b], v1 = b + 1 < m.nB ? m.bStart[b + 1] : nV;
         const cx = m.bld[b * 3], cy = m.bld[b * 3 + 1], g0 = o.groundAt(m.lon + cx / kx, m.lat + cy / ky) + 1.5;
         let H = 0; for (let v = v0; v < v1; v++) H = Math.max(H, m.pos[v * 3 + 2]);
-        const tc = wallTint(b * 7919 + Math.round(cx * 13 + cy * 7), H);
+        const tc = wallTint(b * 7919 + Math.round(cx * 13 + cy * 7), H, oldTown(m.lon + cx / kx, m.lat + cy / ky));
         for (let v = v0; v < v1; v++) {
           const e = m.pos[v * 3], nn = m.pos[v * 3 + 1], u = m.pos[v * 3 + 2], lon = m.lon + e / kx, lat = m.lat + nn / ky;
           pos.set(at(lon, lat, g0 + u), v * 3); uvm.set(uvOf(lon, lat), v * 2);

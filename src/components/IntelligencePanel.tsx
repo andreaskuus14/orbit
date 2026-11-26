@@ -19,7 +19,7 @@ import { schedState } from "@/lib/panel-states-pure";
 import { plainError } from "@/lib/api-error-pure";
 import { coverage, outletsOf, parseBriefing, runLine, storyKey, storyTrust, summaryOf, type Cite, type Story, type Trust } from "@/lib/briefing-view-pure";
 import css from "./IntelligencePanel.module.css";
-import { NearYou, PlaceChip, SourceIcon, Thumb, Ticker, MiniMap } from "./IntelRich";
+import { MapStory, NearYou, PlaceChip, SourceIcon, Thumb, Ticker, MiniMap } from "./IntelRich";
 import { ago, placeOf, readMinutes } from "@/lib/intel-rich-pure";
 
 type Dev = { key: string; rev: string; status: "new" | "corrected" | "resolved"; title: string; why: string; independent: number; articles: Article[] };
@@ -345,6 +345,7 @@ export function IntelligencePanel() {
         {err && !loadFailed && <p className={`${css.bad} text-sm`} role="alert">{err}</p>}
         {articles.length > 0 && <Ticker articles={articles} />}
       </div>
+      <MapStory />
 
       {briefings === null ? <Loading rows={3} label={t("intel.loading")} />
         : loadFailed ? <ErrorState title={t("intel.loadFailed")} text={t("intel.loadFailedText")} retryLabel={t("state.retry")} onRetry={() => void load()} />

@@ -6,10 +6,16 @@ const LOW = ["#e3d2a8", "#d8b46a", "#e0a98f", "#bfcba0", "#aebfc9", "#ece6d8", "
 const TALL = ["#d9d7d0", "#c6c8c8", "#e6e2d8", "#b9bcbf", "#d2cbbd"];
 const lin = (h: string): [number, number, number] => [1, 3, 5].map((i) => (parseInt(h.slice(i, i + 2), 16) / 255) ** 2.2) as [number, number, number];
 const hash = (n: number) => { let x = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b); x ^= x >>> 13; x = Math.imul(x, 0xc2b2ae35); x ^= x >>> 16; return (x >>> 0) / 4294967296; };
-/** A building's wall colour from a stable seed and its height (m). */
-export function wallTint(seed: number, height: number): [number, number, number] {
-  const p = height > 18 ? TALL : LOW;
-  return lin(p[Math.floor(hash(seed) * p.length)]);
+// Medieval old towns (Tallinn, Tartu): warmer limewash, ochre, cream, pink, apricot, pale green, the odd white.
+const OLD = ["#e2b45c", "#efe1bf", "#e8b0a0", "#c3d6a8", "#eac08a", "#f0d98c", "#dc9a80", "#f3ede0", "#d9a86c", "#cfdcb4", "#f1c9b5"];
+const OLD_BOX: [number, number, number, number][] = [[24.7375, 59.4325, 24.7535, 59.4415], [26.7140, 58.3765, 26.7280, 58.3845]]; // w s e n
+/** True inside a medieval old town (its walls get the warm palette). */
+export const oldTown = (lon: number, lat: number) => OLD_BOX.some(([w, s, e, n]) => lon >= w && lon <= e && lat >= s && lat <= n);
+/** A building's wall colour from a stable seed and its height (m); old-town buildings take the warm palette. Each building's tone
+ *  is a little lighter or darker (±8 %) so neighbours with the same paint still read apart. */
+export function wallTint(seed: number, height: number, old = false): [number, number, number] {
+  const p = old && height < 30 ? OLD : height > 18 ? TALL : LOW, k = 0.92 + 0.16 * hash(seed ^ 0x5bd1e995);
+  return lin(p[Math.floor(hash(seed) * p.length)]).map((v) => Math.min(1, v * k)) as [number, number, number];
 }
 
 export type Tree = { u: number; v: number; r: number; h: number; c: [number, number, number] };

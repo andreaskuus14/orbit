@@ -1,10 +1,11 @@
 "use client";
 // The rich parts of the INTELLIGENCE briefing: article pictures (server-fetched og:image, /api/news/thumb, with a drawn fallback),
-// source icons, a place chip with a mini map, the breaking ticker and "Near you". Pure parts: lib/intel-rich-pure.ts.
-import { useMemo, useState } from "react";
+// source icons, a place chip with a mini map, the breaking ticker, "Near you" and the story picked on the map. Pure parts: lib/intel-rich-pure.ts.
+import { useEffect, useMemo, useRef, useState } from "react";
 import land from "world-atlas/land-110m.json";
 import { useT } from "./i18n";
 import { ago, breaking, hueOf, initials, miniMap, nearYou, HOME, type Place } from "@/lib/intel-rich-pure";
+import { CAT_COLOR, EARTH_STORY_EVENT, type EarthStory } from "@/lib/earth-ee-places-pure";
 import css from "./IntelligencePanel.module.css";
 
 type Art = { id: string; title: string; url: string; source: string | null; published_at: string | null };
@@ -98,6 +99,33 @@ export function NearYou({ articles }: { articles: Art[] }) {
             </a>
           </li>))}
       </ul>
+    </section>
+  );
+}
+
+/** "From the map": the local story whose pin was clicked on the Earth close-up (EARTH_STORY_EVENT), at the top of the panel. */
+export function MapStory() {
+  const { t } = useT();
+  const [s, setS] = useState<EarthStory | null>(null);
+  const box = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const on = (e: Event) => { setS((e as CustomEvent<EarthStory>).detail); requestAnimationFrame(() => box.current?.scrollIntoView({ block: "nearest", behavior: "smooth" })); };
+    addEventListener(EARTH_STORY_EVENT, on); return () => removeEventListener(EARTH_STORY_EVENT, on);
+  }, []);
+  if (!s) return null;
+  const when = ago(s.published_at, Date.now());
+  return (
+    <section ref={box} className={css.section} aria-labelledby="intel-mapstory">
+      <h3 id="intel-mapstory" className={css.sh}><span className={css.pin} aria-hidden="true" style={{ background: CAT_COLOR[s.cat] }} />{t("intel.rich.mapStory")}
+        <button type="button" className="ml-auto text-xs opacity-70 hover:opacity-100" onClick={() => setS(null)} aria-label={t("intel.rich.mapStoryClose")}>✕</button></h3>
+      <a href={safeHref(s.url)} target="_blank" rel="noreferrer noopener" className={css.nearItem}>
+        <Thumb url={s.url} source={s.source} size="sm" />
+        <span className={css.nearText}>
+          <span className={css.src2} style={{ color: CAT_COLOR[s.cat] }}>{t(`intel.rich.cat.${s.cat}`)}</span>
+          <span className={css.nearTitle}>{s.title}</span>
+          <span className={css.src2}><SourceIcon url={s.url} source={s.source} />{s.source ?? t("intel.unknownSrc")}{when ? ` · ${t("intel.rich.ago", { t: when })}` : ""} · {s.place}</span>
+        </span>
+      </a>
     </section>
   );
 }
