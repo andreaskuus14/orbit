@@ -33,6 +33,18 @@ test("story categories, times and pins", () => {
   assert.equal(storyCat("Kiek in de Kökis avatakse uus näitus"), "culture");
   assert.equal(storyCat("Raekoja platsil algab jõuluturg"), "events");
   assert.equal(storyCat("Linnavalitsus kinnitas eelarve"), "city");
+  const et: [string, string][] = [
+    ["Tallinna Kalev võitis korvpalli meistrivõistluste finaali", "sport"], ["Levadia jalgpallur sai uue treeneri", "sport"],
+    ["Haiglas on tänavu rohkem gripipatsiente", "health"], ["Kiirabi sõitis Lasnamäele", "health"],
+    ["Õpilased said koolis uue õppekava", "education"], ["Tehnikaülikool avas uue tudengimaja", "education"],
+    ["Ettevõtete maksukoormus kasvas, hinnatõus jätkub", "economy"], ["Pank tõstis laenuintressi", "economy"],
+    ["Riigikogu arutab uut seadust", "politics"], ["Valitsus ja opositsioon vaidlevad eelarve üle", "politics"],
+    ["Politsei vahistas kelmuses kahtlustatava", "crime"], ["Õnnetus Pärnu maanteel tekitas ummiku", "transport"], ["Mustamäel puhkes tulekahju, päästeamet kustutas", "crime"],
+    ["Ilmateade: homme tuleb lumi ja külm", "weather"], ["Tallinna-Tartu maantee remont: liiklus on piiratud", "transport"],
+    ["Uus näitus kunstimuuseumis", "culture"], ["Jõuluturg avati Raekoja platsil", "events"],
+    ["Kohalik klubi ilmus uuesti esikohale", "city"], ["Artikkel räägib näitusest", "culture"], ["Teenuste hinnakiri", "city"],
+  ];
+  for (const [t, c] of et) assert.equal(storyCat(t), c, t);
   const now = Date.parse("2026-11-26T12:00:00Z");
   assert.equal(pinTime("2026-11-26T09:05:00Z", now, "Europe/Tallinn"), "11:05");
   assert.match(pinTime("2026-11-24T09:05:00Z", now, "Europe/Tallinn"), /^[A-Z][a-z]{2} 11:05$/);

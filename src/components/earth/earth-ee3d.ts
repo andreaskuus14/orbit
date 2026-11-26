@@ -32,8 +32,8 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
   float paved = (1. - smoothstep(.05, .12, mx - mn)) * smoothstep(.04, .12, mx); // grey, mid-bright: asphalt and stone paving
   vec3 day = c * (.42 + .5 * sqrt(max(s, 0.))) * mix(vec3(1.), vec3(1.15,.82,.62), dusk * .7);
-  vec3 night = c * .05 + vec3(.002,.003,.006) + vec3(.006,.009,.02) * dusk + SODIUM * paved * .11 * on;
-  c = haze(mix(night, day, lit), vW, lit);
+  vec3 night = c * (.05 + .3 * dusk) + vec3(.002,.003,.006) + vec3(.03,.04,.075) * dusk + SODIUM * (paved * .11 + .035 + paved * .2 * dusk) * on; // dusk: sky fill and street glow, so evening reads lit (night stays darker)
+  c = haze(mix(night, day, lit), vW, max(lit, dusk * .4));
   gl_FragColor = vec4(c, uOp * edgeK(vW)); }`;
 
 const bVS = `${LOG}${EDGE} attribute vec2 uvm; attribute vec4 nk; attribute vec3 tint; attribute vec3 wall; varying vec2 vUv; varying vec3 vN; varying float vRoof; varying vec3 vTint; varying vec3 vWall; varying vec3 vW; varying float vK;
@@ -58,14 +58,14 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   alb *= mix(.55, 1., smoothstep(0., 2.5, vWall.y) * (1. - roof) + roof);
   alb *= mix(mix(.74, 1., smoothstep(0., 1.4, vWall.z - vWall.y)), mix(.8, 1., smoothstep(.55, 1., vWall.y / max(vWall.z, 1.))), roof); // soft shade under the eaves and down the roof slope
   float wl = mix(1.25, 1., roof); // walls a touch brighter: plaster in sun
-  vec3 c = alb * wl * (sky * (mix(.03, .3, lit) + .12 * dusk) * mix(vec3(1.), vec3(.8,.88,1.08), 1. - roof) + diff * .9 * lit * sunC);
+  vec3 c = alb * wl * (sky * (mix(.03, .3, lit) + .34 * dusk) * mix(vec3(1.), vec3(.8,.88,1.08), 1. - roof) + diff * .9 * lit * sunC);
   c += vec3(.03,.045,.07) * win * lit * sky; // glass reflects the sky
   float r = hb(id + vec2(floor(vWall.z * 7.), vTint.r * 91.));
   vec3 wc = mix(vec3(1.,.6,.3), vec3(1.,.8,.55), hb(id + 3.1)) * (.4 + .6 * hb(id + 9.7));
-  c += wc * win * step(1. - mix(.05, .6, on), r) * mix(.05, 1.1, on);
+  c += wc * win * step(1. - mix(.05, .8, on), r) * mix(.05, 1.1, on) * (1. + 1.2 * dusk);
   c = mix(c, alb * .03 + vec3(.002,.003,.006), (1. - lit) * (1. - dusk) * .85 * (1. - win)); // dark after sunset, lit windows stay
-  c += SODIUM * .05 * on * (1. - roof) * (1. - smoothstep(0., 7., vWall.y)); // street light on the ground floors
-  gl_FragColor = vec4(haze(c, vW, lit), uOp); }`;
+  c += SODIUM * (.05 + .1 * dusk) * on * (1. - roof) * (1. - smoothstep(0., 7., vWall.y)); // street light on the ground floors
+  gl_FragColor = vec4(haze(c, vW, max(lit, dusk * .4)), uOp); }`;
 
 const tVS = `${LOG}${EDGE} attribute vec3 tcol; varying vec3 vCol; varying vec3 vN; varying vec3 vW; varying float vY; varying float vK;
 void main(){ vCol = tcol; vY = position.y; vK = edgeK((modelMatrix * instanceMatrix * vec4(0., 0., 0., 1.)).xyz); // trees shrink away at the edge
@@ -77,8 +77,8 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   vec3 up = normalize(vW); float s = dot(up, uSun), lit = dayK(s), dusk = duskK(s);
   vec3 N = normalize(vN); float diff = max(dot(N, uSun), 0.) * .8 + .2, sky = .55 + .45 * dot(N, up);
   vec3 c = vCol * (sky * .35 + diff * 1.1 * mix(vec3(1.), vec3(1.,.6,.35), dusk)) * mix(.55, 1., vY); // darker toward the trunk
-  c = mix(c * .04 + vec3(.001,.002,.004), c, lit);
-  gl_FragColor = vec4(haze(c, vW, lit), uOp); }`;
+  c = mix(c * (.04 + .22 * dusk) + vec3(.001,.002,.004) + vec3(.01,.014,.03) * dusk, c, lit);
+  gl_FragColor = vec4(haze(c, vW, max(lit, dusk * .4)), uOp); }`;
 
 type T = { x: number; y: number; z: number; o: THREE.Vector3; ground?: THREE.Mesh; bld?: THREE.Mesh; trees?: THREE.InstancedMesh; tex?: THREE.Texture; tris: number; state: "loading" | "ready" | "wait"; retry: number; mesh?: EMesh };
 
