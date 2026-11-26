@@ -15,6 +15,7 @@ import { studyPending } from "./StudyCards";
 import { worldTier } from "@/lib/world-realism-pure";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
+import FrameWorld from "./FrameWorld";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { centroid, connections, isLearned, searchStars, starProjects, subgraph } from "@/lib/memory-world-pure";
 import { kindColor, normMap, type Star } from "@/lib/memory-planet-pure";
@@ -572,6 +573,11 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   const memPick = useCallback((cid: string) => { if (!data) return;
     if (cid.startsWith("m:")) { setOpenId(cid.slice(2)); return; } // opens the memory in the panel; the open-memory effect flies to it
     const c = memChips.find((x) => x.id === cid); if (c) fly(c.at, zoomDist(c.lod, 3, 60)); }, [data, memChips, fly]);
+  // v10: on tier > 0 the owner's frame is the scene (cluster chips on its places); searching keeps the 3D map for its highlights
+  const frameOn = !flat && worldTier(q.bloomScale, q.msaa) > 0 && !query.trim();
+  const frameChips = useMemo(() => memChips.filter((c) => !c.lod), [memChips]);
+  const framePick = useCallback((cid: string) => { if (!data) return; const k = cid === "all" ? null : cid; // the district's newest memory opens in the panel
+    const m = data.items.filter((x) => !k || x.kind === k).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0]; if (m) setOpenId(m.id); }, [data]);
   const focusChip = openId && sel !== null ? `m:${openId}` : null;
   const focusAt = sel !== null && data ? ([data.items[sel].x, data.items[sel].y, data.items[sel].z] as [number, number, number]) : null;
   const onCreated = (s: RootState) => { glr.onCreated(s); s.raycaster.params.Points = { threshold: 0.45 }; };
@@ -598,7 +604,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
       {showMap && river && <Chronicle reduced={reduced} quality={quality} paused={paused} slot={slot} />}
       {!flat && later && seenMap && !river && (
         <div className="mp-canvas" hidden={mode !== "map"}>
-        <Canvas key={glr.key} onCreated={onCreated} frameloop={!showMap ? "never" : demand ? "demand" : "always"} camera={{ position: [0, 13, 44], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: false }}
+        {frameOn ? <FrameWorld id="memory" chips={frameChips} onPick={framePick} reduced={reduced} paused={!showMap || paused} glow="#8b5cf6" /> : <Canvas key={glr.key} onCreated={onCreated} frameloop={!showMap ? "never" : demand ? "demand" : "always"} camera={{ position: [0, 13, 44], fov: 50, near: 0.1, far: 400 }} dpr={[1, q.dpr]} gl={{ antialias: false }}
           onPointerMissed={() => setHover(null)} style={{ cursor: hover !== null ? "pointer" : undefined }}>
           {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
           <WarmCompile world="memory" />
@@ -623,8 +629,8 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
               {q.msaa ? <></> : <SMAA />}
             </EffectComposer>
           )}
-        </Canvas>
-        {!query.trim() && <ChipLayer rig={rig} chips={memChips} onPick={memPick} focus={focusChip} />}
+        </Canvas>}
+        {!frameOn && !query.trim() && <ChipLayer rig={rig} chips={memChips} onPick={memPick} focus={focusChip} />}
         <div className="mp-labels" aria-hidden="true">{labels.map((l) => { const m = data!.items[l.i]; return (
           <div key={`${m.id}-${l.main ? "m" : "n"}`} ref={(el) => { if (el) labelEls.current.set(l.i, el); else labelEls.current.delete(l.i); }} className="memory-star-label" data-main={l.main ? "" : undefined}>
             <b>{m.kind === "journal" ? t("mp.journal") : m.title}</b>{l.main && <span>{kindName(m.kind)}{isLearned(m.source) ? ` · ${t("mp.d.learned")}` : ""}</span>}</div>); })}</div>

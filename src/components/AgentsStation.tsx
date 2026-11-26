@@ -28,6 +28,7 @@ import { CHAIN_TITLE, type ChainView } from "@/lib/chains-pure";
 import { beamPairs, chainActive } from "@/lib/mission-pure";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
+import FrameWorld from "./FrameWorld";
 import { smoothDamp } from "@/lib/smooth-damp-pure";
 import { ORBIT_R, STATUS_LABEL, activityFeed, agentStatus, clipLine, clamp, currentTask, orbitPos, statusGlow, statusVisual, streamFrac, type AgentStatus, type StationTask } from "@/lib/station-pure";
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
@@ -569,11 +570,13 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   const feed = useMemo(() => activityFeed(tasks, 10), [tasks]);
   const agent = list.find((a) => a.slug === selected) ?? null;
   const q = useLeanQuality(quality);
+  const frameOn = !flat && worldTier(q.bloomScale, q.msaa) > 0; // v10: the owner's hangar frame is the scene on tier > 0
+  const frameChips = useMemo(() => crewChips.filter((c) => !c.id.startsWith("t:")), [crewChips]);
 
   return (
     <div className="absolute inset-0 globe-in">
       {/* quiet: no WebGL (no GPU) drops the 3D, the panel keeps working */}
-      {!flat && <PlanetBoundary name="agents-scene" quiet><Canvas key={glr.key} onCreated={glr.onCreated} frameloop={visible && !paused ? "always" : "never"} camera={{ position: [0, HOME * 0.45, HOME], fov: 42 }}
+      {!flat && (frameOn ? <FrameWorld id="agents" chips={frameChips} onPick={crewPick} reduced={reduced} paused={!visible || paused} glow="#a78bfa" /> : <PlanetBoundary name="agents-scene" quiet><Canvas key={glr.key} onCreated={glr.onCreated} frameloop={visible && !paused ? "always" : "never"} camera={{ position: [0, HOME * 0.45, HOME], fov: 42 }}
         dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }} onPointerMissed={() => setSelected(null)}>
         <WarmCompile world="agents" />
         {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
@@ -599,9 +602,9 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
           </EffectComposer>
         )}
         {process.env.NODE_ENV === "development" && <FrameMark name="agents" />}
-      </Canvas></PlanetBoundary>}
+      </Canvas></PlanetBoundary>)}
 
-      {!flat && <ChipLayer rig={rig} chips={crewChips} onPick={crewPick} focus={crewFocus} />}
+      {!flat && !frameOn && <ChipLayer rig={rig} chips={crewChips} onPick={crewPick} focus={crewFocus} />}
       <HoverTip ref={tip} label={(id) => { const a = list.find((x) => x.slug === id); return a ? `${a.name} · ${currentTask(tasks, a.slug)?.title.slice(0, 60) ?? STATUS_LABEL[status[a.slug]]}` : null; }} />
 
       {/* Kit shell (design-language.md): one header (dot, name, status, "…", close), plain words, kit states. */}

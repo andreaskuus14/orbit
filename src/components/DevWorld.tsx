@@ -15,6 +15,7 @@ import { useGlRecovery } from "./useGlRecovery";
 import { worldTier } from "@/lib/world-realism-pure";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
+import FrameWorld from "./FrameWorld";
 import { FrameMark } from "./dev-timing";
 import { ZoomRig } from "./ZoomRig";
 import { DEV_TAB_EVENT, DEV_TAB_KEY } from "@/lib/herald-pure";
@@ -191,8 +192,10 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
   const far = 17;
   const island = useMemo(() => devIsland(world, { selected, running: (tasks ?? []).filter((x) => x.status === "running" || x.status === "queued").length }), [world, selected, tasks]);
   const islandChips = useMemo(() => devChips(island, k), [island, k]);
+  const frameOn = !flat && worldTier(q.bloomScale, q.msaa) > 0; // v10: the owner's floating-island frame is the scene on tier > 0
   const chipRig = useChipRig();
   const pickGame = useCallback((id: string) => { setSelected(id); open(null); setAdding(false); }, [open]);
+  const islandPick = useCallback((id: string) => { if (id.startsWith("g:")) pickGame(id.slice(2)); }, [pickGame]);
 
   const status = !world ? (loadErr ? k("gx.errTitle") : k("gx.loading")) : c.games ? k("gx.status", { g: c.games, b: c.open }) : k("gx.statusNone");
   const menu: MenuItem[] = [
@@ -206,7 +209,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
   return (
     <div className="gamedev absolute inset-0 globe-in" aria-label={k("gx.title")}>
       {/* quiet: no WebGL (no GPU) drops the 3D, the panel keeps working */}
-      {!flat && <PlanetBoundary name="creation-scene" quiet><Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 4.2, far], fov: 42 }}
+      {!flat && (frameOn ? <FrameWorld id="gamedev" chips={islandChips} onPick={islandPick} reduced={reduced} paused={paused} glow="#7dd3fc" /> : <PlanetBoundary name="creation-scene" quiet><Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 4.2, far], fov: 42 }}
         dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         <WarmCompile world="creation" />
         {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
@@ -221,8 +224,8 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
         {!paused && <ZoomRig home={Math.hypot(far, 4.2)} reduced={reduced} />}
         <WorldFX scale={q.bloomScale} msaa={q.msaa} reduced={reduced} threshold={0.8} strength={0.8} />
         {process.env.NODE_ENV === "development" && <FrameMark name="creation" />}
-      </Canvas></PlanetBoundary>}
-      {!flat && <ChipLayer rig={chipRig} chips={islandChips} onPick={(id) => { if (id.startsWith("g:")) pickGame(id.slice(2)); }} />}
+      </Canvas></PlanetBoundary>)}
+      {!flat && !frameOn && <ChipLayer rig={chipRig} chips={islandChips} onPick={(id) => { if (id.startsWith("g:")) pickGame(id.slice(2)); }} />}
 
       {world && c.games > 0 && <p data-chip-block className="pu gd-caption pu-num" data-planet="creation" aria-hidden="true">{(() => { const n = bugs.filter((b) => isActive(b) && b.severity === "crash").length; return n ? k("gx.caption", { g: c.games, b: c.open, c: n }) : k("gx.status", { g: c.games, b: c.open }); })()}</p>}
 
