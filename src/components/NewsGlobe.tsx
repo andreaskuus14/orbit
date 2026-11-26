@@ -14,6 +14,7 @@ import IntelBar from "./intel/IntelBar";
 import { OtherStories, RankList, TopStoryCard, WeatherLegend } from "./intel/IntelPanels";
 import { nextSnap, parseSnap, rankRows, topStories } from "@/lib/intel-rank-pure";
 import NewsWeatherLayer from "./news-weather/NewsWeatherLayer";
+import { nextFrame, tabFrame, type FrameId } from "@/lib/frame-map-pure";
 import { escBack, readWeather, WEATHER_KEY, type Place } from "@/lib/intel-view-pure";
 import type { QualityMode } from "@/lib/quality-pure";
 
@@ -38,9 +39,9 @@ export default function NewsGlobe({ reduced, focus: goTo, paused = false }: { on
   const [brief, setBrief] = useState(false); // the spoken news-weather tour, over the map; the bar stays on top
   const noop = useCallback(() => {}, []);
   // The orbit level is the owner's frame (FrameMap); every other tab, a picked country or "Explore 3D" is the real 3D Earth.
-  const [frame, setFrame] = useState(true);
+  const [frame, setFrame] = useState<FrameId | null>("world");
   const [dive, setDive] = useState<{ lon: number; lat: number } | null>(null);
-  const onTab = useCallback((id: Place) => { setFrame(id === "orbit"); setDive(null); setPlace(id); setShot((s) => ({ place: id, n: (s?.n ?? 0) + 1 })); }, []);
+  const onTab = useCallback((id: Place) => { setFrame(tabFrame(id)); setDive(null); setPlace(id); setShot((s) => ({ place: id, n: (s?.n ?? 0) + 1 })); }, []);
   const onWeather = useCallback(() => setWx((on) => { try { localStorage.setItem(WEATHER_KEY, on ? "off" : "on"); } catch { /* this tab only */ } return !on; }), []);
   // Simple page: the globe's own search, country list and regions are tools (behind More in the INTELLIGENCE panel); the public demo has no panel, so it keeps them.
   const [chosen, setManual] = useManual("intelligence");
@@ -125,12 +126,18 @@ export default function NewsGlobe({ reduced, focus: goTo, paused = false }: { on
       setPrevCounts(keep === old ? old!.counts : null); localStorage.setItem("orbit.intel.rank.v1", JSON.stringify(keep));
     } catch { /* no storage: no trend */ }
   }, [data]);
-  const pick = useCallback((name: string) => {
-    setSelected(name);
-    const h = hs.find((x) => x.name === name);
-    if (frame && h) setDive({ lon: h.lon, lat: h.lat }); // dolly into the pin, crossfade to the 3D Earth flying there
-  }, [frame, hs]);
-  useEffect(() => { if (selected && frame && !dive) setFrame(false); }, [selected, frame, dive]); // a country opened another way (search, CORE): the real Earth
+  // A pick on a plate: the next plate (Europe, Estonia, Tallinn, village) or, past the last one, the real 3D Earth under a dive.
+  const plateSel = useRef<string | null>(null); // a country opened from a plate keeps the plate (the card opens beside it)
+  const pickOn = useCallback((from: FrameId, p: { name: string; lon: number; lat: number; kind?: string }) => {
+    const country = from === "world" || from === "europe", nxt = nextFrame(from, p);
+    plateSel.current = country ? p.name : null; setSelected(country ? p.name : null);
+    if (nxt) setFrame(nxt); else { if (!country) setShot((x) => ({ place: from === "tallinn" ? "town" : "region", n: (x?.n ?? 0) + 1 })); setDive({ lon: p.lon, lat: p.lat }); }
+  }, []);
+  const pick = useCallback((name: string) => { // the ranked list: same as picking the pin
+    const h = hs.find((x) => x.name === name); if (!h) { setSelected(name); return; }
+    if (frame === "world" || frame === "europe") pickOn(frame, { name, lon: h.lon, lat: h.lat }); else setSelected(name);
+  }, [frame, hs, pickOn]);
+  useEffect(() => { if (selected && frame && !dive && plateSel.current !== selected) setFrame(null); }, [selected, frame, dive]); // a country opened another way (search, CORE): the real Earth
   const rows = useMemo(() => rankRows(data?.hotspots ?? [], prevCounts, 10), [data, prevCounts]);
   const stories = useMemo(() => (data ? topStories(data.hotspots, Date.now(), 4) : []), [data]);
   const searchList = useMemo(() => (search ? dedupe(search.results).slice(0, 20) : []), [search]); // not on every hover re-render
@@ -206,7 +213,7 @@ export default function NewsGlobe({ reduced, focus: goTo, paused = false }: { on
           onCountry={setSelected} onBack={() => setSelected(null)} backLabel={search ? "Results" : "All countries"} />
       )}
 
-      {frame && <FrameMap hotspots={hs} hover={hover} selected={selected} diveTo={dive} reduced={reduced} onPick={pick} onDived={() => { setFrame(false); setDive(null); }} exploreLabel={t("ip.explore")} onExplore={() => { setFrame(false); setDive(null); }} />}
+      {frame && <FrameMap level={frame} hotspots={hs} hover={hover} selected={selected} diveTo={dive} reduced={reduced} onPick={pickOn} onDived={() => { setFrame(null); setDive(null); }} exploreLabel={t("ip.explore")} onExplore={() => { setFrame(null); setDive(null); }} />}
       <EarthView on={!failed && (!frame || !!dive)} shot={shot} weather={wx} focus={focusPt} reduced={reduced} paused={paused || brief} onPlace={setPlace} onFail={() => setFailed(true)} />
       <NewsWeatherLayer on={brief} reduced={reduced} paused={paused} onActive={noop} />
       <IntelBar place={place} onTab={onTab} weather={wx} onWeather={onWeather} brief={brief} onBrief={() => setBrief((b) => !b)} />

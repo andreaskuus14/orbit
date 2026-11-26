@@ -1183,3 +1183,7 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .fc-head b { margin-left: auto; font-weight: 600; color: #ffb27a; }
 .fc-line { font-size: 10.5px; line-height: 1.25; color: rgba(255,255,255,.72); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .frame-explore { position: absolute; right: 1rem; bottom: 6.5rem; z-index: 3; padding: 7px 14px; border-radius: 999px; background: rgba(10,20,40,.75); border: 1px solid rgba(160,200,255,.4); color: #fff; font-size: 12px; cursor: pointer; }
+.frame-plate-in { position: relative; width: 1344px; height: 752px; }
+.frame-gl { position: absolute; inset: 0; width: 100%; height: 100%; }
+.frame-wx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+a.frame-card { text-decoration: none; }
