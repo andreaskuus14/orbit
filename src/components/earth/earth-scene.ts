@@ -9,14 +9,18 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { x2lon, y2lat, arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, tilesFor, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, lerpPose, moveMs, clampAlt, zoneFade, type Rect } from "@/lib/earth-pure";
+import { x2lon, y2lat, arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, tilesFor, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, lerpPose, moveMs, zoneFade, type Rect } from "@/lib/earth-pure";
 
 import type { EarthData } from "@/lib/earth-data-pure";
 import { BUILDINGS_MAX_ALT, BZ, TOTAL as MAX_BUILDINGS, extrude, tilesAround, type Building } from "@/lib/earth-buildings-pure";
 import { LIGHT_GLSL } from "@/lib/earth-light-pure";
+import { createEe3d, EE3D_CSS } from "./earth-ee3d";
+import { clampAltAt } from "@/lib/earth-ee3d-pure";
 import { GROUND_PX, GROUND_TILES, STYLE, buildingEdge, coverCircle, drawGround, edgeAlpha, groundFade, metresPerUnit, withOpenSea, EXT, type Ctx, type Ground } from "@/lib/earth-ground-pure";
 export type { EarthData };
-export type EarthOpts = { tileUrl: (k: TileKind, z: number, x: number, y: number) => string; sunMs?: number; dpr?: number; onTown?: (t: TownNews) => void; rightInset?: () => number; buildingsUrl?: (x: number, y: number) => string; home?: { lon: number; lat: number; name: string } };
+export type EarthOpts = { tileUrl: (k: TileKind, z: number, x: number, y: number) => string; sunMs?: number; dpr?: number; onTown?: (t: TownNews) => void; rightInset?: () => number; buildingsUrl?: (x: number, y: number) => string; home?: { lon: number; lat: number; name: string };
+  /** Estonia close-up from Land Board data (earth-ee3d.ts): LOD2 tile meshes and orthophoto tiles. */
+  eeMeshUrl?: (x: number, y: number) => string; eeOrthoUrl?: (z: number, x: number, y: number) => string; eeMaxTiles?: number };
 
 const ACCENT = "#f2b35e"; // the one warm news accent; UI text is cool white
 const LOG = `#include <common>\n#include <logdepthbuf_pars_vertex>\n`;
@@ -454,6 +458,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   const labels: { el: HTMLDivElement; p: THREE.Vector3; lo: number; hi: number; town?: TownNews; pri: number; w: number; h: number; ox: number; oy: number; flip?: boolean }[] = [];
   const hud = document.createElement("div"); hud.className = "earth-hud"; host.appendChild(hud);
   const scrim = document.createElement("div"); scrim.className = "earth-scrim"; hud.appendChild(scrim);
+  const ee = o.eeMeshUrl && o.eeOrthoUrl ? createEe3d({ scene, hud, sun: sunV, camU: U.uCam, groundAt, meshUrl: o.eeMeshUrl, orthoUrl: o.eeOrthoUrl, maxTiles: o.eeMaxTiles }) : null;
   const labelLayer = document.createElement("div"); labelLayer.className = "earth-labels"; hud.appendChild(labelLayer);
   function label(html: string, lon: number, lat: number, h: number, lo: number, hi: number, cls: string, town?: TownNews) {
     const el = document.createElement("div"); el.className = `earth-label ${cls}`; el.innerHTML = html; labelLayer.appendChild(el);
@@ -580,7 +585,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     return r;
   }
   function frame(p: Pose, tMs: number) {
-    p = { ...p, alt: clampAlt(p.alt) };
+    p = { ...p, alt: clampAltAt(p.alt, p.lon, p.lat) }; // Estonia's real-data close-up goes lower (earth-ee3d)
     pose = p; applyPose(p);
     const alt = p.alt, t = tMs / 1000;
     cloudU.uT.value = t; U.uT.value = t; cloudU.uFade.value = band(alt, 3000, 1e9, 1.0); // gone before the country shot: half-faded clouds read as grey blobs
@@ -588,8 +593,10 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     dof.uniforms.uAmt.value = 0.3 * band(alt, 4, 60, 1.2); // no tilt-shift blur on city close-ups: the ground is soft enough
     bU.uOp.value = band(alt, 0.05, BUILDINGS_MAX_ALT, 0.6); bMat.depthWrite = bU.uOp.value > 0.5;
     gU.uOp.value = groundFade(alt); gM.uGK.value = gM.uGR.value > 0 ? gU.uOp.value : 0;
+    const eeK = ee?.update(p) ?? 0; // Estonia close-up: real buildings and photo ground take over from the OSM layer
+    if (eeK) { bU.uOp.value *= 1 - eeK; gU.uOp.value *= 1 - eeK; for (const q of patches) q.u.uStyl.value *= 1 - eeK; }
     for (const t of bTiles.values()) { if (t.mesh) t.mesh.visible = bU.uOp.value > 0.01; if (t.ground) t.ground.visible = gU.uOp.value > 0.01; }
-    updateBuildings(p);
+    if (eeK < 0.98) updateBuildings(p);
     bloom.strength = 0.45;
     const w = W(), h = H();
     const fwd = new THREE.Vector3(); cam.getWorldDirection(fwd);
@@ -664,7 +671,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     drag = { x: e.clientX, y: e.clientY };
   };
   addEventListener("pointerup", () => { drag = null; });
-  el.onwheel = (e) => { e.preventDefault(); path = null; fly = null; pose = { ...pose, alt: Math.max(clampAlt(0), Math.min(30000, pose.alt * Math.exp(e.deltaY * 0.0012))), tilt: Math.min(62, Math.max(0, 62 - Math.log2(Math.max(1, pose.alt / 8)) * 6)) }; };
+  el.onwheel = (e) => { e.preventDefault(); path = null; fly = null; pose = { ...pose, alt: Math.max(clampAltAt(0, pose.lon, pose.lat), Math.min(30000, pose.alt * Math.exp(e.deltaY * 0.0012))), tilt: Math.min(62, Math.max(0, 62 - Math.log2(Math.max(1, pose.alt / 8)) * 6)) }; };
   const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => { renderer.setSize(W(), H()); composer.setSize(W(), H()); dof.uniforms.uRes.value.set(W(), H()); cam.aspect = W() / H(); cam.updateProjectionMatrix(); }) : null;
   ro?.observe(host);
 
@@ -672,7 +679,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     ready: ready.then(() => terrainReady),
     setData, frame, flyTo, playPath, focusPlace, putBuildings,
     /** Tiles still loading (for the stills script). */
-    loading: () => bBusy,
+    loading: () => bBusy + (ee?.loading() ?? 0),
     /** Puts the sun where it is at a moment (ms since 1970). */
     setSun,
     /** Where the camera is now (EarthView asks for the region's news once it settles). */
@@ -682,7 +689,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     stop() { cancelAnimationFrame(raf); },
     renderPathAt(p: Shot[], ms: number) { frame(poseAt(p, ms).pose, ms); const gl = renderer.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.finish(); },
     dispose() {
-      cancelAnimationFrame(raf); ro?.disconnect();
+      cancelAnimationFrame(raf); ro?.disconnect(); ee?.dispose();
       scene.traverse((x) => { const m = x as THREE.Mesh; m.geometry?.dispose(); const mat = m.material as THREE.ShaderMaterial | undefined; if (mat) { for (const u of Object.values(mat.uniforms ?? {})) (u.value as THREE.Texture)?.isTexture && (u.value as THREE.Texture).dispose(); mat.dispose(); } });
       renderer.dispose(); el.remove(); hud.remove();
     },
@@ -691,7 +698,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
 export type Earth = ReturnType<typeof createEarth>;
 
 /** HUD styles (kept here so the app and the motion test look the same). */
-export const EARTH_CSS = `
+export const EARTH_CSS = EE3D_CSS + `
 .earth-host{--pr:0px;position:absolute;inset:0;overflow:hidden;background:#02040a;font-family:var(--font-inter,Inter,system-ui,sans-serif);font-feature-settings:"tnum" 1;color:#eef2f7;--accent:#f2b35e;--ui:#eef2f7;--g:32px}
 .earth-hud{position:absolute;inset:0;pointer-events:none}
 @media (min-width:900px){.earth-host{--pr:32rem}}
