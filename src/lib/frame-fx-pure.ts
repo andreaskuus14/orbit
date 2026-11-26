@@ -5,7 +5,7 @@
 import type { FrameId, Vec2 } from "./frame-scene-pure.ts";
 
 export type Rotor = { x: number; y: number; r: number; kind: "swirl"; rate: number }; // frame 0..1, radius in frame heights
-export type FxParams = { flow: number; ripple: number; sway: number; drift: number; flicker: number; shimmer: number; rotors: Rotor[] };
+export type FxParams = { flowDir?: 1 | -1; flow: number; ripple: number; sway: number; drift: number; flicker: number; shimmer: number; rotors: Rotor[] };
 const NONE: FxParams = { flow: 0, ripple: 0, sway: 0, drift: 0, flicker: 0, shimmer: 0, rotors: [] };
 
 /** Strengths per plate (frame units for displacement, so 0.002 is about 4 px on a 2048 px plate). Subtle on purpose. */
@@ -14,12 +14,21 @@ export const FX: Partial<Record<FrameId, FxParams>> = {
   gamedev: { flow: 1, ripple: 0.7, sway: 0.0026, drift: 0.005, flicker: 0.16, shimmer: 0.4, rotors: [
     { x: 0.762, y: 0.515, r: 0.1, kind: "swirl", rate: 1.0 }] },
   memory: { flow: 1, ripple: 0.5, sway: 0.0018, drift: 0.009, flicker: 0.1, shimmer: 0.55, rotors: [{ x: 0.75, y: 0.1, r: 0.095, kind: "swirl", rate: 0.8 }] },
+  vault: { flow: 0, ripple: 0, sway: 0, drift: 0.004, flicker: 0.28, shimmer: 0.12, rotors: [] },
+  operations: { flow: 0, ripple: 0, sway: 0, drift: 0.006, flicker: 0.12, shimmer: 0.45, rotors: [{ x: 0.5, y: 0.33, r: 0.14, kind: "swirl", rate: 0.5 }] },
+  business: { flow: 0, ripple: 0, sway: 0, drift: 0.006, flicker: 0.2, shimmer: 0.2, rotors: [] },
+  agents: { flow: 0, ripple: 0, sway: 0, drift: 0, flicker: 0.2, shimmer: 0.4, rotors: [{ x: 0.5, y: 0.3, r: 0.17, kind: "swirl", rate: 0.5 }] },
+  analytics: { flowDir: -1, flow: 0.8, ripple: 0, sway: 0, drift: 0.004, flicker: 0.1, shimmer: 0.6, rotors: [] },
+  studio: { flow: 0, ripple: 0, sway: 0, drift: 0, flicker: 0.22, shimmer: 0.5, rotors: [] },
+  core: { flow: 0, ripple: 0, sway: 0, drift: 0.009, flicker: 0.1, shimmer: 0.3, rotors: [{ x: 0.5, y: 0.45, r: 0.3, kind: "swirl", rate: 0.45 }, { x: 0.71, y: 0.17, r: 0.14, kind: "swirl", rate: 0.7 }] },
   arch: { flow: 0, ripple: 1, sway: 0.0024, drift: 0.005, flicker: 0.2, shimmer: 0, rotors: [] },
 };
 export const hasFx = (id: string): boolean => id in FX;
 /** The shader runs only when motion is allowed. */
 export const fxOn = (o: { reduced: boolean; tier?: number }): boolean => !o.reduced && (o.tier ?? 1) > 0;
-export const fxUrl = (id: string) => `/worlds/frames/${id}-fx.png`;
+export const fxUrl = (id: string, zoom = false) => `/worlds/frames/${zoom ? "zoom-" : ""}${id}-fx.png`;
+/** Planets whose zoom plate has its own (generic) mask: it moves like its parent. */
+export const ZOOM_FX: readonly string[] = ["vault", "operations", "business", "agents", "memory", "analytics", "studio"];
 
 const c01 = (v: number) => Math.max(0, Math.min(1, v));
 const ss = (a: number, b: number, x: number) => { const t = c01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
@@ -51,11 +60,11 @@ export function emissiveGain(t: number, e: number, spot: number, y: number, p: P
 export const FX_BUDGET_MS = 16.7;
 
 // ---- the calm grade (design pass): one dominant + one accent colour, less saturation, softer glow, darker edges ----
-export type Grade = { sat: number; glow: number; vig: number };
+export type Grade = { sat: number; glow: number; vig: number; red?: number };
 export const GRADE: Record<FrameId, Grade> = {
   vault: { sat: 0.95, glow: 0.9, vig: 0.22 }, operations: { sat: 0.88, glow: 0.8, vig: 0.26 }, business: { sat: 0.72, glow: 0.45, vig: 0.3 },
   agents: { sat: 0.85, glow: 0.7, vig: 0.26 }, memory: { sat: 0.74, glow: 0.5, vig: 0.32 }, analytics: { sat: 0.95, glow: 0.9, vig: 0.22 },
-  studio: { sat: 0.74, glow: 0.55, vig: 0.3 }, life: { sat: 0.78, glow: 0.6, vig: 0.28 }, gamedev: { sat: 0.74, glow: 0.5, vig: 0.32 },
+  studio: { sat: 0.72, glow: 0.5, vig: 0.32, red: 0.6 }, life: { sat: 0.78, glow: 0.6, vig: 0.28 }, gamedev: { sat: 0.74, glow: 0.5, vig: 0.32 },
   arch: { sat: 1, glow: 1, vig: 0.2 }, core: { sat: 0.85, glow: 0.7, vig: 0.28 },
 };
 /** Saturation is cut by 20..30 % on the loudest plates and never lifted above 1. */
@@ -71,3 +80,13 @@ export function stormsFrom(painted: readonly (readonly [number, number, number])
 /** Plate calming: desaturate and darken the painted weather tint and the night glow (0 = original, 1 = full). */
 export const WORLD_GRADE = { sat: 0.85, tint: 0.55, tintK: 0.8, vig: 0.3 }; // tintK: how far the loud saturated weather colour is pulled to grey
 export type { Vec2 };
+
+/** Glow only on data-carrying items: the luminance pulse is full strength within DATA_R of a label slot, DATA_FLOOR elsewhere. */
+export const DATA_R = 0.07, DATA_FLOOR = 0.25;
+export function dataGlow(p: [number, number], spots: [number, number][]): number {
+  let near = 0; for (const [x, y] of spots) near = Math.max(near, 1 - ss(DATA_R * 0.5, DATA_R, Math.hypot((p[0] - x) * 1.787, p[1] - y)));
+  return DATA_FLOOR + (1 - DATA_FLOOR) * near;
+}
+/** Mobile: the panel takes the bottom of a narrow screen, so labels below this screen height (0..1) are hidden (still in the panel). */
+export const MOBILE_W = 700, MOBILE_LABEL_MAX_Y = 0.58;
+export const labelClear = (y: number, viewW: number): boolean => viewW >= MOBILE_W || y <= MOBILE_LABEL_MAX_Y;

@@ -41,7 +41,7 @@ test("per plate settings: only plates with masks, strengths are subtle, rotors s
     for (const r of f.rotors) { assert.ok(r.x - r.r / 1.78 > 0 && r.x + r.r / 1.78 < 1 && r.y - r.r > 0 && r.y + r.r < 1); assert.ok(r.rate > 0 && r.rate < 2); }
     assert.ok(statSync(`public${fxUrl(id)}`).size > 500 && statSync(`public${fxUrl(id)}`).size < 200_000);
   }
-  for (const id of ["life", "gamedev", "memory", "arch"]) assert.ok(hasFx(id)); assert.equal(hasFx("vault"), false);
+  for (const id of ["life", "gamedev", "memory", "arch"]) assert.ok(hasFx(id));
 });
 test("calm grade: every plate has one, the loudest ones are cut 20 to 30 percent and none is boosted", () => {
   for (const id of FRAME_IDS) assert.ok(gradeOk(GRADE[id]), id);
@@ -70,4 +70,21 @@ test("town arcs join only towns that share a story, biggest overlap first", () =
 test("ARCH shows the plate through the ground: shadow-only ground, no cosmetic trees or grid on the plate", () => {
   const s = readFileSync("src/components/ArchWorld.tsx", "utf8");
   assert.ok(s.includes("plateOn ? <shadowMaterial") && s.includes("!plateOn && <gridHelper") && s.includes("!ifc && !plateOn && <Trees"));
+});
+
+import { DATA_FLOOR, MOBILE_LABEL_MAX_Y, ZOOM_FX, dataGlow, labelClear } from "../src/lib/frame-fx-pure.ts";
+test("every planet has a mask and a param set; zoom plates have their own generic mask", () => {
+  for (const id of ["vault", "operations", "business", "agents", "memory", "analytics", "studio", "life", "gamedev", "arch", "core"]) { assert.ok(hasFx(id), id); assert.ok(statSync(`public${fxUrl(id)}`).size > 500, id); }
+  for (const id of ZOOM_FX) assert.ok(statSync(`public${fxUrl(id, true)}`).size > 500, id);
+  assert.equal(FX.analytics!.flowDir, -1); // particles rise along the beams
+  assert.ok(FX.operations!.rotors.length >= 1 && FX.agents!.rotors.length >= 1 && FX.core!.rotors.length >= 1);
+});
+test("studio reds are graded down", () => { assert.ok((GRADE.studio.red ?? 0) >= 0.5); assert.ok(GRADE.studio.sat <= 0.75); });
+test("glow only on data-carrying items: full near a label slot, the floor elsewhere", () => {
+  assert.equal(dataGlow([0.5, 0.5], [[0.5, 0.5]]), 1); assert.equal(dataGlow([0.1, 0.1], [[0.8, 0.8]]), DATA_FLOOR); assert.equal(dataGlow([0.1, 0.1], []), DATA_FLOOR);
+  const mid = dataGlow([0.52, 0.5], [[0.5, 0.5]]); assert.ok(mid > DATA_FLOOR && mid < 1);
+});
+test("mobile labels stay clear of the bottom panel; wide screens are untouched", () => {
+  assert.equal(labelClear(0.9, 1280), true); assert.equal(labelClear(0.9, 390), false); assert.equal(labelClear(MOBILE_LABEL_MAX_Y, 390), true); assert.equal(labelClear(0.3, 390), true);
+  assert.ok(readFileSync("src/components/FrameScene.tsx", "utf8").includes("labelClear(p[1], size.width)"));
 });
