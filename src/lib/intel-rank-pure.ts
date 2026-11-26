@@ -45,11 +45,26 @@ export function ago(iso: string | null | undefined, now: number): string {
   return m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
 }
 
-export type TopStory = { title: string; url: string; source: string; country: string; lat: number; lon: number; outlets: number; age: string };
+export type TopStory = { category: Category; title: string; url: string; source: string; country: string; lat: number; lon: number; outlets: number; age: string };
 /** The biggest news systems as stories (most independent outlets first): the top-story card and the "other stories" strip. */
 export function topStories(hs: Hotspot[], now: number, n = 4): TopStory[] {
   return systems(hs).slice(0, n).map((s) => {
     const url = s.urls[0] ?? "", st = hs.flatMap((h) => h.stories).find((x) => x.url === url);
-    return { title: s.title, url, source: s.sources[0]?.source ?? "", country: s.country, lat: s.lat, lon: s.lon, outlets: s.outlets, age: ago(st?.published_at, now) };
+    return { category: categoryOf(s.title), title: s.title, url, source: s.sources[0]?.source ?? "", country: s.country, lat: s.lat, lon: s.lon, outlets: s.outlets, age: ago(st?.published_at, now) };
   });
+}
+
+export type Category = "conflict" | "politics" | "economy" | "climate" | "health" | "tech" | "sport" | "world";
+const WORDS: [Category, RegExp][] = [
+  ["conflict", /\b(war|strike[sd]?|attack(s|ed)?|missile|troops?|army|military|killed|dead|bomb(s|ing)?|explosion|fire|shooting|hostage|ceasefire|drone|invasion|terror)\b/i],
+  ["climate", /\b(storm|hurricane|typhoon|flood(s|ing)?|wildfire|earthquake|climate|heatwave|drought|snow|weather|tornado|cyclone)\b/i],
+  ["economy", /\b(econom(y|ic)|market(s)?|inflation|trade|tariff(s)?|bank|oil|prices?|stocks?|jobs|gdp|sanctions?|currency|budget)\b/i],
+  ["health", /\b(health|virus|outbreak|hospital|vaccine|disease|cancer|covid|medical|drug)\b/i],
+  ["tech", /\b(ai|chip(s)?|tech|software|cyber|hack(ed|ers)?|robot|space|satellite|rocket|data)\b/i],
+  ["sport", /\b(football|soccer|cup|olympic(s)?|tennis|match|league|champion(s|ship)?|coach|goal)\b/i],
+  ["politics", /\b(president|minister|election(s)?|parliament|vote(s|d)?|government|treaty|summit|law|court|talks|leader(s)?|eu|un|nato|deal)\b/i],
+];
+/** A story's kind from keywords in its headline (no model): picks the icon on the cards. First match wins; "world" when nothing fits. */
+export function categoryOf(title: string): Category {
+  return WORDS.find(([, re]) => re.test(title))?.[0] ?? "world";
 }

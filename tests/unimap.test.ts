@@ -119,3 +119,22 @@ test("ago + topStories: short ages, biggest system first", () => {
   const s = topStories(hs, Date.now(), 2);
   assert.ok(s.length >= 1 && s[0].outlets >= (s[1]?.outlets ?? 0) && s[0].country);
 });
+
+import { categoryOf } from "../src/lib/intel-rank-pure.ts";
+import { stormLevel } from "../src/lib/earth-layers-pure.ts";
+test("categoryOf: keywords pick the kind, nothing fits = world", () => {
+  assert.equal(categoryOf("Ukraine braces for new wave of attacks"), "conflict");
+  assert.equal(categoryOf("Major hurricane bears down on Caribbean"), "climate");
+  assert.equal(categoryOf("U.S.-China trade talks show signs of progress"), "economy");
+  assert.equal(categoryOf("EU considers new sanctions"), "economy");
+  assert.equal(categoryOf("President opens summit"), "politics");
+  assert.equal(categoryOf("Cherry trees blossom in Tartu"), "world");
+});
+test("stormLevel: relative to the busiest system, so a quiet day still has colour", () => {
+  assert.equal(stormLevel(3, 3).key, "crisis");
+  assert.equal(stormLevel(2, 3).key, "rising");
+  assert.equal(stormLevel(1, 3).key, "ongoing");
+  assert.equal(stormLevel(1, 20).key, "stable");
+  const w = earthWeather([h("Ukraine", 31, 49, 30, ["a", "b", "c"]), h("Chile", -71, -33, 1, ["z"])]);
+  assert.ok(new Set(w.swirls.map((s) => s.color)).size >= 2, "more than one colour");
+});

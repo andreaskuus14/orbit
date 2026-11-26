@@ -1,5 +1,6 @@
 // "Planet Earth" view data (feat/earth-globe): today's hotspots → story rings (one per country, sized by independent outlets) and
 // light arcs (a story two countries share), reusing the news-weather rules; plus the timeline strip. Pure; tests/earth.test.ts.
+import { stormLevel } from "./earth-layers-pure.ts";
 import { frontType, fronts, highs, systems, weather, type FrontType } from "./news-weather-pure.ts";
 import type { Hotspot } from "./geo.ts";
 import type { TownNews } from "./earth-pure.ts";
@@ -11,7 +12,7 @@ export type EarthWeather = {
   isobars: { hpa: number; lines: [number, number][][] }[];
   centres: { kind: "H" | "L"; lon: number; lat: number; hpa: number; label: string }[];
   /** a spiral per news system (storm = 5+ outlets), in its region colour */
-  swirls: { lon: number; lat: number; outlets: number; color: string; storm: boolean }[];
+  swirls: { lon: number; lat: number; outlets: number; color: string; storm: boolean; rel: number }[];
   fronts: { from: { lon: number; lat: number }; to: { lon: number; lat: number }; type: FrontType; title: string }[];
 };
 export type EarthData = { rings: EarthRing[]; arcs: EarthArc[]; towns: TownNews[]; timeline: { title: string; time: string; source: string }[];
@@ -26,7 +27,8 @@ export function earthWeather(hs: Hotspot[]): EarthWeather {
     ...calm.map((h) => ({ kind: "H" as const, lon: h.lon, lat: h.lat, hpa: w.hpa[`H:${h.region}`] ?? 1028, label: h.region })),
   ];
   const fr = w.fronts.flatMap((f) => { const a = at.get(f.from), b = at.get(f.to); return a && b ? [{ from: { lon: a.lon, lat: a.lat }, to: { lon: b.lon, lat: b.lat }, type: frontType(f, w.systems), title: f.title }] : []; });
-  const swirls = w.systems.slice(0, 10).map((s) => ({ lon: s.lon, lat: s.lat, outlets: s.outlets, color: s.color, storm: s.kind === "storm" }));
+  const top = Math.max(1, ...w.systems.map((s) => s.outlets)); // levels are relative to the busiest system, so a quiet day still reads
+  const swirls = w.systems.slice(0, 10).map((s) => { const l = stormLevel(s.outlets, top); return { lon: s.lon, lat: s.lat, outlets: s.outlets, color: l.color, storm: l.key === "crisis" || l.key === "rising", rel: s.outlets / top }; });
   return { isobars: w.isobars.map((i) => ({ hpa: i.hpa, lines: i.lines })), centres, swirls, fronts: fr };
 }
 
