@@ -35,8 +35,11 @@ const sizes = (process.env.EARTH_SIZES || "1440x900,1920x1080").split(",").map((
 const res = {};
 const browser = await chromium.launch({ executablePath: "/usr/bin/google-chrome", args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
 try {
-  for (const [W, H] of sizes) for (const [name, p] of Object.entries(SHOTS)) { // a fresh page per shot: software GL runs out of memory otherwise
-      const page = await browser.newPage({ viewport: { width: W, height: H } });
+  const only = process.env.EARTH_SHOTS?.split(",");
+  for (const [W, H] of sizes) for (const [name, p] of Object.entries(SHOTS)) for (let attempt = 1; attempt <= 3; attempt++) { // a fresh page per shot; software GL may crash under memory pressure: retry
+    if (only && !only.includes(name)) break;
+    const page = await browser.newPage({ viewport: { width: W, height: H } });
+    try {
       page.on("pageerror", (e) => console.log("page:", e.message));
       await page.goto(`http://127.0.0.1:${port}/`); await page.evaluate(() => window.earthReady);
       tiles = 0;
@@ -44,5 +47,7 @@ try {
       await page.screenshot({ path: `${out}/${tag}-${name}-${W}.png` });
       res[`${name}-${W}`] = { ...r, tiles }; console.log(`${tag} ${name} ${W}x${H}: median ${r.median.toFixed(1)} ms, p90 ${r.p90.toFixed(1)} ms, tiles asked ${tiles}`);
       await page.close();
+      break;
+    } catch (e) { console.log(`${tag} ${name} ${W}x${H}: attempt ${attempt} failed (${e.message.split("\n")[0]})`); await page.close().catch(() => {}); }
   }
 } finally { await browser.close(); srv.close(); writeFileSync(`${out}/${tag}-bench.json`, JSON.stringify(res, null, 1)); }
