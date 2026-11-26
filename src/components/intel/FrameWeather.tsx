@@ -10,7 +10,7 @@ import { nearPainted, onPlate, PLATE, platePoint } from "@/lib/frame-map-pure";
 const FRONT = { cold: "#4f9bff", warm: "#ff5a4f", occluded: "#b57aff" } as const;
 const P = (lon: number, lat: number) => platePoint(lon, lat, "world");
 
-export default function FrameWeather({ hotspots, reduced }: { hotspots: Hotspot[]; reduced: boolean }) {
+export default function FrameWeather({ hotspots, reduced, ui = 1 }: { hotspots: Hotspot[]; reduced: boolean; /** plate px per screen px: the H/L badges keep their screen size when the plate is scaled up */ ui?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const w = useMemo(() => earthWeather(hotspots), [hotspots]);
   useEffect(() => {
@@ -64,15 +64,15 @@ export default function FrameWeather({ hotspots, reduced }: { hotspots: Hotspot[
       for (const c of w.centres) {
         const p = P(c.lon, c.lat); if (!onPlate(p, "world")) continue;
         const col = c.kind === "L" ? "#ff6a5a" : "#5ab4ff";
-        ctx.beginPath(); ctx.arc(p.x, p.y, 15, 0, 7); ctx.fillStyle = "rgba(6,12,24,.75)"; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
-        ctx.fillStyle = "#fff"; ctx.font = "700 15px Inter, system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(c.kind, p.x, p.y + 1);
-        ctx.font = "600 10px Inter, system-ui, sans-serif"; ctx.fillStyle = col; ctx.fillText(String(c.hpa), p.x, p.y + 25);
+        ctx.beginPath(); ctx.arc(p.x, p.y, 15 * ui, 0, 7); ctx.fillStyle = "rgba(6,12,24,.75)"; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = "#fff"; ctx.font = `700 ${15 * ui}px Inter, system-ui, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(c.kind, p.x, p.y + 1);
+        ctx.font = `600 ${10 * ui}px Inter, system-ui, sans-serif`; ctx.fillStyle = col; ctx.fillText(String(c.hpa), p.x, p.y + 25 * ui);
       }
       if (!reduced) raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
     const redraw = reduced ? setInterval(() => requestAnimationFrame(draw), 1000) : 0; // reduced motion: still, refreshed once a second until the textures load
     return () => { dead = true; cancelAnimationFrame(raf); if (redraw) clearInterval(redraw); };
-  }, [w, reduced]);
+  }, [w, reduced, ui]);
   return <canvas ref={ref} className="frame-wx" width={PLATE.w} height={PLATE.h} aria-hidden />;
 }

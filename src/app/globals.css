@@ -1099,7 +1099,7 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 @media (max-width: 1360px) { .intel-where { display: none; } }
 /* left column: search on top, the list (or a country) under it, never below the command bar band */
 .globe-in.intel-zoned :is(.earth-search, .globe-search) { top: var(--iz-t); left: var(--iz-l); right: auto; width: var(--iz-col); max-width: none; margin: 0; transform: none; zoom: 1; z-index: 15; }
-.globe-in.intel-zoned :is(.earth-side, .globe-side, .globe-country) { top: calc(var(--iz-t) + 4rem); left: var(--iz-l); width: var(--iz-col); max-height: none; bottom: var(--iz-b); zoom: 1; transform: none; }
+.globe-in.intel-zoned :is(.earth-side, .globe-side, .globe-country) { z-index: 14; top: calc(var(--iz-t) + 4rem); left: var(--iz-l); width: var(--iz-col); max-height: none; bottom: var(--iz-b); zoom: 1; transform: none; }
 .globe-in.intel-zoned .globe-regions { top: auto; bottom: calc(var(--iz-b) + 0.25rem); left: var(--iz-sl); right: var(--iz-r); width: auto; max-width: none; margin: 0; transform: none; zoom: 1; justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 .globe-in.intel-zoned.intel-chips > .intel-stage { bottom: calc(var(--iz-b) + 4.25rem); }
 /* Earth HUD inside the stage */
@@ -1147,20 +1147,21 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .ip-rank b { font-weight: 600; text-align: right; }
 .ip-rank em { font-style: normal; font-size: 0.68rem; color: rgba(238, 242, 247, 0.45); }
 .ip-rank em.up { color: #f2706a; } .ip-rank em.down { color: #5ec9a0; }
-.globe-in.intel-zoned .ip-top { position: absolute; z-index: 14; top: var(--iz-t); right: calc(var(--iz-r) + 0.5rem); width: 324px; }
+.globe-in.intel-zoned .ip-top { zoom: 1; position: absolute; z-index: 14; top: var(--iz-t); right: calc(var(--iz-r) + 0.5rem); width: 324px; }
 .ip-map { position: relative; display: block; overflow: hidden; border-radius: 7px; background: #0b1b33; }
 .ip-map img { position: absolute; max-width: none; filter: saturate(1.25) brightness(.8) contrast(1.1); }
 .ip-map i { position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #f2b35e; box-shadow: 0 0 0 4px rgba(242, 179, 94, 0.25), 0 0 16px 4px rgba(242, 179, 94, 0.6); }
 .ip-top h3 { margin: 0.7rem 0 0.35rem; font: 400 1.35rem/1.2 var(--font-serif, Georgia, serif); color: #fff; }
 .ip-top p { margin: 0; font-size: 0.74rem; color: rgba(238, 242, 247, 0.62); }
 .ip-more { display: inline-block; margin-top: 0.6rem; font-size: 0.78rem; font-weight: 600; color: #f2b35e; }
-.globe-in.intel-zoned .ip-strip { position: absolute; z-index: 14; left: var(--iz-sl); right: calc(var(--iz-r) + 0.5rem); bottom: calc(var(--iz-b) + 1.25rem); }
+.globe-in.intel-zoned .ip-strip { zoom: 1; position: absolute; z-index: 14; left: var(--iz-sl); right: calc(var(--iz-r) + 0.5rem); bottom: calc(var(--iz-b) + 1.25rem); }
 .ip-strip > div:last-child { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
 .ip-strip a { display: flex; gap: 0.6rem; align-items: center; color: #eef2f7; text-decoration: none; min-width: 0; }
 .ip-strip a > span:last-child { min-width: 0; } .ip-strip b { display: block; font-size: 0.78rem; font-weight: 500; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ip-strip em { font-style: normal; font-size: 0.68rem; color: rgba(238, 242, 247, 0.55); }
 .ip-strip .ip-map { flex: none; }
 @media (max-width: 1100px) { .globe-in.intel-zoned .ip-top, .globe-in.intel-zoned .ip-strip { display: none; } }
+@media (max-width: 1700px) { .globe-in.intel-zoned .ip-top .ip-map { display: none; } } /* a headline-only card: the picture would cover the middle of the plate */
 .ip-legend { margin-top: 0.8rem; padding-top: 0.7rem; border-top: 1px solid rgba(238, 242, 247, 0.12); }
 .ip-legend ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.32rem; font-size: 0.72rem; color: rgba(238, 242, 247, 0.78); }
 .ip-legend li { display: flex; align-items: center; gap: 0.55rem; }
@@ -1171,8 +1172,14 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .ip-top .ip-flag, .ip-strip .ip-flag { margin: 0 0.35rem 0 0; }
 
 /* INTELLIGENCE frame map: the Higgsfield plate with live pins and cards (components/intel/FrameMap.tsx) */
-.frame-map { position: absolute; inset: 0; z-index: 1; background: #02050c; overflow: hidden; }
-.frame-plate { position: absolute; will-change: transform; }
+.frame-map { position: absolute; inset: 0; z-index: 1; background: #02050c; overflow: hidden; contain: layout paint; }
+.globe-in > .frame-map.frame-map { zoom: 1; } /* the worlds' 0.9 zoom (above) must not touch the plate: it would skew every pixel measure */
+.frame-plate { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform, opacity; backface-visibility: hidden; transition: transform .9s cubic-bezier(.45, 0, .2, 1), opacity .9s ease; }
+.frame-map.still .frame-plate, .frame-map.still { transition: none; }
+.frame-map { transition: opacity .45s ease .45s; }
+.frame-map.diving { opacity: 0; }
+.frame-pins { position: absolute; inset: 0; pointer-events: none; }
+.frame-pins > div > * { pointer-events: auto; }
 .frame-plate img { display: block; user-select: none; pointer-events: none; }
 .frame-pin { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; border: 1.5px solid rgba(255,255,255,.85); background: rgba(255,255,255,.18); box-shadow: 0 0 10px rgba(120,200,255,.7); cursor: pointer; padding: 0; transition: box-shadow .2s, background .2s; }
 .frame-pin.on, .frame-pin:hover { background: rgba(255,255,255,.5); box-shadow: 0 0 18px rgba(150,220,255,1); }
@@ -1182,7 +1189,7 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .fc-head img { width: 16px; height: 12px; object-fit: cover; border-radius: 2px; }
 .fc-head b { margin-left: auto; font-weight: 600; color: #ffb27a; }
 .fc-line { font-size: 10.5px; line-height: 1.25; color: rgba(255,255,255,.72); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.frame-explore { position: absolute; right: 1rem; bottom: 6.5rem; z-index: 3; padding: 7px 14px; border-radius: 999px; background: rgba(10,20,40,.75); border: 1px solid rgba(160,200,255,.4); color: #fff; font-size: 12px; cursor: pointer; }
+.frame-explore { position: absolute; z-index: 3; padding: 7px 14px; border-radius: 999px; background: rgba(10,20,40,.75); border: 1px solid rgba(160,200,255,.4); color: #fff; font-size: 12px; cursor: pointer; }
 .frame-plate-in { position: relative; width: 1344px; height: 752px; }
 .frame-gl { position: absolute; inset: 0; width: 100%; height: 100%; }
 .frame-wx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
