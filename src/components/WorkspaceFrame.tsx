@@ -10,10 +10,13 @@ import { useT } from "./i18n";
 
 export type View<V extends string> = { id: V; label: string; secondary?: boolean };
 
-export function useWorkspaceView<V extends string>(planet: string, views: readonly View<V>[]) {
+/** remember=false: always open on the first view (deep links and clicks still switch); INTELLIGENCE opened on Sources otherwise. */
+export function useWorkspaceView<V extends string>(planet: string, views: readonly View<V>[], remember = true) {
   const ids = views.map((v) => v.id);
   const [view, setView] = useState<V>(ids[0]);
-  useEffect(() => { try { setView(pickView(localStorage.getItem(viewKey(planet)), ids)); } catch { /* no storage: first view */ } }, [planet]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { try { // remember=false: only a deep link (#o=<planet>&v=<view>) picks the view
+    const h = new URLSearchParams(location.hash.slice(1)), link = h.get("o") === planet ? h.get("v") : null;
+    setView(pickView(remember ? localStorage.getItem(viewKey(planet)) : link, ids)); } catch { /* no storage: first view */ } }, [planet]); // eslint-disable-line react-hooks/exhaustive-deps
   const choose = (v: V) => {
     setView(v); try { localStorage.setItem(viewKey(planet), v); } catch { /* this session only */ }
     const h = withView(location.hash, planet, v); // the link's view and the remembered view stay the same

@@ -199,9 +199,27 @@ const API = (p, u) => ({
   "/api/studio/longform": { plans: [{ v: 1, id: "lf1", createdAt: ago(5e6), topic: "pet sim", minutes: 10, drafts: [], plan: { titles: ["How I built a pet sim in 30 days", "30 days, one Roblox game"], hook: "Day one, I had nothing.",
     chapters: [{ title: "The idea", script: "Why pets.", sec: 120, shots: [{ type: "b-roll", desc: "Old sketches" }, { type: "screen", desc: "Studio empty place" }] }, { title: "First egg", script: "Hatching logic.", sec: 180, shots: [{ type: "graphic", desc: "Odds table" }] }],
     thumbs: [{ concept: "Me holding a giant egg", text: "30 DAYS" }], shorts: [{ title: "The egg bug", chapter: 1, idea: "The egg that hatched twice" }] } }] },
+  "/api/news/geo": (() => { const now = Date.now(), st = (title, src, h) => ({ title, url: `https://news.example/${encodeURIComponent(title)}`, source: src, published_at: new Date(now - h * 3600_000).toISOString() });
+    const hs = [["Ukraine", 49, 32, 14, ["Talks on a ceasefire line resume", "Power cuts across the east after strikes"]], ["United States", 39, -98, 11, ["Budget deal passes the Senate"]], ["Germany", 51, 10, 7, ["Coalition agrees on a rail plan"]],
+      ["Estonia", 58.6, 25, 6, ["Rail Baltica: Ülemiste station opens", "Tallinn to extend district heating"]], ["Japan", 36, 138, 5, ["Bank of Japan holds rates"]], ["Brazil", -10, -55, 4, ["Amazon fires down a third this year"]], ["India", 22, 79, 4, ["Monsoon floods in Assam"]]];
+    return { hours: 72, total: 51, untagged: 3, hotspots: hs.map(([name, lat, lon, count, ts], i) => ({ name, lat, lon, count, stories: ts.map((t, j) => st(t, ["Reuters", "ERR", "BBC", "AP"][(i + j) % 4], 2 + i + j)) })) }; })(),
   "/api/personas": { context: "", report: null, calibration: null, running: false },
   "/api/study": { cards: [], queue: [], lessons: [], log: [], stats: { due: 0, total: 0, streak: 2, retention: null, learned: 0, reviewedToday: 0 } },
 }[p]);
+
+// Earth tiles: the same upstreams as /api/earth/tile, cached in EARTH_TMP (shared with scripts/earth/*); offline → 404 (dark globe).
+const TILE_DIR = `${process.env.EARTH_TMP || "/tmp/earth-h"}/tiles`; mkdirSync(TILE_DIR, { recursive: true });
+const UP = { day: (z, x, y) => `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/${z}/${y}/${x}.jpg`,
+  night: (z, x, y) => `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/${z}/${y}/${x}.png`,
+  elev: (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png` };
+async function earthTile(u) {
+  const k = u.searchParams.get("k"), z = +u.searchParams.get("z"), x = +u.searchParams.get("x"), y = +u.searchParams.get("y"), f = `${TILE_DIR}/${k}_${z}_${x}_${y}`;
+  try {
+    if (!UP[k]) throw 0;
+    if (!existsSync(f)) { const r = await fetch(UP[k](z, x, y)); if (!r.ok) throw 0; writeFileSync(f, Buffer.from(await r.arrayBuffer())); }
+    return { contentType: k === "day" ? "image/jpeg" : "image/png", body: readFileSync(f) };
+  } catch { return { status: 404, body: "" }; }
+}
 
 const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", "--disable-dev-shm-usage"] });
 
@@ -226,6 +244,8 @@ async function open(w, h, { reduced = false, galaxy = true, motion = "on", phone
     const pub = resolve("public" + decodeURIComponent(p));
     if (!p.startsWith("/api/") && pub.startsWith(resolve("public")) && existsSync(pub)) return route.fulfill({ body: readFileSync(pub) });
     if (p === "/api/core" && r.method() === "POST") { await new Promise((ok) => setTimeout(ok, 400)); return route.fulfill({ contentType: "application/x-ndjson", body: coreStream() }); }
+    if (p === "/api/earth/tile") return route.fulfill(await earthTile(u)); // real imagery, cached on disk (the Earth looked empty without it)
+    if (p.startsWith("/api/earth/")) return route.fulfill({ json: p === "/api/earth/local" ? { towns: [] } : {} });
     const j = API(p, u);
     if (FAIL.has(p)) return route.fulfill({ status: 500, json: { error: "forced 500 (QA_FAIL)" } });
     if (j !== undefined) return route.fulfill({ json: j ?? {} });
@@ -242,7 +262,9 @@ const audit = (page) => page.evaluate(() => {
   const vis = (el) => { for (let e = el, from = null; e; from = e, e = e.parentElement) { const s = getComputedStyle(e); if (s.visibility === "hidden" || s.display === "none" || +s.opacity < 0.05) return false;
     if (e.tagName === "DETAILS" && !e.open && from && from.tagName !== "SUMMARY") return false; } return true; }; // closed <details>: only the summary shows
   const leaves = [...document.querySelectorAll("body *")].filter((el) => !el.closest("canvas,svg,[aria-hidden=true]") && [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && vis(el))
-    .map((el) => ({ el, t: el.textContent.trim().slice(0, 40), r: el.getBoundingClientRect() })).filter((x) => x.r.width > 2 && x.r.height > 2);
+    .map((el) => ({ el, t: el.textContent.trim().slice(0, 40), r: el.getBoundingClientRect() })).filter((x) => x.r.width > 2 && x.r.height > 2)
+    .filter((x) => { for (let e = x.el.parentElement; e && e !== document.body; e = e.parentElement) { if (getComputedStyle(e).overflow === "visible") continue; // fully clipped away by a scrolling/clipping box: not seen
+      const c = e.getBoundingClientRect(); if (x.r.top >= c.bottom - 1 || x.r.bottom <= c.top + 1 || x.r.left >= c.right - 1 || x.r.right <= c.left + 1) return false; } return true; });
   const hits = [];
   for (let i = 0; i < leaves.length; i++) for (let j = i + 1; j < leaves.length; j++) {
     const A = leaves[i], Bx = leaves[j]; if (A.el.contains(Bx.el) || Bx.el.contains(A.el)) continue;
@@ -280,6 +302,37 @@ const coreOver = (page) => page.evaluate(() => {
   for (const el of d.querySelectorAll("section,aside,form,.bubble,textarea,input,button")) { const b = el.getBoundingClientRect(); if (b.width > 2 && b.height > 2 && getComputedStyle(el).visibility !== "hidden" && b.right > r.right + 1 && !el.closest("[hidden]")) { out.push(`cut off in CORE: ${el.tagName.toLowerCase()}.${String(el.className).split(" ")[0]}`); break; } }
   return out;
 });
+// INTELLIGENCE, every map (QA_INTEL=1): the tab bar must be on screen with the right tab lit after every move (both directions
+// between Earth, Estonia, Towns, Tallinn, News weather and Classic map, and Esc back), the fixed chrome (header, tab bar, left
+// column, briefing panel, command bar + its pill, region chips) must not overlap, and the maps' own HUD must stay inside the stage.
+const INTEL_STEPS = ["orbit", "country", "region", "town", "weather", "classic", "town", "weather", "orbit", "classic", "country", "classic", "region", "weather", "country",
+  "esc:orbit", "classic", "esc:orbit", "weather", "esc:orbit"];
+const intelCheck = (page) => page.evaluate(() => {
+  const vis = (e) => { if (!e || !e.isConnected) return false; for (let x = e; x; x = x.parentElement) { const s = getComputedStyle(x); if (s.display === "none" || s.visibility === "hidden" || +s.opacity < 0.05) return false; } const r = e.getBoundingClientRect(); return r.width > 2 && r.height > 2; };
+  const box = (name, sel) => [...document.querySelectorAll(sel)].filter(vis).map((e) => { const r = e.getBoundingClientRect(); return { name, r: [r.left, r.top, r.right, r.bottom] }; });
+  const chrome = [box("header", ".hud-top"), box("tab bar", "[data-intel-bar]"), box("panel", ".drawer:not(.drawer-out)"), box("command bar", ".cmdbar"), box("hey-orbit pill", ".voice-wake"),
+    box("search", ".earth-search, .globe-search"), box("left list", ".earth-side, .globe-side, .globe-country"), box("region chips", ".globe-regions")].flat();
+  const out = [];
+  for (let i = 0; i < chrome.length; i++) for (let j = i + 1; j < chrome.length; j++) {
+    const a = chrome[i].r, b = chrome[j].r;
+    if (chrome[i].name === "command bar" && chrome[j].name === "hey-orbit pill" || chrome[j].name === "command bar" && chrome[i].name === "hey-orbit pill") continue; // the pill belongs to the bar
+    if (Math.min(a[2], b[2]) - Math.max(a[0], b[0]) > 1 && Math.min(a[3], b[3]) - Math.max(a[1], b[1]) > 1) out.push(`overlap: ${chrome[i].name} [${a.map(Math.round)}] × ${chrome[j].name} [${b.map(Math.round)}]`);
+  }
+  const st = document.querySelector(".intel-stage")?.getBoundingClientRect();
+  if (!st) out.push("no stage"); else {
+    for (const c of chrome) { const a = c.r; if (Math.min(a[2], st.right) - Math.max(a[0], st.left) > 1 && Math.min(a[3], st.bottom) - Math.max(a[1], st.top) > 1) out.push(`overlap: stage [${[st.left, st.top, st.right, st.bottom].map(Math.round)}] × ${c.name} [${a.map(Math.round)}]`); }
+    const hud = [box("earth timeline", ".earth-timeline"), box("earth headline", ".earth-lower"), box("near you", ".earth-near"), box("credit", ".earth-credit"), box("story card", ".earth-card")].flat();
+    for (let i = 0; i < hud.length; i++) for (let j = i + 1; j < hud.length; j++) { const a = hud[i].r, b = hud[j].r;
+      if (Math.min(a[2], b[2]) - Math.max(a[0], b[0]) > 1 && Math.min(a[3], b[3]) - Math.max(a[1], b[1]) > 1) out.push(`overlap: ${hud[i].name} [${a.map(Math.round)}] × ${hud[j].name} [${b.map(Math.round)}]`); }
+    for (const h of hud.filter((x) => x.name !== "story card"))
+      if (h.r[0] < st.left - 2 || h.r[1] < st.top - 2 || h.r[2] > st.right + 2 || h.r[3] > st.bottom + 2) out.push(`outside stage: ${h.name} [${h.r.map(Math.round)}] stage [${[st.left, st.top, st.right, st.bottom].map(Math.round)}]`);
+  }
+  const bar = document.querySelector("[data-intel-bar]");
+  const tabs = [...document.querySelectorAll("[data-intel-tab]")].filter(vis).map((e) => e.dataset.intelTab);
+  const lit = document.querySelector("[data-intel-tab][aria-current=true]")?.dataset.intelTab ?? null;
+  return { issues: out, bar: vis(bar), tabs, lit, weather: !!document.querySelector("[data-news-weather]"), earth: !!document.querySelector(".earth-host"), classic: !document.querySelector("[data-news-weather]") && !document.querySelector(".earth-host") };
+});
+
 const ONLY = process.env.QA_ONLY ? process.env.QA_ONLY.split(",") : null;
 const SCREENS = ["home", "core", "memory", "intelligence", "creation", "operations", "agents", "life", "vault", "analytics", "studio", "business", "arch", "profile", "m", ...CORE_OVER].filter((s) => !ONLY || ONLY.includes(s));
 const report = {};
@@ -302,6 +355,26 @@ try {
     if (process.env.QA_SCROLL) await page.evaluate((y) => { for (const el of document.querySelectorAll(".drawer .overflow-y-auto, .pu-body, [data-intel-surface]")) el.scrollTop = y; }, +process.env.QA_SCROLL); // look below the fold
     if (process.env.QA_CLICK) await page.evaluate((sel) => { document.querySelector(sel)?.click(); }, process.env.QA_CLICK).catch(() => {}); // e.g. the first trust mark
     if (process.env.QA_CLICK) await page.waitForTimeout(400);
+    if (process.env.QA_INTEL && s === "intelligence") {
+      for (const [i, step] of INTEL_STEPS.entries()) {
+        const esc = step.startsWith("esc:"), want = esc ? step.slice(4) : step;
+        if (esc) await page.keyboard.press("Escape");
+        else { // the tab must be the top element at its centre (nothing drawn over it), then a real click there
+          const hit = await page.evaluate((id) => { const b = document.querySelector(`[data-intel-tab="${id}"]`); if (!b) return "missing"; const r = b.getBoundingClientRect();
+            const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return e === b || b.contains(e) ? "" : `covered by ${e?.className || e?.tagName}`; }, step);
+          check(!hit, `intel ${w}: tab ${step} reachable${hit ? " — " + hit : ""}`);
+          await page.click(`[data-intel-tab="${step}"]`, { timeout: 60_000, force: true, noWaitAfter: true }).catch(() => page.evaluate((id) => document.querySelector(`[data-intel-tab="${id}"]`)?.click(), step));
+        }
+        await page.waitForTimeout(want === "weather" || want === "classic" ? 2500 : 3500);
+        const r = await intelCheck(page);
+        const mode = want === "weather" ? r.weather && !r.earth : want === "classic" ? r.classic : r.earth;
+        check(r.bar && r.tabs.length === 6, `intel ${w} step ${i} ${step}: tab bar with all 6 tabs (${r.tabs.join(",")})`);
+        check(r.lit === want && mode, `intel ${w} step ${i} ${step}: lit ${r.lit}, right map shown`);
+        check(!r.issues.length, `intel ${w} step ${i} ${step}: layout clean${r.issues.length ? " — " + r.issues.join("; ") : ""}`);
+        if (["country", "town", "weather", "classic"].includes(step) && i < 6 || step === "esc:orbit" && i === 15) await page.screenshot({ path: `${OUT}/${TAG}-intel-${step.replace(":", "-")}-${w}.png`, timeout: 180_000 });
+      }
+      await page.click(`[data-intel-tab="orbit"]`).catch(() => {}); await page.waitForTimeout(3000);
+    }
     const issues = await audit(page);
     await page.screenshot({ path: `${OUT}/${TAG}-${s}-${w}.png`, timeout: 180_000 });
     if ((THROW.length || process.env.QA_NOGL) && s !== "home" && s !== "m") { // a crash must stay inside the planet

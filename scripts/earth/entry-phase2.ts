@@ -8,7 +8,7 @@ import { BZ, parseOverpass } from "../../src/lib/earth-buildings-pure";
 import type { Pose } from "../../src/lib/earth-pure";
 const st = document.createElement("style"); st.textContent = EARTH_CSS + "html,body{margin:0;background:#000}.earth-host{--pr:0px!important}"; document.head.appendChild(st);
 const host = document.createElement("div"); host.className = "earth-host"; document.body.appendChild(host);
-const e = createEarth(host, { tileUrl: (k, z, x, y) => `/tile?k=${k}&z=${z}&x=${x}&y=${y}`, sunMs: Date.parse("2026-11-23T11:30:00Z"), dpr: 1 });
+const e = createEarth(host, { tileUrl: (k, z, x, y) => `/tile?k=${k}&z=${z}&x=${x}&y=${y}`, sunMs: Date.parse("2026-11-23T11:30:00Z"), dpr: 1, preserve: true });
 (window as any).earthReady = (async () => {
   const [data, geo, heads, osm] = await Promise.all(["/data.json", "/geo.txt", "/heads.json", "/osm.json"].map((u) => fetch(u).then((r) => (u.endsWith(".txt") ? r.text() : r.json()))));
   const lv = toPlaces(parseGeoNames(geo as string).filter((c) => c.cc === "LV"), "lv");
