@@ -219,7 +219,16 @@ export function createEe3d(o: EeOpts) {
     const ready = (x: number, y: number) => tiles.has(`${x}/${y}`); // wanted tiles (loading ones still count: no shrinking while they come)
     return coveredRadius(lon2x(p.lon, EZ), lat2y(p.lat, EZ), ready) * tileMetres(p.lat);
   }
+  let fitAt = 0;
+  /** Keeps the HUD inside the Intelligence stage (.intel-stage: the free area between the bars and panels), when there is one. */
+  function fitStage() {
+    const now = performance.now(); if (now - fitAt < 500) return; fitAt = now;
+    const st = document.querySelector(".intel-stage")?.getBoundingClientRect(), hb = o.hud.getBoundingClientRect();
+    const b = st && st.width > 0 ? [st.top - hb.top, hb.right - st.right, hb.bottom - st.bottom, st.left - hb.left].map((v) => Math.max(0, v)) : [0, 0, 0, 0];
+    Object.assign(hud.style, { top: `${b[0]}px`, right: `${b[1]}px`, bottom: `${b[2]}px`, left: `${b[3]}px` });
+  }
   function hudFrame(p: Pose) {
+    fitStage();
     compass.style.transform = `rotate(${-(p.heading ?? 0)}deg)`;
     const m = p.alt * 1000; altV.textContent = m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`; altV.style.top = `${(100 * (1 - Math.min(1, altPos(m)))).toFixed(1)}%`;
     // scale bar: ~ metres per px at the screen centre (34° fov, 720-1440 px tall), rounded to 1/2/5
@@ -239,11 +248,11 @@ export function createEe3d(o: EeOpts) {
 
 export const EE3D_CSS = `
 .ee-hud{position:absolute;inset:0;pointer-events:none;color:#cfefff;font:500 11px/1.2 var(--font-jetbrains,ui-monospace,monospace);transition:opacity .4s}
-.ee-compass{position:absolute;left:var(--g,32px);top:84px;width:56px;height:56px}
+.ee-compass{position:absolute;left:16px;top:16px;width:56px;height:56px}
 .ee-compass svg{width:100%;height:100%;overflow:visible;transition:transform .2s}
 .ee-compass circle{fill:rgba(2,10,18,.45);stroke:rgba(120,220,255,.65);stroke-width:1}
 .ee-compass path{fill:#7fe3ff}.ee-compass text{fill:#cfefff;font-size:9px;text-anchor:middle}
-.ee-alt{position:absolute;left:var(--g,32px);top:170px;height:300px;width:70px}
+.ee-alt{position:absolute;left:16px;top:104px;height:min(300px,calc(100% - 170px));width:70px}
 .ee-alt-k{position:absolute;top:-16px;left:0;color:rgba(207,239,255,.7)}
 .ee-alt-bar{position:absolute;left:8px;top:0;bottom:0;border-left:1px solid rgba(120,220,255,.55)}
 .ee-alt-bar em{position:absolute;left:0;font-style:normal;transform:translateY(-50%);padding-left:12px;color:rgba(207,239,255,.65);white-space:nowrap}
@@ -251,6 +260,6 @@ export const EE3D_CSS = `
 .ee-alt-v{position:absolute;left:14px;transform:translateY(-50%);padding:2px 6px;border:1px solid #7fe3ff;background:rgba(2,10,18,.6);color:#eafaff;white-space:nowrap}
 .ee-scale{position:absolute;left:50%;bottom:30px;transform:translateX(-50%);text-align:center}
 .ee-scale i{display:block;height:6px;border:1px solid rgba(120,220,255,.8);border-top:0;margin:0 auto 3px}
-.ee-coords{position:absolute;left:var(--g,32px);bottom:10px;color:rgba(207,239,255,.8)}
+.ee-coords{position:absolute;left:16px;bottom:10px;color:rgba(207,239,255,.8)}
 .ee-credit{position:absolute;right:calc(var(--pr,0px) + 10px);bottom:16px;font-size:9px;color:rgba(238,242,247,.55)}
 `;

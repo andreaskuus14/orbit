@@ -249,7 +249,7 @@ export function IntelligencePanel() {
   const [sched, setSched] = useState<{ scheduled?: boolean; failed?: "network" | "server" }>({}); // undefined = still checking: no setup notice yet
   const [open, setOpen] = useState<string | null>(null);
   const { t } = useT();
-  const [view, setView] = useWorkspaceView<ViewId>("intelligence", VIEWS);
+  const [view, setView] = useWorkspaceView<ViewId>("intelligence", VIEWS, false); // opens on the briefing (Today), not the last sheet (owner, 25 Nov)
   const [tools, setTools] = useManual("intelligence");
   const [intel, setIntel] = useState<Intel | null>(null);
   const [running, setRunning] = useState(false);

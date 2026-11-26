@@ -6,6 +6,8 @@ import { WarmCompile } from "./WarmCompile";
 import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import * as THREE from "three";
 import type { QualityMode } from "@/lib/quality-pure";
+import { worldTier } from "@/lib/world-realism-pure";
+import { WorldTierSet } from "./world-kit";
 import { useLeanQuality } from "./useLeanQuality";
 import { Canvas, useFrame, useThree, type RootState } from "@react-three/fiber";
 import { ContactShadows, Edges, Line, OrbitControls, PerformanceMonitor } from "@react-three/drei";
@@ -566,6 +568,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
         {quality === "auto" && loop && <PerformanceMonitor onDecline={qualityPreset.onDecline} /> /* fps only means something while it loops */}
           <color attach="background" args={[bg]} />
           <fog attach="fog" args={[bg, real ? 140 : 60, real ? 600 : 140]} />
+          <WorldTierSet tier={worldTier(qualityPreset.bloomScale, qualityPreset.msaa)} />
           {real ? <ArchLook sun={lightPos} night={night} reach={lookReach} effects={{ ao: qualityPreset.bloomScale > 0, bloom: qualityPreset.bloomScale, msaa: qualityPreset.msaa }} /> : <>
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />
           <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={shadowMap(qualityPreset.bloomScale)} shadow-bias={-0.0004} shadow-camera-left={-SR} shadow-camera-right={SR} shadow-camera-top={SR} shadow-camera-bottom={-SR} shadow-camera-far={SR * 3} /></>}

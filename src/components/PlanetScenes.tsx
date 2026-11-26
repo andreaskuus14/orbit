@@ -7,6 +7,7 @@ import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import { Capsule, Crystals, LightShaft, Many, Motes, Plate, PlanetGround, rockGeometry, useWorldTier, type Chip, type CrystalIn, type Inst } from "./world-kit";
 import { lifeGarden } from "@/lib/worlds-v3-pure";
+import { AssetMany, RealOr } from "./world-assets";
 import { BIZ_STAGES, GATE_ANGLE, GATE_COLOR, VAULT_KIND_COLOR, bizScene, bytes, clip, fmtMin, heightAt, lifeScene, opsScene, podAngle, timeScene, vaultScene, type SceneId } from "@/lib/planet-scenes-pure";
 import { STAGE_COLOR } from "@/lib/living-galaxy-pure";
 
@@ -142,6 +143,9 @@ function Operations({ m, reduced }: { m: ReturnType<typeof opsScene>; reduced: b
 
 /* ---------- VAULT ---------- */
 
+const VAULT_LANTERNS: Inst[] = [-1, 1].flatMap((s) => [{ at: [s * 6, 5.6, -4.6], s: [1, 0.7, 1] }, { at: [s * 2.2, 0, 1.6], s: [1, 0.55, 1], ry: s }] as Inst[]);
+const VAULT_CHESTS: Inst[] = [[-3.4, 2.4, 0.6], [3.6, 2.1, -0.5], [-4.6, -1.2, 1.2], [4.4, -1.9, -1.1]].map(([x, z, r]): Inst => ({ at: [x, 0, z], s: [1, 0.75, 1], ry: r }));
+
 function Vault({ m, reduced }: { m: ReturnType<typeof vaultScene>; reduced: boolean }) {
   const gold = usePhys({ color: "#7a5a2a", metalness: 1, roughness: 0.32, clearcoat: 0.3 });
   const stone = usePhys({ color: "#1a140e", metalness: 0.4, roughness: 0.55, side: THREE.BackSide });
@@ -170,6 +174,11 @@ function Vault({ m, reduced }: { m: ReturnType<typeof vaultScene>; reduced: bool
       {[0, 1, 2, 3, 4, 5].map((i) => <mesh key={i} rotation-z={(i * Math.PI) / 3} position={[0, 0, 0.05]} material={gold}><boxGeometry args={[0.08, 4.2, 0.08]} /></mesh>)}
     </group>
     <mesh position={[0, 0.35, 0]} material={gold}><cylinderGeometry args={[1.1, 1.4, 0.7, 6]} /></mesh>
+    {/* v5: real brass lanterns and metal chests (Poly Haven, CC0); nothing extra on the low tier */}
+    <RealOr fallback={null}>
+      <AssetMany id="lantern" items={VAULT_LANTERNS} />
+      <AssetMany id="chest" items={VAULT_CHESTS} />
+    </RealOr>
     <Crystals items={[{ at: [0, 0.7, 0], h: 2.6, w: 1.3, color: "#ffb347", glow: 1 }]} reduced={reduced} intensity={0.8} />
     <LightShaft at={[0, 0, 0]} r={2.2} h={12} color="#ffcf8a" strength={0.3} />
     <pointLight position={[0, 2, 0]} intensity={25} distance={12} color="#ffb347" />
@@ -259,6 +268,11 @@ function useLifeGarden(pods: { at: [number, number, number] }[]) {
       pads: g.pads.map((p): Inst => ({ at: [p.x, 0.05, p.z], s: [0.26 * p.s, 0.02, 0.26 * p.s] })),
       bushes: g.bushes.map((p): Inst => ({ at: [p.x, 0.17 * p.s, p.z], s: [0.55 * p.s, 0.4 * p.s, 0.55 * p.s], ry: p.z })),
       flowers: g.flowers.map((p, i): Inst => ({ at: [p.x, 0.1, p.z], s: [0.16, 0.16, 0.16], color: FL[i % FL.length] })),
+      realBushes: g.bushes.map((p): Inst => ({ at: [p.x, 0, p.z], s: [1, 0.55 * p.s, 1], ry: p.z * 3 })),
+      realFlowers: g.flowers.map((p): Inst => ({ at: [p.x, 0, p.z], s: [1, 0.5, 1], ry: p.x * 5 })),
+      ferns: [0.4, 1.5, 2.6, 3.7, 4.8, 5.9].map((a): Inst => ({ at: [Math.cos(a) * 2.5, 0, Math.sin(a) * 2.5], s: [1, 0.45, 1], ry: a })),
+      pondRocks: [1.0, 2.9, 4.4].map((a): Inst => ({ at: [Math.cos(a) * 2.35, -0.05, Math.sin(a) * 2.35], s: [1, 0.22, 1], ry: a })),
+      realTree: [{ at: [g.tree.x, 0, g.tree.z], s: [1, 5.2, 1], ry: 0.7 }] as Inst[],
       trunk: [{ at: [g.tree.x, 1.2, g.tree.z], s: [0.3, 2.4, 0.3] }] as Inst[],
       canopy: [[0, 3, 0, 2.6], [0.9, 2.6, 0.4, 1.8], [-0.8, 2.7, -0.3, 1.9], [0.2, 3.6, -0.6, 1.7], [-0.3, 2.4, 0.9, 1.5]].map(([x, y, z, k]): Inst => ({ at: [g.tree.x + x, y, g.tree.z + z], s: [k, k * 0.8, k] })),
       isles: [[-9, 6, -12, 0.5], [7, 8, -15, 0.4], [-2, 9.5, -19, 0.35]].map(([x, y, z, k]): Inst => ({ at: [x, y, z], s: [k * 0.45, k * 0.45, k * 0.45] })),
@@ -291,11 +305,17 @@ function Life({ m, reduced }: { m: ReturnType<typeof lifeScene>; reduced: boolea
     {[[-2.4, 7.2], [3.1, 6.9]].map(([x, z], i) => <mesh key={i} position={[x, -1.9, z]} rotation-y={Math.atan2(x, z)} material={lg.fall}><planeGeometry args={[1.1, 3.6]} /></mesh>)}
     <Many items={lg.stones} geo={lg.disc} mat={lg.stone} />
     <Many items={lg.pads} geo={lg.disc} mat={lg.pad} />
-    <Many items={lg.bushes} geo={lg.ball} mat={lg.leaf} />
-    <Many items={lg.flowers} geo={lg.ball} mat={lg.flower} />
+    <RealOr fallback={<><Many items={lg.bushes} geo={lg.ball} mat={lg.leaf} /><Many items={lg.flowers} geo={lg.ball} mat={lg.flower} /></>}>
+      {/* v5: real CC0 plants (Poly Haven) on the same spots */}
+      <AssetMany id="shrub" items={lg.realBushes} />
+      <AssetMany id="flower" items={lg.realFlowers} />
+      <AssetMany id="fern" items={lg.ferns} />
+      <AssetMany id="rocks" items={lg.pondRocks} />
+    </RealOr>
     {/* the blossom tree and three small islands floating behind */}
-    <Many items={lg.trunk} geo={lg.stem} mat={lg.bark} />
-    <Many items={lg.canopy} geo={lg.ball} mat={lg.blossom} />
+    <RealOr fallback={<><Many items={lg.trunk} geo={lg.stem} mat={lg.bark} /><Many items={lg.canopy} geo={lg.ball} mat={lg.blossom} /></>}>
+      <AssetMany id="tree" items={lg.realTree} />
+    </RealOr>
     <Many items={lg.isles} geo={lg.rock} mat={rock} />
     <Many items={lg.isleTops} geo={lg.disc} mat={lg.leaf} />
     {/* pods */}

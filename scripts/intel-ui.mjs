@@ -128,7 +128,7 @@ try {
     const ctx = await browser.newContext({ viewport: vp, reducedMotion: "reduce", deviceScaleFactor: 1 });
     const page = await ctx.newPage(), posts = [];
     page.setDefaultTimeout(120_000);
-    await page.addInitScript((m) => { try { localStorage.setItem("orbit.lang", "en"); localStorage.setItem("orbit.manual.intelligence", m[0] ? "1" : "0"); localStorage.setItem("orbit.newsWeather.view", m[1] ? "weather" : "classic"); } catch {} }, [manual, weather]);
+    await page.addInitScript((m) => { try { localStorage.setItem("orbit.lang", "en"); localStorage.setItem("orbit.manual.intelligence", m[0] ? "1" : "0"); localStorage.setItem("orbit.intel.map", m[1] ? "weather" : "classic"); } catch {} }, [manual, weather]);
     page.on("pageerror", (e) => console.log("pageerror", e.message));
     await ctx.route(`${ORIGIN}/**`, async (route) => {
       const r = route.request(), u = new URL(r.url()), p = u.pathname;

@@ -30,8 +30,9 @@ import { PeoplePanel, usePeople } from "./PeopleRing";
 import { MEMORY_SHEET_EVENT, MemoryShell } from "./MemoryShell";
 import { Button } from "./ui";
 import dynamic from "next/dynamic";
-import { ChipLayer, ChipProjector, Crystals, Motes, PlanetGround, WorldLights, useChipRig, type Chip } from "./world-kit";
+import { ChipLayer, ChipProjector, Crystals, Motes, PlanetGround, WorldLights, useChipRig, type Chip, type Inst } from "./world-kit";
 import { memoryClusters } from "@/lib/planet-scenes-pure";
+import { AssetEnv, AssetMany, RealOr } from "./world-assets";
 import { memoryCity } from "@/lib/worlds-v3-pure";
 
 const Chronicle = dynamic(() => import("./Chronicle"), { ssr: false }); // its own canvas, loaded only when he opens Chronicle
@@ -159,9 +160,14 @@ function MemoryGround({ items, reduced }: { items: Star[]; reduced: boolean }) {
     for (const m of [plates.current, rings.current]) if (m) { m.count = city.plateaus.length; m.instanceMatrix.needsUpdate = true; m.computeBoundingSphere(); } }, [city, ground]);
   useEffect(() => () => threads.dispose(), [threads]);
   const n = Math.max(1, city.plateaus.length);
+  // v5: each district stands on a real scanned moon rock (Poly Haven, CC0); the night HDRI gives the glass real reflections.
+  const rocks = useMemo(() => city.plateaus.map((p, i): Inst => ({ at: [p.x, ground - 0.3, p.z], s: [p.r * 2.3, 0.95, p.r * 2.3], ry: i * 1.7 })), [city, ground]);
   return (<group>
     <group position={[0, ground, 0]}><PlanetGround glow="#8b5cf6" a="#07050f" b="#1a1230" R={140} /></group>
-    <instancedMesh ref={plates} args={[undefined, undefined, n]}><cylinderGeometry args={[1, 1.15, 1, 9]} /><meshStandardMaterial color="#1c1530" roughness={0.85} flatShading /></instancedMesh>
+    <RealOr fallback={<instancedMesh ref={plates} args={[undefined, undefined, n]}><cylinderGeometry args={[1, 1.15, 1, 9]} /><meshStandardMaterial color="#1c1530" roughness={0.85} flatShading /></instancedMesh>}>
+      <AssetMany id="moonRock" items={rocks} uniform={false} />
+      <AssetEnv id="hdriNight" intensity={0.6} />
+    </RealOr>
     <instancedMesh ref={rings} args={[undefined, undefined, n]}><ringGeometry args={[0.94, 1, 48]} /><meshBasicMaterial color={new THREE.Color("#c4b5fd").multiplyScalar(1.6)} toneMapped={false} /></instancedMesh>
     <lineSegments geometry={threads}><lineBasicMaterial color={new THREE.Color("#a78bfa").multiplyScalar(2)} transparent opacity={0.7} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} /></lineSegments>
     <mesh position={[city.spire.x, ground + 0.35, city.spire.z]} rotation-x={-Math.PI / 2}><ringGeometry args={[2.3, 2.45, 64]} /><meshBasicMaterial color={new THREE.Color("#e9d5ff").multiplyScalar(1.8)} toneMapped={false} /></mesh>
