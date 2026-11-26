@@ -70,20 +70,33 @@ export function parsePlaces(j: { elements?: El[] }): EePlace[] {
 }
 
 /* ---------- news pins ---------- */
-export type Cat = "transport" | "culture" | "events" | "crime" | "weather" | "city";
+export type Cat = "transport" | "culture" | "events" | "crime" | "weather" | "sport" | "health" | "education" | "economy" | "politics" | "city";
 /** Category colours, as in the owner's target map (transport red, culture cyan, events violet, city blue). */
-export const CAT_COLOR: Record<Cat, string> = { transport: "#ff5a52", culture: "#3fd0ff", events: "#b07cff", crime: "#ffb347", weather: "#9fe7c9", city: "#5aa8ff" };
-const CAT_WORDS: [Cat, RegExp][] = [
-  ["transport", /\b(traffic|road|street|tram|bus|train|rail|ferry|airport|flight|parking|liiklus|tee|tänav|tramm|buss|rong|praam|lennu|parkimi|ummik|remont)/i],
-  ["crime", /\b(police|crime|arrest|court|fire|accident|politsei|kuritegu|kohus|tulekahju|õnnetus|avarii|vargus|päästeamet)/i],
-  ["weather", /\b(weather|storm|snow|rain|frost|flood|ilm|torm|lumi|vihm|külm|tuisk|üleujutus)/i],
-  ["events", /\b(festival|market|fair|concert|show|match|race|event|laat|turg|kontsert|festival|võistlus|üritus|etendus|jõulu)/i],
-  ["culture", /\b(museum|exhibition|theatre|theater|art|library|church|book|film|cinema|muuseum|näitus|teater|kunst|raamat|kino|kirik|kultuur)/i],
+export const CAT_COLOR: Record<Cat, string> = { transport: "#ff5a52", culture: "#3fd0ff", events: "#b07cff", crime: "#ffb347", weather: "#9fe7c9", sport: "#8be04a", health: "#35e0a1", education: "#7d8cff", economy: "#f2d04b", politics: "#ff7ab8", city: "#5aa8ff" };
+// Per category: `start` words match at the start of a word (so Estonian case endings follow: "tänav" → "tänaval"), `any` words also
+// inside compounds ("kunstimuuseum", "Tehnikaülikool"). English and Estonian. A plain JS \b does not work before ä/ö/õ/ü, so the
+// word start is a Unicode lookbehind.
+const CAT_WORDS: [Cat, { start: string; any?: string }][] = [
+  ["crime", { start: "police|crime|arrest|court|fire(?![a-z])|accident|fraud|theft|murder|politsei|kuritegu|kohus|tulekahju|õnnetus|avarii|vargus|päästeamet|kelmus|vahistati|vahistas|süüdistus|prokurat|mõrv|röövi|narko|relv|süüdi", any: "politsei|tulekahju|kohtu" }],
+  ["health", { start: "health|hospital|doctor|vaccin|flu(?![a-z])|virus|patient|medical|clinic|cancer|ambulance|tervis|haigla|arst|haigus|haigest|ravi(?![a-z])|ravim|vaktsiin|gripp|covid|viirus|meditsiin|patsient|kiirabi|haigekassa|apteek|tervishoid|operatsioon|nakkus", any: "haigla|tervishoid" }],
+  ["transport", { start: "traffic|road(?![a-z])|roads|street|tram(?![a-z])|bus(?![a-z])|train|rail(?![a-z])|ferry|airport|flight|parking|liiklus|tee(?:d|l|le|del|töö|remont|ehitus)?(?![a-z])|tänav|tramm|buss|rong|praam|lennu|parkimi|parkla|ummik|ühistransport|sadam|ristmik|viadukt|kiirus|bussi|trolli", any: "maantee|raudtee|ristmik|trammitee|lennujaam" }],
+  ["weather", { start: "weather|storm|snow|rain(?![a-z])|frost|flood|ilm(?:a|ale|al|ast|aga|ateade|aprognoos|aennustus|ajaam)?(?![a-z])|torm|lumi|lume|vihm|külm|tuisk|üleujutus|jäide|udu(?![a-z])|äike|kuumalaine|pakane|libe", any: "ilmateade" }],
+  ["sport", { start: "sport|football|basketball|hockey|tennis|olympic|marathon|tournament|coach|league|medal|spordi|jalgpall|korvpall|võrkpall|käsipall|jäähoki|suusa|olümpia|maraton|treener|meistrivõistlus|võistlus|tennis|kergejõustik|ujuja|medal|turniir|finaal|karikavõistlus|sportlane|võitis mängu|kalevi", any: "jalgpall|korvpall|staadion|spordi" }],
+  ["education", { start: "school|universit|student|teacher|education|exam(?![a-z])|kindergarten|college|haridus|kool(?![a-z]{4})|kooli|õpilas|õpetaja|õppe|ülikool|lasteaed|gümnaasium|eksam|tudeng|üliõpilas|õppima|õppeaasta|koolitus", any: "ülikool|gümnaasium|lasteaed|haridus" }],
+  ["economy", { start: "econom|inflation|tax(?![a-z])|taxes|bank(?![a-z])|stock|investment|company|profit|unemployment|wage|business|majandus|ettevõt|inflatsioon|maksu|maksud|maksuamet|pank|panga|börs|investeering|tööpuudus|palk|töökoh|kaubandus|kvartal|kasum|kahjum|tööstus|eksport|import|krediit|laen|äri(?![a-zõäöü])|äripäev|ärimees|äriühing|hinnatõus|hinnad|elektrihind|kütusehind|pankrot|koondami", any: "majandus|ettevõte" }],
+  ["politics", { start: "politic|government|parliament|minister|election|president|senate|law(?![a-z])|poliitik|valitsus|riigikogu|peaminister|erakond|valimis|volikogu|koalitsioon|opositsioon|seadus|reform|saadik|parlament|diplomaa|nato(?![a-z])|sanktsioon|kaitseminister|presiden|kandidaat", any: "poliitik|riigikogu|erakond" }],
+  ["events", { start: "festival|market(?![a-z])|fair(?![a-z])|concert|show(?![a-z])|match(?![a-z])|race(?![a-z])|event|advent|parade|laat|turg|kontsert|võistlus|üritus|etendus|jõulu|paraad|pidu|pidustus|rongkäik|tähistam", any: "kontsert|festival|jõulu" }],
+  ["culture", { start: "museum|exhibition|theatre|theater|art(?![a-z])|gallery|library|church|book|film|cinema|music|opera|heritage|muuseum|näitus|teater|kunst|raamat|kino|kirik|kultuur|muusika|looming|luule|kirjanik|ooper|ballett|galerii|arhitektuur|pärand|lavastus|filmi", any: "muuseum|teater|raamatukogu|kunsti" }],
 ];
-/** A story's category from its title (English or Estonian words), "city" when nothing matches. */
+const CAT_RE = CAT_WORDS.map(([c, w]) => [c, new RegExp(`(?<![\\p{L}])(?:${w.start})${w.any ? `|(?:${w.any})` : ""}`, "iu")] as const);
+/** A story's category from its title (English or Estonian words): the category with the most matches wins, ties by list order; "city" when nothing matches. */
 export function storyCat(title: string): Cat {
-  for (const [c, re] of CAT_WORDS) if (re.test(title)) return c;
-  return "city";
+  let best: Cat = "city", n = 0;
+  for (const [c, re] of CAT_RE) {
+    const m = title.match(new RegExp(re.source, "giu"))?.length ?? 0;
+    if (m > n) { best = c; n = m; }
+  }
+  return best;
 }
 /** "16:20" today, "Tue 16:20" this week, else "12 Jan". Local time of the viewer (tz for tests). */
 export function pinTime(iso: string | null | undefined, now: number, tz?: string): string {
