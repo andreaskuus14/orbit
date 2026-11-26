@@ -165,12 +165,26 @@ void main(){ \n#include <logdepthbuf_fragment>\n float core = exp(-vS*vS*22.), s
 const plainVS = `${LOG} void main(){ gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); \n#include <logdepthbuf_vertex>\n }`;
 const lineFS = `${LOGF} uniform vec3 uColor; uniform float uOp;
 void main(){ \n#include <logdepthbuf_fragment>\n gl_FragColor = vec4(uColor, .55 * uOp); }`;
-// a storm seen from orbit: a few spiral arms in the story colour, brighter toward the eye
+// a cyclone seen from orbit: three logarithmic spiral arms with a finer second texture, a clear eye with a bright wall, an outer glow
 const swirlFS = `${LOGF} uniform vec3 uColor; uniform float uT; uniform float uOp; varying vec2 vUv;
-void main(){ \n#include <logdepthbuf_fragment>\n vec2 p = vUv*2.-1.; float r = length(p); if (r > 1.) discard; float a = atan(p.y, p.x);
-  float arm = .5 + .5*sin(3.*a + 7.*sqrt(r) - uT*.35); float body = smoothstep(1., .1, r) * smoothstep(0., .1, r);
-  float f = pow(arm, 1.6) * body * .8 + exp(-r*r*50.) * .9 + exp(-r*r*3.5) * .12;
-  gl_FragColor = vec4(uColor * (1. + exp(-r*r*30.)), f * uOp); }`;
+void main(){ \n#include <logdepthbuf_fragment>\n vec2 p = vUv*2.-1.; float r = length(p); if (r > 1.) discard; float a = atan(p.y, p.x), t = uT * .22;
+  float sp = 3.*a + 6.5*log(r + .06) - t;
+  float arm = smoothstep(.2, .95, .5 + .5*sin(sp)) * (.72 + .28*sin(13.*a + 16.*r - t*2.5));
+  float body = smoothstep(1., .25, r) * smoothstep(.05, .16, r);
+  float wall = exp(-pow((r - .12) * 14., 2.));
+  float f = arm * body * .62 + wall * .55 + exp(-r*r*4.) * .2;
+  vec3 c = uColor * (.75 + .5*wall + .3*arm) + vec3(1.) * wall * .12;
+  gl_FragColor = vec4(c, clamp(f, 0., 1.) * uOp); }`;
+// a weather-chart front as a flat ribbon: a coloured line with its symbols on one side (cold: triangles, warm: half circles,
+// occluded: both in turn). uN = symbols along the ribbon, uKind 0/1/2.
+const frontFS = `${LOGF} uniform vec3 uColor; uniform float uT; uniform float uOp; uniform float uN; uniform float uKind; varying vec2 vUv;
+void main(){ \n#include <logdepthbuf_fragment>\n float v = vUv.y * 2. - 1., u = vUv.x * uN, x = fract(u), px = (x - .5) * 2.2;
+  float line = smoothstep(.2, .1, abs(v)), glowK = exp(-v*v*6.) * .35;
+  float h = v - .2, tri = step(0., h) * step(h, .8 * (1. - abs(px) / 1.1)), semi = step(0., h) * step(length(vec2(px * .95, h)), .78);
+  float teeth = uKind < .5 ? tri : uKind < 1.5 ? semi : (mod(floor(u), 2.) < 1. ? tri : semi);
+  float run = .75 + .25 * sin(vUv.x * 40. - uT * 2.);
+  float a = clamp(line + teeth * .95 + glowK, 0., 1.) * run * smoothstep(0., .04, vUv.x) * smoothstep(1., .96, vUv.x) * uOp;
+  gl_FragColor = vec4(uColor * (1. + line * .6), a); }`;
 const beamFS = `${LOGF} uniform vec3 uColor; uniform float uOp; uniform float uT; varying vec2 vUv;
 void main(){ \n#include <logdepthbuf_fragment>\n float a = pow(clamp(1. - vUv.y, 0., 1.), 1.6) * uOp; float side = 1. - abs(vUv.x*2.-1.);
   gl_FragColor = vec4(uColor*1.4, a * side); }`;
@@ -504,7 +518,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const p = new THREE.Vector3(...toXYZ(lon, lat, h)), nrm = p.clone().normalize();
     return new THREE.Matrix4().lookAt(nrm, new THREE.Vector3(), new THREE.Vector3(0, 1, 0)).setPosition(p);
   }
-  const labels: { el: HTMLDivElement; p: THREE.Vector3; lo: number; hi: number; town?: TownNews; pri: number; w: number; h: number; ox: number; oy: number; flip?: boolean; wx?: boolean; ring?: boolean; a?: number }[] = [];
+  const labels: { el: HTMLDivElement; p: THREE.Vector3; lo: number; hi: number; town?: TownNews; on?: boolean; pri: number; w: number; h: number; ox: number; oy: number; flip?: boolean; wx?: boolean; ring?: boolean; a?: number }[] = [];
   const hud = document.createElement("div"); hud.className = "earth-hud"; host.appendChild(hud);
   const scrim = document.createElement("div"); scrim.className = "earth-scrim"; hud.appendChild(scrim);
   const ee = o.eeMeshUrl && o.eeOrthoUrl ? createEe3d({ scene, hud, sun: sunV, camU: U.uCam, groundAt, meshUrl: o.eeMeshUrl, orthoUrl: o.eeOrthoUrl, maxTiles: o.eeMaxTiles }) : null;
@@ -528,7 +542,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   let fOn = false, fK = 0;
   /* news weather (a layer at orbit: isobars, H/L centres, typed fronts) and glowing country borders (country zoom) */
   let wxOn = false, wxK = 0, lastT = 0, bMesh: THREE.Mesh | null = null, shapes: CountryShape[] | null = null, shapesP: Promise<void> | null = null, hotNow: Record<string, number> = {};
-  const wxFront = { cold: "#5aa9ff", warm: "#ff7a5c", occluded: "#b98cff" } as const;
+  const wxFront = { cold: "#4f9bff", warm: "#ff5a4f", occluded: "#b57aff" } as const;
   const own: THREE.BufferGeometry[] = [];
   const borderMat = new THREE.ShaderMaterial({ vertexShader: borderVS, fragmentShader: borderFS, transparent: true, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
     uniforms: { uColor: { value: col(ACCENT) }, uOp: { value: 0 }, uRes: { value: new THREE.Vector2(W(), H()) }, uPx: { value: 4.2 } } });
@@ -542,10 +556,17 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       layer.add(new THREE.LineSegments(g, m)); glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: 1, kind: "wx" });
     }
     for (const f of w.fronts) {
-      const pts = arcPoints(f.from, f.to, 80, 0.05).map((p) => new THREE.Vector3(...p));
-      const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: glowFS, uniforms: { uColor: { value: col(wxFront[f.type]) }, uT: { value: 0 }, uOp: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
-      layer.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 120, 0.0026, 6), m));
-      glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: 1, kind: "wx" });
+      const pts = arcPoints(f.from, f.to, 90, 0.015), half = 0.016, pos: number[] = [], uv: number[] = [], idx: number[] = []; let len = 0;
+      for (let k = 0; k < pts.length; k++) {
+        const P = new THREE.Vector3(...pts[k]), Q = new THREE.Vector3(...pts[Math.min(pts.length - 1, k + 1)]), Pp = new THREE.Vector3(...pts[Math.max(0, k - 1)]);
+        const dir = Q.clone().sub(Pp).normalize(), side = new THREE.Vector3().crossVectors(P.clone().normalize(), dir).normalize().multiplyScalar(half);
+        if (k) len += P.distanceTo(new THREE.Vector3(...pts[k - 1]));
+        pos.push(...P.clone().sub(side).toArray(), ...P.clone().add(side).toArray()); uv.push(k / (pts.length - 1), 0, k / (pts.length - 1), 1);
+        if (k) { const b = (k - 1) * 2; idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2); }
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
+      const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: frontFS, side: THREE.DoubleSide, uniforms: { uColor: { value: col(wxFront[f.type]) }, uT: { value: 0 }, uOp: { value: 0 }, uN: { value: Math.max(3, Math.round(len / (half * 2.2))) }, uKind: { value: f.type === "cold" ? 0 : f.type === "warm" ? 1 : 2 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+      layer.add(new THREE.Mesh(g, m)); glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: 1, kind: "wx" });
     }
     for (const sw of w.swirls) {
       const side = (2 * (4 + 9 * Math.sqrt(sw.rel)) * Math.PI) / 180;
@@ -745,6 +766,11 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     composer.render();
     const taken: Rect[] = [...zones], topY = o.topLimit?.() ?? 70;
     if (edgeW !== w) { edgeW = w; const hb = host.getBoundingClientRect(), tb = timeline.getBoundingClientRect(); edgeR = tb.width ? Math.min(w, tb.right - hb.left + 32) : w; } // the panel's left edge: labels stay left of it
+    for (const l of labels) if (l.wx) { // H and L come first: nothing may cover them
+      const a = band(alt, l.lo, l.hi, 0.6) * wxK, facing = l.p.dot(cam.position) > l.p.lengthSq() * 0.999999 && tmp.copy(l.p).sub(cam.position).dot(fwd) > 0;
+      v.copy(l.p).project(cam); const x = ((v.x + 1) / 2) * w, y = ((1 - v.y) / 2) * h;
+      if (a > 0.02 && facing && Math.abs(v.x) < 1 && Math.abs(v.y) < 1 && x < edgeR - 30 && y > topY + 20 && !zones.some((q) => x > q[0] && x < q[2] && y > q[1] && y < q[3])) { l.on = true; taken.push([x - 26, y - 26, x + 26, y + 40]); } else l.on = false;
+    }
     { // country headlines at orbit: placed beside their halo on whichever side is free (classic-map-pure declutter)
       const cand = labels.filter((l) => l.ring), items: Parameters<typeof declutter>[0] = [];
       for (const [i, l] of cand.entries()) {
@@ -763,6 +789,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     }
     for (const l of labels) {
       if (l.ring) continue; // placed by declutter above
+      if (l.wx) { const a = band(alt, l.lo, l.hi, 0.6) * wxK; v.copy(l.p).project(cam); l.el.style.opacity = l.on ? String(a) : "0"; if (l.on) l.el.style.transform = `translate(${(((v.x + 1) / 2) * w).toFixed(1)}px, ${(((1 - v.y) / 2) * h).toFixed(1)}px)`; continue; }
       const a = band(alt, l.lo, l.hi, 0.6) * (l.town && eel ? 1 - eeK : 1) * (l.wx ? wxK : 1); // in the close-up the news pins take over
       const facing = l.p.dot(cam.position) > l.p.lengthSq() * 0.999999 && tmp.copy(l.p).sub(cam.position).dot(fwd) > 0;
       v.copy(l.p).project(cam);
@@ -907,9 +934,9 @@ export const EARTH_CSS = EE3D_CSS + EE_LABELS_CSS + `
 .earth-label span{display:block;font-size:12px;line-height:1.35;color:rgba(238,242,247,.82);white-space:normal;width:230px}
 .earth-label i{font-style:normal;font-size:11px;color:var(--accent)}
 .earth-label.ring{margin:0;padding:6px 10px 7px;display:grid;grid-template-columns:auto auto 1fr;gap:1px 7px;align-items:center;background:rgba(4,10,20,.72);border:1px solid rgba(238,242,247,.16);border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,.45);text-shadow:none}.earth-label.ring img{width:20px;height:14px;border-radius:2px;object-fit:cover;grid-row:1}.earth-label.ring span{grid-column:1/-1;font-size:11px;line-height:1.25;width:auto;max-width:190px;color:rgba(238,242,247,.7)}.earth-label.ring b{font-weight:500;font-size:12px}.earth-label.ring.lead{border-color:rgba(242,179,94,.6)}.earth-label.ring.lead b{font-weight:600;font-size:13px}
-.earth-label.wx{margin:-17px 0 0 -17px;width:34px;display:flex;flex-direction:column;align-items:center;gap:1px}
-.earth-label.wx b{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:15px;font-weight:700;border:1.5px solid currentColor;background:rgba(1,3,8,.45)}
-.earth-label.wx i{color:inherit;font-size:10.5px}.earth-label.wx-L{color:#ff8a70}.earth-label.wx-H{color:#7cc4ff}
+.earth-label.wx{margin:-22px 0 0 -22px;width:44px;display:flex;flex-direction:column;align-items:center;gap:2px;text-shadow:0 0 10px currentColor}
+.earth-label.wx b{color:currentColor;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-size:22px;font-weight:600;font-family:var(--font-serif,Georgia,serif);border:1.5px solid currentColor;background:rgba(1,3,8,.5);box-shadow:0 0 18px currentColor,inset 0 0 12px rgba(255,255,255,.12)}
+.earth-label.wx i{color:inherit;font-size:11px;font-weight:500}.earth-label.wx-L{color:#ff8a70}.earth-label.wx-H{color:#7cc4ff}
 .earth-label.pin.big{display:grid;grid-template-columns:auto 1fr;gap:1px 8px;padding:6px 10px;background:rgba(4,10,20,.72);border:1px solid rgba(127,228,255,.28);border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,.45);text-shadow:none;margin:-12px 0 0 12px}.earth-label.pin.big span{grid-column:1/-1;font-size:11px;line-height:1.25;width:auto;max-width:200px;color:rgba(238,242,247,.72)}.earth-label.pin.big:before{display:none}
 .earth-label.pin{margin:-8px 0 0 9px;display:flex;gap:6px;align-items:baseline;cursor:pointer}
 .earth-label.pin:before{content:"";position:absolute;left:-9px;top:5px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
