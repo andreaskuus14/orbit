@@ -35,7 +35,7 @@ export function createEeLabels(parent: HTMLElement, placesUrl: (x: number, y: nu
   function buildPins() {
     for (const p of pins) { p.el.remove(); p.line?.remove(); p.dot?.remove(); }
     const now = Date.now();
-    pins = newsPins(towns, now, 12, placed0).map((n: NewsPin, i) => {
+    pins = newsPins(towns, now, 40, placed0).map((n: NewsPin, i) => {
       const it = add(`pin${i}`, n.lon, n.lat, 12, `<em style="--c:${CAT_COLOR[n.cat]}">${n.cat}</em><b>${esc(cut(n.story.title, 46))}</b><small>${esc(n.place)}${pinTime(n.story.published_at, now) ? ` · ${pinTime(n.story.published_at, now)}` : ""}</small>`, "eel-p", 200 + n.pri, 30, 0.8, 4);
       it.el.style.setProperty("--c", CAT_COLOR[n.cat]);
       it.el.onclick = () => dispatchEvent(new CustomEvent<EarthStory>(EARTH_STORY_EVENT, { detail: { ...n.story, place: n.place, cat: n.cat } }));
@@ -88,9 +88,9 @@ export const EE_LABELS_CSS = `
 .eel-d b{display:block;font:600 13px/1.1 var(--font-inter,system-ui);letter-spacing:.08em;text-transform:uppercase}
 .eel-l{display:flex;gap:5px;align-items:center;font:500 11.5px/1.2 var(--font-inter,system-ui)}
 .eel-l i{font-style:normal;color:#8fe6ff;font-size:10px}
-.eel-p{display:grid;grid-template-columns:auto;gap:1px;max-width:220px;padding:5px 9px 6px 10px;cursor:pointer;background:linear-gradient(180deg,rgba(6,16,28,.78),rgba(4,10,20,.66));backdrop-filter:blur(6px);border:1px solid color-mix(in srgb,var(--c) 70%,transparent);border-left:3px solid var(--c);border-radius:4px;box-shadow:0 0 14px color-mix(in srgb,var(--c) 25%,transparent);text-shadow:none}
+.eel-p{display:grid;grid-template-columns:auto;gap:1px;width:224px;box-sizing:border-box;padding:5px 9px 6px 10px;cursor:pointer;background:linear-gradient(180deg,rgba(6,16,28,.78),rgba(4,10,20,.66));backdrop-filter:blur(6px);border:1px solid color-mix(in srgb,var(--c) 70%,transparent);border-left:3px solid var(--c);border-radius:4px;box-shadow:0 0 14px color-mix(in srgb,var(--c) 25%,transparent);text-shadow:none}
 .eel-p em{font:700 9px/1 var(--font-inter,system-ui);letter-spacing:.08em;text-transform:uppercase;color:var(--c);font-style:normal}
 .eel-p b{font:600 11.5px/1.25 var(--font-inter,system-ui);white-space:normal}
-.eel-p small{font-size:10px;color:rgba(220,235,250,.7)}
+.eel-p small{overflow:hidden;text-overflow:ellipsis;font-size:10px;color:rgba(220,235,250,.7)}
 .eel-p:hover{background:rgba(10,26,44,.9)}
 `;

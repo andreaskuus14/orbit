@@ -110,10 +110,12 @@ export function stem(name: string): string {
  * names the place it belongs to). Newer stories and busier places weigh more. At most `max`.
  */
 export function newsPins(towns: { name: string; lon: number; lat: number; kind: string; count: number; stories: PinStory[] }[], now: number, max = 12, places: EePlace[] = []): NewsPin[] {
-  const out: NewsPin[] = [], stems = places.map((p) => ({ p, s: stem(p.name) })).filter((x) => x.s.length >= 5);
+  const townStems = new Set(towns.map((t) => stem(t.name)).concat(["tallinn", "eesti", "linna"]));
+  const out: NewsPin[] = [], seen = new Set<string>(), stems = places.map((p) => ({ p, s: stem(p.name) })).filter((x) => x.s.length >= 5 && ![...townStems].some((w) => x.s.startsWith(w) || w.startsWith(x.s))); // "Tallinna toomkirik" must not catch every Tallinn story
   for (const t of towns) {
     const n = t.kind === "city" ? 4 : t.kind === "district" ? 2 : 1;
-    t.stories.slice(0, n).forEach((s, i) => {
+    t.stories.filter((s) => !seen.has(s.url) && !seen.has(s.title)).slice(0, n).forEach((s, i) => {
+      seen.add(s.url); seen.add(s.title); // one story, one pin (two districts can carry the same story)
       const age = s.published_at ? Math.max(0, (now - Date.parse(s.published_at)) / 36e5) : 48, low = s.title.toLowerCase();
       const at = stems.find((x) => low.includes(x.s) && Math.abs(x.p.lat - t.lat) < 0.15 && Math.abs(x.p.lon - t.lon) < 0.3)?.p;
       const ang = i * 2.4 + 0.7, r = i ? 0.0028 : 0; // the lead story on the place itself

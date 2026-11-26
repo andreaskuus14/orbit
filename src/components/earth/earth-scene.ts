@@ -617,7 +617,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const b = host.getBoundingClientRect(), out: Rect[] = [...(o.zones?.() ?? [])];
     const add = (z: HTMLElement, pad: number) => { if (!z.offsetHeight) return; const r = z.getBoundingClientRect(); out.push([r.left - b.left - pad, r.top - b.top - pad, r.right - b.left + pad, r.bottom - b.top + pad]); };
     for (const z of [lower, timeline]) if (+z.style.opacity !== 0) add(z, 8);
-    add(place, 10); add(readout, 10);
+    if (!eeOn) { add(place, 10); add(readout, 10); }
     if (eeOn) hud.querySelectorAll<HTMLElement>(".ee-compass, .ee-alt, .ee-scale, .ee-coords, .ee-credit").forEach((z) => add(z, 6)); // the close-up HUD
     if (cardOn) add(card, 10);
     return (zCache = out);
@@ -698,6 +698,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const lvl = levelAt(alt);
     hud.dataset.level = lvl;
     place.textContent = lvl !== "orbit" && regionName ? regionName : names[lvl];
+    place.style.opacity = readout.style.opacity = String(1 - eeK); // the close-up HUD has its own coordinates bar
     card.style.opacity = String(cA);
     if (cardAt && cA > 0) { v.copy(cardAt).project(cam); card.style.transform = `translate(${Math.min(w - inset() - 312, Math.max(32, ((v.x + 1) / 2) * w + 24))}px, ${Math.min(h - 220, Math.max(topY + 8, ((1 - v.y) / 2) * h - 40))}px)`; } // inside the free stage
   }

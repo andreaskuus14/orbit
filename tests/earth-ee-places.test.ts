@@ -38,10 +38,13 @@ test("story categories, times and pins", () => {
   assert.match(pinTime("2026-11-24T09:05:00Z", now, "Europe/Tallinn"), /^[A-Z][a-z]{2} 11:05$/);
   assert.equal(pinTime(null, now), "");
   assert.equal(stem("Kalamaja"), "kalamaj");
-  const s = (title: string, h: number) => ({ title, url: `https://x.ee/${h}`, source: "ERR", published_at: new Date(now - h * 36e5).toISOString() });
+  const s = (title: string, h: number) => ({ title, url: `https://x.ee/${encodeURIComponent(title)}`, source: "ERR", published_at: new Date(now - h * 36e5).toISOString() });
   const pins = newsPins([{ name: "Tallinn", lon: 24.75, lat: 59.437, kind: "city", count: 40, stories: [s("Linnas uus eelarve", 1), s("Kalamajas avati park", 2), s("Kolmas", 3), s("Neljas", 4), s("Viies", 5)] },
     { name: "Tartu", lon: 26.72, lat: 58.38, kind: "city", count: 3, stories: [s("Tartu uudis", 1)] }], now, 12,
-    [{ name: "Kalamaja", kind: "district", type: "district", lon: 24.73, lat: 59.445, pri: 80 }]);
+    [{ name: "Kalamaja", kind: "district", type: "district", lon: 24.73, lat: 59.445, pri: 80 }, { name: "Tallinna Kalju kirik", kind: "landmark", type: "church", lon: 24.7, lat: 59.44, pri: 76 }]);
+  assert.ok(!pins.some((p) => p.lon === 24.7), "a landmark named after the city catches no story");
+  const dup = newsPins([{ name: "Pirita", lon: 24.83, lat: 59.47, kind: "district", count: 1, stories: [s("Sama lugu", 1)] }, { name: "Haabersti", lon: 24.6, lat: 59.42, kind: "district", count: 1, stories: [s("Sama lugu", 1)] }], now);
+  assert.equal(dup.length, 1);
   assert.equal(pins.filter((p) => p.story.url.startsWith("https://x.ee")).length, 5); // 4 Tallinn + 1 Tartu
   const k = pins.find((p) => p.story.title.startsWith("Kalamajas"))!; assert.equal(k.lon, 24.73); assert.equal(k.place, "Kalamaja, Tallinn");
   const lead = pins.find((p) => p.story.title.startsWith("Linnas"))!; assert.equal(lead.lon, 24.75);
