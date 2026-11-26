@@ -6,7 +6,8 @@ import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import type { AgentStatus } from "@/lib/station-pure";
-import { Capsule, type Chip } from "./world-kit";
+import { Capsule, useWorldTier, type Chip } from "./world-kit";
+import { RingOf, WindowRing } from "./world-scenery";
 
 export const CREW_R = 5.75;
 const VISOR: Record<AgentStatus, string> = { working: "#fbbf24", waiting: "#c084fc", failed: "#f87171", idle: "#64748b" };
@@ -66,5 +67,43 @@ export function CrewDeck({ list, status, reduced, onPick }: { list: { slug: stri
     <directionalLight position={[6, 10, 8]} intensity={1.4} color="#f1ecff" />
     <directionalLight position={[-8, 5, -6]} intensity={0.8} color="#8b5cf6" />
     {list.map((a, i) => <Seat key={a.slug} color={a.color} status={status[a.slug] ?? "idle"} i={i} n={list.length} reduced={reduced} onPick={() => onPick(a.slug)} />)}
+  </group>);
+}
+
+/** v8 AGENTS look (tier 1+): the crew works inside a real hangar: panelled floor, pillars, a ring of wall consoles,
+ *  ceiling light rows over trusses, and the big bay door open to space at the back. */
+export function Hangar() {
+  const tier = useWorldTier();
+  const floor = useMemo(() => new THREE.ShaderMaterial({ uniforms: {}, vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `varying vec2 vP; float h(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+      void main(){ vec2 g = vP / 1.6, f = fract(g), id = floor(g); float seam = smoothstep(0.03, 0.0, min(min(f.x, 1.0-f.x), min(f.y, 1.0-f.y)));
+        float r = length(vP); vec3 c = vec3(0.055,0.06,0.075) * (0.8 + 0.4*h(id)) - seam*0.025;
+        float stripe = step(0.92, fract(atan(vP.y, vP.x) * 2.546)) * smoothstep(7.4, 7.6, r) * smoothstep(15.0, 14.0, r); // hazard dashes
+        c = mix(c, vec3(0.55,0.42,0.1), stripe * 0.6);
+        c += vec3(0.5,0.4,1.0) * 0.05 * smoothstep(12.0, 3.0, r); // bounce from the hub
+        gl_FragColor = vec4(c, 1.0); }` }), []);
+  const wall = useMemo(() => new THREE.MeshStandardMaterial({ color: "#1a1d26", metalness: 0.75, roughness: 0.45, side: THREE.DoubleSide }), []);
+  useEffect(() => () => { floor.dispose(); wall.dispose(); }, [floor, wall]);
+  if (!tier) return null;
+  const R = 15, H = 8.5, open = Math.PI * 0.42; // the bay door: the arc behind the hub, open to space
+  const lit = new THREE.Color("#e8eeff").multiplyScalar(2.4);
+  return (<group position={[0, -0.62, 0]}>
+    <mesh rotation-x={-Math.PI / 2} position={[0, -0.01, 0]} material={floor}><circleGeometry args={[R + 0.2, 96]} /></mesh>
+    {/* walls (an open arc at the back) with consoles and window strips */}
+    <mesh position={[0, H / 2, 0]} material={wall} rotation-y={Math.PI / 2 + open / 2}><cylinderGeometry args={[R, R, H, 96, 1, true, 0, Math.PI * 2 - open]} /></mesh>
+    <RingOf n={44} r={R - 0.5} y={0.55} size={[1.1, 1.1, 0.7]} color="#14171f" emissive="#60a5fa" k={0.05} skip={(i) => { const a = ((i / 44) * Math.PI * 2 + Math.PI * 2) % (Math.PI * 2); return Math.abs(a - Math.PI * 1.5) < open / 2 + 0.1; }} />
+    <WindowRing r={R - 0.9} y0={1.2} rows={2} n={44} size={[0.8, 0.32]} color="#60a5fa" k={1.6} lit={0.75} seed={5} inward />
+    <WindowRing r={R - 0.05} y0={H - 1.2} rows={1} n={120} size={[0.5, 0.08]} color="#fff4e0" k={2} lit={0.8} seed={9} inward />
+    {/* pillars and the ceiling: trusses and rows of light */}
+    <RingOf n={12} r={R - 1.6} y={H / 2} size={[0.5, H, 0.5]} color="#22262f" metal={0.8} rough={0.4} skip={(i) => i === 9} />
+    <mesh position={[0, H, 0]} rotation-x={Math.PI / 2} material={wall}><circleGeometry args={[R, 64]} /></mesh>
+    {[-9, -4.5, 0, 4.5, 9].map((x) => (<group key={x}>
+      <mesh position={[x, H - 0.4, 0]}><boxGeometry args={[0.25, 0.5, R * 1.7]} /><meshStandardMaterial color="#1c2029" metalness={0.8} roughness={0.4} /></mesh>
+      <mesh position={[x, H - 0.7, 0]}><boxGeometry args={[0.16, 0.05, R * 1.5]} /><meshBasicMaterial color={lit} toneMapped={false} /></mesh>
+    </group>))}
+    <pointLight position={[-6, H - 1.5, -2]} intensity={22} distance={20} color="#e8eeff" />
+    <pointLight position={[0, H - 1.5, 6]} intensity={30} distance={22} color="#e8eeff" />
+    {/* the bay door frame */}
+    <group rotation-y={0}>{[-1, 1].map((sd) => { const a = -Math.PI / 2 + sd * (open / 2); return <mesh key={sd} position={[Math.cos(a) * R, H / 2, Math.sin(a) * R]}><boxGeometry args={[0.7, H, 0.7]} /><meshStandardMaterial color="#2a2f3a" metalness={0.8} roughness={0.35} emissive="#f59e0b" emissiveIntensity={0.15} /></mesh>; })}</group>
   </group>);
 }

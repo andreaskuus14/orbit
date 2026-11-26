@@ -9,6 +9,7 @@ import { Capsule, Crystals, LightShaft, Many, Motes, Plate, PlanetGround, rockGe
 import { lifeGarden } from "@/lib/worlds-v3-pure";
 import { AssetMany, RealOr } from "./world-assets";
 import { Water } from "./world-surfaces";
+import { OrbitalPlanet, RingOf, SkyDome, WindowRing } from "./world-scenery";
 import { BIZ_STAGES, GATE_ANGLE, GATE_COLOR, VAULT_KIND_COLOR, bizScene, bytes, clip, fmtMin, heightAt, lifeScene, opsScene, podAngle, timeScene, vaultScene, type SceneId } from "@/lib/planet-scenes-pure";
 import { STAGE_COLOR } from "@/lib/living-galaxy-pure";
 
@@ -29,8 +30,8 @@ export function buildModel(id: SceneId, json: unknown, now: number): SceneModel 
 
 /** Camera per scene: where it looks from and how far it may move. */
 export const CAMERA: Record<SceneId, { pos: [number, number, number]; target: [number, number, number]; min: number; max: number }> = {
-  operations: { pos: [0, 9.5, 14], target: [0, 0.5, 0], min: 6, max: 30 },
-  vault: { pos: [0, 5.2, 13.5], target: [0, 2.4, 0], min: 5, max: 24 },
+  operations: { pos: [0, 11, 19], target: [0, 0.5, 0], min: 4, max: 34 },
+  vault: { pos: [0, 4.4, 9.6], target: [0, 2.6, -1.5], min: 2.5, max: 10.5 }, // v8: inside the hall
   business: { pos: [0, 6.5, 15], target: [0, 3, 0], min: 6, max: 30 },
   analytics: { pos: [0, 11, 17], target: [0, 1.5, 0], min: 6, max: 36 },
   life: { pos: [0, 5.5, 11.5], target: [0, 0.6, 0], min: 5, max: 22 },
@@ -54,23 +55,51 @@ export function sceneChips(s: SceneModel, t: T, zone: (k: string) => string): Ch
           sub: g.today ? tt("w2.today", { n: g.today }) : undefined, color: GATE_COLOR[g.gate], prio: 10 + (g.count ? 5 : 0),
           dot: g.gate === "running" ? "busy" : g.gate === "needs" ? "warn" : g.gate === "failed" ? "bad" : g.gate === "done" ? "ok" : "idle" }; });
       out.push({ id: "hub", at: [0, 3.4, 0], title: tt("w2.hub"), value: s.m.summary.split(",")[0], color: "#22d3ee", prio: 8 });
-      const run = s.m.pods.filter((p) => p.moving), n = run.length;
-      run.slice(0, 3).forEach((p) => { const a = podAngle(p, n); out.push({ id: `p:${p.id}`, at: [Math.cos(a) * 6, 0.8, Math.sin(a) * 6], title: clip(p.title, 30), sub: p.agent || undefined, color: GATE_COLOR.running, prio: 4, dot: "busy" }); });
+      // v8 semantic zoom: lanes (lod 1) carry the newest job of each gate; every pod gets its own label up close (lod 2)
+      const n = s.m.pods.filter((p) => p.moving).length;
+      s.m.gates.forEach((g) => { const a = GATE_ANGLE[g.gate], first = s.m.pods.find((p) => p.gate === g.gate); if (!first) return;
+        out.push({ id: `l:${g.gate}`, at: [Math.cos(a) * 3.4, 0.7, Math.sin(a) * 3.4], title: clip(first.title, 30), sub: zone(g.gate === "needs" ? "waiting" : g.gate), color: GATE_COLOR[g.gate], prio: 6, lod: 1 }); });
+      s.m.pods.forEach((p) => { const a = podAngle(p, n);
+        out.push({ id: `p:${p.id}`, at: [Math.cos(a) * 6, 0.85, Math.sin(a) * 6], title: clip(p.title, 30), sub: [zone(p.gate === "needs" ? "waiting" : p.gate), p.agent].filter(Boolean).join(" · "), color: GATE_COLOR[p.gate], prio: p.moving ? 5 : 3, lod: 2, steps: podSteps(p.gate, zone),
+          dot: p.gate === "running" ? "busy" : p.gate === "needs" ? "warn" : p.gate === "failed" ? "bad" : p.gate === "done" ? "ok" : "idle" }); });
       return out;
     }
-    case "vault": return s.m.kinds.map((k): Chip => { const a = (k.from + k.to) / 2;
-      return { id: `k:${k.kind}`, at: [Math.cos(a) * 7.4, 5.4, Math.sin(a) * 7.4], title: tt(`pw.kind.${k.kind}`) || k.kind, value: String(k.count), sub: bytes(k.bytes), color: VAULT_KIND_COLOR[k.kind] ?? VAULT_KIND_COLOR.other, prio: k.count }; })
-      .concat([{ id: "core", at: [0, 4.2, 0] as [number, number, number], title: "VAULT", value: tt("w2.files", { n: s.m.count }), sub: bytes(s.m.total), color: "#ffb347", prio: 100 }]);
-    case "business": return s.m.tiers.map((tr, i): Chip => ({ id: `t:${tr.stage}`, at: [-(tr.r + 0.4) * 0.72, tr.y + 0.2, (tr.r + 0.4) * 0.7] as [number, number, number], title: tt(`bz.stage.${tr.stage}`),
-      value: String(tr.count), sub: tr.fees ? tt("w2.paying", { n: Math.round(tr.fees) }) : undefined, color: tr.color, prio: 20 - i }))
-      .concat(s.m.ships.filter((p) => p.fee > 0).sort((a, b) => b.fee - a.fee).slice(0, 3).map((p) => ({ id: `s:${p.id}`, at: [Math.cos(p.angle) * p.r, p.y + 0.7, Math.sin(p.angle) * p.r] as [number, number, number],
-        title: clip(p.name, 24), sub: tt("w2.paying", { n: Math.round(p.fee) }), color: STAGE_COLOR[p.stage as keyof typeof STAGE_COLOR] ?? "#fff", prio: 3 })));
+    case "vault": { // v8: hall (lod 0) -> each shelf's newest file (lod 1) -> single file crystals with a card (lod 2)
+      const out: Chip[] = s.m.kinds.map((k): Chip => { const a = (k.from + k.to) / 2;
+        return { id: `k:${k.kind}`, at: [Math.cos(a) * 7.4, 5.4, Math.sin(a) * 7.4], title: tt(`pw.kind.${k.kind}`) || k.kind, value: String(k.count), sub: bytes(k.bytes), color: VAULT_KIND_COLOR[k.kind] ?? VAULT_KIND_COLOR.other, prio: k.count }; });
+      out.push({ id: "core", at: [0, 4.2, 0], title: "VAULT", value: tt("w2.files", { n: s.m.count }), sub: bytes(s.m.total), color: "#ffb347", prio: 100 });
+      s.m.kinds.forEach((k) => { const c = s.m.crystals.find((x) => x.kind === k.kind); if (c) out.push({ id: `n:${k.kind}`, at: [c.at[0], c.at[1] + 0.9, c.at[2]], title: clip(c.name, 26), sub: tt(`pw.kind.${k.kind}`) || k.kind, color: VAULT_KIND_COLOR[k.kind] ?? "#ffb347", prio: 6, lod: 1 }); });
+      s.m.crystals.forEach((c) => out.push({ id: `f:${c.key}`, at: [c.at[0], c.at[1] + c.h * 0.8, c.at[2]], title: clip(c.name, 30), sub: tt(`pw.kind.${c.kind}`) || c.kind, color: VAULT_KIND_COLOR[c.kind] ?? "#ffb347", prio: c.fresh ? 4 : 2, lod: 2,
+        rows: [[tt("w8.size"), bytes(c.size)], ...(c.mtime ? [[tt("w8.date"), new Date(c.mtime).toLocaleDateString()] as [string, string]] : [])] }));
+      return out;
+    }
+    case "business": { // v8: hub tiers (lod 0) -> top deal per tier (lod 1) -> every docked deal with its stage track (lod 2)
+      const out: Chip[] = s.m.tiers.map((tr, i): Chip => ({ id: `t:${tr.stage}`, at: [-(tr.r + 0.4) * 0.72, tr.y + 0.2, (tr.r + 0.4) * 0.7], title: tt(`bz.stage.${tr.stage}`),
+        value: String(tr.count), sub: tr.fees ? tt("w2.paying", { n: Math.round(tr.fees) }) : undefined, color: tr.color, prio: 20 - i }));
+      const col = (st: string) => STAGE_COLOR[st as keyof typeof STAGE_COLOR] ?? "#fff", at = (p: (typeof s.m.ships)[number]): [number, number, number] => [Math.cos(p.angle) * p.r, p.y + 0.7, Math.sin(p.angle) * p.r];
+      s.m.tiers.forEach((tr) => { const p = s.m.ships.filter((x) => x.stage === tr.stage).sort((a, b) => b.fee - a.fee)[0];
+        if (p) out.push({ id: `d:${p.id}`, at: at(p), title: clip(p.name, 24), sub: p.fee ? tt("w2.paying", { n: Math.round(p.fee) }) : tt(`bz.stage.${p.stage}`), color: col(p.stage), prio: 5, lod: 1 }); });
+      s.m.ships.forEach((p) => { const now = BIZ_STAGES.indexOf(p.stage as never);
+        out.push({ id: `s:${p.id}`, at: at(p), title: clip(p.name, 28), sub: tt(`bz.stage.${p.stage}`), color: col(p.stage), prio: 2 + (p.fee ? 1 : 0), lod: 2,
+          steps: BIZ_STAGES.map((st, j) => ({ label: tt(`bz.stage.${st}`), state: j < now ? "done" : j === now ? "now" : "next" })),
+          rows: p.fee ? [[tt("w8.fee"), tt("w2.paying", { n: Math.round(p.fee) })]] : undefined }); });
+      return out;
+    }
     case "analytics": return s.m.peaks.length ? s.m.peaks.map((p, i): Chip => ({ id: `k:${p.name}`, at: [p.x, heightAt(s.m.peaks, p.x, p.z) + 0.6, p.z] as [number, number, number], title: clip(p.name, 24),
-      value: fmtMin(p.minutes), sub: tt("w2.share", { n: Math.round((p.minutes / Math.max(1, s.m.total)) * 100) }), color: "#60a5fa", prio: 20 - i }))
+      value: fmtMin(p.minutes), sub: tt("w2.share", { n: Math.round((p.minutes / Math.max(1, s.m.total)) * 100) }), color: "#60a5fa", prio: 20 - i, lod: i < 3 ? 0 : 1,
+      rows: [[tt("w8.share"), `${Math.round((p.minutes / Math.max(1, s.m.total)) * 100)}%`]] }))
       : [{ id: "none", at: [0, 1.2, 0], title: tt("w2.noTime"), color: "#60a5fa" }];
-    case "life": return s.m.pods.map((p) => ({ id: `h:${p.id}`, at: [p.at[0], 1.9, p.at[2]] as [number, number, number], title: clip(p.name, 22),
-      value: p.done ? tt("w2.done") : p.due ? tt("w2.notYet") : undefined, sub: p.streak ? tt("w2.streak", { n: p.streak }) : undefined, color: p.done ? "#86efac" : "#ffd9a8", dot: p.done ? "ok" : "idle", prio: p.done ? 2 : 3 }));
+    case "life": return s.m.pods.map((p): Chip => ({ id: `h:${p.id}`, at: [p.at[0], 1.9, p.at[2]] as [number, number, number], title: clip(p.name, 22), lod: s.m.pods.length > 5 ? 1 : 0,
+      value: p.done ? tt("w2.done") : p.due ? tt("w2.notYet") : undefined, sub: p.streak ? tt("w2.streak", { n: p.streak }) : undefined, color: p.done ? "#86efac" : "#ffd9a8", dot: p.done ? "ok" : "idle", prio: p.done ? 2 : 3 }))
+      .concat(s.m.due ? [{ id: "today", at: [0, 2.6, 0], title: tt("w2.done"), value: `${s.m.done} / ${s.m.due}`, color: "#86efac", prio: 30 }] : []);
   }
+}
+
+/** The focused job's step track: queued -> working -> (needs you) -> done / didn't work. */
+function podSteps(g: string, zone: (k: string) => string): NonNullable<Chip["steps"]> {
+  const order = ["queued", "running", g === "needs" ? "waiting" : null, g === "failed" ? "failed" : "done"].filter(Boolean) as string[];
+  const now = order.indexOf(g === "needs" ? "waiting" : g);
+  return order.map((k, i) => ({ label: zone(k), state: i < now ? "done" : i === now ? (k === "done" ? "done" : "now") : "next" }));
 }
 
 /* ---------- shared bits ---------- */
@@ -106,8 +135,9 @@ function Operations({ m, reduced }: { m: ReturnType<typeof opsScene>; reduced: b
     m.pods.forEach((p, i) => mesh.setColorAt(i, c.set(GATE_COLOR[p.gate]).multiplyScalar(p.moving ? 2.2 : p.gate === "done" ? 0.7 : 1.3)));
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true; place(0); mesh.computeBoundingSphere(); }, [m.pods]); // eslint-disable-line react-hooks/exhaustive-deps
   useFrame(({ clock }) => { if (reduced) return; place(clock.elapsedTime); if (globe.current) globe.current.rotation.y = clock.elapsedTime * 0.15; });
+  const tier = useWorldTier();
   return (<group>
-    <PlanetGround glow="#22d3ee" a="#05080d" b="#101a26" />
+    {tier ? <OpsOrbit nRun={nRun} reduced={reduced} hull={hull} /> : <PlanetGround glow="#22d3ee" a="#05080d" b="#101a26" />}
     {/* deck ring, lane and outer hull */}
     <mesh rotation-x={-Math.PI / 2} position={[0, 0.2, 0]} material={hull}><ringGeometry args={[4.6, 7.1, 128, 1]} /></mesh>
     <mesh position={[0, 0.05, 0]} material={hull}><cylinderGeometry args={[7.2, 7.4, 0.35, 128, 1, true]} /></mesh>
@@ -142,25 +172,70 @@ function Operations({ m, reduced }: { m: ReturnType<typeof opsScene>; reduced: b
   </group>);
 }
 
+/** v8 OPERATIONS look (tier 1+): the station seen from orbit over a living planet, a lit outer habitat ring on spokes,
+ *  docking arms with clamps, and cargo pods running round the outer track (faster with more jobs running). */
+function OpsOrbit({ nRun, reduced, hull }: { nRun: number; reduced: boolean; hull: THREE.Material }) {
+  const cargo = useRef<THREE.InstancedMesh>(null), N = 28, o = useMemo(() => new THREE.Object3D(), []);
+  const speed = 0.03 + Math.min(6, nRun) * 0.02;
+  const lay = (t: number) => { const m = cargo.current; if (!m) return;
+    for (let i = 0; i < N; i++) { const train = Math.floor(i / 4), a = train * ((Math.PI * 2) / 7) + (i % 4) * 0.075 + t * speed;
+      o.position.set(Math.cos(a) * 10.4, 0.62, Math.sin(a) * 10.4); o.rotation.set(0, -a, 0); o.updateMatrix(); m.setMatrixAt(i, o.matrix); }
+    m.instanceMatrix.needsUpdate = true; };
+  useLayoutEffect(() => { lay(0); cargo.current?.computeBoundingSphere(); }); // eslint-disable-line react-hooks/exhaustive-deps
+  useFrame(({ clock }) => { if (!reduced) lay(clock.elapsedTime); });
+  return (<group>
+    <SkyDome top="#000104" mid="#01040b" low="#02060f" neb="#0b2a4a" neb2="#1a0f3a" nebK={0.35} stars={1} />
+    <OrbitalPlanet at={[-14, -118, -95]} r={100} sun={[1.2, 0.5, -0.2]} reduced={reduced} />
+    <directionalLight position={[30, 12, -6]} intensity={2.2} color="#fff3e0" />
+    <pointLight position={[0, -14, -8]} intensity={40} distance={40} color="#3b82f6" />{/* planet shine from below */}
+    {/* outer habitat ring on spokes, with lit windows */}
+    <mesh position={[0, 0.4, 0]} material={hull}><cylinderGeometry args={[11.2, 11.2, 1.3, 160, 1, true]} /></mesh>
+    <mesh position={[0, 0.4, 0]} material={hull}><cylinderGeometry args={[9.7, 9.7, 1.3, 160, 1, true]} /></mesh>
+    <mesh rotation-x={-Math.PI / 2} position={[0, 1.05, 0]} material={hull}><ringGeometry args={[9.7, 11.2, 160, 1]} /></mesh>
+    <mesh rotation-x={-Math.PI / 2} position={[0, 0.3, 0]}><ringGeometry args={[10.3, 10.5, 160]} /><meshBasicMaterial color={new THREE.Color("#22d3ee").multiplyScalar(1.4)} toneMapped={false} /></mesh>
+    <WindowRing r={11.22} y0={0.0} rows={4} n={220} color="#ffd9a0" k={2.4} lit={0.55} seed={3} />
+    <WindowRing r={9.68} y0={0.1} rows={3} n={180} color="#9be7ff" k={1.8} lit={0.45} seed={7} inward />
+    <WindowRing r={7.42} y0={0.2} rows={2} n={140} color="#ffe2b0" k={2} lit={0.5} seed={11} />
+    <RingOf n={64} r={11.35} y={1.15} size={[0.35, 0.22, 0.5]} color="#1a222e" />
+    <RingOf n={16} r={8.4} y={0.45} size={[2.6, 0.22, 0.32]} color="#18202b" skip={(i) => i % 2 === 1} />
+    {/* docking arms out past the habitat ring, a clamp and a beacon at each end */}
+    {[0.4, 1.65, 2.9, 4.15, 5.4].map((a) => (<group key={a} rotation-y={-a}>
+      <mesh position={[12.6, 0.5, 0]} material={hull}><boxGeometry args={[2.8, 0.26, 0.42]} /></mesh>
+      <mesh position={[14.1, 0.5, 0]} material={hull}><boxGeometry args={[0.5, 0.9, 1.2]} /></mesh>
+      <mesh position={[14.4, 0.95, 0]}><sphereGeometry args={[0.07, 8, 6]} /><meshBasicMaterial color={new THREE.Color("#ff5a5a").multiplyScalar(3)} toneMapped={false} /></mesh>
+    </group>))}
+    {/* cargo pods on the outer track */}
+    <instancedMesh ref={cargo} args={[undefined, undefined, N]}><boxGeometry args={[0.55, 0.32, 0.36]} /><meshStandardMaterial color="#c9a46a" metalness={0.6} roughness={0.35} emissive="#ffb347" emissiveIntensity={0.25} /></instancedMesh>
+    {/* the hub tower above the globe */}
+    <mesh position={[0, 4.2, 0]} material={hull}><cylinderGeometry args={[0.25, 0.5, 2.2, 12]} /></mesh>
+    <mesh position={[0, 5.5, 0]}><sphereGeometry args={[0.09, 8, 6]} /><meshBasicMaterial color={new THREE.Color("#ff5a5a").multiplyScalar(3)} toneMapped={false} /></mesh>
+  </group>);
+}
+
 /* ---------- VAULT ---------- */
 
 const VAULT_LANTERNS: Inst[] = [-1, 1].flatMap((s) => [{ at: [s * 6, 5.6, -4.6], s: [1, 0.7, 1] }, { at: [s * 2.2, 0, 1.6], s: [1, 0.55, 1], ry: s }] as Inst[]);
 const VAULT_CHESTS: Inst[] = [[-3.4, 2.4, 0.6], [3.6, 2.1, -0.5], [-4.6, -1.2, 1.2], [4.4, -1.9, -1.1]].map(([x, z, r]): Inst => ({ at: [x, 0, z], s: [1, 0.75, 1], ry: r }));
 
 function Vault({ m, reduced }: { m: ReturnType<typeof vaultScene>; reduced: boolean }) {
-  const gold = usePhys({ color: "#7a5a2a", metalness: 1, roughness: 0.32, clearcoat: 0.3 });
+  const gold = usePhys({ color: "#7a5a2a", metalness: 1, roughness: 0.32, clearcoat: 0.3, side: THREE.DoubleSide });
   const stone = usePhys({ color: "#1a140e", metalness: 0.4, roughness: 0.55, side: THREE.BackSide });
   const items = useMemo<CrystalIn[]>(() => m.crystals.map((c) => ({ at: c.at, h: c.h * 1.5, w: c.h * 0.9, color: VAULT_KIND_COLOR[c.kind] ?? VAULT_KIND_COLOR.other, glow: c.fresh ? 1.8 : 0.9 })), [m.crystals]);
-  const emblem = useRef<THREE.Group>(null);
+  const emblem = useRef<THREE.Group>(null), tier = useWorldTier();
+  const shelfStone = usePhys({ color: "#6b5a48", metalness: 0, roughness: 0.92, side: THREE.DoubleSide });
+  const shelf = tier ? shelfStone : gold;
   useFrame(({ clock }) => { if (emblem.current && !reduced) emblem.current.rotation.z = clock.elapsedTime * 0.05; });
   return (<group>
+    {tier > 0 && <VaultHall reduced={reduced} />}
     <Plate r={10} h={0.5} color="#120d08" rim="#ffb347" metal={0.6} rough={0.5} />
     {[3, 5.2, 8.6].map((r) => <mesh key={r} rotation-x={-Math.PI / 2} position={[0, 0.01, 0]}><ringGeometry args={[r, r + 0.04, 128]} />{glowMat("#ffb347", 0.7)}</mesh>)}
     {/* shelves: one arc per kind, four tiers */}
     {m.kinds.map((k) => [0, 1, 2, 3].map((row) => {
       const len = k.to - k.from;
       return (<group key={`${k.kind}${row}`}>
-        <mesh position={[0, 0.5 + row * 1.15, 0]} material={gold}><cylinderGeometry args={[7.75, 7.35, 0.08, 48, 1, false, Math.PI / 2 - k.to, len]} /></mesh>
+        {/* v8 fix: a ring sector (a closed partial cylinder's caps are pie wedges reaching the centre: the old "blades") */}
+        <mesh position={[0, 0.5 + row * 1.15, 0]} rotation-x={Math.PI / 2} material={shelf}><ringGeometry args={[7.3, 7.85, 48, 1, k.from, len]} /></mesh>
+        <mesh position={[0, 0.5 + row * 1.15 - 0.06, 0]} material={shelf}><cylinderGeometry args={[7.85, 7.85, 0.12, 48, 1, true, Math.PI / 2 - k.to, len]} /></mesh>
         <mesh position={[0, 0.455 + row * 1.15, 0]}><cylinderGeometry args={[7.36, 7.36, 0.02, 48, 1, true, Math.PI / 2 - k.to, len]} />{glowMat(VAULT_KIND_COLOR[k.kind] ?? "#ffb347", 1.2)}</mesh>
       </group>);
     }))}
@@ -187,6 +262,53 @@ function Vault({ m, reduced }: { m: ReturnType<typeof vaultScene>; reduced: bool
   </group>);
 }
 
+/** v8 VAULT look (tier 1+): a monumental underground hall: stone columns with capitals, a ribbed dome with an oculus
+ *  and a ring chandelier, sun shafts with dust, candle-lit balconies of far shelves and a round vault door. */
+const frontCol = (i: number) => Math.abs((i / 14) * Math.PI * 2 - Math.PI / 2) < 0.75; // keep the view from inside clear
+function VaultHall({ reduced }: { reduced: boolean }) {
+  const stone = usePhys({ color: "#4a3e33", metalness: 0, roughness: 0.95 });
+  const dome = usePhys({ color: "#2a221b", metalness: 0, roughness: 1, side: THREE.BackSide });
+  const door = usePhys({ color: "#5b4630", metalness: 0.95, roughness: 0.35, clearcoat: 0.4 });
+  const ring = useRef<THREE.Group>(null);
+  useFrame(({ clock }) => { if (ring.current && !reduced) ring.current.rotation.y = clock.elapsedTime * 0.04; });
+  const amber = (k: number) => new THREE.Color("#ffb347").multiplyScalar(k);
+  return (<group>
+    <SkyDome top="#0a0704" mid="#120c07" low="#050302" r={60} />
+    <mesh position={[0, 7.8, 0]} material={dome}><sphereGeometry args={[11, 48, 16, 0, Math.PI * 2, 0, Math.PI / 2]} /></mesh>
+    <mesh position={[0, 2.6, 0]} material={dome}><cylinderGeometry args={[11, 11, 10.5, 64, 1, true]} /></mesh>
+    {/* columns: shaft, base, capital */}
+    <RingOf n={14} r={9.2} y={3.9} size={[0.75, 7.8, 0.75]} color="#56483b" metal={0} rough={0.95} skip={frontCol} />
+    <RingOf n={14} r={9.2} y={0.25} size={[1.1, 0.5, 1.1]} color="#4a3e33" metal={0} rough={0.95} skip={frontCol} />
+    <RingOf n={14} r={9.2} y={7.85} size={[1.15, 0.45, 1.15]} color="#4a3e33" metal={0} rough={0.95} skip={frontCol} />
+    <mesh position={[0, 8.1, 0]} rotation-x={Math.PI / 2} material={stone}><torusGeometry args={[9.2, 0.35, 8, 96]} /></mesh>
+    {/* ribs up the dome to the oculus */}
+    {Array.from({ length: 8 }, (_, i) => <mesh key={i} rotation-y={(i / 8) * Math.PI * 2} position={[0, 7.8, 0]} material={stone}><torusGeometry args={[10.6, 0.16, 6, 24, Math.PI / 2]} /></mesh>)}
+    <mesh position={[0, 18.4, 0]} rotation-x={Math.PI / 2}><ringGeometry args={[0, 1.3, 32]} /><meshBasicMaterial color={new THREE.Color("#fff1d0").multiplyScalar(3)} toneMapped={false} side={THREE.DoubleSide} /></mesh>
+    {/* candle-lit balconies of far shelves between the columns, two levels */}
+    <WindowRing r={10.7} y0={1.0} rows={4} n={150} size={[0.07, 0.14]} color="#ffb347" k={3} lit={0.6} seed={13} inward />
+    <WindowRing r={10.7} y0={5.2} rows={3} n={150} size={[0.07, 0.14]} color="#ffc56b" k={2.6} lit={0.5} seed={17} inward />
+    <RingOf n={56} r={10.6} y={1.0} size={[0.9, 0.08, 0.45]} color="#3a3027" metal={0} rough={1} />
+    <RingOf n={56} r={10.6} y={5.2} size={[0.9, 0.08, 0.45]} color="#3a3027" metal={0} rough={1} />
+    {/* the ring chandelier under the oculus */}
+    <group ref={ring} position={[0, 9.2, 0]}>
+      <mesh rotation-x={Math.PI / 2} material={door}><torusGeometry args={[2.4, 0.07, 8, 96]} /></mesh>
+      <mesh rotation-x={Math.PI / 2} position={[0, -0.4, 0]} material={door}><torusGeometry args={[1.7, 0.05, 8, 96]} /></mesh>
+      <mesh rotation-x={Math.PI / 2} position={[0, 0.04, 0]}><torusGeometry args={[2.4, 0.025, 6, 96]} /><meshBasicMaterial color={amber(2.6)} toneMapped={false} /></mesh>
+      <mesh position={[0, 4.6, 0]}><cylinderGeometry args={[0.015, 0.015, 9, 4]} /><meshStandardMaterial color="#3a2e22" /></mesh>
+    </group>
+    <LightShaft at={[2.2, 0, 1]} r={1.8} h={18} color="#fff1d0" strength={0.22} />
+    <spotLight position={[0, 18, 0]} angle={0.28} penumbra={0.6} intensity={180} distance={30} color="#fff1d0" />
+    {/* the round vault door set in the back wall, with bolts and a wheel */}
+    <group position={[0, 3.6, -10.4]}>
+      <mesh rotation-x={Math.PI / 2} material={door}><cylinderGeometry args={[3, 3, 0.5, 64]} /></mesh>
+      <mesh position={[0, 0, 0.26]} material={stone}><torusGeometry args={[3.2, 0.35, 10, 64]} /></mesh>
+      {Array.from({ length: 16 }, (_, i) => { const a = (i / 16) * Math.PI * 2; return <mesh key={i} position={[Math.cos(a) * 2.6, Math.sin(a) * 2.6, 0.3]} material={door}><cylinderGeometry args={[0.1, 0.1, 0.2, 10]} /></mesh>; })}
+      <mesh position={[0, 0, 0.45]} material={door}><torusGeometry args={[0.9, 0.08, 8, 48]} /></mesh>
+      <mesh position={[0, 0, 0.3]}><torusGeometry args={[2.1, 0.03, 6, 64]} /><meshBasicMaterial color={amber(1.8)} toneMapped={false} /></mesh>
+    </group>
+  </group>);
+}
+
 /* ---------- BUSINESS ---------- */
 
 function Business({ m, reduced }: { m: ReturnType<typeof bizScene>; reduced: boolean }) {
@@ -197,8 +319,9 @@ function Business({ m, reduced }: { m: ReturnType<typeof bizScene>; reduced: boo
       mesh.setColorAt(i, c.set(STAGE_COLOR[p.stage as keyof typeof STAGE_COLOR] ?? "#fff").multiplyScalar(p.fresh ? 2 : 1)); });
     mesh.count = m.ships.length; mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true; mesh.computeBoundingSphere(); }, [m.ships]);
   useFrame(({ clock }) => { if (traffic.current && !reduced) traffic.current.rotation.y = clock.elapsedTime * 0.08; });
+  const tier = useWorldTier();
   return (<group>
-    <PlanetGround glow="#ff9f43" a="#08070a" b="#18151c" />
+    {tier ? <TradeHub m={m} reduced={reduced} hull={hull} /> : <PlanetGround glow="#ff9f43" a="#08070a" b="#18151c" />}
     <Plate r={8.2} h={0.6} y={0.1} color="#16141a" rim="#ff9f43" />
     {m.tiers.map((t, i) => (<group key={t.stage}>
       <mesh position={[0, t.y - 0.35, 0]} material={hull}><cylinderGeometry args={[t.r, t.r + 0.35, 1.0, 96]} /></mesh>
@@ -221,6 +344,35 @@ function Business({ m, reduced }: { m: ReturnType<typeof bizScene>; reduced: boo
   </group>);
 }
 
+/** v8 BUSINESS look (tier 1+): a trade hub over a dusk planet: every docked deal sits in a lit bay frame in its stage's
+ *  colour, tiers carry window bands, and freighters run in and out on approach lanes. */
+function TradeHub({ m, reduced, hull }: { m: ReturnType<typeof bizScene>; reduced: boolean; hull: THREE.Material }) {
+  const bays = useRef<THREE.InstancedMesh>(null), lips = useRef<THREE.InstancedMesh>(null), lane = useRef<THREE.InstancedMesh>(null);
+  const o = useMemo(() => new THREE.Object3D(), []), c = useMemo(() => new THREE.Color(), []), N = 10;
+  useLayoutEffect(() => { const b = bays.current, l = lips.current; if (!b || !l) return;
+    m.ships.forEach((p, i) => { o.position.set(Math.cos(p.angle) * (p.r - 0.25), p.y + 0.15, Math.sin(p.angle) * (p.r - 0.25)); o.rotation.set(0, -p.angle + Math.PI / 2, 0); o.scale.set(1, 1, 1); o.updateMatrix();
+      b.setMatrixAt(i, o.matrix); l.setMatrixAt(i, o.matrix); l.setColorAt(i, c.set(STAGE_COLOR[p.stage as keyof typeof STAGE_COLOR] ?? "#ff9f43").multiplyScalar(p.fresh ? 3 : 2)); });
+    for (const x of [b, l]) { x.count = m.ships.length; x.instanceMatrix.needsUpdate = true; x.computeBoundingSphere(); } if (l.instanceColor) l.instanceColor.needsUpdate = true; }, [m.ships, o, c]);
+  const fly = (t: number) => { const x = lane.current; if (!x) return;
+    for (let i = 0; i < N; i++) { const f = ((t * 0.04 + i / N) % 1), a = i * 2.1, r = 22 - f * 12, y = 2 + (i % 4) * 1.6 + f * 1.5;
+      o.position.set(Math.cos(a) * r, y, Math.sin(a) * r); o.rotation.set(0, -a + Math.PI / 2, 0); o.scale.setScalar(0.5 + (i % 3) * 0.2); o.updateMatrix(); x.setMatrixAt(i, o.matrix); }
+    x.instanceMatrix.needsUpdate = true; };
+  useLayoutEffect(() => { fly(0.5); lane.current?.computeBoundingSphere(); }); // eslint-disable-line react-hooks/exhaustive-deps
+  useFrame(({ clock }) => { if (!reduced) fly(clock.elapsedTime); });
+  return (<group>
+    <SkyDome top="#020104" mid="#0a0508" low="#1c0d08" neb="#7c2d12" neb2="#1e1b4b" nebK={0.3} stars={1} />
+    <OrbitalPlanet at={[30, -95, -70]} r={95} sun={[-1, 0.3, 0.4]} reduced={reduced} air="#ff9a4d" />
+    <directionalLight position={[-20, 8, 10]} intensity={2} color="#ffc48a" />
+    {m.tiers.map((t, i) => <WindowRing key={t.stage} r={t.r + 0.36} y0={t.y - 0.7} rows={3} n={Math.round(t.r * 22)} color="#ffcf8a" k={2} lit={0.5} seed={20 + i} />)}
+    {/* bay frames (dark) with glowing lips in the deal's stage colour */}
+    <instancedMesh ref={bays} args={[undefined, undefined, Math.max(1, m.ships.length)]} material={hull}><boxGeometry args={[0.95, 0.7, 0.12]} /></instancedMesh>
+    <instancedMesh ref={lips} args={[undefined, undefined, Math.max(1, m.ships.length)]}><boxGeometry args={[0.8, 0.04, 0.16]} /><meshBasicMaterial toneMapped={false} /></instancedMesh>
+    {/* approach lanes: freighters coming in */}
+    <instancedMesh ref={lane} args={[undefined, undefined, N]}><boxGeometry args={[1.4, 0.3, 0.5]} /><meshStandardMaterial color="#8a8f9c" metalness={0.8} roughness={0.35} emissive="#ff9f43" emissiveIntensity={0.4} /></instancedMesh>
+    <RingOf n={24} r={9.4} y={0.3} size={[0.18, 0.18, 2.2]} color="#2a2630" emissive="#ffb04d" k={0.6} skip={(i) => i % 3 !== 0} />
+  </group>);
+}
+
 /* ---------- ANALYTICS ---------- */
 
 function Analytics({ m, reduced }: { m: ReturnType<typeof timeScene>; reduced: boolean }) {
@@ -238,7 +390,9 @@ function Analytics({ m, reduced }: { m: ReturnType<typeof timeScene>; reduced: b
       gl_FragColor = vec4(c * (0.25 + vH*0.35) * scan * e, 1.0); }` }), []);
   useEffect(() => () => wire.dispose(), [wire]);
   useFrame(({ clock }) => { if (!reduced) wire.uniforms.uT.value = clock.elapsedTime; });
+  const tier = useWorldTier();
   return (<group>
+    {tier > 0 && <DataLand geo={geo} m={m} />}
     <mesh geometry={geo}><meshStandardMaterial color="#04081a" metalness={0.3} roughness={0.75} emissive="#0a1a4a" emissiveIntensity={0.25} /></mesh>
     <mesh geometry={geo} material={wire} />
     {m.peaks.map((p) => { const y = heightAt(m.peaks, p.x, p.z);
@@ -248,6 +402,28 @@ function Analytics({ m, reduced }: { m: ReturnType<typeof timeScene>; reduced: b
         <mesh rotation-x={-Math.PI / 2} position={[0, 0.05, 0]}><ringGeometry args={[p.w * 0.9, p.w * 0.94, 64]} />{glowMat("#3b82f6", 1)}</mesh>
       </group>); })}
     <Motes count={reduced ? 120 : 360} color="#60a5fa" spread={18} height={7} reduced={reduced} />
+  </group>);
+}
+
+/** v8 ANALYTICS look (tier 1+): deep-blue haze sky, a glowing point at every terrain vertex (brighter up the ridges),
+ *  and a light pillar with a halo disc on each project's peak. */
+function DataLand({ geo, m }: { geo: THREE.BufferGeometry; m: ReturnType<typeof timeScene> }) {
+  const pts = useMemo(() => new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: `varying float vH; varying float vE; void main(){ vH = position.y; vE = smoothstep(19.0, 5.0, length(position.xz)); vec4 mv = modelViewMatrix*vec4(position + vec3(0.0,0.02,0.0),1.0); gl_PointSize = (0.7 + vH*0.3) * (32.0 / -mv.z); gl_Position = projectionMatrix*mv; }`,
+    fragmentShader: `varying float vH; varying float vE; void main(){ float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard; vec3 c = mix(vec3(0.15,0.4,1.0), vec3(0.75,0.92,1.0), clamp(vH/5.0,0.0,1.0));
+      gl_FragColor = vec4(c * (1.0 - d*2.0) * (0.18 + vH*0.12) * vE, 1.0); }` }), []);
+  useEffect(() => () => pts.dispose(), [pts]);
+  return (<group>
+    <SkyDome top="#01030c" mid="#031033" low="#0a2a6b" neb="#1d4ed8" neb2="#0891b2" nebK={0.25} stars={0.6} />
+    <points geometry={geo} material={pts} />
+    {m.peaks.map((p) => { const y = heightAt(m.peaks, p.x, p.z);
+      return (<group key={p.name} position={[p.x, y, p.z]}>
+        <mesh position={[0, 2.2, 0]}><cylinderGeometry args={[0.05, 0.05, 4.4, 8, 1, true]} /><meshBasicMaterial color={new THREE.Color("#7dd3fc").multiplyScalar(2.2)} toneMapped={false} transparent opacity={0.85} /></mesh>
+        <mesh position={[0, 2.2, 0]}><cylinderGeometry args={[0.35, 0.35, 4.4, 16, 1, true]} /><meshBasicMaterial color="#38bdf8" transparent opacity={0.08} blending={THREE.AdditiveBlending} depthWrite={false} side={THREE.DoubleSide} /></mesh>
+        <mesh rotation-x={-Math.PI / 2} position={[0, 0.06, 0]}><ringGeometry args={[0.35, 0.55, 48]} /><meshBasicMaterial color={new THREE.Color("#bae6fd").multiplyScalar(2)} toneMapped={false} side={THREE.DoubleSide} /></mesh>
+        <mesh rotation-x={-Math.PI / 2} position={[0, 0.07, 0]}><ringGeometry args={[0.75, 0.8, 48]} /><meshBasicMaterial color={new THREE.Color("#38bdf8").multiplyScalar(1.5)} toneMapped={false} side={THREE.DoubleSide} /></mesh>
+      </group>); })}
+    <pointLight position={[0, 6, 0]} intensity={30} distance={30} color="#3b82f6" />
   </group>);
 }
 

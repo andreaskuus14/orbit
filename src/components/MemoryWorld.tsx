@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type RootState, type ThreeEvent } from "@react-three/fiber";
 import { OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
-import { EffectComposer, Bloom, Vignette, ToneMapping, SMAA } from "@react-three/postprocessing";
+import { EffectComposer, Bloom, DepthOfField, Vignette, ToneMapping, SMAA } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import type { MemoryPanel } from "./panels"; // passed in by Orbit: the public demo must not bundle panels (Supabase client)
@@ -31,7 +31,9 @@ import { MEMORY_SHEET_EVENT, MemoryShell } from "./MemoryShell";
 import { Button } from "./ui";
 import dynamic from "next/dynamic";
 import { crystalCluster } from "@/lib/world-surfaces-pure";
-import { ChipLayer, ChipProjector, Crystals, Motes, PlanetGround, WorldLights, useChipRig, type Chip, type Inst } from "./world-kit";
+import { ChipLayer, ChipProjector, Crystals, Motes, PlanetGround, WorldLights, useChipRig, useWorldTier, type Chip, type Inst } from "./world-kit";
+import { SkyDome } from "./world-scenery";
+import { flyTo as zoomDist } from "@/lib/world-zoom-pure";
 import { memoryClusters } from "@/lib/planet-scenes-pure";
 import { AssetEnv, AssetMany, RealOr } from "./world-assets";
 import { memoryCity } from "@/lib/worlds-v3-pure";
@@ -163,7 +165,7 @@ function MemoryGround({ items, reduced }: { items: Star[]; reduced: boolean }) {
       o.position.set(p.x, ground + 0.52, p.z); o.rotation.set(-Math.PI / 2, 0, 0); o.scale.set(p.r * 1.02, p.r * 1.02, 1); o.updateMatrix(); rings.current?.setMatrixAt(i, o.matrix); });
     for (const m of [plates.current, rings.current]) if (m) { m.count = city.plateaus.length; m.instanceMatrix.needsUpdate = true; m.computeBoundingSphere(); } }, [city, ground]);
   useEffect(() => () => threads.dispose(), [threads]);
-  const n = Math.max(1, city.plateaus.length);
+  const n = Math.max(1, city.plateaus.length), tier = useWorldTier();
   // v5: each district stands on a real scanned moon rock (Poly Haven, CC0); the night HDRI gives the glass real reflections.
   const rocks = useMemo(() => city.plateaus.map((p, i): Inst => ({ at: [p.x, ground - 0.3, p.z], s: [p.r * 2.3, 0.95, p.r * 2.3], ry: i * 1.7 })), [city, ground]);
   return (<group>
@@ -178,6 +180,41 @@ function MemoryGround({ items, reduced }: { items: Star[]; reduced: boolean }) {
     <pointLight position={[city.spire.x, ground + city.spire.h * SPIRE * 0.6, city.spire.z]} intensity={40} distance={26} decay={1.5} color="#e9b8ff" />
     <Crystals items={crystals} reduced={reduced} intensity={1.5} />
     <group position={[0, ground, 0]}><Motes count={reduced ? 120 : 320} color="#c4b5fd" spread={30} height={10} reduced={reduced} /></group>
+    {tier > 0 && <CityExtras city={city} ground={ground} reduced={reduced} />}
+  </group>);
+}
+
+/** v8 MEMORY look (tier 1+): nebula sky, light running along the knowledge threads, a ring bridge round the spire and
+ *  big crystal shards floating over the city. */
+function CityExtras({ city, ground, reduced }: { city: ReturnType<typeof memoryCity>; ground: number; reduced: boolean }) {
+  const pulses = useRef<THREE.InstancedMesh>(null), o = useMemo(() => new THREE.Object3D(), []), P = 3;
+  const shards = useMemo(() => Array.from({ length: 7 }, (_, i) => { const a = i * 2.4, r = 14 + (i % 3) * 5;
+    return { at: [city.spire.x + Math.cos(a) * r, ground + 7 + (i % 4) * 2.2, city.spire.z + Math.sin(a) * r] as [number, number, number], h: 1.6 + (i % 3) * 0.8 }; }), [city, ground]);
+  const shardRefs = useRef<(THREE.Mesh | null)[]>([]);
+  const lay = (t: number) => { const m = pulses.current; if (!m) return; let j = 0;
+    city.threads.forEach(([a, b], i) => { for (let k = 0; k < P; k++) { const f = (t * 0.12 + k / P + i * 0.137) % 1;
+      o.position.set(a[0] + (b[0] - a[0]) * f, a[1] + 0.12, a[2] + (b[2] - a[2]) * f); o.scale.setScalar(0.6 + Math.sin(f * Math.PI) * 0.6); o.updateMatrix(); m.setMatrixAt(j++, o.matrix); } });
+    m.count = j; m.instanceMatrix.needsUpdate = true; };
+  useLayoutEffect(() => { lay(0.3); pulses.current?.computeBoundingSphere(); }); // eslint-disable-line react-hooks/exhaustive-deps
+  useFrame(({ clock }) => { if (reduced) return; const t = clock.elapsedTime; lay(t);
+    shardRefs.current.forEach((m, i) => { if (m) { m.rotation.y = t * 0.15 + i; m.position.y = shards[i].at[1] + Math.sin(t * 0.4 + i) * 0.3; } }); });
+  const sx = city.spire.x, sz = city.spire.z, sh = city.spire.h;
+  return (<group>
+    <SkyDome top="#05020e" mid="#120726" low="#2a0f3f" neb="#6d28d9" neb2="#db2777" nebK={0.55} stars={1} r={220} />
+    <instancedMesh ref={pulses} args={[undefined, undefined, Math.max(1, city.threads.length * P)]} raycast={() => null}>
+      <sphereGeometry args={[0.09, 8, 6]} /><meshBasicMaterial color={new THREE.Color("#f0abfc").multiplyScalar(3)} toneMapped={false} />
+    </instancedMesh>
+    {/* the ring bridge round the spire, on three legs, with a glowing inner edge */}
+    <group position={[sx, ground + sh * 0.55, sz]}>
+      <mesh rotation-x={Math.PI / 2}><torusGeometry args={[3.4, 0.16, 10, 96]} /><meshPhysicalMaterial color="#2a1f45" metalness={0.9} roughness={0.25} clearcoat={1} /></mesh>
+      <mesh rotation-x={Math.PI / 2}><torusGeometry args={[3.2, 0.03, 6, 96]} /><meshBasicMaterial color={new THREE.Color("#e9d5ff").multiplyScalar(2.2)} toneMapped={false} /></mesh>
+      {[0, 2.09, 4.19].map((a) => <mesh key={a} position={[Math.cos(a) * 3.4, -sh * 0.28, Math.sin(a) * 3.4]}><cylinderGeometry args={[0.07, 0.12, sh * 0.56, 6]} /><meshStandardMaterial color="#2a1f45" metalness={0.9} roughness={0.3} /></mesh>)}
+    </group>
+    <mesh position={[sx, ground + sh * 3, sz]}><cylinderGeometry args={[0.05, 0.5, sh * 4, 12, 1, true]} /><meshBasicMaterial color="#d8b4fe" transparent opacity={0.12} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} side={THREE.DoubleSide} /></mesh>
+    {/* floating shards */}
+    {shards.map((k, i) => <mesh key={i} ref={(el) => { shardRefs.current[i] = el; }} position={k.at} raycast={() => null}>
+      <octahedronGeometry args={[k.h * 0.4, 0]} /><meshPhysicalMaterial color="#c4b5fd" metalness={0.1} roughness={0.05} transmission={0.6} thickness={1} emissive="#7c3aed" emissiveIntensity={0.35} clearcoat={1} />
+    </mesh>)}
   </group>);
 }
 
@@ -520,13 +557,27 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
   const kindName = (k: string) => { const v = t(`mp.k.${k}` as Key); return v === `mp.k.${k}` ? k.charAt(0).toUpperCase() + k.slice(1) : v; };
   const rig = useChipRig();
   const memChips = useMemo<Chip[]>(() => { if (!data) return []; const { clusters, ground } = memoryClusters(data.items);
-    const sp = memoryCity(clusters, ground).spire;
+    const sp = memoryCity(clusters, ground).spire, name = (m: Star) => (m.kind === "journal" ? t("mp.journal") : m.title); // journal titles never shown
+    const newest = (k: string) => data.items.filter((m) => m.kind === k).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+    const loc = lang === "et" ? "et-EE" : "en-GB", day = (m: Star) => (m.created_at ? new Date(m.created_at).toLocaleDateString(loc, { day: "numeric", month: "short", year: "numeric" }) : "");
+    // v8 semantic zoom: the city and its districts (lod 0), each district's newest memory (lod 1), single memories near you (lod 2)
+    const recent = [...data.items].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 40);
+    const focusM = sel !== null ? data.items[sel] : undefined;
+    const items = focusM && !recent.includes(focusM) ? [...recent, focusM] : recent;
     return [{ id: "all", at: [sp.x, ground + sp.h + 1.2, sp.z] as [number, number, number], title: t("w3.all" as Key), value: String(data.items.length), color: "#e9d5ff", prio: 30 },
-      ...clusters.slice(0, 8).map((c, i) => ({ id: c.kind, at: [c.x, ground + 3.6, c.z] as [number, number, number], title: kindName(c.kind), value: tn("overview.memories", c.count), color: kindColor(c.kind), prio: 20 - i }))]; }, [data, lang]); // eslint-disable-line react-hooks/exhaustive-deps
+      ...clusters.slice(0, 8).map((c, i) => ({ id: c.kind, at: [c.x, ground + 3.6, c.z] as [number, number, number], title: kindName(c.kind), value: tn("overview.memories", c.count), color: kindColor(c.kind), prio: 20 - i })),
+      ...clusters.slice(0, 8).flatMap((c): Chip[] => { const m = newest(c.kind); return m ? [{ id: `n:${c.kind}`, at: [c.x, ground + 1.8, c.z], title: name(m), sub: day(m), color: kindColor(c.kind), prio: 8, lod: 1 }] : []; }),
+      ...items.map((m): Chip => ({ id: `m:${m.id}`, at: [m.x, m.y, m.z], title: name(m), sub: kindName(m.kind), color: kindColor(m.kind), prio: 4, lod: 2,
+        rows: [[t("w8.saved" as Key), day(m)], ...(m.tags.length && m.kind !== "journal" ? [["#", m.tags.slice(0, 3).join(", ")] as [string, string]] : [])] }))]; }, [data, lang, sel]); // eslint-disable-line react-hooks/exhaustive-deps
+  const memPick = useCallback((cid: string) => { if (!data) return;
+    if (cid.startsWith("m:")) { setOpenId(cid.slice(2)); return; } // opens the memory in the panel; the open-memory effect flies to it
+    const c = memChips.find((x) => x.id === cid); if (c) fly(c.at, zoomDist(c.lod, 3, 60)); }, [data, memChips, fly]);
+  const focusChip = openId && sel !== null ? `m:${openId}` : null;
+  const focusAt = sel !== null && data ? ([data.items[sel].x, data.items[sel].y, data.items[sel].z] as [number, number, number]) : null;
   const onCreated = (s: RootState) => { glr.onCreated(s); s.raycaster.params.Points = { threshold: 0.45 }; };
   const labels = useMemo(() => { // the open star, its connections and the hovered one: precise labels drawn by Projector
     const out: { i: number; main: boolean }[] = [];
-    if (sel !== null) out.push({ i: sel, main: true });
+    // v8: the open memory's title is on its focus card (memChips), so no second label on its star
     for (const c of near) if (c.i !== hover) out.push({ i: c.i, main: false });
     if (hover !== null && hover !== sel) out.push({ i: hover, main: true });
     return out.filter((l) => !!data?.items[l.i]);
@@ -556,7 +607,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
           <FarRings reduced={reduced} />
           <WorldLights color="#8b5cf6" keyLight="#e9dcff" tier={worldTier(q.bloomScale, q.msaa)} sky="#140c2a" reach={30} />
           {data && <MemoryGround items={data.items} reduced={reduced} />}
-          {!query.trim() && <ChipProjector rig={rig} chips={memChips} />}
+          {!query.trim() && <ChipProjector rig={rig} chips={memChips} zoom={{ min: 3, max: 60 }} focus={focusChip} />}
           {data && <Constellation data={data} at={when} hi={hi} searching={!!query.trim()} reduced={reduced} lite={q.bloomScale === 0} onHover={setHover} onPick={pick} />}
           {data && <FocusLines items={data.items} from={sel} to={near} />}
           {data?.graph && !query.trim() && sel === null && <ClusterHalos graph={data.graph} items={data.items} />}
@@ -565,6 +616,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
           <Fly goal={goal} reduced={reduced} shift={MAP_SHIFT} />
           {q.bloomScale > 0 && (
             <EffectComposer multisampling={q.msaa}>
+              {focusAt && q.bloomScale >= 0.9 && !reduced ? <DepthOfField target={focusAt} focalLength={0.02} bokehScale={3} height={480} /> : <></>}
               <Bloom intensity={(reduced ? 0.3 : 0.45) * q.bloomScale} luminanceThreshold={0.65} luminanceSmoothing={0.35} mipmapBlur />
               <Vignette offset={0.3} darkness={0.75} />
               <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
@@ -572,7 +624,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
             </EffectComposer>
           )}
         </Canvas>
-        {!query.trim() && <ChipLayer rig={rig} chips={memChips} />}
+        {!query.trim() && <ChipLayer rig={rig} chips={memChips} onPick={memPick} focus={focusChip} />}
         <div className="mp-labels" aria-hidden="true">{labels.map((l) => { const m = data!.items[l.i]; return (
           <div key={`${m.id}-${l.main ? "m" : "n"}`} ref={(el) => { if (el) labelEls.current.set(l.i, el); else labelEls.current.delete(l.i); }} className="memory-star-label" data-main={l.main ? "" : undefined}>
             <b>{m.kind === "journal" ? t("mp.journal") : m.title}</b>{l.main && <span>{kindName(m.kind)}{isLearned(m.source) ? ` · ${t("mp.d.learned")}` : ""}</span>}</div>); })}</div>

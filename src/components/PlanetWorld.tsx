@@ -5,10 +5,11 @@
 // compile, lean quality, GL recovery, paused frameloop. LIFE data is read from ORBIT's own API and never leaves it.
 import { WorldEmblem } from "./WorldEmblem";
 import { WorldHeaderArt } from "./WorldHeaderArt";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
-import { ChipLayer, ChipProjector, ShiftForPanel, WorldFX, WorldLights, useChipRig } from "./world-kit";
+import { ChipLayer, ChipProjector, FlyTo, ShiftForPanel, WorldFX, WorldLights, useChipRig, type FlyGoal } from "./world-kit";
+import { flyTo } from "@/lib/world-zoom-pure";
 import { CAMERA, SceneFor, THEME, buildModel, sceneChips } from "./PlanetScenes";
 import { SCENE_SOURCE } from "@/lib/planet-scenes-pure";
 import { useGlRecovery } from "./useGlRecovery";
@@ -54,6 +55,17 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
   const shell = SHELL_WORLDS.includes(id);
   const shellCtx = useMemo(() => ({ onClose, summary }), [onClose, summary]);
   const cam = CAMERA[id], th = THEME[id];
+  // v8 semantic zoom: a click on a label flies one level deeper and tells the panel which item it was (orbit:world-pick)
+  const [goal, setGoal] = useState<FlyGoal>(null), [focus, setFocus] = useState<string | null>(null);
+  const [focusLod, setFocusLod] = useState(2);
+  const onLevel = useCallback((l: number) => { if (l < Math.min(2, focusLod + 1)) setFocus(null); }, [focusLod]); // zooming back out drops the card
+  const focusAt = focus ? chips.find((c) => c.id === focus)?.at ?? null : null;
+  const pick = useCallback((cid: string) => {
+    const c = chips.find((x) => x.id === cid); if (!c) return;
+    setGoal((g) => ({ at: c.at, dist: flyTo(c.lod, cam.min, cam.max), n: (g?.n ?? 0) + 1 }));
+    const card = c.lod === 2 || !!c.rows || !!c.steps; setFocus(card ? cid : null); setFocusLod(c.lod ?? 0);
+    window.dispatchEvent(new CustomEvent("orbit:world-pick", { detail: { world: id, id: cid, lod: c.lod ?? 0 } }));
+  }, [chips, cam.min, cam.max, id]);
 
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label={`${planet.name}: ${t(`planet.${id}.blurb`)}`} style={{ background: th.bg }}>
@@ -68,12 +80,13 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
           {id !== "life" && <Stars radius={90} depth={40} count={reduced ? 600 : Math.min(1500, q.stars)} factor={2} fade speed={reduced ? 0 : 0.15} />}
           {model && <SceneFor s={model} reduced={reduced} />}
           <ShiftForPanel />
-          <ChipProjector rig={rig} chips={chips} />
+          <ChipProjector rig={rig} chips={chips} zoom={cam} focus={focus} onLevel={onLevel} />
+          <FlyTo goal={goal} reduced={reduced} />
           <OrbitControls makeDefault target={cam.target} enableDamping dampingFactor={0.08} minDistance={cam.min} maxDistance={cam.max} maxPolarAngle={Math.PI * 0.47}
-            autoRotate={!reduced} autoRotateSpeed={0.18} />
-          <WorldFX scale={q.bloomScale} msaa={q.msaa} reduced={reduced} />
+            autoRotate={!reduced && !goal} autoRotateSpeed={0.18} />
+          <WorldFX scale={q.bloomScale} msaa={q.msaa} reduced={reduced} focus={focusAt} />
         </Canvas>
-        <ChipLayer rig={rig} chips={chips} />
+        <ChipLayer rig={rig} chips={chips} onPick={pick} focus={focus} />
       </PlanetBoundary>)}
 
       {bare ? (

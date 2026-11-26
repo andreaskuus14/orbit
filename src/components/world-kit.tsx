@@ -2,13 +2,14 @@
 // Shared look for the planet worlds (v2): one lighting rig with a baked studio env (Lightformers, no downloads) so PBR
 // metal and glass read, a curved planet ground with an atmosphere rim, instanced crystals, drifting motes, tuned post
 // FX, and glass chips projected from 3D anchors that never cover each other or the panel (world-chips-pure).
+import { chipPrio, chipShows, itemReach, zoomLevel, type Lod } from "@/lib/world-zoom-pure";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { REALISM, surfaceFor, surfaceKey, type Surface, type WorldTier } from "@/lib/world-realism-pure";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Environment, Lightformer } from "@react-three/drei";
-import { EffectComposer, Bloom, Vignette, ToneMapping, SMAA } from "@react-three/postprocessing";
+import { EffectComposer, Bloom, DepthOfField, Vignette, ToneMapping, SMAA } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { layoutChips, type Box } from "@/lib/world-chips-pure";
 
@@ -348,10 +349,14 @@ export function LightShaft({ at = [0, 0, 0], r = 2, h = 10, color, strength = 0.
 
 /* ---------- post ---------- */
 
-export function WorldFX({ scale, msaa, reduced, threshold = 0.85, strength = 0.7 }: { scale: number; msaa: number; reduced: boolean; threshold?: number; strength?: number }) {
+export function WorldFX({ scale, msaa, reduced, threshold = 0.85, strength = 0.7, focus }: { scale: number; msaa: number; reduced: boolean; threshold?: number; strength?: number;
+  /** v8 semantic zoom: world point in focus (deepest level); blurs the rest with depth of field (high tiers only). */
+  focus?: [number, number, number] | null }) {
   if (scale <= 0) return null;
+  const dof = !!focus && scale >= 0.9 && !reduced;
   return (
     <EffectComposer multisampling={msaa} enableNormalPass={false}>
+      {dof ? <DepthOfField target={focus!} focalLength={0.02} bokehScale={3.2} height={480} /> : <></>}
       <Bloom intensity={(reduced ? 0.5 : 1) * strength * scale} luminanceThreshold={threshold} luminanceSmoothing={0.25} mipmapBlur radius={0.7} />
       <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
       <Vignette offset={0.28} darkness={0.72} />
@@ -362,20 +367,26 @@ export function WorldFX({ scale, msaa, reduced, threshold = 0.85, strength = 0.7
 
 /* ---------- glass chips ---------- */
 
-export type Chip = { id: string; at: [number, number, number]; title: string; value?: string; sub?: string; color: string; prio?: number; dot?: "ok" | "busy" | "warn" | "bad" | "idle" };
+export type Chip = { id: string; at: [number, number, number]; title: string; value?: string; sub?: string; color: string; prio?: number; dot?: "ok" | "busy" | "warn" | "bad" | "idle";
+  /** v8 semantic zoom: 0 whole world (default), 1 parts, 2 single items (shown only when zoomed in near them). */
+  lod?: Lod;
+  /** v8: the focused item's glass card: steps (done/now/next) and label/value rows. */
+  steps?: { label: string; state: "done" | "now" | "next" }[]; rows?: [string, string][] };
 export type ChipRig = { els: Map<string, HTMLDivElement>; root: RefObject<HTMLDivElement | null> };
 export const useChipRig = (): ChipRig => { const els = useMemo(() => new Map<string, HTMLDivElement>(), []); const root = useRef<HTMLDivElement>(null); return { els, root }; };
 
 /** The DOM half: render outside <Canvas>, over it. Chips start hidden; ChipProjector places them. */
-export function ChipLayer({ rig, chips, onPick }: { rig: ChipRig; chips: Chip[]; onPick?: (id: string) => void }) {
+export function ChipLayer({ rig, chips, onPick, focus }: { rig: ChipRig; chips: Chip[]; onPick?: (id: string) => void; focus?: string | null }) {
   return (
     <div ref={rig.root} className="wchip-layer" aria-hidden={onPick ? undefined : true}>
       {chips.map((c) => (
-        <div key={c.id} ref={(el) => { if (el) rig.els.set(c.id, el); else rig.els.delete(c.id); }} className="wchip" style={{ ["--c" as string]: c.color }}
+        <div key={c.id} ref={(el) => { if (el) rig.els.set(c.id, el); else rig.els.delete(c.id); }} className={focus === c.id ? "wchip wchip-focus" : "wchip"} data-id={c.id} style={{ ["--c" as string]: c.color }}
           onClick={onPick ? () => onPick(c.id) : undefined} role={onPick ? "button" : undefined}>
           <span className="wchip-t">{c.dot && <i className={`wchip-dot ${c.dot}`} />}{c.title}</span>
           {c.value && <b className="wchip-v">{c.value}</b>}
           {c.sub && <span className="wchip-s">{c.sub}</span>}
+          {focus === c.id && c.steps && <ol className="wchip-steps">{c.steps.map((st, i) => <li key={i} className={st.state}><i />{st.label}</li>)}</ol>}
+          {focus === c.id && c.rows && <dl className="wchip-rows">{c.rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>}
         </div>
       ))}
     </div>
@@ -384,8 +395,14 @@ export function ChipLayer({ rig, chips, onPick }: { rig: ChipRig; chips: Chip[];
 
 /** The 3D half: inside <Canvas>. Projects anchors ~15x a second and lays chips out around the panel. */
 /** throttle: seconds between layouts (0 for frameloop="demand" canvases, whose few frames must each count). */
-export function ChipProjector({ rig, chips, throttle = 0.066 }: { rig: ChipRig; chips: Chip[]; throttle?: number }) {
+export function ChipProjector({ rig, chips, throttle = 0.066, zoom, focus, onLevel }: { rig: ChipRig; chips: Chip[]; throttle?: number;
+  /** v8: camera distance range; with it, chips show by zoom level (lod) and the layer gets data-lod for styling. */
+  zoom?: { min: number; max: number };
+  /** v8: the focused item always shows; onLevel hears zoom-level changes (e.g. to drop the focus when zooming out). */
+  focus?: string | null; onLevel?: (l: Lod) => void }) {
   const camera = useThree((s) => s.camera), size = useThree((s) => s.size), gl = useThree((s) => s.gl);
+  const controls = useThree((s) => s.controls) as unknown as { target?: THREE.Vector3 } | null;
+  const level = useRef<Lod>(0), tv = useMemo(() => new THREE.Vector3(), []);
   const v = useMemo(() => new THREE.Vector3(), []);
   const last = useRef(0), blocked = useRef<Box[]>([]), blockAt = useRef(0);
   useFrame(({ clock }) => {
@@ -400,10 +417,19 @@ export function ChipProjector({ rig, chips, throttle = 0.066 }: { rig: ChipRig; 
         const r = e.getBoundingClientRect(); return { x: r.left - host.left, y: r.top - host.top, w: r.width, h: r.height };
       }).filter((b) => b.w > 0 && b.h > 0);
     }
+    let reach = Infinity;
+    if (zoom) {
+      const d = camera.position.distanceTo(controls?.target ?? tv.set(0, 0, 0));
+      const was = level.current; level.current = zoomLevel(d, zoom.min, zoom.max, level.current); if (was !== level.current) onLevel?.(level.current); reach = itemReach(zoom.min, zoom.max);
+      if (rig.root.current) rig.root.current.dataset.lod = String(level.current);
+    }
     const ins = chips.map((c, i) => {
       const el = rig.els.get(c.id);
+      const near = zoom ? camera.position.distanceTo(tv.set(...c.at)) : 0;
+      const foc = c.id === focus, show = foc || !zoom || chipShows(c.lod, level.current, near, reach);
       v.set(...c.at).project(camera);
-      return { id: c.id, x: (v.x * 0.5 + 0.5) * size.width, y: (-v.y * 0.5 + 0.5) * size.height, w: el?.offsetWidth ?? 0, h: el?.offsetHeight ?? 0, prio: (c.prio ?? 1) - i * 1e-4, on: v.z < 1 && v.z > -1 };
+      return { id: c.id, x: (v.x * 0.5 + 0.5) * size.width, y: (-v.y * 0.5 + 0.5) * size.height, w: el?.offsetWidth ?? 0, h: el?.offsetHeight ?? 0,
+        prio: (foc ? 1e4 : zoom ? chipPrio(c.lod, level.current, c.prio ?? 1) : c.prio ?? 1) - i * 1e-4, on: show && v.z < 1 && v.z > -1 };
     });
     const out = layoutChips(ins, { w: size.width, h: size.height }, blocked.current);
     for (const c of chips) {
@@ -411,6 +437,24 @@ export function ChipProjector({ rig, chips, throttle = 0.066 }: { rig: ChipRig; 
       if (!p) { el.style.opacity = "0"; el.style.pointerEvents = "none"; continue; }
       el.style.opacity = "1"; el.style.pointerEvents = ""; el.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`; el.dataset.side = p.side;
     }
+  });
+  return null;
+}
+
+/** v8 semantic zoom: eases OrbitControls' target to a picked point and the camera to a distance (one flight per goal). */
+export type FlyGoal = { at: [number, number, number]; dist: number; n: number } | null;
+export function FlyTo({ goal, reduced }: { goal: FlyGoal; reduced: boolean }) {
+  const camera = useThree((s) => s.camera), controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void } | null;
+  const live = useRef(0), to = useMemo(() => new THREE.Vector3(), []), dir = useMemo(() => new THREE.Vector3(), []);
+  useEffect(() => { if (goal) live.current = goal.n; }, [goal]);
+  useFrame((_, dt) => {
+    if (!goal || !controls || live.current !== goal.n) return;
+    to.set(...goal.at);
+    const k = reduced ? 1 : 1 - Math.exp(-dt * 3.2);
+    controls.target.lerp(to, k);
+    dir.copy(camera.position).sub(controls.target); const d = dir.length(), nd = d + (goal.dist - d) * k;
+    camera.position.copy(controls.target).addScaledVector(dir.normalize(), nd); controls.update();
+    if (controls.target.distanceTo(to) < 0.02 && Math.abs(nd - goal.dist) < 0.05) live.current = -1; // arrived: hand back to the user
   });
   return null;
 }

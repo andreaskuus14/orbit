@@ -64,7 +64,7 @@ const THUMBS = (process.env.WV_THUMBS || "").split(",").filter(Boolean);
 const DATA = {
   "/api/tasks": { tasks }, "/api/vault": { files, usage: {} }, "/api/business": { prospects }, "/api/activity": { items: tasks.map((t) => ({ at: t.created_at, area: "agents", title: t.title })) },
   "/api/analytics/summary": summary, "/api/life": { habits, journal: [], reminders: [] }, "/api/memories/map": { items: memItems, links: [], total: memItems.length },
-  "/api/agents": { agents: ["nova", "forge", "echo", "sentinel", "atlas"].map((s, i) => ({ slug: s, name: s[0].toUpperCase() + s.slice(1), role: ["Research", "Content", "Writing", "Watch", "Planning"][i], color: ["#a78bfa", "#f472b6", "#38bdf8", "#4ade80", "#fbbf24"][i], builtin: true, stats: { running: i < 2 ? 1 : 0, done: 10 + i, failed: i % 2 } })) },
+  "/api/agents": { agents: ["nova", "forge", "echo", "sentinel", "atlas", "iris", "orion", "vega", "lyra", "juno", "kai", "mira", "rex", "sol", "zed"].slice(0, Number(process.env.WV_AGENTS || 15)).map((s, i) => ({ slug: s, name: s[0].toUpperCase() + s.slice(1), role: ["Research", "Content", "Writing", "Watch", "Planning"][i % 5], color: ["#a78bfa", "#f472b6", "#38bdf8", "#4ade80", "#fbbf24"][i % 5], builtin: true, stats: { running: i < 2 ? 1 : 0, done: 10 + i, failed: i % 2 } })) },
   "/api/studio": { configured: true, fetchedAt: iso(T0), channel: { id: "c", title: "Andreas", subs: 12400, views: 980000, videos: 42 },
     videos: ["What if there was no military?", "Why ships avoid one strait", "The cheapest house in Europe", "Pet sim update", "Roblox egg odds explained", "A day building ORBIT", "Stickman history"].map((title, i) => ({ id: `v${i}`, title, publishedAt: iso(T0 - i * 50 * H), views: [182000, 64000, 41000, 22000, 15000, 9000, 6000][i], likes: 100, comments: 10, durationSec: i % 2 ? 40 : 480, thumb: THUMBS[i % THUMBS.length] })) },
   "/api/chains": { chains: [] }, "/api/devworld": { world: { v: 1, games: devGames, bugs: devBugs }, updatedAt: iso(T0) }, "/api/projects": { projects: [] }, "/api/goals": { goals: [] },
@@ -103,6 +103,15 @@ for (const id of IDS) {
   const chips = await page.evaluate(() => [...document.querySelectorAll(".wchip")].map((e) => getComputedStyle(e).opacity === "1").reduce((a, v) => [a[0] + (v ? 1 : 0), a[1] + 1], [0, 0]));
   console.log(`${id}: chips shown ${chips[0]}/${chips[1]}`);
   await page.screenshot({ path: `${OUT}/${TAG}-${id}.png`, timeout: 120_000 });
+  // v8 semantic zoom: WV_ZOOM="operations=l:running>p:t0;vault=..." clicks a part chip (mid shot) then an item chip (zoom shot)
+  const zs = Object.fromEntries((process.env.WV_ZOOM || "").split(";").filter(Boolean).map((x) => x.split("=")));
+  for (const [i, pre] of (zs[id] || "").split(">").filter(Boolean).entries()) {
+    const hit = await page.evaluate((p) => { const el = [...document.querySelectorAll(".wchip")].find((e) => e.dataset.id?.startsWith(p)); el?.click(); return !!el; }, pre);
+    if (!hit) { console.log(`${id}: no chip ${pre}`); break; }
+    await page.waitForTimeout(Number(process.env.WV_ZWAIT || 6000));
+    await page.screenshot({ path: `${OUT}/${TAG}-${id}-${i ? "zoom" : "mid"}.png`, timeout: 120_000 });
+    if (process.env.WV_DEBUG) console.log(await page.evaluate(() => { const e = document.querySelector(".wchip-focus"); return e ? `focus ${e.dataset.id} op=${getComputedStyle(e).opacity} ${e.style.transform} lod=${e.parentElement?.dataset.lod}` : "no focus chip"; }));
+  }
   console.log(`${id}: shot${errs.length ? ` (page errors: ${errs.slice(0, 2).join(" | ")})` : ""}`);
   await ctx.close();
 }
