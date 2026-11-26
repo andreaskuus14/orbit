@@ -580,11 +580,11 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
           </SplatCloud> : <>
           {real ? <><ArchSiteLook scene={realScene} />{site.on && !lesson && <SiteLayer site={site} set={setSite} parts={scene.parts} />}</>
           : holo ? <><HoloTable w={view.plot.w} d={view.plot.d} /><HoloClock solid={solid} t0={t0} reduced={reduced} /></> : <>
-            <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[view.plot.w, view.plot.d]} /><meshStandardMaterial color={bp ? BP.ground : GROUND[view.plot.ground]} roughness={1} /></mesh>
-            <gridHelper args={[Math.max(view.plot.w, view.plot.d), Math.max(view.plot.w, view.plot.d), bp ? BP.grid[0] : "#cbbf9f", bp ? BP.grid[1] : "#ddd6c6"]} position={[0, 0.005, 0]} />
+            <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[view.plot.w, view.plot.d]} />{plateOn ? <shadowMaterial opacity={0.28} /> /* the house photo shows through: only the shadow lands on it */ : <meshStandardMaterial color={bp ? BP.ground : GROUND[view.plot.ground]} roughness={1} />}</mesh>
+            {!plateOn && <gridHelper args={[Math.max(view.plot.w, view.plot.d), Math.max(view.plot.w, view.plot.d), bp ? BP.grid[0] : "#cbbf9f", bp ? BP.grid[1] : "#ddd6c6"]} position={[0, 0.005, 0]} />}
             <ContactShadows position={[0, 0.01, 0]} scale={Math.max(view.plot.w, view.plot.d)} opacity={0.35} blur={2.5} far={12} />
             {!ifc && <Blueprint parts={view.parts.filter((p) => !hideGroups.has(groupOf(p)))} />}
-            {!ifc && <Trees n={view.plot.trees} w={view.plot.w} d={view.plot.d} />}
+            {!ifc && !plateOn && <Trees n={view.plot.trees} w={view.plot.w} d={view.plot.d} />}
             {site.on && !lesson && !ifc && <SiteLayer site={site} set={setSite} parts={scene.parts} />}
           </>}
           <BuildClock run={run} onStart={setT0} />
