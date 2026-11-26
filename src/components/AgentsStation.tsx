@@ -5,7 +5,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
-import { EffectComposer, Bloom, Vignette, ToneMapping, SMAA } from "@react-three/postprocessing";
+import { EffectComposer, Bloom, DepthOfField, Vignette, ToneMapping, SMAA } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { useGlRecovery } from "./useGlRecovery";
 import { FrameMark } from "./dev-timing";
@@ -33,10 +33,11 @@ import { ORBIT_R, STATUS_LABEL, activityFeed, agentStatus, clipLine, clamp, curr
 import WorkspaceFrame, { useWorkspaceView } from "./WorkspaceFrame";
 import { NightPlan, OPS_HREF, Scorecards, WorkerCards, type Deps, type ToolInfo } from "./Workforce";
 import { useT } from "./i18n";
+import { ZONE_WORDS } from "./world-shell";
 import { BackToSimple, PlanetHome, useManual } from "./PlanetHome";
 import { Button, ErrorState, Loading, PlanetShell } from "./ui";
 import { taskWork } from "@/lib/planet-page-pure";
-import { CREW_R, CrewDeck, DOT, crewAngle } from "./AgentCrew";
+import { CREW_R, CrewDeck, DOT, Hangar, crewAngle } from "./AgentCrew";
 import { ChipLayer, ChipProjector, Realism, useChipRig, type Chip } from "./world-kit";
 import { worldTier } from "@/lib/world-realism-pure";
 
@@ -540,9 +541,23 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
   // A team's parent row (agent nova, "running" for the whole chain) is bookkeeping, not Nova's own work.
   const status = useMemo(() => { const own = tasks.filter((t) => !t.title.startsWith(CHAIN_TITLE)); return Object.fromEntries(list.map((a) => [a.slug, agentStatus(own, a.slug, a.stats.running)])) as Record<string, AgentStatus>; }, [list, tasks]);
   const rig = useChipRig();
-  const crewChips = useMemo<Chip[]>(() => list.map((a, i) => { const an = crewAngle(i, list.length), st = status[a.slug] ?? "idle", cur = currentTask(tasks, a.slug);
-    return { id: a.slug, at: [Math.cos(an) * CREW_R, 1.7, Math.sin(an) * CREW_R] as [number, number, number], title: a.name, value: STATUS_LABEL[st],
-      sub: cur && (cur.status === "running" || cur.status === "queued" || cur.status === "awaiting_approval") ? clipLine(cur.title, 34) : a.role, color: a.color, dot: DOT[st], prio: st === "idle" ? 1 : 5 }; }), [list, status, tasks]);
+  // v8 semantic zoom: the whole team (lod 0, plus any agent that needs you), each agent (lod 1), its current task up close
+  // (lod 2, with its steps). Replaces the 3D task holograms whose text overlapped with 15 agents.
+  const crewChips = useMemo<Chip[]>(() => {
+    const zw = ZONE_WORDS[lang] ?? ZONE_WORDS.en, w = list.filter((x) => status[x.slug] === "working").length, wait = list.filter((x) => status[x.slug] === "waiting").length;
+    const out: Chip[] = list.length ? [{ id: "team", at: [0, 3.2, 0], title: t("agt.title"), value: t("agt.status", { n: list.length, w }), sub: wait ? t("agt.statusWait", { a: wait }) : undefined, color: "#c4b5fd", prio: 40 }] : [];
+    list.forEach((a, i) => { const an = crewAngle(i, list.length), st = status[a.slug] ?? "idle", cur = currentTask(tasks, a.slug), at: [number, number, number] = [Math.cos(an) * CREW_R, 1.7, Math.sin(an) * CREW_R];
+      const live = cur && (cur.status === "running" || cur.status === "queued" || cur.status === "awaiting_approval");
+      out.push({ id: a.slug, at, title: a.name, value: STATUS_LABEL[st], sub: live ? clipLine(cur.title, 34) : a.role, color: a.color, dot: DOT[st], prio: st === "idle" ? 1 : 5, lod: st === "waiting" || st === "failed" ? 0 : 1 });
+      if (cur) { const g = cur.status === "running" ? "running" : cur.status === "queued" ? "queued" : cur.status === "awaiting_approval" ? "waiting" : cur.status === "failed" ? "failed" : "done";
+        const order = ["queued", "running", ...(g === "waiting" ? ["waiting"] : []), g === "failed" ? "failed" : "done"], now = order.indexOf(g);
+        out.push({ id: `t:${a.slug}`, at: [Math.cos(an) * (CREW_R - 0.8), 0.9, Math.sin(an) * (CREW_R - 0.8)], title: clipLine(cur.title, 40), sub: `${a.name} · ${zw[g] ?? g}`, color: a.color, dot: DOT[st], prio: 3, lod: 2,
+          steps: order.map((k, j) => ({ label: zw[k] ?? k, state: j < now ? "done" : j === now ? (k === "done" ? "done" : "now") : "next" })) }); }
+    });
+    return out; }, [list, status, tasks, lang, t]);
+  const crewPick = useCallback((id: string) => { if (id !== "team") setSelected(id.startsWith("t:") ? id.slice(2) : id); }, []);
+  const crewFocus = selected ? (crewChips.some((c) => c.id === `t:${selected}`) ? `t:${selected}` : selected) : null;
+  const crewFocusAt = selected ? crewChips.find((c) => c.id === selected)?.at ?? null : null;
   const names = useMemo(() => Object.fromEntries(list.map((a) => [a.slug, a.name])), [list]);
   // Hologram over each working drone: its running task's name (at most 4, so the station stays cheap and readable).
   const running = useMemo(() => {
@@ -566,14 +581,16 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
         <Stars radius={70} depth={40} count={reduced ? Math.min(1500, q.stars) : q.stars} factor={2.4} fade speed={reduced ? 0 : 0.35} />
         <ambientLight intensity={0.35} />
         <CrewDeck list={list} status={status} reduced={reduced} onPick={setSelected} />
-        <ChipProjector rig={rig} chips={crewChips} />
-        <Station list={list} status={status} selected={selected} reduced={reduced} lite={q.bloomScale === 0} dust={q.bloomScale === 0 ? 80 : q.bloomScale < 0.9 ? 180 : 320} handoffs={handoffs} running={running} onPick={setSelected} onHover={onHover} />
+        <ChipProjector rig={rig} chips={crewChips} zoom={{ min: 2, max: 22 }} focus={crewFocus} />
+        <Hangar />
+        <Station list={list} status={status} selected={selected} reduced={reduced} lite={q.bloomScale === 0} dust={q.bloomScale === 0 ? 80 : q.bloomScale < 0.9 ? 180 : 320} handoffs={handoffs} running={{} /* v8: task text lives in the zoom chips */} onPick={setSelected} onHover={onHover} />
         <OrbitControls makeDefault enablePan={false} minDistance={2} maxDistance={HOME * 2.5} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
         <Follow index={list.findIndex((a) => a.slug === selected)} n={list.length} reduced={reduced} />
         <Rig />
         {!paused && <ZoomRig home={HOME * Math.hypot(1, 0.45)} reduced={reduced} />}
         {q.bloomScale > 0 && (
           <EffectComposer multisampling={q.msaa}>
+            {crewFocusAt && q.bloomScale >= 0.9 && !reduced ? <DepthOfField target={crewFocusAt} focalLength={0.02} bokehScale={3} height={480} /> : <></>}
             <Bloom intensity={(reduced ? 0.25 : 0.42) * q.bloomScale} luminanceThreshold={0.9} luminanceSmoothing={0.3} mipmapBlur />
             <Vignette offset={0.25} darkness={0.75} />
             <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
@@ -583,7 +600,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
         {process.env.NODE_ENV === "development" && <FrameMark name="agents" />}
       </Canvas></PlanetBoundary>}
 
-      {!flat && <ChipLayer rig={rig} chips={crewChips} onPick={setSelected} />}
+      {!flat && <ChipLayer rig={rig} chips={crewChips} onPick={crewPick} focus={crewFocus} />}
       <HoverTip ref={tip} label={(id) => { const a = list.find((x) => x.slug === id); return a ? `${a.name} · ${currentTask(tasks, a.slug)?.title.slice(0, 60) ?? STATUS_LABEL[status[a.slug]]}` : null; }} />
 
       {/* Kit shell (design-language.md): one header (dot, name, status, "…", close), plain words, kit states. */}
