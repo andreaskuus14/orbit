@@ -5,13 +5,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
-import { Capsule, Crystals, LightShaft, Many, Motes, Plate, PlanetGround, rockGeometry, useWorldTier, type Chip, type CrystalIn, type Inst } from "./world-kit";
+import { Crystals, LightShaft, Many, Motes, Plate, PlanetGround, rockGeometry, useWorldTier, type Chip, type CrystalIn, type Inst } from "./world-kit";
 import { lifeGarden } from "@/lib/worlds-v3-pure";
 import { AssetMany, RealOr } from "./world-assets";
 import { Water } from "./world-surfaces";
 import { OrbitalPlanet, RingOf, SkyDome, WindowRing } from "./world-scenery";
 import { BIZ_STAGES, GATE_ANGLE, GATE_COLOR, VAULT_KIND_COLOR, bizScene, bytes, clip, fmtMin, heightAt, lifeScene, opsScene, podAngle, timeScene, vaultScene, type SceneId } from "@/lib/planet-scenes-pure";
 import { STAGE_COLOR } from "@/lib/living-galaxy-pure";
+import { CargoPods, Freighters, PodTrack, VaultShelfProps, trackMatrix, type FleetApi } from "./world-props";
 
 type T = (k: never, v?: Record<string, string | number>) => string;
 export type SceneModel =
@@ -124,16 +125,15 @@ function RingBlocks({ n, r, y, size, color, emissive, k = 0, skip }: { n: number
 
 function Operations({ m, reduced }: { m: ReturnType<typeof opsScene>; reduced: boolean }) {
   const hull = usePhys({ color: "#1b2330", metalness: 0.9, roughness: 0.28, clearcoat: 0.5 });
-  const pods = useRef<THREE.InstancedMesh>(null), globe = useRef<THREE.Group>(null);
+  const fleet = useRef<FleetApi | null>(null), globe = useRef<THREE.Group>(null);
   const nRun = m.pods.filter((p) => p.moving).length;
   const o = useMemo(() => new THREE.Object3D(), []), c = useMemo(() => new THREE.Color(), []);
-  const place = (t: number) => { const mesh = pods.current; if (!mesh) return;
-    m.pods.forEach((p, i) => { const a = podAngle(p, nRun) + (p.moving && !reduced ? Math.sin(t * 0.22 + i * 1.3) * 0.3 : 0);
-      o.position.set(Math.cos(a) * 6, 0.5, Math.sin(a) * 6); o.rotation.set(0, -a, Math.PI / 2); o.updateMatrix(); mesh.setMatrixAt(i, o.matrix); });
-    mesh.instanceMatrix.needsUpdate = true; };
-  useLayoutEffect(() => { const mesh = pods.current; if (!mesh) return; mesh.count = m.pods.length;
-    m.pods.forEach((p, i) => mesh.setColorAt(i, c.set(GATE_COLOR[p.gate]).multiplyScalar(p.moving ? 2.2 : p.gate === "done" ? 0.7 : 1.3)));
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true; place(0); mesh.computeBoundingSphere(); }, [m.pods]); // eslint-disable-line react-hooks/exhaustive-deps
+  const place = (t: number) => { const f = fleet.current; if (!f) return; // v9: a detailed cargo pod rides the rails along the lane (long side along the track)
+    m.pods.forEach((p, i) => { const a = podAngle(p, nRun) + (p.moving && !reduced ? Math.sin(t * 0.22 + i * 1.3) * 0.3 : 0); f.put(i, trackMatrix(o, a, 6, 0.31)); });
+    f.done(); };
+  useLayoutEffect(() => { const f = fleet.current; if (!f) return; f.count(m.pods.length);
+    m.pods.forEach((p, i) => f.tint(i, c.set(GATE_COLOR[p.gate]).multiplyScalar(p.moving ? 1.3 : p.gate === "done" ? 0.55 : 1)));
+    place(0); }, [m.pods]); // eslint-disable-line react-hooks/exhaustive-deps
   useFrame(({ clock }) => { if (reduced) return; place(clock.elapsedTime); if (globe.current) globe.current.rotation.y = clock.elapsedTime * 0.15; });
   const tier = useWorldTier();
   return (<group>
@@ -164,10 +164,9 @@ function Operations({ m, reduced }: { m: ReturnType<typeof opsScene>; reduced: b
       <mesh rotation-x={Math.PI / 2.3}><torusGeometry args={[1.35, 0.015, 6, 96]} />{glowMat("#a5f3fc", 2)}</mesh>
     </group>
     <LightShaft at={[0, 1.4, 0]} r={1.3} h={2.4} color="#22d3ee" strength={0.25} />
-    {/* job pods */}
-    <instancedMesh ref={pods} args={[undefined, undefined, Math.max(1, m.pods.length)]}>
-      <Capsule args={[0.2, 0.62, 6, 12]} /><meshStandardMaterial color="#d8e6ff" metalness={0.6} roughness={0.25} emissive="#ffffff" emissiveIntensity={0.15} />
-    </instancedMesh>
+    {/* job pods: cargo pods on rails */}
+    <PodTrack r={6} />
+    <CargoPods max={Math.max(1, m.pods.length)} apiRef={fleet} />
     <Motes count={reduced ? 80 : 220} color="#67e8f9" spread={12} height={5} reduced={reduced} />
   </group>);
 }
@@ -222,7 +221,7 @@ function Vault({ m, reduced }: { m: ReturnType<typeof vaultScene>; reduced: bool
   const stone = usePhys({ color: "#1a140e", metalness: 0.4, roughness: 0.55, side: THREE.BackSide });
   const items = useMemo<CrystalIn[]>(() => m.crystals.map((c) => ({ at: c.at, h: c.h * 1.5, w: c.h * 0.9, color: VAULT_KIND_COLOR[c.kind] ?? VAULT_KIND_COLOR.other, glow: c.fresh ? 1.8 : 0.9 })), [m.crystals]);
   const emblem = useRef<THREE.Group>(null), tier = useWorldTier();
-  const shelfStone = usePhys({ color: "#6b5a48", metalness: 0, roughness: 0.92, side: THREE.DoubleSide });
+  const shelfStone = usePhys({ color: "#a07a52", metalness: 0, roughness: 0.88, side: THREE.DoubleSide });
   const shelf = tier ? shelfStone : gold;
   useFrame(({ clock }) => { if (emblem.current && !reduced) emblem.current.rotation.z = clock.elapsedTime * 0.05; });
   return (<group>
@@ -240,7 +239,7 @@ function Vault({ m, reduced }: { m: ReturnType<typeof vaultScene>; reduced: bool
       </group>);
     }))}
     <mesh position={[0, 2.6, 0]} material={stone}><cylinderGeometry args={[8.3, 8.3, 5.4, 96, 1, true, Math.PI * 0.25, Math.PI * 1.5]} /></mesh>
-    <Crystals items={items} reduced={reduced} intensity={0.3} />
+    {tier > 0 ? <VaultShelfProps crystals={m.crystals} reduced={reduced} /> : <Crystals items={items} reduced={reduced} intensity={0.3} />}
     {/* pillars */}
     {[-1, 1].map((s) => <mesh key={s} position={[s * 6, 2.8, -4.6]} material={gold}><cylinderGeometry args={[0.35, 0.45, 5.6, 16]} /></mesh>)}
     {/* the vault door emblem and the core crystal under a skylight */}
@@ -266,8 +265,8 @@ function Vault({ m, reduced }: { m: ReturnType<typeof vaultScene>; reduced: bool
  *  and a ring chandelier, sun shafts with dust, candle-lit balconies of far shelves and a round vault door. */
 const frontCol = (i: number) => Math.abs((i / 14) * Math.PI * 2 - Math.PI / 2) < 0.75; // keep the view from inside clear
 function VaultHall({ reduced }: { reduced: boolean }) {
-  const stone = usePhys({ color: "#4a3e33", metalness: 0, roughness: 0.95 });
-  const dome = usePhys({ color: "#2a221b", metalness: 0, roughness: 1, side: THREE.BackSide });
+  const stone = usePhys({ color: "#6e5439", metalness: 0, roughness: 0.92 });
+  const dome = usePhys({ color: "#3d2c1d", metalness: 0, roughness: 1, side: THREE.BackSide });
   const door = usePhys({ color: "#5b4630", metalness: 0.95, roughness: 0.35, clearcoat: 0.4 });
   const ring = useRef<THREE.Group>(null);
   useFrame(({ clock }) => { if (ring.current && !reduced) ring.current.rotation.y = clock.elapsedTime * 0.04; });
@@ -277,9 +276,9 @@ function VaultHall({ reduced }: { reduced: boolean }) {
     <mesh position={[0, 7.8, 0]} material={dome}><sphereGeometry args={[11, 48, 16, 0, Math.PI * 2, 0, Math.PI / 2]} /></mesh>
     <mesh position={[0, 2.6, 0]} material={dome}><cylinderGeometry args={[11, 11, 10.5, 64, 1, true]} /></mesh>
     {/* columns: shaft, base, capital */}
-    <RingOf n={14} r={9.2} y={3.9} size={[0.75, 7.8, 0.75]} color="#56483b" metal={0} rough={0.95} skip={frontCol} />
-    <RingOf n={14} r={9.2} y={0.25} size={[1.1, 0.5, 1.1]} color="#4a3e33" metal={0} rough={0.95} skip={frontCol} />
-    <RingOf n={14} r={9.2} y={7.85} size={[1.15, 0.45, 1.15]} color="#4a3e33" metal={0} rough={0.95} skip={frontCol} />
+    <RingOf n={14} r={9.2} y={3.9} size={[0.75, 7.8, 0.75]} color="#7d6040" metal={0} rough={0.92} skip={frontCol} />
+    <RingOf n={14} r={9.2} y={0.25} size={[1.1, 0.5, 1.1]} color="#6e5439" metal={0} rough={0.92} skip={frontCol} />
+    <RingOf n={14} r={9.2} y={7.85} size={[1.15, 0.45, 1.15]} color="#6e5439" metal={0} rough={0.92} skip={frontCol} />
     <mesh position={[0, 8.1, 0]} rotation-x={Math.PI / 2} material={stone}><torusGeometry args={[9.2, 0.35, 8, 96]} /></mesh>
     {/* ribs up the dome to the oculus */}
     {Array.from({ length: 8 }, (_, i) => <mesh key={i} rotation-y={(i / 8) * Math.PI * 2} position={[0, 7.8, 0]} material={stone}><torusGeometry args={[10.6, 0.16, 6, 24, Math.PI / 2]} /></mesh>)}
@@ -313,13 +312,16 @@ function VaultHall({ reduced }: { reduced: boolean }) {
 
 function Business({ m, reduced }: { m: ReturnType<typeof bizScene>; reduced: boolean }) {
   const hull = usePhys({ color: "#24222a", metalness: 0.9, roughness: 0.3, clearcoat: 0.4 });
-  const ships = useRef<THREE.InstancedMesh>(null), traffic = useRef<THREE.Group>(null);
-  useLayoutEffect(() => { const mesh = ships.current; if (!mesh) return; const o = new THREE.Object3D(), c = new THREE.Color();
-    m.ships.forEach((p, i) => { o.position.set(Math.cos(p.angle) * p.r, p.y + 0.15, Math.sin(p.angle) * p.r); o.rotation.set(0, -p.angle, 0); o.scale.set(p.size * 1.5, p.size * 0.5, p.size * 0.7); o.updateMatrix(); mesh.setMatrixAt(i, o.matrix);
-      mesh.setColorAt(i, c.set(STAGE_COLOR[p.stage as keyof typeof STAGE_COLOR] ?? "#fff").multiplyScalar(p.fresh ? 2 : 1)); });
-    mesh.count = m.ships.length; mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true; mesh.computeBoundingSphere(); }, [m.ships]);
-  useFrame(({ clock }) => { if (traffic.current && !reduced) traffic.current.rotation.y = clock.elapsedTime * 0.08; });
+  const ships = useRef<FleetApi | null>(null), traffic = useRef<FleetApi | null>(null), o = useMemo(() => new THREE.Object3D(), []);
+  // v9: docked deals are freighters nosed in toward their tier's bay (stage colour on containers and stripe)
+  useLayoutEffect(() => { const f = ships.current; if (!f) return; const c = new THREE.Color(); f.count(m.ships.length);
+    m.ships.forEach((p, i) => { const k = 0.35 + p.size * 0.4; o.position.set(Math.cos(p.angle) * (p.r + 0.1), p.y + 0.3, Math.sin(p.angle) * (p.r + 0.1)); o.rotation.set(0, Math.PI - p.angle, 0); o.scale.setScalar(k); o.updateMatrix();
+      f.put(i, o.matrix); f.tint(i, c.set(STAGE_COLOR[p.stage as keyof typeof STAGE_COLOR] ?? "#fff").multiplyScalar(p.fresh ? 1.5 : 1)); });
+    f.done(); }, [m.ships, o]);
   const tier = useWorldTier();
+  useLayoutEffect(() => { const f = traffic.current; if (!f) return; const c = new THREE.Color("#ffb04d"); f.count(4); for (let i = 0; i < 4; i++) f.tint(i, c); }, [tier]);
+  useFrame(({ clock }) => { const f = traffic.current; if (!f || tier) return; const t = reduced ? 0 : clock.elapsedTime * 0.08;
+    for (let i = 0; i < 4; i++) { const a = i * 1.7 + t; o.position.set(Math.cos(a) * (10 + i), 4 + i * 1.3, Math.sin(a) * (10 + i)); o.rotation.set(0, -a, 0); o.scale.setScalar(0.9); o.updateMatrix(); f.put(i, o.matrix); } f.done(); });
   return (<group>
     {tier ? <TradeHub m={m} reduced={reduced} hull={hull} /> : <PlanetGround glow="#ff9f43" a="#08070a" b="#18151c" />}
     <Plate r={8.2} h={0.6} y={0.1} color="#16141a" rim="#ff9f43" />
@@ -333,13 +335,8 @@ function Business({ m, reduced }: { m: ReturnType<typeof bizScene>; reduced: boo
     <mesh position={[0, 9.4, 0]} material={hull}><coneGeometry args={[0.35, 1.6, 8]} /></mesh>
     <mesh position={[0, 10.3, 0]}><sphereGeometry args={[0.12, 12, 8]} />{glowMat("#6dffae", 3)}</mesh>
     {/* docked deals */}
-    <instancedMesh ref={ships} args={[undefined, undefined, Math.max(1, m.ships.length)]}>
-      <coneGeometry args={[0.5, 1.4, 6]} /><meshStandardMaterial color="#c9ced8" metalness={0.8} roughness={0.25} emissive="#ffffff" emissiveIntensity={0.35} />
-    </instancedMesh>
-    <group ref={traffic}>{[0, 1, 2, 3].map((i) => (
-      <mesh key={i} position={[Math.cos(i * 1.7) * (10 + i), 4 + i * 1.3, Math.sin(i * 1.7) * (10 + i)]} rotation-y={-i * 1.7}>
-        <coneGeometry args={[0.25, 0.9, 5]} /><meshStandardMaterial color="#9aa3b5" metalness={0.8} roughness={0.3} emissive="#ffb04d" emissiveIntensity={0.6} />
-      </mesh>))}</group>
+    <Freighters max={Math.max(1, m.ships.length)} apiRef={ships} />
+    {!tier && <Freighters max={4} apiRef={traffic} />}
     <Motes count={reduced ? 80 : 200} color="#ffcf8a" spread={14} height={9} reduced={reduced} />
   </group>);
 }
@@ -347,7 +344,7 @@ function Business({ m, reduced }: { m: ReturnType<typeof bizScene>; reduced: boo
 /** v8 BUSINESS look (tier 1+): a trade hub over a dusk planet: every docked deal sits in a lit bay frame in its stage's
  *  colour, tiers carry window bands, and freighters run in and out on approach lanes. */
 function TradeHub({ m, reduced, hull }: { m: ReturnType<typeof bizScene>; reduced: boolean; hull: THREE.Material }) {
-  const bays = useRef<THREE.InstancedMesh>(null), lips = useRef<THREE.InstancedMesh>(null), lane = useRef<THREE.InstancedMesh>(null);
+  const bays = useRef<THREE.InstancedMesh>(null), lips = useRef<THREE.InstancedMesh>(null), lane = useRef<FleetApi | null>(null);
   const o = useMemo(() => new THREE.Object3D(), []), c = useMemo(() => new THREE.Color(), []), N = 10;
   useLayoutEffect(() => { const b = bays.current, l = lips.current; if (!b || !l) return;
     m.ships.forEach((p, i) => { o.position.set(Math.cos(p.angle) * (p.r - 0.25), p.y + 0.15, Math.sin(p.angle) * (p.r - 0.25)); o.rotation.set(0, -p.angle + Math.PI / 2, 0); o.scale.set(1, 1, 1); o.updateMatrix();
@@ -355,9 +352,9 @@ function TradeHub({ m, reduced, hull }: { m: ReturnType<typeof bizScene>; reduce
     for (const x of [b, l]) { x.count = m.ships.length; x.instanceMatrix.needsUpdate = true; x.computeBoundingSphere(); } if (l.instanceColor) l.instanceColor.needsUpdate = true; }, [m.ships, o, c]);
   const fly = (t: number) => { const x = lane.current; if (!x) return;
     for (let i = 0; i < N; i++) { const f = ((t * 0.04 + i / N) % 1), a = i * 2.1, r = 22 - f * 12, y = 2 + (i % 4) * 1.6 + f * 1.5;
-      o.position.set(Math.cos(a) * r, y, Math.sin(a) * r); o.rotation.set(0, -a + Math.PI / 2, 0); o.scale.setScalar(0.5 + (i % 3) * 0.2); o.updateMatrix(); x.setMatrixAt(i, o.matrix); }
-    x.instanceMatrix.needsUpdate = true; };
-  useLayoutEffect(() => { fly(0.5); lane.current?.computeBoundingSphere(); }); // eslint-disable-line react-hooks/exhaustive-deps
+      o.position.set(Math.cos(a) * r, y, Math.sin(a) * r); o.rotation.set(0, Math.PI - a, 0); o.scale.setScalar(0.5 + (i % 3) * 0.2); o.updateMatrix(); x.put(i, o.matrix); }
+    x.done(); };
+  useLayoutEffect(() => { const x = lane.current; if (x) { x.count(N); for (let i = 0; i < N; i++) x.tint(i, c.set(["#ff9f43", "#38bdf8", "#c084fc"][i % 3])); } fly(0.5); }); // eslint-disable-line react-hooks/exhaustive-deps
   useFrame(({ clock }) => { if (!reduced) fly(clock.elapsedTime); });
   return (<group>
     <SkyDome top="#020104" mid="#0a0508" low="#1c0d08" neb="#7c2d12" neb2="#1e1b4b" nebK={0.3} stars={1} />
@@ -368,7 +365,7 @@ function TradeHub({ m, reduced, hull }: { m: ReturnType<typeof bizScene>; reduce
     <instancedMesh ref={bays} args={[undefined, undefined, Math.max(1, m.ships.length)]} material={hull}><boxGeometry args={[0.95, 0.7, 0.12]} /></instancedMesh>
     <instancedMesh ref={lips} args={[undefined, undefined, Math.max(1, m.ships.length)]}><boxGeometry args={[0.8, 0.04, 0.16]} /><meshBasicMaterial toneMapped={false} /></instancedMesh>
     {/* approach lanes: freighters coming in */}
-    <instancedMesh ref={lane} args={[undefined, undefined, N]}><boxGeometry args={[1.4, 0.3, 0.5]} /><meshStandardMaterial color="#8a8f9c" metalness={0.8} roughness={0.35} emissive="#ff9f43" emissiveIntensity={0.4} /></instancedMesh>
+    <Freighters max={N} apiRef={lane} />
     <RingOf n={24} r={9.4} y={0.3} size={[0.18, 0.18, 2.2]} color="#2a2630" emissive="#ffb04d" k={0.6} skip={(i) => i % 3 !== 0} />
   </group>);
 }

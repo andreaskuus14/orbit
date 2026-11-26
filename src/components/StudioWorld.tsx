@@ -24,6 +24,7 @@ import StudioProduction from "./StudioProduction";
 import StudioDrafts from "./StudioDrafts";
 import LastShorts from "./LastShorts";
 import { StudioShell, type ToolOpen } from "./StudioShell";
+import { STUDIO_CAM, WORLD_PICK, pickTarget, studioHome } from "@/lib/world-props-pure";
 import { FilmStage, ScreenWall, studioChips } from "./StudioScreens";
 import { ChipLayer, ChipProjector, Realism, useChipRig } from "./world-kit";
 import { worldTier } from "@/lib/world-realism-pure";
@@ -344,7 +345,7 @@ function Comet({ m, reduced, onPick }: { m: Moon; reduced: boolean; onPick: (id:
 }
 
 /** Shifts the scene left of the side panel on wide screens. */
-const HOME = Math.hypot(4.2, 11);
+const HOME = studioHome(); // v9: the default camera looks up at the stage so the truss and lights are in frame
 
 /** Cinematic camera: flies in from far on open, then glides the planet aside for whatever panel is open
  *  (Channel: the Studio shell on the left → planet right of centre; Stats/Clips: big sheet on the left → planet further right and back).
@@ -465,6 +466,10 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
   }, []);
   useEffect(() => () => { document.body.style.cursor = ""; }, [paused]); // leaving mid-hover must not keep the hand cursor
   const pick = useCallback((id: string) => { setMode("channel"); setSelected((cur) => (cur === id ? null : id)); }, []);
+  useEffect(() => { // v9: a click on a wall chip opens that video's panel
+    const on = (e: Event) => { const t = pickTarget((e as CustomEvent).detail, "studio"); if (t) { setMode("channel"); setSelected(t.id); } };
+    addEventListener(WORLD_PICK, on); return () => removeEventListener(WORLD_PICK, on);
+  }, []);
   const calm = mode === "channel" && !selected; // the planet page: a calm stage (no light rays, fewer and still stars)
   const hoverVid = hover.id ? byId.get(hover.id) ?? null : null;
 
@@ -491,9 +496,9 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
       {mode === "channel" && !selected && <ChipProjector rig={rig} chips={wallChips} zoom={{ min: 4, max: 20 }} focus={wallFocus} />}
       <FilmStage reduced={reduced} />
       <Moons moons={moons} selected={selected} ghost={!live} reduced={reduced} onPick={pick} onHover={onHover} />
-      <OrbitControls makeDefault enablePan={false} minDistance={4} maxDistance={20} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
+      <OrbitControls makeDefault enablePan={false} target={STUDIO_CAM.target} minDistance={4} maxDistance={20} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
       <StudioCamera mode={mode} reduced={reduced} />
-      {!paused && <ZoomRig home={Math.hypot(4.2, 11)} reduced={reduced} />}
+      {!paused && <ZoomRig home={HOME} reduced={reduced} />}
       <EffectComposer multisampling={q.msaa}>
         <Bloom intensity={(reduced ? 0.25 : 0.38) * q.bloomScale} luminanceThreshold={0.92} luminanceSmoothing={0.3} mipmapBlur />
         <Vignette offset={0.3} darkness={0.65} />
@@ -509,8 +514,8 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
       {flat && <div aria-hidden className="studio-sky absolute inset-0" style={{ backgroundImage: `url(${SKY[0]})` }} />}
       {/* Flag on: the scene renders inside the galaxy's canvas (see Stage.tsx); dpr/antialias then follow the galaxy canvas. */}
       {!flat && later && (staged
-        ? (paused ? null : <StageIn><WorldScene fov={45} position={[0, 4.2, 11]}>{scene}</WorldScene></StageIn>)
-        : <PlanetBoundary name="studio-scene" quiet><Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: [0, 4.2, 11], fov: 45 }} dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>{scene}</Canvas>{mode === "channel" && !selected && <ChipLayer rig={rig} chips={wallChips} focus={wallFocus} onPick={(id) => setWallFocus((f) => (f === id ? null : id))} />}</PlanetBoundary>)}
+        ? (paused ? null : <StageIn><WorldScene fov={STUDIO_CAM.fov} position={STUDIO_CAM.pos}>{scene}</WorldScene></StageIn>)
+        : <PlanetBoundary name="studio-scene" quiet><Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused ? "never" : "always"} camera={{ position: STUDIO_CAM.pos, fov: STUDIO_CAM.fov }} dpr={[1, q.dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>{scene}</Canvas>{mode === "channel" && !selected && <ChipLayer rig={rig} chips={wallChips} focus={wallFocus} onPick={(id) => { setWallFocus((f) => (f === id ? null : id)); window.dispatchEvent(new CustomEvent(WORLD_PICK, { detail: { world: "studio", id } })); }} />}</PlanetBoundary>)}
 
       <div aria-hidden className="studio-vignette pointer-events-none absolute inset-0 z-[1]" />
 
