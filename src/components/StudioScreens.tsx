@@ -7,6 +7,7 @@ import * as THREE from "three";
 import { loadImage } from "./texture-cache";
 import type { Video } from "@/lib/youtube-pure";
 import { useWorldTier, type Chip } from "./world-kit";
+import { screenGradient } from "@/lib/world-props-pure";
 
 export const WALL_R = 5.3, WALL_Y = 0.8;
 /** Up to 7 screens on an arc behind the planet; index 0 (most viewed of the latest) in the middle, bigger. */
@@ -24,13 +25,19 @@ function Screen({ s }: { s: ReturnType<typeof wallSlots>[number] }) {
     if (s.v.thumb) loadImage(s.v.thumb).then((img) => { if (!live) return; made = new THREE.Texture(img); made.colorSpace = THREE.SRGBColorSpace; made.needsUpdate = true; setTex(made); }).catch(() => {});
     return () => { live = false; made?.dispose(); };
   }, [s.v.thumb]);
+  // no thumbnail yet (or it failed): a dark red/violet gradient with a play mark, never a black panel
+  const ph = useMemo(() => { if (typeof document === "undefined") return null; const g = screenGradient(s.v.id), cv = document.createElement("canvas"); cv.width = 256; cv.height = 144; const x = cv.getContext("2d"); if (!x) return null;
+    const ang = (g.angle * Math.PI) / 180, gr = x.createLinearGradient(128 - Math.cos(ang) * 150, 72 - Math.sin(ang) * 90, 128 + Math.cos(ang) * 150, 72 + Math.sin(ang) * 90); gr.addColorStop(0, g.a); gr.addColorStop(1, g.b); x.fillStyle = gr; x.fillRect(0, 0, 256, 144);
+    x.fillStyle = "rgba(255,255,255,0.55)"; x.beginPath(); x.moveTo(110, 52); x.lineTo(110, 92); x.lineTo(148, 72); x.closePath(); x.fill();
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t; }, [s.v.id]);
+  useEffect(() => () => ph?.dispose(), [ph]);
   return (
     <group position={[s.x, s.y, s.z]} rotation={[-0.12, -s.a - Math.PI / 2, 0, "YXZ"]}>
       <mesh position={[0, 0, -0.06]}><boxGeometry args={[s.w + 0.14, s.h + 0.14, 0.1]} /><meshStandardMaterial color="#0b0c10" metalness={0.9} roughness={0.3} /></mesh>
       <mesh position={[0, -s.h / 2 - 0.08, -0.005]}><boxGeometry args={[s.w + 0.14, 0.025, 0.02]} /><meshBasicMaterial color={new THREE.Color("#ff2d3d").multiplyScalar(2)} toneMapped={false} /></mesh>
       <mesh>
         <planeGeometry args={[s.w, s.h]} />
-        {tex ? <meshBasicMaterial map={tex} toneMapped={false} color={[1.05, 1.05, 1.05]} /> : <meshStandardMaterial color="#10131c" metalness={0.2} roughness={0.15} emissive="#1d2433" emissiveIntensity={0.5} />}
+        {tex || ph ? <meshBasicMaterial map={tex ?? ph} toneMapped={false} color={tex ? [1.05, 1.05, 1.05] : [1.3, 1.3, 1.3]} /> : <meshStandardMaterial color="#2a1020" metalness={0.2} roughness={0.15} emissive="#4a1a30" emissiveIntensity={0.8} />}
       </mesh>
     </group>
   );

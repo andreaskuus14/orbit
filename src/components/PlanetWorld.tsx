@@ -10,6 +10,7 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Stars, PerformanceMonitor } from "@react-three/drei";
 import { ChipLayer, ChipProjector, FlyTo, ShiftForPanel, WorldFX, WorldLights, useChipRig, type FlyGoal } from "./world-kit";
 import { flyTo } from "@/lib/world-zoom-pure";
+import { WORLD_PICK } from "@/lib/world-props-pure";
 import { CAMERA, SceneFor, THEME, buildModel, sceneChips } from "./PlanetScenes";
 import { SCENE_SOURCE } from "@/lib/planet-scenes-pure";
 import { useGlRecovery } from "./useGlRecovery";
@@ -64,7 +65,7 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
     const c = chips.find((x) => x.id === cid); if (!c) return;
     setGoal((g) => ({ at: c.at, dist: flyTo(c.lod, cam.min, cam.max), n: (g?.n ?? 0) + 1 }));
     const card = c.lod === 2 || !!c.rows || !!c.steps; setFocus(card ? cid : null); setFocusLod(c.lod ?? 0);
-    window.dispatchEvent(new CustomEvent("orbit:world-pick", { detail: { world: id, id: cid, lod: c.lod ?? 0 } }));
+    window.dispatchEvent(new CustomEvent(WORLD_PICK, { detail: { world: id, id: cid, lod: c.lod ?? 0 } }));
   }, [chips, cam.min, cam.max, id]);
 
   return (

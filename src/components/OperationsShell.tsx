@@ -6,6 +6,7 @@
 //   Everything else (new job with options, routines editor, new AI tools, activity, rules, …) lives in the "…" menu as a Sheet.
 // Logic and words: lib/operations-planet-pure.ts (EN + ET). Nothing here approves by itself: Approve sits on the job's own card
 // with the exact items shown (AGENTS.md rule 6). Polls the slim list (?lite=1, ETag → 304) only while visible.
+import { WORLD_PICK, pickTarget } from "@/lib/world-props-pure";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button, Card, Chip, Empty, ErrorState, IconBack, IconCheck, IconChevron, IconPlus, Loading, PlanetShell, Section, Sheet, Toaster, toast, uiSound, type MenuItem } from "./ui";
 import "@/app/operations-planet.css";
@@ -160,6 +161,10 @@ export function OperationsShell({ focusTask, onOpen, openMemory }: { focusTask: 
   }, []);
   useEffect(loadMeta, [loadMeta]);
   useEffect(() => { setOpen(focusTask); }, [focusTask]);
+  useEffect(() => { // v9: a click on a job pod in the 3D world opens that job
+    const on = (e: Event) => { const t = pickTarget((e as CustomEvent).detail, "operations"); if (t) setOpen(t.id); };
+    addEventListener(WORLD_PICK, on); return () => removeEventListener(WORLD_PICK, on);
+  }, []);
   useEffect(() => { onOpen?.(open); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- the open job is the URL's record
   // Deep links (#o=operations&v=scout) and the galaxy's scout moon open the matching sheet or tab.
   useEffect(() => {
