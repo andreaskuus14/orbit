@@ -30,3 +30,10 @@ test("ARCH v7: real trees, plants, grass and house skin are in the arch set and 
   assert.ok(bytes <= PER_WORLD, `arch ${bytes}`);
   for (const id of ids) if (/^(wood|roof|stucco)/.test(id)) assert.ok(size(id) < 100_000, `${id} stays small`); // textures are 512 px webp
 });
+
+test("v9 matte plates: owner's renders are registered for VAULT, documented, and the folder cap is 25 MB", () => {
+  assert.equal(BUDGET, 25 * 1024 * 1024);
+  const ids = assetsFor("vault");
+  for (const id of ["plateVaultBack", "plateVaultSide"] as AssetId[]) { assert.ok(ids.includes(id), id); assert.match(ASSETS[id].source, /Higgsfield/); }
+  assert.match(readFileSync("public/worlds/LICENSES.md", "utf8"), /25 MB/);
+});

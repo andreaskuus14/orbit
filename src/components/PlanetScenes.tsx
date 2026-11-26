@@ -12,6 +12,8 @@ import { Water } from "./world-surfaces";
 import { OrbitalPlanet, RingOf, SkyDome, WindowRing } from "./world-scenery";
 import { BIZ_STAGES, GATE_ANGLE, GATE_COLOR, VAULT_KIND_COLOR, bizScene, bytes, clip, fmtMin, heightAt, lifeScene, opsScene, podAngle, timeScene, vaultScene, type SceneId } from "@/lib/planet-scenes-pure";
 import { STAGE_COLOR } from "@/lib/living-galaxy-pure";
+import { MattePlate } from "./world-plates";
+import { ChandelierDetail, VaultArches, VaultBanners, VaultStatues } from "./VaultHallProps";
 import { CargoPods, Freighters, PodTrack, VaultShelfProps, trackMatrix, type FleetApi } from "./world-props";
 
 type T = (k: never, v?: Record<string, string | number>) => string;
@@ -238,7 +240,7 @@ function Vault({ m, reduced }: { m: ReturnType<typeof vaultScene>; reduced: bool
         <mesh position={[0, 0.455 + row * 1.15, 0]}><cylinderGeometry args={[7.36, 7.36, 0.02, 48, 1, true, Math.PI / 2 - k.to, len]} />{glowMat(VAULT_KIND_COLOR[k.kind] ?? "#ffb347", 1.2)}</mesh>
       </group>);
     }))}
-    <mesh position={[0, 2.6, 0]} material={stone}><cylinderGeometry args={[8.3, 8.3, 5.4, 96, 1, true, Math.PI * 0.25, Math.PI * 1.5]} /></mesh>
+    {!tier && <mesh position={[0, 2.6, 0]} material={stone}><cylinderGeometry args={[8.3, 8.3, 5.4, 96, 1, true, Math.PI * 0.25, Math.PI * 1.5]} /></mesh>}{/* v9: the hall (tier 1+) shows the matte plate behind the shelves instead */}
     {tier > 0 ? <VaultShelfProps crystals={m.crystals} reduced={reduced} /> : <Crystals items={items} reduced={reduced} intensity={0.3} />}
     {/* pillars */}
     {[-1, 1].map((s) => <mesh key={s} position={[s * 6, 2.8, -4.6]} material={gold}><cylinderGeometry args={[0.35, 0.45, 5.6, 16]} /></mesh>)}
@@ -273,6 +275,14 @@ function VaultHall({ reduced }: { reduced: boolean }) {
   const amber = (k: number) => new THREE.Color("#ffb347").multiplyScalar(k);
   return (<group>
     <SkyDome top="#0a0704" mid="#120c07" low="#050302" r={60} />
+    {/* v9: matte plates from the owner's frames behind the live hall: the dome and door wall, and arched balconies all round */}
+    <RealOr fallback={null}>
+      <MattePlate id="plateVaultSide" r={10.85} y={2.6} h={9.4} facing={Math.PI} arc={Math.PI * 1.45} repeat={9} k={1.25} />
+      <MattePlate id="plateVaultBack" r={10.7} y={6.6} h={6.4} facing={Math.PI} arc={Math.PI * 0.62} k={1.15} mirror={false} feather />
+    </RealOr>
+    <VaultStatues reduced={reduced} />
+    <VaultBanners skip={frontCol} />
+    <VaultArches skip={frontCol} material={stone} />
     <mesh position={[0, 7.8, 0]} material={dome}><sphereGeometry args={[11, 48, 16, 0, Math.PI * 2, 0, Math.PI / 2]} /></mesh>
     <mesh position={[0, 2.6, 0]} material={dome}><cylinderGeometry args={[11, 11, 10.5, 64, 1, true]} /></mesh>
     {/* columns: shaft, base, capital */}
@@ -290,6 +300,7 @@ function VaultHall({ reduced }: { reduced: boolean }) {
     <RingOf n={56} r={10.6} y={5.2} size={[0.9, 0.08, 0.45]} color="#3a3027" metal={0} rough={1} />
     {/* the ring chandelier under the oculus */}
     <group ref={ring} position={[0, 9.2, 0]}>
+      <ChandelierDetail />
       <mesh rotation-x={Math.PI / 2} material={door}><torusGeometry args={[2.4, 0.07, 8, 96]} /></mesh>
       <mesh rotation-x={Math.PI / 2} position={[0, -0.4, 0]} material={door}><torusGeometry args={[1.7, 0.05, 8, 96]} /></mesh>
       <mesh rotation-x={Math.PI / 2} position={[0, 0.04, 0]}><torusGeometry args={[2.4, 0.025, 6, 96]} /><meshBasicMaterial color={amber(2.6)} toneMapped={false} /></mesh>

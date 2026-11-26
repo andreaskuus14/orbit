@@ -4,7 +4,7 @@
 
 export type WorldId = "gamedev" | "memory" | "arch" | "life" | "vault" | "studio" | "agents";
 export type AssetId = "fort" | "tree" | "rocks" | "cliff" | "shrub" | "fern" | "flower" | "moonRock"
-  | "lantern" | "chest" | "hdriNight" | "hdriDay"
+  | "plateVaultBack" | "plateVaultSide" | "lantern" | "chest" | "hdriNight" | "hdriDay"
   | "grassD" | "grassN" | "cliffD" | "cliffN" | "mtnD" | "mtnN" | "mtnH" | "waterN"
   | "woodD" | "woodN" | "woodR" | "roofD" | "roofN" | "roofR" | "stuccoD" | "stuccoN" | "stuccoR";
 
@@ -19,6 +19,9 @@ export const ASSETS: Record<AssetId, Asset> = {
   fern: { file: "models/fern_02.glb", source: "https://polyhaven.com/a/fern_02", worlds: ["life", "arch"] },
   flower: { file: "models/celandine_01.glb", source: "https://polyhaven.com/a/celandine_01", worlds: ["life", "arch"] },
   moonRock: { file: "models/moon_rock_03.glb", source: "https://polyhaven.com/a/moon_rock_03", worlds: ["memory"] },
+  // v9 matte plates: cleaned crops of the owner's own Higgsfield frames (no baked text/UI), used as far backdrops behind the live 3D.
+  plateVaultBack: { file: "plates/vault-back.webp", source: "owner's Higgsfield renders (vault frame, dome and door wall)", worlds: ["vault"] },
+  plateVaultSide: { file: "plates/vault-balcony.webp", source: "owner's Higgsfield renders (vault zoom frame, arched balconies)", worlds: ["vault"] },
   lantern: { file: "models/Lantern_01.glb", source: "https://polyhaven.com/a/Lantern_01", worlds: ["vault"] },
   chest: { file: "models/metal_tool_chest.glb", source: "https://polyhaven.com/a/metal_tool_chest", worlds: ["vault"] },
   hdriNight: { file: "hdri/moonless_golf.hdr", source: "https://polyhaven.com/a/moonless_golf", worlds: ["memory"] },
@@ -45,7 +48,8 @@ export const ASSETS: Record<AssetId, Asset> = {
 };
 
 /** Whole folder may not pass this (bytes); one world's own files may not pass PER_WORLD. */
-export const BUDGET = 15 * 1024 * 1024, PER_WORLD = 6 * 1024 * 1024;
+/** v9: raised from 15 MB to 25 MB (owner, for his own Higgsfield renders used as matte plates). */
+export const BUDGET = 25 * 1024 * 1024, PER_WORLD = 6 * 1024 * 1024;
 
 export const assetUrl = (id: AssetId) => `/worlds/${ASSETS[id].file}`;
 /** Real assets only on tier 1+ (medium/high). Low keeps the procedural parts and downloads nothing. */
