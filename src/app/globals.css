@@ -1106,3 +1106,15 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
   .intel-zoned { --iz-bar: calc(var(--hdr, 3.4rem) + 0.25rem); --iz-t: calc(var(--iz-bar) + var(--iz-bar-h) + 0.5rem); --iz-l: 0.5rem; --iz-r: 0.5rem; --iz-b: var(--bar, 6.25rem); }
   .intel-status { display: none; }
 }
+
+/* Classic map v2: small glass labels (country + count; top headline on hover), placed by declutter() */
+.cmap-label { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; gap: 2px; max-width: 220px; padding: 5px 9px 5px 8px; text-align: left; border-radius: 10px;
+  background: linear-gradient(180deg, rgba(14, 22, 38, 0.62), rgba(6, 10, 20, 0.55)); backdrop-filter: blur(10px) saturate(1.3); border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06); color: #eef3fa; opacity: 0; transition: opacity 0.25s, border-color 0.2s; cursor: pointer; will-change: transform; }
+.cmap-label:hover { border-color: color-mix(in srgb, var(--accent) 60%, transparent); z-index: 2; }
+.cmap-name { display: flex; align-items: center; gap: 6px; font: 600 12px/1.2 var(--font-inter); letter-spacing: 0.01em; white-space: nowrap; }
+.cmap-name i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.cmap-name b { margin-left: 2px; font: 600 11px var(--font-mono); color: var(--accent); }
+.cmap-head { display: none; font: 400 11px/1.35 var(--font-inter); color: rgba(226, 234, 245, 0.85); white-space: normal; }
+.cmap-label:hover .cmap-head { display: block; }
+@media (prefers-reduced-motion: reduce) { .cmap-label { transition: none; } }
