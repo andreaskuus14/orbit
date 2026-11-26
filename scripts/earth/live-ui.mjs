@@ -50,7 +50,7 @@ async function tile(k, z, x, y) {
 async function looks(file, vp) {
   const { data, info } = await sharp(file).extract({ left: 0, top: 110, width: Math.round(vp.width * 0.6), height: vp.height - 220 }).raw().toBuffer({ resolveWithObject: true });
   let sum = 0, white = 0; const n = info.width * info.height;
-  for (let i = 0; i < data.length; i += info.channels) { const l = 0.3 * data[i] + 0.55 * data[i + 1] + 0.15 * data[i + 2]; sum += l; if (l > 200) white++; }
+  for (let i = 0; i < data.length; i += info.channels) { const l = 0.3 * data[i] + 0.55 * data[i + 1] + 0.15 * data[i + 2]; sum += l; if (l > 150) white++; }
   return { mean: sum / n, white: white / n };
 }
 

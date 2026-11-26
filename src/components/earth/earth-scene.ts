@@ -150,7 +150,7 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   map += vec3(.25,.55,.75) * grid * .1 * uStyl + vec3(.3,.6,.8) * (1. - smoothstep(.0, .25, abs(water - .5))) * .08 * uStyl; // grid + a thin coastline
   map *= mix(.35, 1., lit); // the map base darkens with the vector ground (Black Marble at ~600 m/px is too coarse to light it: it reads as flat blocks)
   // after dark the city still glows where the vector ground (amber roads) hasn't come: the Black Marble picture, soft and dim
-  map += pow(night, vec3(1.3)) * vec3(1.,.72,.42) * .45 * (1. - lit) * (1. - gm) * (1. - water);
+  map += pow(night, vec3(1.3)) * vec3(1.,.72,.42) * .07 * (1. - lit) * (1. - gm) * (1. - water);
   c = mix(c, map, uStyl);
   c = mix(c, groundLand(lit, duskK(sun), lightsK(sun), dist), gm * (.85 - .85 * water));
   gl_FragColor = vec4(c, uOp * smoothstep(0., .22, vEdge)); }`;
