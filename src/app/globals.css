@@ -1169,3 +1169,17 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .ip-cat { flex: none; vertical-align: -0.2em; margin-right: 0.35rem; color: #f2b35e; }
 .ip-top p, .ip-strip em { display: flex; align-items: center; flex-wrap: wrap; }
 .ip-top .ip-flag, .ip-strip .ip-flag { margin: 0 0.35rem 0 0; }
+
+/* INTELLIGENCE frame map: the Higgsfield plate with live pins and cards (components/intel/FrameMap.tsx) */
+.frame-map { position: absolute; inset: 0; z-index: 1; background: #02050c; overflow: hidden; }
+.frame-plate { position: absolute; will-change: transform; }
+.frame-plate img { display: block; user-select: none; pointer-events: none; }
+.frame-pin { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; border: 1.5px solid rgba(255,255,255,.85); background: rgba(255,255,255,.18); box-shadow: 0 0 10px rgba(120,200,255,.7); cursor: pointer; padding: 0; transition: box-shadow .2s, background .2s; }
+.frame-pin.on, .frame-pin:hover { background: rgba(255,255,255,.5); box-shadow: 0 0 18px rgba(150,220,255,1); }
+.frame-card { position: absolute; text-align: left; padding: 6px 9px; border-radius: 9px; background: rgba(8,14,26,.78); border: 1px solid rgba(160,200,255,.28); color: #fff; cursor: pointer; backdrop-filter: blur(4px); display: grid; gap: 2px; }
+.frame-card.on, .frame-card:hover { border-color: rgba(190,225,255,.8); }
+.fc-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+.fc-head img { width: 16px; height: 12px; object-fit: cover; border-radius: 2px; }
+.fc-head b { margin-left: auto; font-weight: 600; color: #ffb27a; }
+.fc-line { font-size: 10.5px; line-height: 1.25; color: rgba(255,255,255,.72); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.frame-explore { position: absolute; right: 1rem; bottom: 6.5rem; z-index: 3; padding: 7px 14px; border-radius: 999px; background: rgba(10,20,40,.75); border: 1px solid rgba(160,200,255,.4); color: #fff; font-size: 12px; cursor: pointer; }
