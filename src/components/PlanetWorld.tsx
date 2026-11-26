@@ -57,12 +57,13 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
   const cam = CAMERA[id], th = THEME[id];
   // v8 semantic zoom: a click on a label flies one level deeper and tells the panel which item it was (orbit:world-pick)
   const [goal, setGoal] = useState<FlyGoal>(null), [focus, setFocus] = useState<string | null>(null);
-  const onLevel = useCallback((l: number) => { if (l < 2) setFocus(null); }, []);
+  const [focusLod, setFocusLod] = useState(2);
+  const onLevel = useCallback((l: number) => { if (l < Math.min(2, focusLod + 1)) setFocus(null); }, [focusLod]); // zooming back out drops the card
   const focusAt = focus ? chips.find((c) => c.id === focus)?.at ?? null : null;
   const pick = useCallback((cid: string) => {
     const c = chips.find((x) => x.id === cid); if (!c) return;
     setGoal((g) => ({ at: c.at, dist: flyTo(c.lod, cam.min, cam.max), n: (g?.n ?? 0) + 1 }));
-    setFocus(c.lod === 2 ? cid : null);
+    const card = c.lod === 2 || !!c.rows || !!c.steps; setFocus(card ? cid : null); setFocusLod(c.lod ?? 0);
     window.dispatchEvent(new CustomEvent("orbit:world-pick", { detail: { world: id, id: cid, lod: c.lod ?? 0 } }));
   }, [chips, cam.min, cam.max, id]);
 

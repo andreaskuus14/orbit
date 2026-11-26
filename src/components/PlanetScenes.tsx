@@ -319,8 +319,9 @@ function Business({ m, reduced }: { m: ReturnType<typeof bizScene>; reduced: boo
       mesh.setColorAt(i, c.set(STAGE_COLOR[p.stage as keyof typeof STAGE_COLOR] ?? "#fff").multiplyScalar(p.fresh ? 2 : 1)); });
     mesh.count = m.ships.length; mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true; mesh.computeBoundingSphere(); }, [m.ships]);
   useFrame(({ clock }) => { if (traffic.current && !reduced) traffic.current.rotation.y = clock.elapsedTime * 0.08; });
+  const tier = useWorldTier();
   return (<group>
-    <PlanetGround glow="#ff9f43" a="#08070a" b="#18151c" />
+    {tier ? <TradeHub m={m} reduced={reduced} hull={hull} /> : <PlanetGround glow="#ff9f43" a="#08070a" b="#18151c" />}
     <Plate r={8.2} h={0.6} y={0.1} color="#16141a" rim="#ff9f43" />
     {m.tiers.map((t, i) => (<group key={t.stage}>
       <mesh position={[0, t.y - 0.35, 0]} material={hull}><cylinderGeometry args={[t.r, t.r + 0.35, 1.0, 96]} /></mesh>
@@ -343,6 +344,35 @@ function Business({ m, reduced }: { m: ReturnType<typeof bizScene>; reduced: boo
   </group>);
 }
 
+/** v8 BUSINESS look (tier 1+): a trade hub over a dusk planet: every docked deal sits in a lit bay frame in its stage's
+ *  colour, tiers carry window bands, and freighters run in and out on approach lanes. */
+function TradeHub({ m, reduced, hull }: { m: ReturnType<typeof bizScene>; reduced: boolean; hull: THREE.Material }) {
+  const bays = useRef<THREE.InstancedMesh>(null), lips = useRef<THREE.InstancedMesh>(null), lane = useRef<THREE.InstancedMesh>(null);
+  const o = useMemo(() => new THREE.Object3D(), []), c = useMemo(() => new THREE.Color(), []), N = 10;
+  useLayoutEffect(() => { const b = bays.current, l = lips.current; if (!b || !l) return;
+    m.ships.forEach((p, i) => { o.position.set(Math.cos(p.angle) * (p.r - 0.25), p.y + 0.15, Math.sin(p.angle) * (p.r - 0.25)); o.rotation.set(0, -p.angle + Math.PI / 2, 0); o.scale.set(1, 1, 1); o.updateMatrix();
+      b.setMatrixAt(i, o.matrix); l.setMatrixAt(i, o.matrix); l.setColorAt(i, c.set(STAGE_COLOR[p.stage as keyof typeof STAGE_COLOR] ?? "#ff9f43").multiplyScalar(p.fresh ? 3 : 2)); });
+    for (const x of [b, l]) { x.count = m.ships.length; x.instanceMatrix.needsUpdate = true; x.computeBoundingSphere(); } if (l.instanceColor) l.instanceColor.needsUpdate = true; }, [m.ships, o, c]);
+  const fly = (t: number) => { const x = lane.current; if (!x) return;
+    for (let i = 0; i < N; i++) { const f = ((t * 0.04 + i / N) % 1), a = i * 2.1, r = 22 - f * 12, y = 2 + (i % 4) * 1.6 + f * 1.5;
+      o.position.set(Math.cos(a) * r, y, Math.sin(a) * r); o.rotation.set(0, -a + Math.PI / 2, 0); o.scale.setScalar(0.5 + (i % 3) * 0.2); o.updateMatrix(); x.setMatrixAt(i, o.matrix); }
+    x.instanceMatrix.needsUpdate = true; };
+  useLayoutEffect(() => { fly(0.5); lane.current?.computeBoundingSphere(); }); // eslint-disable-line react-hooks/exhaustive-deps
+  useFrame(({ clock }) => { if (!reduced) fly(clock.elapsedTime); });
+  return (<group>
+    <SkyDome top="#020104" mid="#0a0508" low="#1c0d08" neb="#7c2d12" neb2="#1e1b4b" nebK={0.3} stars={1} />
+    <OrbitalPlanet at={[30, -95, -70]} r={95} sun={[-1, 0.3, 0.4]} reduced={reduced} air="#ff9a4d" />
+    <directionalLight position={[-20, 8, 10]} intensity={2} color="#ffc48a" />
+    {m.tiers.map((t, i) => <WindowRing key={t.stage} r={t.r + 0.36} y0={t.y - 0.7} rows={3} n={Math.round(t.r * 22)} color="#ffcf8a" k={2} lit={0.5} seed={20 + i} />)}
+    {/* bay frames (dark) with glowing lips in the deal's stage colour */}
+    <instancedMesh ref={bays} args={[undefined, undefined, Math.max(1, m.ships.length)]} material={hull}><boxGeometry args={[0.95, 0.7, 0.12]} /></instancedMesh>
+    <instancedMesh ref={lips} args={[undefined, undefined, Math.max(1, m.ships.length)]}><boxGeometry args={[0.8, 0.04, 0.16]} /><meshBasicMaterial toneMapped={false} /></instancedMesh>
+    {/* approach lanes: freighters coming in */}
+    <instancedMesh ref={lane} args={[undefined, undefined, N]}><boxGeometry args={[1.4, 0.3, 0.5]} /><meshStandardMaterial color="#8a8f9c" metalness={0.8} roughness={0.35} emissive="#ff9f43" emissiveIntensity={0.4} /></instancedMesh>
+    <RingOf n={24} r={9.4} y={0.3} size={[0.18, 0.18, 2.2]} color="#2a2630" emissive="#ffb04d" k={0.6} skip={(i) => i % 3 !== 0} />
+  </group>);
+}
+
 /* ---------- ANALYTICS ---------- */
 
 function Analytics({ m, reduced }: { m: ReturnType<typeof timeScene>; reduced: boolean }) {
@@ -360,7 +390,9 @@ function Analytics({ m, reduced }: { m: ReturnType<typeof timeScene>; reduced: b
       gl_FragColor = vec4(c * (0.25 + vH*0.35) * scan * e, 1.0); }` }), []);
   useEffect(() => () => wire.dispose(), [wire]);
   useFrame(({ clock }) => { if (!reduced) wire.uniforms.uT.value = clock.elapsedTime; });
+  const tier = useWorldTier();
   return (<group>
+    {tier > 0 && <DataLand geo={geo} m={m} />}
     <mesh geometry={geo}><meshStandardMaterial color="#04081a" metalness={0.3} roughness={0.75} emissive="#0a1a4a" emissiveIntensity={0.25} /></mesh>
     <mesh geometry={geo} material={wire} />
     {m.peaks.map((p) => { const y = heightAt(m.peaks, p.x, p.z);
@@ -370,6 +402,28 @@ function Analytics({ m, reduced }: { m: ReturnType<typeof timeScene>; reduced: b
         <mesh rotation-x={-Math.PI / 2} position={[0, 0.05, 0]}><ringGeometry args={[p.w * 0.9, p.w * 0.94, 64]} />{glowMat("#3b82f6", 1)}</mesh>
       </group>); })}
     <Motes count={reduced ? 120 : 360} color="#60a5fa" spread={18} height={7} reduced={reduced} />
+  </group>);
+}
+
+/** v8 ANALYTICS look (tier 1+): deep-blue haze sky, a glowing point at every terrain vertex (brighter up the ridges),
+ *  and a light pillar with a halo disc on each project's peak. */
+function DataLand({ geo, m }: { geo: THREE.BufferGeometry; m: ReturnType<typeof timeScene> }) {
+  const pts = useMemo(() => new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: `varying float vH; varying float vE; void main(){ vH = position.y; vE = smoothstep(19.0, 5.0, length(position.xz)); vec4 mv = modelViewMatrix*vec4(position + vec3(0.0,0.02,0.0),1.0); gl_PointSize = (0.7 + vH*0.3) * (32.0 / -mv.z); gl_Position = projectionMatrix*mv; }`,
+    fragmentShader: `varying float vH; varying float vE; void main(){ float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard; vec3 c = mix(vec3(0.15,0.4,1.0), vec3(0.75,0.92,1.0), clamp(vH/5.0,0.0,1.0));
+      gl_FragColor = vec4(c * (1.0 - d*2.0) * (0.18 + vH*0.12) * vE, 1.0); }` }), []);
+  useEffect(() => () => pts.dispose(), [pts]);
+  return (<group>
+    <SkyDome top="#01030c" mid="#031033" low="#0a2a6b" neb="#1d4ed8" neb2="#0891b2" nebK={0.25} stars={0.6} />
+    <points geometry={geo} material={pts} />
+    {m.peaks.map((p) => { const y = heightAt(m.peaks, p.x, p.z);
+      return (<group key={p.name} position={[p.x, y, p.z]}>
+        <mesh position={[0, 2.2, 0]}><cylinderGeometry args={[0.05, 0.05, 4.4, 8, 1, true]} /><meshBasicMaterial color={new THREE.Color("#7dd3fc").multiplyScalar(2.2)} toneMapped={false} transparent opacity={0.85} /></mesh>
+        <mesh position={[0, 2.2, 0]}><cylinderGeometry args={[0.35, 0.35, 4.4, 16, 1, true]} /><meshBasicMaterial color="#38bdf8" transparent opacity={0.08} blending={THREE.AdditiveBlending} depthWrite={false} side={THREE.DoubleSide} /></mesh>
+        <mesh rotation-x={-Math.PI / 2} position={[0, 0.06, 0]}><ringGeometry args={[0.35, 0.55, 48]} /><meshBasicMaterial color={new THREE.Color("#bae6fd").multiplyScalar(2)} toneMapped={false} side={THREE.DoubleSide} /></mesh>
+        <mesh rotation-x={-Math.PI / 2} position={[0, 0.07, 0]}><ringGeometry args={[0.75, 0.8, 48]} /><meshBasicMaterial color={new THREE.Color("#38bdf8").multiplyScalar(1.5)} toneMapped={false} side={THREE.DoubleSide} /></mesh>
+      </group>); })}
+    <pointLight position={[0, 6, 0]} intensity={30} distance={30} color="#3b82f6" />
   </group>);
 }
 
