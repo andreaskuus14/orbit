@@ -942,7 +942,7 @@ export const ET: Partial<Record<Key, string>> = {
   "mp.a.title": "Lisa mälukirje", "mp.m.add": "Lisa üksikasjadega", "mp.m.map": "Kaardi valikud", "mp.m.timeline": "Ajajoon", "mp.m.people": "Inimesed", "mp.m.mapOnly": "Ainult kaart",
   "mp.m.knows": "Mida ORBIT teab", "mp.m.review": "Ülevaatus", "mp.m.all": "Kõik tööriistad", "mp.show": "Näita mälu",
   "mp.map.title": "Kaart", "mp.map.project": "Projekt", "mp.map.all": "Kõik projektid", "mp.map.replay": "Esita uuesti", "mp.map.pause": "Paus", "mp.map.now": "Praegu", "mp.map.live": "Praegu · otse",
-  "w8.saved": "Salvestatud", "mp.map.day": "Päev sinu mälu ajaloos", "mp.map.time": "Mälu ajajoon", "mp.map.legend": "Värvid", "mp.map.ring": "Rõngas: CORE'i õpitud",
+  "w8.size": "Suurus", "w8.date": "Kuupäev", "w8.fee": "Tasu", "w8.share": "Osa", "w8.saved": "Salvestatud", "mp.map.day": "Päev sinu mälu ajaloos", "mp.map.time": "Mälu ajajoon", "mp.map.legend": "Värvid", "mp.map.ring": "Rõngas: CORE'i õpitud",
   "mp.map.help": "Lähedased tähed on sarnased mälukirjed. Jooned on seosed. Lohista pööramiseks, keri suumimiseks, klõpsa tähel, et see avada.", "mp.map.clusters": "Rühmad", "mp.map.bridge": "„{t}” ühendab: {a} ja {b}",
   "mp.k.note": "Märge", "mp.k.idea": "Idee", "mp.k.link": "Link", "mp.k.document": "Dokument", "mp.k.image": "Pilt", "mp.k.research": "Uurimus", "mp.k.conversation": "Vestlus",
   "mp.k.project": "Projekt", "mp.k.preference": "Eelistus", "mp.k.decision": "Otsus", "mp.k.goal": "Eesmärk", "mp.k.journal": "Päevik", "mp.k.episode": "Episood",

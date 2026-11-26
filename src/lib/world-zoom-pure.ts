@@ -41,7 +41,7 @@ export function chipPrio(lod: Lod | undefined, level: Lod, prio: number): number
 export function flyTo(lod: Lod | undefined, min: number, max: number): number {
   const l = lod ?? 0, span = max - min;
   // one level deeper than the clicked chip: overview -> parts (z ~ 0.55), parts -> items (z ~ 0.85), item -> close (min)
-  const z = l === 0 ? 0.55 : l === 1 ? 0.85 : 1;
+  const z = l === 0 ? 0.55 : l === 1 ? 0.85 : 0.93;
   return max - z * span;
 }
 

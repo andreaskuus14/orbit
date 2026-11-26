@@ -31,7 +31,7 @@ export function buildModel(id: SceneId, json: unknown, now: number): SceneModel 
 /** Camera per scene: where it looks from and how far it may move. */
 export const CAMERA: Record<SceneId, { pos: [number, number, number]; target: [number, number, number]; min: number; max: number }> = {
   operations: { pos: [0, 11, 19], target: [0, 0.5, 0], min: 4, max: 34 },
-  vault: { pos: [0, 5.2, 13.5], target: [0, 2.4, 0], min: 5, max: 24 },
+  vault: { pos: [0, 4.4, 9.6], target: [0, 2.6, -1.5], min: 2.5, max: 10.5 }, // v8: inside the hall
   business: { pos: [0, 6.5, 15], target: [0, 3, 0], min: 6, max: 30 },
   analytics: { pos: [0, 11, 17], target: [0, 1.5, 0], min: 6, max: 36 },
   life: { pos: [0, 5.5, 11.5], target: [0, 0.6, 0], min: 5, max: 22 },
@@ -64,18 +64,34 @@ export function sceneChips(s: SceneModel, t: T, zone: (k: string) => string): Ch
           dot: p.gate === "running" ? "busy" : p.gate === "needs" ? "warn" : p.gate === "failed" ? "bad" : p.gate === "done" ? "ok" : "idle" }); });
       return out;
     }
-    case "vault": return s.m.kinds.map((k): Chip => { const a = (k.from + k.to) / 2;
-      return { id: `k:${k.kind}`, at: [Math.cos(a) * 7.4, 5.4, Math.sin(a) * 7.4], title: tt(`pw.kind.${k.kind}`) || k.kind, value: String(k.count), sub: bytes(k.bytes), color: VAULT_KIND_COLOR[k.kind] ?? VAULT_KIND_COLOR.other, prio: k.count }; })
-      .concat([{ id: "core", at: [0, 4.2, 0] as [number, number, number], title: "VAULT", value: tt("w2.files", { n: s.m.count }), sub: bytes(s.m.total), color: "#ffb347", prio: 100 }]);
-    case "business": return s.m.tiers.map((tr, i): Chip => ({ id: `t:${tr.stage}`, at: [-(tr.r + 0.4) * 0.72, tr.y + 0.2, (tr.r + 0.4) * 0.7] as [number, number, number], title: tt(`bz.stage.${tr.stage}`),
-      value: String(tr.count), sub: tr.fees ? tt("w2.paying", { n: Math.round(tr.fees) }) : undefined, color: tr.color, prio: 20 - i }))
-      .concat(s.m.ships.filter((p) => p.fee > 0).sort((a, b) => b.fee - a.fee).slice(0, 3).map((p) => ({ id: `s:${p.id}`, at: [Math.cos(p.angle) * p.r, p.y + 0.7, Math.sin(p.angle) * p.r] as [number, number, number],
-        title: clip(p.name, 24), sub: tt("w2.paying", { n: Math.round(p.fee) }), color: STAGE_COLOR[p.stage as keyof typeof STAGE_COLOR] ?? "#fff", prio: 3 })));
+    case "vault": { // v8: hall (lod 0) -> each shelf's newest file (lod 1) -> single file crystals with a card (lod 2)
+      const out: Chip[] = s.m.kinds.map((k): Chip => { const a = (k.from + k.to) / 2;
+        return { id: `k:${k.kind}`, at: [Math.cos(a) * 7.4, 5.4, Math.sin(a) * 7.4], title: tt(`pw.kind.${k.kind}`) || k.kind, value: String(k.count), sub: bytes(k.bytes), color: VAULT_KIND_COLOR[k.kind] ?? VAULT_KIND_COLOR.other, prio: k.count }; });
+      out.push({ id: "core", at: [0, 4.2, 0], title: "VAULT", value: tt("w2.files", { n: s.m.count }), sub: bytes(s.m.total), color: "#ffb347", prio: 100 });
+      s.m.kinds.forEach((k) => { const c = s.m.crystals.find((x) => x.kind === k.kind); if (c) out.push({ id: `n:${k.kind}`, at: [c.at[0], c.at[1] + 0.9, c.at[2]], title: clip(c.name, 26), sub: tt(`pw.kind.${k.kind}`) || k.kind, color: VAULT_KIND_COLOR[k.kind] ?? "#ffb347", prio: 6, lod: 1 }); });
+      s.m.crystals.forEach((c) => out.push({ id: `f:${c.key}`, at: [c.at[0], c.at[1] + c.h * 0.8, c.at[2]], title: clip(c.name, 30), sub: tt(`pw.kind.${c.kind}`) || c.kind, color: VAULT_KIND_COLOR[c.kind] ?? "#ffb347", prio: c.fresh ? 4 : 2, lod: 2,
+        rows: [[tt("w8.size"), bytes(c.size)], ...(c.mtime ? [[tt("w8.date"), new Date(c.mtime).toLocaleDateString()] as [string, string]] : [])] }));
+      return out;
+    }
+    case "business": { // v8: hub tiers (lod 0) -> top deal per tier (lod 1) -> every docked deal with its stage track (lod 2)
+      const out: Chip[] = s.m.tiers.map((tr, i): Chip => ({ id: `t:${tr.stage}`, at: [-(tr.r + 0.4) * 0.72, tr.y + 0.2, (tr.r + 0.4) * 0.7], title: tt(`bz.stage.${tr.stage}`),
+        value: String(tr.count), sub: tr.fees ? tt("w2.paying", { n: Math.round(tr.fees) }) : undefined, color: tr.color, prio: 20 - i }));
+      const col = (st: string) => STAGE_COLOR[st as keyof typeof STAGE_COLOR] ?? "#fff", at = (p: (typeof s.m.ships)[number]): [number, number, number] => [Math.cos(p.angle) * p.r, p.y + 0.7, Math.sin(p.angle) * p.r];
+      s.m.tiers.forEach((tr) => { const p = s.m.ships.filter((x) => x.stage === tr.stage).sort((a, b) => b.fee - a.fee)[0];
+        if (p) out.push({ id: `d:${p.id}`, at: at(p), title: clip(p.name, 24), sub: p.fee ? tt("w2.paying", { n: Math.round(p.fee) }) : tt(`bz.stage.${p.stage}`), color: col(p.stage), prio: 5, lod: 1 }); });
+      s.m.ships.forEach((p) => { const now = BIZ_STAGES.indexOf(p.stage as never);
+        out.push({ id: `s:${p.id}`, at: at(p), title: clip(p.name, 28), sub: tt(`bz.stage.${p.stage}`), color: col(p.stage), prio: 2 + (p.fee ? 1 : 0), lod: 2,
+          steps: BIZ_STAGES.map((st, j) => ({ label: tt(`bz.stage.${st}`), state: j < now ? "done" : j === now ? "now" : "next" })),
+          rows: p.fee ? [[tt("w8.fee"), tt("w2.paying", { n: Math.round(p.fee) })]] : undefined }); });
+      return out;
+    }
     case "analytics": return s.m.peaks.length ? s.m.peaks.map((p, i): Chip => ({ id: `k:${p.name}`, at: [p.x, heightAt(s.m.peaks, p.x, p.z) + 0.6, p.z] as [number, number, number], title: clip(p.name, 24),
-      value: fmtMin(p.minutes), sub: tt("w2.share", { n: Math.round((p.minutes / Math.max(1, s.m.total)) * 100) }), color: "#60a5fa", prio: 20 - i }))
+      value: fmtMin(p.minutes), sub: tt("w2.share", { n: Math.round((p.minutes / Math.max(1, s.m.total)) * 100) }), color: "#60a5fa", prio: 20 - i, lod: i < 3 ? 0 : 1,
+      rows: [[tt("w8.share"), `${Math.round((p.minutes / Math.max(1, s.m.total)) * 100)}%`]] }))
       : [{ id: "none", at: [0, 1.2, 0], title: tt("w2.noTime"), color: "#60a5fa" }];
-    case "life": return s.m.pods.map((p) => ({ id: `h:${p.id}`, at: [p.at[0], 1.9, p.at[2]] as [number, number, number], title: clip(p.name, 22),
-      value: p.done ? tt("w2.done") : p.due ? tt("w2.notYet") : undefined, sub: p.streak ? tt("w2.streak", { n: p.streak }) : undefined, color: p.done ? "#86efac" : "#ffd9a8", dot: p.done ? "ok" : "idle", prio: p.done ? 2 : 3 }));
+    case "life": return s.m.pods.map((p): Chip => ({ id: `h:${p.id}`, at: [p.at[0], 1.9, p.at[2]] as [number, number, number], title: clip(p.name, 22), lod: s.m.pods.length > 5 ? 1 : 0,
+      value: p.done ? tt("w2.done") : p.due ? tt("w2.notYet") : undefined, sub: p.streak ? tt("w2.streak", { n: p.streak }) : undefined, color: p.done ? "#86efac" : "#ffd9a8", dot: p.done ? "ok" : "idle", prio: p.done ? 2 : 3 }))
+      .concat(s.m.due ? [{ id: "today", at: [0, 2.6, 0], title: tt("w2.done"), value: `${s.m.done} / ${s.m.due}`, color: "#86efac", prio: 30 }] : []);
   }
 }
 
@@ -202,19 +218,24 @@ const VAULT_LANTERNS: Inst[] = [-1, 1].flatMap((s) => [{ at: [s * 6, 5.6, -4.6],
 const VAULT_CHESTS: Inst[] = [[-3.4, 2.4, 0.6], [3.6, 2.1, -0.5], [-4.6, -1.2, 1.2], [4.4, -1.9, -1.1]].map(([x, z, r]): Inst => ({ at: [x, 0, z], s: [1, 0.75, 1], ry: r }));
 
 function Vault({ m, reduced }: { m: ReturnType<typeof vaultScene>; reduced: boolean }) {
-  const gold = usePhys({ color: "#7a5a2a", metalness: 1, roughness: 0.32, clearcoat: 0.3 });
+  const gold = usePhys({ color: "#7a5a2a", metalness: 1, roughness: 0.32, clearcoat: 0.3, side: THREE.DoubleSide });
   const stone = usePhys({ color: "#1a140e", metalness: 0.4, roughness: 0.55, side: THREE.BackSide });
   const items = useMemo<CrystalIn[]>(() => m.crystals.map((c) => ({ at: c.at, h: c.h * 1.5, w: c.h * 0.9, color: VAULT_KIND_COLOR[c.kind] ?? VAULT_KIND_COLOR.other, glow: c.fresh ? 1.8 : 0.9 })), [m.crystals]);
-  const emblem = useRef<THREE.Group>(null);
+  const emblem = useRef<THREE.Group>(null), tier = useWorldTier();
+  const shelfStone = usePhys({ color: "#6b5a48", metalness: 0, roughness: 0.92, side: THREE.DoubleSide });
+  const shelf = tier ? shelfStone : gold;
   useFrame(({ clock }) => { if (emblem.current && !reduced) emblem.current.rotation.z = clock.elapsedTime * 0.05; });
   return (<group>
+    {tier > 0 && <VaultHall reduced={reduced} />}
     <Plate r={10} h={0.5} color="#120d08" rim="#ffb347" metal={0.6} rough={0.5} />
     {[3, 5.2, 8.6].map((r) => <mesh key={r} rotation-x={-Math.PI / 2} position={[0, 0.01, 0]}><ringGeometry args={[r, r + 0.04, 128]} />{glowMat("#ffb347", 0.7)}</mesh>)}
     {/* shelves: one arc per kind, four tiers */}
     {m.kinds.map((k) => [0, 1, 2, 3].map((row) => {
       const len = k.to - k.from;
       return (<group key={`${k.kind}${row}`}>
-        <mesh position={[0, 0.5 + row * 1.15, 0]} material={gold}><cylinderGeometry args={[7.75, 7.35, 0.08, 48, 1, false, Math.PI / 2 - k.to, len]} /></mesh>
+        {/* v8 fix: a ring sector (a closed partial cylinder's caps are pie wedges reaching the centre: the old "blades") */}
+        <mesh position={[0, 0.5 + row * 1.15, 0]} rotation-x={Math.PI / 2} material={shelf}><ringGeometry args={[7.3, 7.85, 48, 1, k.from, len]} /></mesh>
+        <mesh position={[0, 0.5 + row * 1.15 - 0.06, 0]} material={shelf}><cylinderGeometry args={[7.85, 7.85, 0.12, 48, 1, true, Math.PI / 2 - k.to, len]} /></mesh>
         <mesh position={[0, 0.455 + row * 1.15, 0]}><cylinderGeometry args={[7.36, 7.36, 0.02, 48, 1, true, Math.PI / 2 - k.to, len]} />{glowMat(VAULT_KIND_COLOR[k.kind] ?? "#ffb347", 1.2)}</mesh>
       </group>);
     }))}
@@ -238,6 +259,53 @@ function Vault({ m, reduced }: { m: ReturnType<typeof vaultScene>; reduced: bool
     <LightShaft at={[0, 0, 0]} r={2.2} h={12} color="#ffcf8a" strength={0.3} />
     <pointLight position={[0, 2, 0]} intensity={25} distance={12} color="#ffb347" />
     <Motes count={reduced ? 100 : 300} color="#ffcf8a" spread={9} height={9} reduced={reduced} />
+  </group>);
+}
+
+/** v8 VAULT look (tier 1+): a monumental underground hall: stone columns with capitals, a ribbed dome with an oculus
+ *  and a ring chandelier, sun shafts with dust, candle-lit balconies of far shelves and a round vault door. */
+const frontCol = (i: number) => Math.abs((i / 14) * Math.PI * 2 - Math.PI / 2) < 0.75; // keep the view from inside clear
+function VaultHall({ reduced }: { reduced: boolean }) {
+  const stone = usePhys({ color: "#4a3e33", metalness: 0, roughness: 0.95 });
+  const dome = usePhys({ color: "#2a221b", metalness: 0, roughness: 1, side: THREE.BackSide });
+  const door = usePhys({ color: "#5b4630", metalness: 0.95, roughness: 0.35, clearcoat: 0.4 });
+  const ring = useRef<THREE.Group>(null);
+  useFrame(({ clock }) => { if (ring.current && !reduced) ring.current.rotation.y = clock.elapsedTime * 0.04; });
+  const amber = (k: number) => new THREE.Color("#ffb347").multiplyScalar(k);
+  return (<group>
+    <SkyDome top="#0a0704" mid="#120c07" low="#050302" r={60} />
+    <mesh position={[0, 7.8, 0]} material={dome}><sphereGeometry args={[11, 48, 16, 0, Math.PI * 2, 0, Math.PI / 2]} /></mesh>
+    <mesh position={[0, 2.6, 0]} material={dome}><cylinderGeometry args={[11, 11, 10.5, 64, 1, true]} /></mesh>
+    {/* columns: shaft, base, capital */}
+    <RingOf n={14} r={9.2} y={3.9} size={[0.75, 7.8, 0.75]} color="#56483b" metal={0} rough={0.95} skip={frontCol} />
+    <RingOf n={14} r={9.2} y={0.25} size={[1.1, 0.5, 1.1]} color="#4a3e33" metal={0} rough={0.95} skip={frontCol} />
+    <RingOf n={14} r={9.2} y={7.85} size={[1.15, 0.45, 1.15]} color="#4a3e33" metal={0} rough={0.95} skip={frontCol} />
+    <mesh position={[0, 8.1, 0]} rotation-x={Math.PI / 2} material={stone}><torusGeometry args={[9.2, 0.35, 8, 96]} /></mesh>
+    {/* ribs up the dome to the oculus */}
+    {Array.from({ length: 8 }, (_, i) => <mesh key={i} rotation-y={(i / 8) * Math.PI * 2} position={[0, 7.8, 0]} material={stone}><torusGeometry args={[10.6, 0.16, 6, 24, Math.PI / 2]} /></mesh>)}
+    <mesh position={[0, 18.4, 0]} rotation-x={Math.PI / 2}><ringGeometry args={[0, 1.3, 32]} /><meshBasicMaterial color={new THREE.Color("#fff1d0").multiplyScalar(3)} toneMapped={false} side={THREE.DoubleSide} /></mesh>
+    {/* candle-lit balconies of far shelves between the columns, two levels */}
+    <WindowRing r={10.7} y0={1.0} rows={4} n={150} size={[0.07, 0.14]} color="#ffb347" k={3} lit={0.6} seed={13} inward />
+    <WindowRing r={10.7} y0={5.2} rows={3} n={150} size={[0.07, 0.14]} color="#ffc56b" k={2.6} lit={0.5} seed={17} inward />
+    <RingOf n={56} r={10.6} y={1.0} size={[0.9, 0.08, 0.45]} color="#3a3027" metal={0} rough={1} />
+    <RingOf n={56} r={10.6} y={5.2} size={[0.9, 0.08, 0.45]} color="#3a3027" metal={0} rough={1} />
+    {/* the ring chandelier under the oculus */}
+    <group ref={ring} position={[0, 9.2, 0]}>
+      <mesh rotation-x={Math.PI / 2} material={door}><torusGeometry args={[2.4, 0.07, 8, 96]} /></mesh>
+      <mesh rotation-x={Math.PI / 2} position={[0, -0.4, 0]} material={door}><torusGeometry args={[1.7, 0.05, 8, 96]} /></mesh>
+      <mesh rotation-x={Math.PI / 2} position={[0, 0.04, 0]}><torusGeometry args={[2.4, 0.025, 6, 96]} /><meshBasicMaterial color={amber(2.6)} toneMapped={false} /></mesh>
+      <mesh position={[0, 4.6, 0]}><cylinderGeometry args={[0.015, 0.015, 9, 4]} /><meshStandardMaterial color="#3a2e22" /></mesh>
+    </group>
+    <LightShaft at={[2.2, 0, 1]} r={1.8} h={18} color="#fff1d0" strength={0.22} />
+    <spotLight position={[0, 18, 0]} angle={0.28} penumbra={0.6} intensity={180} distance={30} color="#fff1d0" />
+    {/* the round vault door set in the back wall, with bolts and a wheel */}
+    <group position={[0, 3.6, -10.4]}>
+      <mesh rotation-x={Math.PI / 2} material={door}><cylinderGeometry args={[3, 3, 0.5, 64]} /></mesh>
+      <mesh position={[0, 0, 0.26]} material={stone}><torusGeometry args={[3.2, 0.35, 10, 64]} /></mesh>
+      {Array.from({ length: 16 }, (_, i) => { const a = (i / 16) * Math.PI * 2; return <mesh key={i} position={[Math.cos(a) * 2.6, Math.sin(a) * 2.6, 0.3]} material={door}><cylinderGeometry args={[0.1, 0.1, 0.2, 10]} /></mesh>; })}
+      <mesh position={[0, 0, 0.45]} material={door}><torusGeometry args={[0.9, 0.08, 8, 48]} /></mesh>
+      <mesh position={[0, 0, 0.3]}><torusGeometry args={[2.1, 0.03, 6, 64]} /><meshBasicMaterial color={amber(1.8)} toneMapped={false} /></mesh>
+    </group>
   </group>);
 }
 

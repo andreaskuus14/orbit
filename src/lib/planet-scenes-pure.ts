@@ -55,7 +55,7 @@ export function podAngle(p: Pod, n: number): number {
 
 export const VAULT_KIND_COLOR: Record<string, string> = { image: "#ff9f2e", video: "#ff7a3d", audio: "#ffc14d", pdf: "#ffb347", text: "#ffd36b", doc: "#e8a33c", other: "#c98a3a" };
 export type VaultKind = { kind: string; count: number; bytes: number; from: number; to: number };
-export type VaultCrystal = { key: string; name: string; kind: string; at: [number, number, number]; h: number; fresh: boolean };
+export type VaultCrystal = { key: string; name: string; kind: string; at: [number, number, number]; h: number; fresh: boolean; size: number; mtime: number };
 export function vaultScene(json: unknown, now: number) {
   const files = arr(obj(json).files).sort((a, b) => num(b.mtime) - num(a.mtime));
   const by = new Map<string, Record<string, unknown>[]>();
@@ -69,7 +69,7 @@ export function vaultScene(json: unknown, now: number) {
     list.slice(0, 40).forEach((f, i) => { // 4 shelves x 10 per kind
       const row = Math.floor(i / 10), col = i % 10, a = from + ((col + 0.5) / 10) * (to - from), r = 7.2 + row * 0.15;
       const h = r2(0.35 + Math.min(0.9, Math.log10(1 + num(f.size)) / 9));
-      crystals.push({ key: str(f.name) || `${k}${i}`, name: str(f.name).split("/").pop() || "file", kind: k, at: [r2(Math.cos(a) * r), r2(0.55 + row * 1.15), r2(Math.sin(a) * r)], h, fresh: now - num(f.mtime) < DAY });
+      crystals.push({ key: str(f.name) || `${k}${i}`, name: str(f.name).split("/").pop() || "file", kind: k, at: [r2(Math.cos(a) * r), r2(0.55 + row * 1.15), r2(Math.sin(a) * r)], h, fresh: now - num(f.mtime) < DAY, size: num(f.size), mtime: num(f.mtime) });
     });
   });
   const total = files.reduce((s, f) => s + num(f.size), 0);

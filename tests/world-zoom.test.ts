@@ -40,7 +40,7 @@ test("labels of the current level win the space", () => {
 
 test("a click flies one level deeper", () => {
   const d0 = flyTo(0, 6, 30), d1 = flyTo(1, 6, 30), d2 = flyTo(2, 6, 30);
-  assert.ok(d0 > d1 && d1 > d2 && d2 === 6);
+  assert.ok(d0 > d1 && d1 > d2 && d2 > 6 && d2 < 8);
   assert.equal(zoomLevel(d0, 6, 30), 1);
   assert.equal(zoomLevel(d1, 6, 30), 2);
   assert.ok(itemReach(6, 30) >= 9.6 && itemReach(6, 30) < 12);
