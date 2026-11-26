@@ -49,7 +49,7 @@ export default function EarthView({ on, shot, reduced, paused, onActive, onPlace
       e = createEarth(host.current, {
         tileUrl: (k, z, x, y) => `/api/earth/tile?k=${k}&z=${z}&x=${x}&y=${y}`,
         buildingsUrl: (x, y) => `/api/earth/buildings?x=${x}&y=${y}`,
-        eeMeshUrl: (x, y) => `/api/earth/ee3d?x=${x}&y=${y}`, eeOrthoUrl: (z, x, y) => `/api/earth/ee-ortho?z=${z}&x=${x}&y=${y}`,
+        eeMeshUrl: (x, y) => `/api/earth/ee3d?x=${x}&y=${y}`, eePlacesUrl: (x, y) => `/api/earth/ee-places?x=${x}&y=${y}`, eeOrthoUrl: (z, x, y) => `/api/earth/ee-ortho?z=${z}&x=${x}&y=${y}`,
         rightInset: () => inset, // the planet sits in the free space left of the panel
         zones: () => zones, topLimit: () => top,
         onTown: (t: TownNews) => { void e.focusPlace(t.lon, t.lat); e.flyTo(t.kind === "district" ? { lon: t.lon, lat: t.lat, alt: 5, tilt: 58, heading: 20 } : { lon: t.lon, lat: t.lat, alt: 14, tilt: 58, heading: 15 }); },
