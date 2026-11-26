@@ -13,7 +13,7 @@ import { createEarth, EARTH_CSS, type Earth } from "./earth-scene";
 
 /** The chrome over the Earth, in host px (top bar, left list, panel, command bar): rings and labels keep out of it. Read every
  *  500 ms, not per frame (reading boxes every frame forced a layout each frame). */
-const CHROME = ".intel-bar, .earth-search, .earth-side, .globe-country, .drawer:not(.drawer-out), .cmdbar, .voice-wake";
+const CHROME = ".intel-bar, .earth-search, .earth-side, .ip-top, .ip-strip, .globe-country, .drawer:not(.drawer-out), .cmdbar, .voice-wake";
 function chromeRects(host: HTMLElement): Rect[] {
   const h = host.getBoundingClientRect();
   return Array.from(document.querySelectorAll<HTMLElement>(CHROME)).filter((e) => !host.contains(e) && e.offsetWidth)

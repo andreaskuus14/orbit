@@ -10,6 +10,8 @@ import { countryByName, findCountry } from "@/lib/countries-pure";
 import { useManual } from "./planet-manual";
 import EarthView from "./earth/EarthView";
 import IntelBar from "./intel/IntelBar";
+import { OtherStories, RankList, TopStoryCard } from "./intel/IntelPanels";
+import { nextSnap, parseSnap, rankRows, topStories } from "@/lib/intel-rank-pure";
 import NewsWeatherLayer from "./news-weather/NewsWeatherLayer";
 import { escBack, readWeather, WEATHER_KEY, type Place } from "@/lib/intel-view-pure";
 import type { QualityMode } from "@/lib/quality-pure";
@@ -110,6 +112,17 @@ export default function NewsGlobe({ reduced, focus: goTo, paused = false }: { on
   const stored = hs.find((h) => h.name === selected) ?? null;
   const lit = hs.find((h) => h.name === (hover ?? selected)) ?? null;
   const focusPt = useMemo(() => (lit ? { lon: lit.lon, lat: lit.lat, fly: !hover && lit.name === selected } : null), [lit, hover, selected]);
+  // the panels: ranked countries (trend against a snapshot from hours ago), the top story and the next three
+  const [prevCounts, setPrevCounts] = useState<Record<string, number> | null>(null);
+  useEffect(() => {
+    if (!data) return;
+    try {
+      const old = parseSnap(localStorage.getItem("orbit.intel.rank.v1")), counts = Object.fromEntries(data.hotspots.map((h) => [h.name, h.count])), keep = nextSnap(old, counts, Date.now());
+      setPrevCounts(keep === old ? old!.counts : null); localStorage.setItem("orbit.intel.rank.v1", JSON.stringify(keep));
+    } catch { /* no storage: no trend */ }
+  }, [data]);
+  const rows = useMemo(() => rankRows(data?.hotspots ?? [], prevCounts, 10), [data, prevCounts]);
+  const stories = useMemo(() => (data ? topStories(data.hotspots, Date.now(), 4) : []), [data]);
   const searchList = useMemo(() => (search ? dedupe(search.results).slice(0, 20) : []), [search]); // not on every hover re-render
 
   const selectedStories: Result[] = useMemo(() => {
@@ -156,6 +169,10 @@ export default function NewsGlobe({ reduced, focus: goTo, paused = false }: { on
       </form>}
 
       {/* Simple page (INTELLIGENCE panel, not More): the map stays a calm picture; search is the tool behind More. */}
+      {!selected && !search && rows.length > 0 && <RankList rows={rows} selected={selected} onHover={setHover} onPick={setSelected} title={t("ip.rank")} />}
+      {!selected && !search && stories[0] && <TopStoryCard s={stories[0]} label={t("ip.top")} more={t("ip.more")} />}
+      {!selected && !search && stories.length > 1 && <OtherStories list={stories.slice(1)} title={t("ip.others")} />}
+
       {manual && !selected && search && <section className="earth-side panel-in" key="search">
           <div className="hud-title" style={{ color: "#e9d5ff" }}>{t("ngx.searchHead")} · {search.q.toUpperCase()}</div>
           <p className="muted text-xs">{t("ngx.searchStats", { s: search.results.length, c: search.hotspots.length })}</p>

@@ -89,3 +89,33 @@ test("earthWeather: every news system gets a swirl, storms flagged", () => {
   const w = earthWeather([h("Ukraine", 31, 49, 30, ["a", "b", "c", "d", "e", "f"]), h("Chile", -71, -33, 1, ["z"])]);
   assert.ok(w.swirls.length >= 1 && w.swirls.every((s) => Number.isFinite(s.lon) && /^#/.test(s.color) && s.outlets >= 1));
 });
+
+import { miniMapTiles, nextSnap, parseSnap, rankRows, topStories, ago } from "../src/lib/intel-rank-pure.ts";
+test("rankRows: busiest first, score against the busiest, trend against the earlier snapshot", () => {
+  const hs = [h("Peru", -75, -10, 4, ["a"]), h("Ukraine", 31, 49, 20, ["b"]), h("Chile", -71, -33, 8, ["c"])];
+  const r = rankRows(hs, { Ukraine: 14, Chile: 9 }, 2);
+  assert.deepEqual(r.map((x) => x.name), ["Ukraine", "Chile"]);
+  assert.deepEqual(r.map((x) => x.score), [99, 40]);
+  assert.deepEqual(r.map((x) => x.delta), [6, -1]);
+  assert.equal(rankRows(hs, null)[0].delta, 0);
+});
+test("snapshot: kept while young, replaced when old, bad JSON ignored", () => {
+  const old = { at: 1000, counts: { A: 1 } };
+  assert.equal(nextSnap(old, { A: 5 }, 2000), old);
+  assert.deepEqual(nextSnap(old, { A: 5 }, 1000 + 7 * 3600_000).counts, { A: 5 });
+  assert.equal(parseSnap("{nope"), null);
+  assert.deepEqual(parseSnap(JSON.stringify(old)), old);
+});
+test("miniMapTiles: the place is in the middle of the box and tiles cover it", () => {
+  const t = miniMapTiles(24.75, 59.44, 4, 300, 118);
+  assert.ok(t.length >= 2 && t.every((x) => x.x >= 0 && x.x < 16 && x.y >= 0 && x.y < 16));
+  assert.ok(t.some((x) => x.left <= 150 && x.left + 256 >= 150 && x.top <= 59 && x.top + 256 >= 59), "a tile holds the centre");
+  assert.ok(miniMapTiles(179.9, 0, 3, 300, 118).every((x) => x.x >= 0 && x.x < 8), "wraps at the antimeridian");
+});
+test("ago + topStories: short ages, biggest system first", () => {
+  assert.equal(ago("2026-01-01T00:00:00Z", Date.parse("2026-01-01T00:28:00Z")), "28 min ago");
+  assert.equal(ago(null, 0), "");
+  const hs = [h("Ukraine", 31, 49, 30, ["a", "b", "c", "d", "e", "f"]), h("Chile", -71, -33, 1, ["z"])];
+  const s = topStories(hs, Date.now(), 2);
+  assert.ok(s.length >= 1 && s[0].outlets >= (s[1]?.outlets ?? 0) && s[0].country);
+});

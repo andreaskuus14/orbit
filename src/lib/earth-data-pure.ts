@@ -4,7 +4,7 @@ import { frontType, fronts, highs, systems, weather, type FrontType } from "./ne
 import type { Hotspot } from "./geo.ts";
 import type { TownNews } from "./earth-pure.ts";
 
-export type EarthRing = { key: string; label: string; title: string; lon: number; lat: number; outlets: number; color: string };
+export type EarthRing = { key: string; label: string; title: string; lon: number; lat: number; outlets: number; color: string; country: string };
 export type EarthArc = { from: { lon: number; lat: number }; to: { lon: number; lat: number }; color: string; title: string };
 /** The news-weather layer (a toggle at orbit): isobars, H/L centres with their hPa number, and fronts typed as on a pressure chart. */
 export type EarthWeather = {
@@ -19,9 +19,11 @@ export type EarthData = { rings: EarthRing[]; arcs: EarthArc[]; towns: TownNews[
 
 export function earthWeather(hs: Hotspot[]): EarthWeather {
   const w = weather(hs, null), at = new Map(hs.map((h) => [h.name, h]));
+  const lows = w.systems.filter((s) => s.kind === "storm"), low = lows.length ? lows : w.systems.slice(0, 2); // no storm today: the two busiest systems
+  const calm = highs(w.systems); // a region with no news at all is a high; none is drawn when every region has news
   const centres: EarthWeather["centres"] = [
-    ...w.systems.filter((s) => s.kind === "storm").map((s) => ({ kind: "L" as const, lon: s.lon, lat: s.lat, hpa: w.hpa[s.key], label: s.label })),
-    ...highs(w.systems).map((h) => ({ kind: "H" as const, lon: h.lon, lat: h.lat, hpa: w.hpa[`H:${h.region}`], label: h.region })),
+    ...low.map((s) => ({ kind: "L" as const, lon: s.lon, lat: s.lat, hpa: w.hpa[s.key], label: s.label })),
+    ...calm.map((h) => ({ kind: "H" as const, lon: h.lon, lat: h.lat, hpa: w.hpa[`H:${h.region}`] ?? 1028, label: h.region })),
   ];
   const fr = w.fronts.flatMap((f) => { const a = at.get(f.from), b = at.get(f.to); return a && b ? [{ from: { lon: a.lon, lat: a.lat }, to: { lon: b.lon, lat: b.lat }, type: frontType(f, w.systems), title: f.title }] : []; });
   const swirls = w.systems.slice(0, 10).map((s) => ({ lon: s.lon, lat: s.lat, outlets: s.outlets, color: s.color, storm: s.kind === "storm" }));
@@ -35,7 +37,7 @@ const hhmm = (iso: string | null, tz = "Europe/Tallinn") => {
 
 export function earthData(hs: Hotspot[], towns: TownNews[], now = Date.now()): EarthData {
   const sys = systems(hs), at = new Map(hs.map((h) => [h.name, h]));
-  const rings = sys.map((s) => ({ key: s.key, label: s.label, title: s.title, lon: s.lon, lat: s.lat, outlets: s.outlets, color: s.color }));
+  const rings = sys.map((s) => ({ key: s.key, label: s.label, title: s.title, lon: s.lon, lat: s.lat, outlets: s.outlets, color: s.color, country: s.country }));
   const arcs = fronts(hs, 8).flatMap((f) => {
     const a = at.get(f.from), b = at.get(f.to);
     return a && b ? [{ from: { lon: a.lon, lat: a.lat }, to: { lon: b.lon, lat: b.lat }, color: f.color, title: f.title }] : [];
