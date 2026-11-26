@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, statSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { FRAME_BUDGET_BYTES, FRAME_IDS, SPOTS, ZOOM_FRAMES, bindSpots, coverScale, dolly, focusFor, frameUrl, hasFrame, onScreen, parallax, spotScreen } from "../src/lib/frame-scene-pure.ts";
+import { FREE_X, PANEL_SIDE, FRAME_BUDGET_BYTES, FRAME_IDS, SPOTS, ZOOM_FRAMES, bindSpots, coverScale, dolly, focusFor, frameUrl, hasFrame, onScreen, parallax, spotScreen } from "../src/lib/frame-scene-pure.ts";
 
 const walk = (d: string): number => readdirSync(d, { withFileTypes: true }).reduce((n, e) => n + (e.isDirectory() ? walk(join(d, e.name)) : statSync(join(d, e.name)).size), 0);
 
@@ -55,4 +55,21 @@ test("memory, agents, studio and gamedev render their frame on tier > 0 and keep
     assert.ok(src.includes(`<FrameWorld id="${id}"`), file); assert.match(src, /frameOn \? <FrameWorld|frameOn \? <FrameWorld|: frameOn \? <FrameWorld/, file);
     assert.match(src, /worldTier\(q\.bloomScale, q\.msaa\) > 0/, file); assert.ok(src.includes("<Canvas"), `${file} keeps its procedural canvas`);
   }
+});
+
+test("no label slot sits under the world's side panel, and slots do not stack", () => {
+  for (const id of FRAME_IDS) {
+    const [lo, hi] = FREE_X[PANEL_SIDE[id]];
+    SPOTS[id].forEach((a, i) => {
+      assert.ok(a.x >= lo && a.x <= hi, `${id} slot ${i} x=${a.x}`);
+      SPOTS[id].slice(i + 1).forEach((b) => assert.ok(Math.abs(a.x - b.x) >= 0.13 || Math.abs(a.y - b.y) >= 0.09, `${id} overlap`));
+    });
+  }
+});
+
+test("ARCH and CORE keep their tool on top of a plate backdrop that never takes pointer events", () => {
+  const arch = readFileSync("src/components/ArchWorld.tsx", "utf8"), core = readFileSync("src/components/CoreChat.tsx", "utf8"), bd = readFileSync("src/components/FrameBackdrop.tsx", "utf8");
+  assert.ok(arch.includes('<FrameBackdrop id="arch"') && arch.includes("<Canvas") && arch.includes("bare={plateOn}"));
+  assert.ok(core.includes('<FrameBackdrop id="core"') && core.includes("<CorePresence size=\"lg\" className=\"core-stage-orb\""));
+  assert.match(bd, /pointer-events-none/); assert.match(bd, /worldTier\(w\.bloom, w\.msaa\) > 0/);
 });

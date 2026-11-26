@@ -58,6 +58,7 @@ import { IfcOpen } from "./LocalAi";
 import { OpenInBlender } from "./BlenderEntry";
 import { ArchRender } from "./ArchRender";
 import { ArchHouse, ArchLook, ArchSiteLook } from "./ArchHouse";
+import FrameBackdrop from "./FrameBackdrop";
 import { ArchDims, KickFrames, archChips } from "./ArchIsland";
 import { ChipLayer, ChipProjector, useChipRig } from "./world-kit";
 import { designHouse } from "@/lib/arch-design-pure";
@@ -362,6 +363,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const budget = splatBudget(qualityPreset.dpr);
   // the realistic look (ArchHouse): the plain model view of his own house; blueprint, hologram, scans and opened IFC keep their look
   const real = !scan && !holo && !bp && !ifc;
+  const plateOn = !flat && !scan && !holo && !bp && !ifc && !night && worldTier(qualityPreset.bloomScale, qualityPreset.msaa) > 0; // v10: the owner's house plate behind the editor
   const bg = scan ? SCAN_BG : holo ? HOLO_C.bg : bp ? BP.bg : night ? "#1c2230" : real ? (sun.on ? "#cfdbe6" : "#c99a7c") : BG;
   const grab = useRef<(() => HTMLCanvasElement) | null>(null);
   const [cmd, setCmd] = useState("");
@@ -560,16 +562,17 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const hasResults = !!msg || !!notes || !!lessonMsg;
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label={tr("arch.region")} style={{ background: bg }}>
+      {plateOn && <FrameBackdrop id="arch" glow="#fdba74" reduced={reduced} paused={paused} />}
       {!flat && (<PlanetBoundary name="arch-scene" quiet>
         <Canvas key={glr.key} onCreated={(st) => { glr.onCreated(st); r3f.current = st; }} frameloop={paused ? "never" : "demand"} shadows={shadowsOn({ real, sun: sun.on, holo, scan: !!scan })} dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
         <WarmCompile world="arch" cap={4000} /* a slow driver shows the house after 4 s at most, not a blank grey plot for 20 s */ />
         <Grab to={grab} />
         <Live on={!paused && loop} />
         {quality === "auto" && loop && <PerformanceMonitor onDecline={qualityPreset.onDecline} /> /* fps only means something while it loops */}
-          <color attach="background" args={[bg]} />
-          <fog attach="fog" args={[bg, real ? 140 : 60, real ? 600 : 140]} />
+          {!plateOn && <color attach="background" args={[bg]} />}
+          {!plateOn && <fog attach="fog" args={[bg, real ? 140 : 60, real ? 600 : 140]} />}
           <WorldTierSet tier={worldTier(qualityPreset.bloomScale, qualityPreset.msaa)} />
-          {real ? <ArchLook sun={lightPos} night={night} reach={lookReach} effects={{ ao: qualityPreset.bloomScale > 0, bloom: qualityPreset.bloomScale, msaa: qualityPreset.msaa }} /> : <>
+          {real ? <ArchLook sun={lightPos} night={night} reach={lookReach} effects={{ ao: qualityPreset.bloomScale > 0, bloom: qualityPreset.bloomScale, msaa: qualityPreset.msaa }} bare={plateOn} /> : <>
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />
           <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={shadowMap(qualityPreset.bloomScale)} shadow-bias={-0.0004} shadow-camera-left={-SR} shadow-camera-right={SR} shadow-camera-top={SR} shadow-camera-bottom={-SR} shadow-camera-far={SR * 3} /></>}
           {scan ? <SplatCloud scan={scan} worker={worker} cap={budget.cap} maxPx={budget.maxPx} flip={flip}>
