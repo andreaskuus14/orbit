@@ -8,6 +8,7 @@ import { useFrame } from "@react-three/fiber";
 import { Capsule, Crystals, LightShaft, Many, Motes, Plate, PlanetGround, rockGeometry, useWorldTier, type Chip, type CrystalIn, type Inst } from "./world-kit";
 import { lifeGarden } from "@/lib/worlds-v3-pure";
 import { AssetMany, RealOr } from "./world-assets";
+import { Water } from "./world-surfaces";
 import { BIZ_STAGES, GATE_ANGLE, GATE_COLOR, VAULT_KIND_COLOR, bizScene, bytes, clip, fmtMin, heightAt, lifeScene, opsScene, podAngle, timeScene, vaultScene, type SceneId } from "@/lib/planet-scenes-pure";
 import { STAGE_COLOR } from "@/lib/living-galaxy-pure";
 
@@ -301,7 +302,9 @@ function Life({ m, reduced }: { m: ReturnType<typeof lifeScene>; reduced: boolea
     {/* the island: grass top, jagged rock below, waterfalls off the front edge, a ring of stepping stones round the pond */}
     <mesh position={[0, -0.15, 0]}><cylinderGeometry args={[7.6, 7.4, 0.3, 64]} /><meshStandardMaterial color="#3d6b2c" roughness={0.95} flatShading /></mesh>
     <mesh position={[0, -0.3, 0]} geometry={lg.rock} material={rock} />
-    <mesh rotation-x={-Math.PI / 2} position={[0, 0.02, 0]}><circleGeometry args={[2.2, 48]} /><meshPhysicalMaterial color="#1d4f6b" metalness={0.1} roughness={0.05} clearcoat={1} emissive="#3aa0c8" emissiveIntensity={0.15} /></mesh>
+    <RealOr fallback={<mesh rotation-x={-Math.PI / 2} position={[0, 0.02, 0]}><circleGeometry args={[2.2, 48]} /><meshPhysicalMaterial color="#1d4f6b" metalness={0.1} roughness={0.05} clearcoat={1} emissive="#3aa0c8" emissiveIntensity={0.15} /></mesh>}>
+      <Water position={[0, 0.03, 0]} scale={[2.2, 2.2, 1]} deep="#0b2f45" shallow="#3c8f9a" reduced={reduced} />
+    </RealOr>
     {[[-2.4, 7.2], [3.1, 6.9]].map(([x, z], i) => <mesh key={i} position={[x, -1.9, z]} rotation-y={Math.atan2(x, z)} material={lg.fall}><planeGeometry args={[1.1, 3.6]} /></mesh>)}
     <Many items={lg.stones} geo={lg.disc} mat={lg.stone} />
     <Many items={lg.pads} geo={lg.disc} mat={lg.pad} />

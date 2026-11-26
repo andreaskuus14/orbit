@@ -11,6 +11,20 @@ import { Many, Motes, rockGeometry, useWorldTier, type Chip, type Inst } from ".
 import { scatter, type DevIsland } from "@/lib/worlds-v3-pure";
 import { fortPiece } from "@/lib/world-assets-pure";
 import { AssetMany, RealOr } from "./world-assets";
+import { Water, Waterfall, triplanarMaterial, useTex } from "./world-surfaces";
+
+/** v6: the island with real CC0 ground: grass on everything facing up, cliff rock on the sides (triplanar, no stretching). */
+function TexturedIsland({ rock, disc }: { rock: THREE.BufferGeometry; disc: THREE.BufferGeometry }) {
+  const [gd, gn, cd, cn] = useTex("grassD", "grassN", "cliffD", "cliffN");
+  const m = useMemo(() => ({ land: triplanarMaterial({ d: cd, n: cn, scale: 0.32 }, { d: gd, n: gn, scale: 0.55 }, { tint: "#cfc4b8", topTint: "#b8e08a", slope: 0.55 }),
+    grass: triplanarMaterial({ d: cd, n: cn, scale: 0.32 }, { d: gd, n: gn, scale: 0.55 }, { tint: "#cfc4b8", topTint: "#b8e08a", slope: 0.35 }) }), [gd, gn, cd, cn]);
+  useEffect(() => () => { m.land.dispose(); m.grass.dispose(); }, [m]);
+  return <>
+    <mesh geometry={rock} material={m.land} receiveShadow />
+    <mesh position={[0, -0.12, 0]} scale={[5.3, 0.25, 5.3]} geometry={disc} material={m.grass} receiveShadow />
+    <mesh position={[0, 0.3, -2.2]} scale={[3.4, 0.7, 2.2]} geometry={disc} material={m.grass} receiveShadow />
+  </>;
+}
 
 const PINK = "#ff3d8b", CYAN = "#5eead4";
 const SEV_COLOR = { crash: "#ff4d6d", major: "#ef4444", minor: "#f59e0b", polish: "#94a3b8" } as const;
@@ -88,18 +102,25 @@ export function DevIslandScene({ s, reduced }: { s: DevIsland; reduced: boolean 
     {/* the sky planet behind */}
     <mesh position={[18, 14, -40]}><sphereGeometry args={[11, 48, 24]} /><meshStandardMaterial color="#2b3f73" emissive="#1e3a8a" emissiveIntensity={0.35} roughness={0.8} /></mesh>
     {/* island: rock underside, grass top, castle hill */}
-    <mesh geometry={geos.rock} material={mats.rock} />
-    <pointLight position={[0, hi ? -4.8 : -3.2, 5]} intensity={hi ? 24 : 40} distance={14} decay={1.6} color={PINK} />
-    <mesh position={[0, -0.12, 0]} scale={[5.3, 0.25, 5.3]} geometry={geos.disc} material={mats.grass} />
-    <mesh position={[0, 0.3, -2.2]} scale={[3.4, 0.7, 2.2]} geometry={geos.disc} material={mats.grass} />
+    <RealOr fallback={<>
+      <mesh geometry={geos.rock} material={mats.rock} />
+      <mesh position={[0, -0.12, 0]} scale={[5.3, 0.25, 5.3]} geometry={geos.disc} material={mats.grass} />
+      <mesh position={[0, 0.3, -2.2]} scale={[3.4, 0.7, 2.2]} geometry={geos.disc} material={mats.grass} />
+    </>}><TexturedIsland rock={geos.rock} disc={geos.disc} /></RealOr>
+    <pointLight position={[0, hi ? -4.8 : -3.2, 5]} intensity={hi ? 12 : 40} distance={14} decay={1.6} color={PINK} />
     <mesh position={[0, hi ? -2.4 : -1.3, 0]} rotation-x={Math.PI / 2}><torusGeometry args={[hi ? 6.4 : 5.3, 0.05, 8, 128]} /><meshBasicMaterial color={new THREE.Color(PINK).multiplyScalar(2.2)} toneMapped={false} /></mesh>
     {/* pond, river and the waterfall off the front edge */}
-    <mesh position={[1.2, 0.02, 2.2]} scale={[0.9, 0.04, 0.9]} geometry={geos.disc} material={mats.water} />
-    {/* the river runs to the rim and pours off it, outside the ring (v4: it no longer passes through the ring) */}
-    <mesh position={[1.4, 0.02, hi ? 4.2 : 3.9]} scale={[0.35, 0.04, hi ? 2.1 : 1.5]} geometry={geos.box} material={mats.water} />
-    {hi ? <>
-      <mesh position={[1.45, -0.95, 5.72]} rotation-x={0.08} scale={[0.62, 1.9, 1]}><planeGeometry args={[1, 1]} /><primitive object={mats.fall} attach="material" /></mesh>
-    </> : <mesh position={[1.4, -1.6, 4.85]} scale={[0.6, 3.3, 1]}><planeGeometry args={[1, 1]} /><primitive object={mats.fall} attach="material" /></mesh>}
+    <RealOr fallback={<>
+      <mesh position={[1.2, 0.02, 2.2]} scale={[0.9, 0.04, 0.9]} geometry={geos.disc} material={mats.water} />
+      <mesh position={[1.4, 0.02, hi ? 4.2 : 3.9]} scale={[0.35, 0.04, hi ? 2.1 : 1.5]} geometry={geos.box} material={mats.water} />
+      {hi ? <mesh position={[1.45, -0.95, 5.72]} rotation-x={0.08} scale={[0.62, 1.9, 1]}><planeGeometry args={[1, 1]} /><primitive object={mats.fall} attach="material" /></mesh>
+        : <mesh position={[1.4, -1.6, 4.85]} scale={[0.6, 3.3, 1]}><planeGeometry args={[1, 1]} /><primitive object={mats.fall} attach="material" /></mesh>}
+    </>}>
+      {/* v6: rippling water reflecting the sky, and a real flowing fall with foam and mist off the rim */}
+      <Water position={[1.2, 0.05, 2.2]} scale={[0.95, 0.95, 1]} reduced={reduced} />
+      <Water position={[1.4, 0.045, 4.15]} scale={[0.42, 2.2, 1]} round={false} foam={0.6} reduced={reduced} />
+      <Waterfall lip={[1.4, 0.03, 5.22]} push={0.85} drop={3.3} width={0.5} reduced={reduced} />
+    </RealOr>
     {/* buildings: solid = built, wireframe = still to build */}
     <RealOr fallback={<><Many items={built} geo={geos.box} mat={mats.stone} /><Many items={roofs} geo={geos.cone} mat={mats.roof} /></>}>
       {fort.map(([n, items]) => <AssetMany key={n} id="fort" node={n} items={items} uniform={false} />)}
@@ -109,7 +130,8 @@ export function DevIslandScene({ s, reduced }: { s: DevIsland; reduced: boolean 
     <Many items={todo} geo={geos.wire} mat={mats.holoFill} />
     {/* trees */}
     <RealOr fallback={<><Many items={flora.trunks} geo={geos.trunk} mat={mats.trunk} /><Many items={flora.blooms} geo={geos.ball} mat={mats.bloom} /><Many items={flora.pines} geo={geos.cone} mat={mats.pine} /></>}>
-      <AssetMany id="tree" items={real.trees} />
+      <AssetMany id="tree" items={real.trees.filter((_, i) => i % 3)} />
+      <AssetMany id="tree" items={real.trees.filter((_, i) => !(i % 3))} tint="#ffb3cf" />
       <AssetMany id="shrub" items={real.shrubs} />
     </RealOr>
     {/* release portal: lit once the game is in beta or live */}
