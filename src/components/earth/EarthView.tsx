@@ -1,9 +1,8 @@
 "use client";
-// INTELLIGENCE → "Planet Earth" (feat/earth-globe): the photoreal Earth with today's stories, and a swoop down to towns with their
-// local news. Behind ORBIT_UI_MOTION. NewsGlobe owns which map shows and the one tab bar (IntelBar); this only draws the Earth.
+// INTELLIGENCE: the one map. The photoreal Earth with today's stories, glowing borders and local-news towns at country zoom, and a
+// swoop down to the real 3D cities. NewsGlobe owns the tab bar (IntelBar), the weather switch and Esc; this only draws the Earth.
 // Scene: earth-scene.ts · data: earth-data-pure.ts · places/camera: earth-pure.ts · tiles: /api/earth/tile · local news: /api/earth/local.
 import { useEffect, useRef, useState } from "react";
-import { motionActive, useUiMotion } from "../motion/motion";
 import type { Hotspot } from "@/lib/geo";
 import { earthData } from "@/lib/earth-data-pure";
 import { CLOSE_ALT, CLOSE_TILT, introPath, levelAt, SHOTS, type TownNews } from "@/lib/earth-pure";
@@ -21,13 +20,12 @@ function chromeRects(host: HTMLElement): Rect[] {
     .map((e) => { const r = e.getBoundingClientRect(); return [r.left - h.left - 8, r.top - h.top - 8, r.right - h.left + 8, r.bottom - h.top + 8] as Rect; });
 }
 
-export default function EarthView({ on, shot, reduced, paused, onActive, onPlace, onFail }: {
-  on: boolean; shot: { place: Place; n: number } | null; reduced: boolean; paused: boolean;
-  onActive?: (on: boolean) => void; onPlace?: (p: Place) => void; onFail?: () => void;
+export default function EarthView({ on, shot, weather, focus, reduced, paused, onPlace, onFail }: {
+  on: boolean; shot: { place: Place; n: number } | null; weather: boolean; /** a list row hovered or picked: lights that place, and a picked one (fly) is flown to */ focus?: { lon: number; lat: number; fly?: boolean } | null; reduced: boolean; paused: boolean;
+  onPlace?: (p: Place) => void; onFail?: () => void;
 }) {
-  const motion = useUiMotion() || motionActive();
-  const active = motion && on;
-  useEffect(() => { onActive?.(active); }, [active, onActive]);
+  const active = on;
+  const wxRef = useRef(weather); wxRef.current = weather;
   const placeCb = useRef(onPlace); placeCb.current = onPlace;
   const shotRef = useRef(shot); shotRef.current = shot;
 
@@ -56,6 +54,7 @@ export default function EarthView({ on, shot, reduced, paused, onActive, onPlace
       });
     } catch { clearInterval(mz); setFailed(true); onFail?.(); return; }
     earth.current = e;
+    e.setWeather(wxRef.current, true);
     e.start();
     if (reduced) e.flyTo(SHOTS.orbit, 1); else void e.ready.then(() => { if (!shotRef.current) e.playPath(introPath().slice(0, 1)); }); // a tab press wins over the intro
     let on = true, hs: Hotspot[] = [], ee: TownNews[] = [], region: TownNews[] = [];
@@ -96,6 +95,13 @@ export default function EarthView({ on, shot, reduced, paused, onActive, onPlace
     document.addEventListener("visibilitychange", vis);
     return () => { on = false; clearInterval(iv); clearInterval(watch); clearInterval(mz); document.removeEventListener("visibilitychange", vis); e.dispose(); earth.current = null; };
   }, [active, reduced]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { earth.current?.setWeather(weather, reduced); }, [weather, reduced]);
+  const fLon = focus?.lon, fLat = focus?.lat, fFly = focus?.fly;
+  useEffect(() => {
+    const e = earth.current; if (!e || !active) return;
+    e.setFocus(fLon === undefined || fLat === undefined ? null : { lon: fLon, lat: fLat });
+    if (fFly && fLon !== undefined && fLat !== undefined) e.flyTo({ lon: fLon, lat: fLat, alt: 3200, tilt: 0, heading: 0 }, reduced ? 1 : undefined);
+  }, [fLon, fLat, fFly, active, reduced]);
   const pausedRef = useRef(paused); pausedRef.current = paused;
   useEffect(() => { const e = earth.current; if (!e) return; if (paused || document.hidden) e.stop(); else e.start(); }, [paused]);
   // a tab in the bar: fly there (the first tab press after switching from another map lands here once the scene is up)

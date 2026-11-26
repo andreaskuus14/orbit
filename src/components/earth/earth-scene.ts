@@ -9,10 +9,14 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { x2lon, y2lat, arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, lerpPose, moveMs, zoneFade, type Rect, MIN_ALT, wheelZoom } from "@/lib/earth-pure";
+import { distKm, x2lon, y2lat, arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, lerpPose, moveMs, zoneFade, type Rect, MIN_ALT, wheelZoom } from "@/lib/earth-pure";
 import { detailFor, detailStale } from "@/lib/intel-view-pure";
 
-import type { EarthData } from "@/lib/earth-data-pure";
+import type { EarthData, EarthWeather } from "@/lib/earth-data-pure";
+import { borderLines } from "@/lib/earth-borders-pure";
+import { LAYER, borderK, glide, markerDeg } from "@/lib/earth-layers-pure";
+import { declutter, sunAt } from "@/lib/classic-map-pure";
+import { decodeCountries, type CountryShape } from "@/lib/topo";
 import { BUILDINGS_MAX_ALT, BZ, TOTAL as MAX_BUILDINGS, extrude, tilesAround, type Building } from "@/lib/earth-buildings-pure";
 import { LIGHT_GLSL } from "@/lib/earth-light-pure";
 import { createEe3d, EE3D_CSS } from "./earth-ee3d";
@@ -20,7 +24,7 @@ import { CLOUD, NOISE, mosaic } from "./earth-tiles";
 import { createEeLabels, EE_LABELS_CSS } from "./earth-ee-labels";
 import { clampAltAt } from "@/lib/earth-ee3d-pure";
 import { GROUND_PX, GROUND_TILES, STYLE, buildingEdge, coverCircle, drawGround, edgeAlpha, groundFade, metresPerUnit, withOpenSea, EXT, type Ctx, type Ground } from "@/lib/earth-ground-pure";
-export type { EarthData };
+export type { EarthData, EarthWeather };
 export type EarthOpts = { tileUrl: (k: TileKind, z: number, x: number, y: number) => string; sunMs?: number; dpr?: number; onTown?: (t: TownNews) => void; rightInset?: () => number; zones?: () => Rect[]; topLimit?: () => number; preserve?: boolean; buildingsUrl?: (x: number, y: number) => string; home?: { lon: number; lat: number; name: string };
   /** Estonia close-up labels: districts and landmarks of one z13 tile (/api/earth/ee-places). */
   eePlacesUrl?: (x: number, y: number) => string;
@@ -63,6 +67,7 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   vec3 V = normalize(uCam - vW); float rim = pow(1. - max(dot(vN, V), 0.), 2.5) * .55;
   vec3 c = day * .82 * (0.16 + 1.0*sqrt(max(d, 0.))) * mix(.35, 1., lit) + night * vec3(1.,.78,.45) * 1.6 * uLights * (1. - smoothstep(-.2, .08, d)); // uLights: off at city zoom, where 600 m/px lights through a missing imagery tile read as cream blocks
   vec3 Hh = normalize(uSun + V); float spec = pow(max(dot(vN, Hh), 0.), 140.) * .18 * lit * (1. - smoothstep(.06,.14, (day.r+day.g+day.b)/3.)); // sun glint on the sea
+  c += day * .1 * (1. - lit); // the night side keeps its land readable
   c += spec * vec3(1.,.95,.85) + rim * vec3(.42,.62,.95) * (.1 + .6*lit);
   gl_FragColor = vec4(c, 1.); }`;
 
@@ -134,12 +139,25 @@ void main(){ \n#include <logdepthbuf_fragment>\n float flow = fract(vUv.x - uT*.
   float a = .28 + 1.2*head;
   gl_FragColor = vec4(uColor*1.2, a * uOp * smoothstep(0.,.05,vUv.x) * smoothstep(1.,.95,vUv.x)); }`;
 const uvVS = `${LOG} varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); \n#include <logdepthbuf_vertex>\n }`;
-const ringFS = `${LOGF} uniform vec3 uColor; uniform float uT; uniform float uOp; uniform float uK; uniform float uN; varying vec2 vUv;
+const ringFS = `${LOGF} uniform vec3 uColor; uniform float uT; uniform float uOp; uniform float uK; uniform float uN; uniform float uWash; varying vec2 vUv;
 void main(){ \n#include <logdepthbuf_fragment>\n vec2 p = vUv*2.-1.; float r = length(p) / (1. + .04*uK*sin(uT*1.6));
   float ang = atan(p.y,p.x)/6.2831853 + .5; float tick = step(fract(ang*uN), .18) * smoothstep(.03,.0,abs(r-.93)) * step(ang*uN, uN);
   float ring = smoothstep(.025,.0,abs(r-.86))*.9 + smoothstep(.02,.0,abs(r-.62))*.35;
-  float core = smoothstep(.07,.0,r); float a = (ring + core + tick) * uOp; if (a < .01) discard;
+  float core = smoothstep(.07,.0,r); float wash = exp(-r*r*4.5) * uWash * (1. - smoothstep(.9, 1., r)); // the soft glow behind a country's ring
+  float a = (ring + core + tick + wash) * uOp; if (a < .01) discard;
   gl_FragColor = vec4(uColor, a); }`;
+// glowing borders: each segment is a screen-space ribbon (aQ = the other end, aSide = -1/+1) with a bright core and a soft edge
+const borderVS = `${LOG} attribute vec3 aQ; attribute float aSide; attribute float aW; uniform vec2 uRes; uniform float uPx; varying float vS; varying float vW;
+void main(){ vS = aSide; vW = aW; vec4 p = projectionMatrix*modelViewMatrix*vec4(position,1.), q = projectionMatrix*modelViewMatrix*vec4(aQ,1.);
+  vec2 d = (q.xy/q.w - p.xy/p.w) * uRes; d = length(d) > 1e-4 ? normalize(d) : vec2(1., 0.);
+  gl_Position = p; gl_Position.xy += vec2(-d.y, d.x) * aSide * uPx * 2. / uRes * p.w; \n#include <logdepthbuf_vertex>\n }`;
+const borderFS = `${LOGF} uniform vec3 uColor; uniform float uOp; varying float vS; varying float vW;
+void main(){ \n#include <logdepthbuf_fragment>\n float core = exp(-vS*vS*22.), soft = exp(-vS*vS*3.4);
+  float a = (soft*.2 + core*.6) * uOp * (.22 + .78*vW);
+  gl_FragColor = vec4(mix(uColor, vec3(1.), core*.4) * (.9 + .9*vW), a); }`;
+const plainVS = `${LOG} void main(){ gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); \n#include <logdepthbuf_vertex>\n }`;
+const lineFS = `${LOGF} uniform vec3 uColor; uniform float uOp;
+void main(){ \n#include <logdepthbuf_fragment>\n gl_FragColor = vec4(uColor, .55 * uOp); }`;
 const beamFS = `${LOGF} uniform vec3 uColor; uniform float uOp; uniform float uT; varying vec2 vUv;
 void main(){ \n#include <logdepthbuf_fragment>\n float a = pow(clamp(1. - vUv.y, 0., 1.), 1.6) * uOp; float side = 1. - abs(vUv.x*2.-1.);
   gl_FragColor = vec4(uColor*1.4, a * side); }`;
@@ -249,9 +267,8 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   composer.addPass(clean); composer.addPass(bloom); composer.addPass(dof); composer.addPass(new OutputPass());
   const sunV = new THREE.Vector3();
   const setSun = (ms: number) => {
-    const d = new Date(ms), y0 = Date.UTC(d.getUTCFullYear(), 0, 1), doy = (ms - y0) / 864e5;
-    const lat = -23.44 * Math.cos((2 * Math.PI / 365.25) * (doy + 10)), lon = -((d.getUTCHours() + d.getUTCMinutes() / 60) - 12) * 15;
-    sunV.set(...toXYZ(lon, lat)).normalize();
+    const s = sunAt(ms);
+    sunV.set(...toXYZ(s.lon, s.lat)).normalize();
   };
   setSun(o.sunMs ?? Date.now());
 
@@ -465,7 +482,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   const putBuildings = async (x: number, y: number, bs: Building[], gr?: Ground) => { await terrainReady; addBuildings(`${x}/${y}`, x, y, bs, gr); };
 
   /* story layers */
-  const glow: { m: THREE.ShaderMaterial; lo: number; hi: number; base: number; pts?: THREE.Vector3[]; ring?: THREE.Mesh }[] = [];
+  const glow: { m: THREE.ShaderMaterial; lo: number; hi: number; base: number; pts?: THREE.Vector3[]; ring?: THREE.Mesh; /** news weather only / story arcs only */ kind?: "wx" | "arc" }[] = [];
   const circle = (lon: number, lat: number, rKm: number, h: number) => { const d = rKm / 111.32, k = Math.cos((lat * Math.PI) / 180); return [[d / k, 0], [-d / k, 0], [0, d], [0, -d]].map(([x, y]) => new THREE.Vector3(...toXYZ(lon + x, lat + y, h))); };
   const layer = new THREE.Group(); scene.add(layer);
   const col = (c: string) => new THREE.Color(c);
@@ -473,40 +490,91 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     const p = new THREE.Vector3(...toXYZ(lon, lat, h)), nrm = p.clone().normalize();
     return new THREE.Matrix4().lookAt(nrm, new THREE.Vector3(), new THREE.Vector3(0, 1, 0)).setPosition(p);
   }
-  const labels: { el: HTMLDivElement; p: THREE.Vector3; lo: number; hi: number; town?: TownNews; pri: number; w: number; h: number; ox: number; oy: number; flip?: boolean }[] = [];
+  const labels: { el: HTMLDivElement; p: THREE.Vector3; lo: number; hi: number; town?: TownNews; pri: number; w: number; h: number; ox: number; oy: number; flip?: boolean; wx?: boolean; ring?: boolean; a?: number }[] = [];
   const hud = document.createElement("div"); hud.className = "earth-hud"; host.appendChild(hud);
   const scrim = document.createElement("div"); scrim.className = "earth-scrim"; hud.appendChild(scrim);
   const ee = o.eeMeshUrl && o.eeOrthoUrl ? createEe3d({ scene, hud, sun: sunV, camU: U.uCam, groundAt, meshUrl: o.eeMeshUrl, orthoUrl: o.eeOrthoUrl, maxTiles: o.eeMaxTiles }) : null;
   const labelLayer = document.createElement("div"); labelLayer.className = "earth-labels"; hud.appendChild(labelLayer);
   const eel = ee && o.eePlacesUrl ? createEeLabels(hud, o.eePlacesUrl) : null;
-  function label(html: string, lon: number, lat: number, h: number, lo: number, hi: number, cls: string, town?: TownNews) {
+  function label(html: string, lon: number, lat: number, h: number, lo: number, hi: number, cls: string, town?: TownNews, color?: string) {
     const el = document.createElement("div"); el.className = `earth-label ${cls}`; el.innerHTML = html; labelLayer.appendChild(el);
+    if (color) el.style.setProperty("--accent", color);
     if (town && o.onTown) { el.style.pointerEvents = "auto"; el.onclick = () => o.onTown!(town); }
-    labels.push({ el, p: new THREE.Vector3(...toXYZ(lon, lat, h)), lo, hi, town, pri: labels.length, w: 0, h: 0, ox: 0, oy: 0 });
+    labels.push({ el, p: new THREE.Vector3(...toXYZ(lon, lat, h)), lo, hi, town, pri: labels.length, w: 0, h: 0, ox: 0, oy: 0, wx: cls.startsWith("wx"), ring: cls === "ring" });
   }
   const decode = (s: string) => s.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(+d)).replace(/&quot;/g, '"').replace(/&amp;/g, "&");
   const esc = (raw: string) => { const s = decode(raw); return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!); };
     const cut = (raw: string, n: number) => { const s = decode(raw); return (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s); };
 
+
+  /* one highlighted country: a hovered or picked row in the list lights its place on the map */
+  const fMat = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: ringFS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uColor: { value: new THREE.Color("#ffffff") }, uT: { value: 0 }, uOp: { value: 0 }, uK: { value: 1 }, uN: { value: 0 }, uWash: { value: 0 } } });
+  const fMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), fMat); fMesh.visible = false; fMesh.renderOrder = 11; scene.add(fMesh);
+  let fOn = false, fK = 0;
+  /* news weather (a layer at orbit: isobars, H/L centres, typed fronts) and glowing country borders (country zoom) */
+  let wxOn = false, wxK = 0, lastT = 0, bMesh: THREE.Mesh | null = null, shapes: CountryShape[] | null = null, shapesP: Promise<void> | null = null, hotNow: Record<string, number> = {};
+  const wxFront = { cold: "#5aa9ff", warm: "#ff7a5c", occluded: "#b98cff" } as const;
+  const own: THREE.BufferGeometry[] = [];
+  const borderMat = new THREE.ShaderMaterial({ vertexShader: borderVS, fragmentShader: borderFS, transparent: true, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uColor: { value: col(ACCENT) }, uOp: { value: 0 }, uRes: { value: new THREE.Vector2(W(), H()) }, uPx: { value: 1.8 } } });
+  function buildWeather(w: EarthWeather) {
+    for (const g of own.splice(0)) g.dispose();
+    const pos: number[] = [];
+    for (const lv of w.isobars) for (const line of lv.lines) for (let i = 1; i < line.length; i++) pos.push(...toXYZ(line[i - 1][0], line[i - 1][1], 0.0016), ...toXYZ(line[i][0], line[i][1], 0.0016));
+    if (pos.length) {
+      const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); own.push(g);
+      const m = new THREE.ShaderMaterial({ vertexShader: plainVS, fragmentShader: lineFS, uniforms: { uColor: { value: col("#dbe7f5") }, uOp: { value: 0 }, uT: { value: 0 } }, transparent: true, depthWrite: false });
+      layer.add(new THREE.LineSegments(g, m)); glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: 1, kind: "wx" });
+    }
+    for (const f of w.fronts) {
+      const pts = arcPoints(f.from, f.to, 80, 0.05).map((p) => new THREE.Vector3(...p));
+      const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: glowFS, uniforms: { uColor: { value: col(wxFront[f.type]) }, uT: { value: 0 }, uOp: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+      layer.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 120, 0.0026, 6), m));
+      glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: 1, kind: "wx" });
+    }
+    for (const c of w.centres) label(`<b>${c.kind}</b><i>${c.hpa}</i>`, c.lon, c.lat, 0.004, LAYER.hotspots.lo, LAYER.hotspots.hi, `wx wx-${c.kind}`);
+  }
+  function buildBorders(hot: Record<string, number>) {
+    hotNow = hot;
+    shapesP ??= import("world-atlas/countries-50m.json").then((m) => { shapes = decodeCountries(m.default as never); }).catch((x) => { shapesP = null; });
+    void shapesP.then(() => {
+      if (disposed || !shapes) return;
+      const b = borderLines(shapes, hotNow, 0.12), n = b.segments, pos = new Float32Array(n * 12), q = new Float32Array(n * 12), side = new Float32Array(n * 4), wt = new Float32Array(n * 4), idx = new Uint32Array(n * 6);
+      for (let i = 0; i < n; i++) {
+        const a = toXYZ(b.lonlat[i * 4], b.lonlat[i * 4 + 1], 0.003), c = toXYZ(b.lonlat[i * 4 + 2], b.lonlat[i * 4 + 3], 0.003), v = i * 4;
+        pos.set(a, v * 3); pos.set(a, v * 3 + 3); pos.set(c, v * 3 + 6); pos.set(c, v * 3 + 9);
+        q.set(c, v * 3); q.set(c, v * 3 + 3); q.set(a, v * 3 + 6); q.set(a, v * 3 + 9);
+        side.set([-1, 1, 1, -1], v); wt.fill(b.weight[i], v, v + 4); idx.set([v, v + 1, v + 2, v + 1, v + 3, v + 2], i * 6);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("aQ", new THREE.BufferAttribute(q, 3)); g.setAttribute("aSide", new THREE.BufferAttribute(side, 1)); g.setAttribute("aW", new THREE.BufferAttribute(wt, 1)); g.setIndex(new THREE.BufferAttribute(idx, 1));
+      g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 2);
+      if (bMesh) { scene.remove(bMesh); bMesh.geometry.dispose(); }
+      bMesh = new THREE.Mesh(g, borderMat); bMesh.frustumCulled = false; bMesh.renderOrder = 9; scene.add(bMesh);
+    });
+  }
+
   function setData(d: EarthData) {
     layer.clear(); glow.length = 0; labels.length = 0; labelLayer.innerHTML = "";
     for (const [ri, r] of d.rings.slice(0, 14).entries()) {
-      const s = (ringDeg(r.outlets) * Math.PI) / 180 * 2;
-      const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: ringFS, uniforms: { uColor: { value: col(ACCENT) }, uT: { value: Math.random() * 3 }, uOp: { value: 1 }, uK: { value: Math.min(1, r.outlets / 8) }, uN: { value: Math.min(24, r.outlets) } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+      const s = (markerDeg(r.outlets) * Math.PI) / 180 * 2;
+      const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: ringFS, uniforms: { uColor: { value: col(ACCENT) }, uT: { value: Math.random() * 3 }, uOp: { value: ri === 0 ? 1 : 0.7 }, uK: { value: 0.35 }, uN: { value: 0 }, uWash: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(s, s), m);
       mesh.applyMatrix4(tangentAt(r.lon, r.lat, 0.004));
-      layer.add(mesh); glow.push({ m, lo: 2500, hi: 1e9, base: 1, pts: circle(r.lon, r.lat, (ringDeg(r.outlets) * 111.32), 0.004) }); // country rings give way to the town layer
-      if (ri < 5) label(`<b>${esc(r.label)}</b><span>${esc(cut(r.title, 52))}</span><i>${r.outlets} ${r.outlets === 1 ? "outlet" : "outlets"}</i>`, r.lon, r.lat, 0.01, 5000, 1e9, "ring");
+      layer.add(mesh); glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: 1, pts: circle(r.lon, r.lat, (markerDeg(r.outlets) * 111.32), 0.004) }); // country rings give way to the town layer
+      if (ri < 4) label(`<b>${esc(r.label)}</b><i>${r.outlets} ${r.outlets === 1 ? "outlet" : "outlets"}</i>`, r.lon, r.lat, 0.01, 5000, 1e9, ri === 0 ? "ring lead" : "ring"); // names only: the one story is the card below
     }
-    for (const a of d.arcs.slice(0, 8)) {
-      const pts = arcPoints(a.from, a.to, 80, 0.22).map((p) => new THREE.Vector3(...p));
+    for (const a of d.arcs.filter((x) => distKm(x.from, x.to) < 8000).slice(0, 4)) { // short, neat arcs only: a long one would leave the globe
+      const pts = arcPoints(a.from, a.to, 80, 0.07).map((p) => new THREE.Vector3(...p));
       const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: glowFS, uniforms: { uColor: { value: col(ACCENT) }, uT: { value: 0 }, uOp: { value: 1 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
-      layer.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 120, 0.0022, 6), m));
-      glow.push({ m, lo: 2500, hi: 1e9, base: 1 });
+      layer.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 120, 0.0009, 5), m));
+      glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: 0.7, kind: "arc" });
     }
+    buildWeather(d.weather); buildBorders(d.hot);
     const max = Math.max(1, ...d.towns.map((t) => t.count));
     const ringAt = (lon: number, lat: number, rKm: number, lo: number, hi: number, k: number) => {
-      const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: ringFS, uniforms: { uColor: { value: col(ACCENT) }, uT: { value: 0 }, uOp: { value: 0 }, uK: { value: 0.5 }, uN: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+      const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: ringFS, uniforms: { uColor: { value: col(ACCENT) }, uT: { value: 0 }, uOp: { value: 0 }, uK: { value: 0.5 }, uN: { value: 0 }, uWash: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
       const s2 = (rKm * 2) / EARTH_KM, mesh = new THREE.Mesh(new THREE.PlaneGeometry(s2, s2), m);
       mesh.applyMatrix4(tangentAt(lon, lat, 400 / (EARTH_KM * 1000))); layer.add(mesh); glow.push({ m, lo, hi, base: k, pts: circle(lon, lat, rKm, 400 / (EARTH_KM * 1000)), ring: mesh });
     };
@@ -550,7 +618,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     card.innerHTML = big ? `<small>${esc(big.name)} · ${big.count} local stories</small>` + big.stories.slice(0, 3).map((s) => `<p>${esc(cut(s.title, 70))}<em>${esc(s.source ?? "")}</em></p>`).join("") : "";
     if (big) cardAt = new THREE.Vector3(...toXYZ(big.lon, big.lat, 40 / EARTH_KM));
     const lead = d.rings[0];
-    lower.innerHTML = lead ? `<small>Most covered · ${lead.outlets} outlets</small><b>${esc(cut(lead.title, 80))}</b>` : "";
+    lower.innerHTML = lead ? `<small>Top story · ${esc(lead.label)} · ${lead.outlets} outlets</small><b>${esc(cut(lead.title, 80))}</b>` : "";
   }
   const timeline = document.createElement("div"); timeline.className = "earth-timeline"; hud.appendChild(timeline);
   const card = document.createElement("div"); card.className = "earth-card"; hud.appendChild(card);
@@ -623,13 +691,18 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     if (eeK < 0.98) updateBuildings(p);
     bloom.strength = 0.45;
     const w = W(), h = H();
+    const dt = lastT ? Math.min(0.25, Math.max(0, (tMs - lastT) / 1000)) : 0; lastT = tMs;
+    wxK = glide(wxK, wxOn, dt);
+    fK = glide(fK, fOn, dt); fMat.uniforms.uOp.value = fK * band(alt, 40, 1e9, 0.8); fMat.uniforms.uT.value = t; fMesh.visible = fK > 0.01;
+    if (fMesh.visible) fMesh.scale.setScalar(Math.max(40, alt * 0.075) / EARTH_KM * 2);
+    borderMat.uniforms.uOp.value = borderK(alt) * (1 - 0.35 * wxK); borderMat.uniforms.uRes.value.set(w, h); // weather on: the borders step back
     const fwd = cam.getWorldDirection(fwdV);
     timeline.style.opacity = String(band(alt, 3000, 1e9, 0.8));
     lower.style.opacity = String(band(alt, 3000, 1e9, 0.8));
     const cA = band(alt, 60, 700, 0.6);
     const zones = zonesNow(eeK > 0.1, cA > 0.1);
     for (const g of glow) {
-      let a = g.base * band(alt, g.lo, g.hi, 0.8);
+      let a = g.base * band(alt, g.lo, g.hi, 0.8) * (g.kind === "wx" ? wxK : g.kind === "arc" ? 1 - wxK : 1); // weather on: fronts replace the story arcs
       if (a > 0.005 && g.pts) {
         let r = screenRect(g.pts, fwd);
         if (r && g.ring) { // town/district rings: small base rings at city zoom, never wider than 120 px
@@ -643,8 +716,25 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     composer.render();
     const taken: Rect[] = [...zones], topY = o.topLimit?.() ?? 70;
     if (edgeW !== w) { edgeW = w; const hb = host.getBoundingClientRect(), tb = timeline.getBoundingClientRect(); edgeR = tb.width ? Math.min(w, tb.right - hb.left + 32) : w; } // the panel's left edge: labels stay left of it
+    { // country headlines at orbit: placed beside their halo on whichever side is free (classic-map-pure declutter)
+      const cand = labels.filter((l) => l.ring), items: Parameters<typeof declutter>[0] = [];
+      for (const [i, l] of cand.entries()) {
+        const a = band(alt, l.lo, l.hi, 0.6), facing = l.p.dot(cam.position) > l.p.lengthSq() * 0.999999 && tmp.copy(l.p).sub(cam.position).dot(fwd) > 0;
+        v.copy(l.p).project(cam);
+        if (!l.w) { l.w = l.el.offsetWidth || 160; l.h = l.el.offsetHeight || 60; }
+        const ok = a > 0.02 && facing && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
+        l.el.style.opacity = "0";
+        items.push({ id: String(i), x: ((v.x + 1) / 2) * w, y: ((1 - v.y) / 2) * h, w: l.w, h: l.h, rank: i, facing: ok ? 1 : -1 });
+        l.a = a;
+      }
+      const zb = [...taken, [0, 0, w, topY] as Rect].map((r) => ({ x: r[0], y: r[1], w: r[2] - r[0], h: r[3] - r[1] }));
+      for (const p of declutter(items, zb, { w: edgeR, h })) if (p.show) {
+        const l = cand[+p.id]; l.el.style.opacity = String(l.a ?? 1); l.el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`; taken.push([p.x - 4, p.y - 4, p.x + l.w + 4, p.y + l.h + 4]);
+      }
+    }
     for (const l of labels) {
-      const a = band(alt, l.lo, l.hi, 0.6) * (l.town && eel ? 1 - eeK : 1); // in the close-up the news pins take over
+      if (l.ring) continue; // placed by declutter above
+      const a = band(alt, l.lo, l.hi, 0.6) * (l.town && eel ? 1 - eeK : 1) * (l.wx ? wxK : 1); // in the close-up the news pins take over
       const facing = l.p.dot(cam.position) > l.p.lengthSq() * 0.999999 && tmp.copy(l.p).sub(cam.position).dot(fwd) > 0;
       v.copy(l.p).project(cam);
       let on = a > 0.02 && facing && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
@@ -750,7 +840,11 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
 
   return {
     ready: ready.then(() => terrainReady),
-    setData, frame, flyTo, playPath, focusPlace, putBuildings,
+    setData, frame, flyTo,
+    /** Lights one place (lon/lat) on the map, or none. */
+    setFocus(p: { lon: number; lat: number } | null) { fOn = !!p; if (p) { tangentAt(p.lon, p.lat, 0.005).decompose(fMesh.position, fMesh.quaternion, new THREE.Vector3()); } },
+    /** News weather layer on/off (glides; `instant` for stills). */
+    setWeather(on: boolean, instant = false) { wxOn = on; if (instant) wxK = on ? 1 : 0; }, playPath, focusPlace, putBuildings,
     /** Tiles still loading (for the stills script). */
     loading: () => bBusy + (ee?.loading() ?? 0) + (eel?.loading() ?? 0),
     /** Puts the sun where it is at a moment (ms since 1970). */
@@ -781,7 +875,10 @@ export const EARTH_CSS = EE3D_CSS + EE_LABELS_CSS + `
 .earth-label b{display:block;font-size:13px;font-weight:600;color:var(--ui)}
 .earth-label span{display:block;font-size:12px;line-height:1.35;color:rgba(238,242,247,.82);white-space:normal;width:230px}
 .earth-label i{font-style:normal;font-size:11px;color:var(--accent)}
-.earth-label.ring{margin:-7px 0 0 16px;padding:4px 10px 5px;border-left:1px solid var(--accent);background:linear-gradient(90deg,rgba(1,3,8,.62),rgba(1,3,8,.35) 70%,rgba(1,3,8,0))}
+.earth-label.ring{margin:0;padding:2px 8px 3px;display:flex;gap:6px;align-items:baseline;border-left:1px solid rgba(238,242,247,.35)}.earth-label.ring b{font-weight:500;font-size:12px}.earth-label.ring.lead{border-left-color:var(--accent)}.earth-label.ring.lead b{font-weight:600;font-size:13px}
+.earth-label.wx{margin:-17px 0 0 -17px;width:34px;display:flex;flex-direction:column;align-items:center;gap:1px}
+.earth-label.wx b{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:15px;font-weight:700;border:1.5px solid currentColor;background:rgba(1,3,8,.45)}
+.earth-label.wx i{color:inherit;font-size:10.5px}.earth-label.wx-L{color:#ff8a70}.earth-label.wx-H{color:#7cc4ff}
 .earth-label.pin{margin:-8px 0 0 9px;display:flex;gap:6px;align-items:baseline;cursor:pointer}
 .earth-label.pin:before{content:"";position:absolute;left:-9px;top:5px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
 .earth-label.pin b{font-size:12px;font-weight:500}.earth-label.pin.city b{font-size:14px;font-weight:600}
@@ -793,12 +890,12 @@ export const EARTH_CSS = EE3D_CSS + EE_LABELS_CSS + `
 .earth-place{position:absolute;left:var(--g);top:28px;font-size:15px;font-weight:600}
 .earth-readout{position:absolute;left:var(--g);top:50px;font:400 11px/1 var(--font-jetbrains,ui-monospace,monospace);color:rgba(238,242,247,.6)}
 .earth-timeline{position:absolute;left:var(--g);right:calc(var(--pr) + var(--g));bottom:24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));grid-auto-rows:0;grid-template-rows:auto;overflow:hidden;gap:16px;border-top:1px solid rgba(238,242,247,.18);padding-top:10px}
-.earth-timeline div{min-width:0;font-size:11px;color:rgba(238,242,247,.78)}
+.earth-timeline{opacity:.6}.earth-timeline div{min-width:0;font-size:11px;color:rgba(238,242,247,.78)}
 .earth-timeline time{display:block;color:var(--accent);margin-bottom:2px}
 .earth-timeline span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .earth-lower{position:absolute;left:var(--g);bottom:84px;max-width:620px;text-shadow:0 2px 20px rgba(0,0,0,.7)}
 .earth-lower small,.earth-card small{display:block;font-size:12px;color:var(--accent)}
-.earth-lower b{display:block;font-family:var(--font-serif,Georgia,serif);font-size:30px;font-weight:400;line-height:1.18;margin-top:6px;letter-spacing:-.01em}
+.earth-lower b{display:block;font-family:var(--font-serif,Georgia,serif);font-size:26px;font-weight:400;line-height:1.18;margin-top:6px;letter-spacing:-.01em}
 .earth-card{position:absolute;left:0;top:0;width:280px;padding:12px 0 0 14px;border-left:1px solid var(--accent);text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 18px rgba(0,0,0,.6)}
 .earth-card p{margin:8px 0 0;font-size:13px;line-height:1.35}.earth-card em{display:block;font-style:normal;font-size:11px;color:rgba(238,242,247,.6);margin-top:2px}
 .earth-reticle{position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;transition:opacity .32s cubic-bezier(.23,1,.32,1)}

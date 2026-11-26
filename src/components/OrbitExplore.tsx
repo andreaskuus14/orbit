@@ -6,7 +6,7 @@ import { isPlanetWorld } from "@/lib/planet-worlds-pure";
 
 // Intent loading: share Next's module cache without downloading every world at startup.
 export function warmWorld(id: PanelId) {
-  const load = id === "intelligence" ? () => import("./NewsGlobe").then((m) => { m.warmGlobe(); })
+  const load = id === "intelligence" ? () => import("./NewsGlobe")
     : id === "studio" ? () => import("./StudioWorld")
     : id === "creation" ? () => import("./DevWorld")
     : id === "agents" ? () => import("./AgentsStation")

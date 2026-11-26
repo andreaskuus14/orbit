@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { declutter, relatedPairs, ringSize, sunAt } from "../src/lib/classic-map-pure.ts";
+import { declutter, ringSize, sunAt } from "../src/lib/classic-map-pure.ts";
 
 const S = { w: 1000, h: 800 };
 const L = (id: string, x: number, y: number, rank: number, facing = 1) => ({ id, x, y, w: 100, h: 24, rank, facing });
@@ -24,12 +24,6 @@ test("declutter: panels and the far side hide labels", () => {
 test("ringSize grows with count and is capped", () => {
   assert.ok(ringSize(1, 10) < ringSize(9, 10));
   assert.equal(ringSize(50, 10), ringSize(10, 10));
-});
-
-test("relatedPairs: shared stories first, fallback to busiest", () => {
-  const hs = [{ name: "A", stories: [{ url: "1" }, { url: "2" }] }, { name: "B", stories: [{ url: "1" }, { url: "2" }] }, { name: "C", stories: [{ url: "2" }] }];
-  assert.deepEqual(relatedPairs(hs)[0], ["A", "B", 2]);
-  assert.deepEqual(relatedPairs([{ name: "A", stories: [] }, { name: "B", stories: [] }]), [["A", "B", 1]]);
 });
 
 test("sunAt: noon UTC puts the sun near lon 0", () => {
