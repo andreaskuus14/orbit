@@ -88,8 +88,9 @@ function Quad({ id, rt, labels, reduced, hasZoom, tex, color, cover }: {
   </>;
 }
 
-export default function FrameScene({ id, chips, onPick, reduced, paused, glow, onBack, back }: {
+export default function FrameScene({ id, chips, onPick, reduced, paused, glow, onBack, back, backdrop = false }: {
   id: FrameId; chips: Chip[]; onPick: (id: string) => void; reduced: boolean; paused?: boolean; glow: string; onBack?: () => void; back: string;
+  backdrop?: boolean; // ARCH and CORE: the plate only, behind the tool/orb: no labels, no wheel zoom, never takes a pointer event
 }) {
   const [tex, setTex] = useState<THREE.Texture[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -98,7 +99,7 @@ export default function FrameScene({ id, chips, onPick, reduced, paused, glow, o
   const cover = useRef<Vec2>([1, 1]);
   const labels = useRef(new Map<string, { el: HTMLDivElement; x: number; y: number; d: number }>());
   const root = useRef<HTMLDivElement>(null);
-  const bound = useMemo(() => bindSpots(id, chips), [id, chips]);
+  const bound = useMemo(() => (backdrop ? [] : bindSpots(id, chips)), [id, chips, backdrop]);
   const [zoomed, setZoomed] = useState(false);
 
   useEffect(() => {
@@ -115,15 +116,16 @@ export default function FrameScene({ id, chips, onPick, reduced, paused, glow, o
 
   useEffect(() => {
     const el = root.current; if (!el) return;
+    const tgt: HTMLElement | Window = backdrop ? window : el;
     const move = (e: PointerEvent) => { const b = el.getBoundingClientRect(); rt.current.mt = [((e.clientX - b.left) / b.width - 0.5) * 2, ((e.clientY - b.top) / b.height - 0.5) * 2]; };
     const wheel = (e: WheelEvent) => {
       e.preventDefault(); const r = rt.current, b = el.getBoundingClientRect();
       if (r.tt < 0.02 && e.deltaY < 0) { const c = cover.current; r.ft = focusFor({ x: ((e.clientX - b.left) / b.width - 0.5) * c[0] + 0.5, y: ((e.clientY - b.top) / b.height - 0.5) * c[1] + 0.5 }); }
       r.tt = Math.max(0, Math.min(1, r.tt - e.deltaY * 0.0012)); setZoomed(r.tt > 0.05);
     };
-    el.addEventListener("pointermove", move); el.addEventListener("wheel", wheel, { passive: false });
-    return () => { el.removeEventListener("pointermove", move); el.removeEventListener("wheel", wheel); };
-  }, [tex]);
+    tgt.addEventListener("pointermove", move as EventListener); if (!backdrop) el.addEventListener("wheel", wheel, { passive: false });
+    return () => { tgt.removeEventListener("pointermove", move as EventListener); el.removeEventListener("wheel", wheel); };
+  }, [tex, backdrop]);
 
   const pickIt = (cid: string, s: { x: number; y: number }) => {
     rt.current.ft = focusFor({ x: s.x, y: s.y }); rt.current.tt = 1; setZoomed(true); onPick(cid);
@@ -132,7 +134,7 @@ export default function FrameScene({ id, chips, onPick, reduced, paused, glow, o
 
   if (failed) return null;
   return (
-    <div ref={root} className="absolute inset-0" data-frame-scene={id} data-zoomed={zoomed ? "1" : "0"}>
+    <div ref={root} className={backdrop ? "pointer-events-none absolute inset-0" : "absolute inset-0"} aria-hidden={backdrop || undefined} data-frame-scene={id} data-zoomed={zoomed ? "1" : "0"}>
       {tex && (
         <Canvas orthographic frameloop={paused ? "never" : "always"} dpr={[1, 1.5]} gl={{ antialias: false, powerPreference: "high-performance" }} camera={{ position: [0, 0, 1] }}>
           <Quad id={id} rt={rt} labels={labels} reduced={reduced} hasZoom={tex.length === 4} tex={tex} color={glow} cover={cover} />
@@ -149,7 +151,7 @@ export default function FrameScene({ id, chips, onPick, reduced, paused, glow, o
           </div>
         ))}
       </div>
-      {zoomed && <button className="chip absolute left-3 top-[4.5rem] z-[15]" onClick={out}>{back}</button>}
+      {!backdrop && zoomed && <button className="chip absolute left-3 top-[4.5rem] z-[15]" onClick={out}>{back}</button>}
     </div>
   );
 }

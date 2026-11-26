@@ -147,9 +147,9 @@ export const ArchSiteLook = memo(function ArchSiteLook({ scene }: { scene: Scene
 });
 
 // ---------- light ----------
-type LookProps = { sun: [number, number, number]; night: boolean; reach: number; effects: { ao: boolean; bloom: number; msaa: number } };
+type LookProps = { bare?: boolean /* v10: a plate is the backdrop, so no drawn sky dome */; sun: [number, number, number]; night: boolean; reach: number; effects: { ao: boolean; bloom: number; msaa: number } };
 /** Physical sky from the sun direction, image light from that sky, a sun with soft shadows fitted to the plot, and the effects. */
-export function ArchLook({ sun, night, reach, effects }: LookProps) {
+export function ArchLook({ sun, night, reach, effects, bare = false }: LookProps) {
   const gl = useThree((s) => s.gl);
   const dir = useMemo(() => new THREE.Vector3(...sun).normalize(), [sun]);
   const pos = useMemo(() => dir.clone().multiplyScalar(reach * 1.6), [dir, reach]);
@@ -163,7 +163,7 @@ export function ArchLook({ sun, night, reach, effects }: LookProps) {
   }, [gl, fx]);
   const procEnv = <Environment frames={1} resolution={128} environmentIntensity={night ? 0.08 : 0.45}>{!night && <Sky {...sky} />}</Environment>;
   return <>
-    {!night && <Sky {...sky} />}
+    {!night && !bare && <Sky {...sky} />}
     {/* tier 1+ by day: a real Poly Haven sky (CC0) lights the scene and is what the glass reflects; tier 0, night and while loading: the drawn sky */}
     {night ? procEnv : <RealOr fallback={procEnv}><AssetEnv id="hdriDay" intensity={low ? 0.5 : 0.75} /></RealOr>}
     <hemisphereLight args={low ? ["#ffd9b8", "#5e5038", night ? 0.04 : 0.2] : ["#dfe9f5", "#6b7a52", night ? 0.04 : 0.15]} />

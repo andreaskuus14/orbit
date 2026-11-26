@@ -48,6 +48,7 @@ import { CORE_SIGNAL, type CoreSignal } from "@/lib/core-mood-pure";
 import { corePhase } from "./motion/motion";
 import { createPacer, useStreamFade } from "./motion/stream";
 import { CorePresence } from "./motion/CorePresence";
+import FrameBackdrop, { useBackdropOn } from "./FrameBackdrop";
 import { CitedAnswer } from "./CitedAnswer";
 import { LevelPicker, LevelWord } from "./ThinkLevel";
 import type { LevelChoice } from "@/lib/think-level-pure";
@@ -446,6 +447,7 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
   // Behind one "More" button on every screen (MIX clean-up): the composer used to show four extra controls under every chat.
   const [tools, setTools] = useState(false);
   const [rail, setRail] = useState(false); // wide screens: draft and progress open in the orb's place (never a cut-off column)
+  const plate = useBackdropOn(); // v10: the core plate as a parallax backdrop behind the orb (saved quality not Low)
 
   // Memoised so streaming deltas re-render only the live bubble, not the whole history.
   const history = useMemo(() => msgs.map((m, i) => (
@@ -535,6 +537,7 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
       <button type="button" className="core-rail-btn" aria-expanded={tools} onClick={() => setTools((v) => !v)} title={tr("chat.tools")}><RailIcon d="M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z" /><span>{tr("core.toolsShort")}</span></button>
     </nav>
     <div className="core-stage">
+      {plate && <FrameBackdrop id="core" glow="#a78bfa" dim={0.55} />}
       {rail ? <CoreWorkspace artifact={artifact} mission={mission} busy={busy} heard={heard} onAsk={(t) => void send(t)} />
         : <><CorePresence size="lg" className="core-stage-orb" /><div className="core-floor" aria-hidden="true"><i /><i /><i /></div></>}
     </div>

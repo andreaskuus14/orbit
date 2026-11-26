@@ -8,8 +8,8 @@ export const FRAME_IDS = ["vault", "operations", "business", "agents", "memory",
 export type FrameId = (typeof FRAME_IDS)[number];
 export const hasFrame = (id: string): id is FrameId => (FRAME_IDS as readonly string[]).includes(id);
 
-/** Where the places are in each frame (the slots live chips are bound to, in priority order). */
-export const SPOTS: Record<FrameId, Spot[]> = {
+/** Authoring positions (the places in each plate, in priority order). SPOTS below is these, moved clear of the side panel. */
+const RAW_SPOTS: Record<FrameId, Spot[]> = {
   vault: [{ x: 0.5, y: 0.47, d: 0.35 }, { x: 0.33, y: 0.38, d: 0.5 }, { x: 0.67, y: 0.38, d: 0.5 }, { x: 0.1, y: 0.35, d: 0.6 }, { x: 0.75, y: 0.3, d: 0.6 },
     { x: 0.12, y: 0.62, d: 0.7 }, { x: 0.74, y: 0.64, d: 0.7 }, { x: 0.5, y: 0.1, d: 0.2 }, { x: 0.5, y: 0.82, d: 0.9 }],
   operations: [{ x: 0.5, y: 0.36, d: 0.5 }, { x: 0.2, y: 0.5, d: 0.6 }, { x: 0.7, y: 0.5, d: 0.6 }, { x: 0.3, y: 0.78, d: 0.8 }, { x: 0.68, y: 0.78, d: 0.8 }, { x: 0.12, y: 0.3, d: 0.5 }, { x: 0.5, y: 0.66, d: 0.7 }, { x: 0.74, y: 0.3, d: 0.4 }],
@@ -24,6 +24,25 @@ export const SPOTS: Record<FrameId, Spot[]> = {
   business: [{ x: 0.5, y: 0.2, d: 0.55 }, { x: 0.5, y: 0.4, d: 0.6 }, { x: 0.5, y: 0.52, d: 0.65 }, { x: 0.5, y: 0.64, d: 0.7 }, { x: 0.72, y: 0.48, d: 0.6 },
     { x: 0.68, y: 0.7, d: 0.75 }, { x: 0.1, y: 0.47, d: 0.6 }, { x: 0.2, y: 0.62, d: 0.75 }, { x: 0.5, y: 0.82, d: 0.9 }],
 };
+
+/** Which side the world's panel sits on (wide screens): the studio and game dev panels are on the left, the rest on the right. */
+export const PANEL_SIDE: Record<FrameId, "left" | "right"> = { vault: "right", operations: "right", business: "right", agents: "right", memory: "right", analytics: "right", studio: "left", life: "right", gamedev: "left", arch: "right", core: "right" };
+/** Free band of the screen (x, as a fraction of the frame width) that the panel does not cover. */
+export const FREE_X: Record<"left" | "right", [number, number]> = { right: [0.04, 0.63], left: [0.37, 0.96] };
+
+/** Move slots the panel would cover to the mirrored place on the free side (plates are mostly symmetric), nudged down when that lands on another slot. */
+export function clearOfPanel(spots: Spot[], side: "left" | "right"): Spot[] {
+  const [lo, hi] = FREE_X[side], out: Spot[] = [];
+  for (const sp of spots) {
+    let { x, y } = sp;
+    if (x < lo || x > hi) { x = Math.min(hi, Math.max(lo, 1 - x)); if (x < lo || x > hi) x = side === "right" ? hi : lo; }
+    const y0 = y, hit = (yy: number) => out.some((o) => Math.abs(o.x - x) < 0.13 && Math.abs(o.y - yy) < 0.09);
+    for (const dy of [0, 0.1, -0.1, 0.2, -0.2, 0.3, -0.3, 0.4, -0.4]) { const yy = y0 + dy; if (yy > 0.06 && yy < 0.94 && !hit(yy)) { y = yy; break; } }
+    out.push({ ...sp, x, y });
+  }
+  return out;
+}
+export const SPOTS = Object.fromEntries((Object.keys(RAW_SPOTS) as FrameId[]).map((k) => [k, clearOfPanel(RAW_SPOTS[k], PANEL_SIDE[k])])) as Record<FrameId, Spot[]>;
 
 /** One zoom frame per planet where it exists (zoom-<id>.webp): the level the dolly-in crossfades to. */
 export const ZOOM_FRAMES: readonly FrameId[] = ["vault", "operations", "business", "agents", "memory", "analytics", "studio"];
