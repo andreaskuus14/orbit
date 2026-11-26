@@ -52,6 +52,8 @@ async function osmBox(b) {
 const srv = createServer(async (req, res) => {
   const u = new URL(req.url, "http://x"), x = +u.searchParams.get("x"), y = +u.searchParams.get("y");
   try {
+    // FAIL=1: act like a flaky network on the laptop (no OSM ground, every third z13+ imagery tile missing)
+    if (process.env.FAIL && (u.pathname === "/b" || (u.searchParams.get("k") === "day" && +u.searchParams.get("z") >= 13 && (x + y) % 3 === 0))) throw 0;
     if (u.pathname === "/") { res.setHeader("Content-Type", "text/html"); return res.end(`<!doctype html><meta charset=utf-8><body><script src="/bundle-r.js"></script>`); }
     if (u.pathname === "/data.json") return res.end(readFileSync(`${tmp}/data.json`));
     if (u.pathname === "/bundle-r.js") return res.end(readFileSync(`${tmp}/bundle-r.js`));
@@ -74,6 +76,15 @@ const places = {
 const views = { "400m": { alt: 0.4, tilt: 58 }, "1.2km": { alt: 1.2, tilt: 52 } };
 const suns = { day: T(10, 0), dusk: T(19, 40) };
 const only = process.env.SHOTS?.split(","), mode = process.env.MODE ?? "after";
+// POSES='[{"file":"a.jpg","lon":..,"lat":..,"alt":5.9,"tilt":58,"heading":15,"sun":<ms>}]': ad-hoc poses instead of the grid
+if (process.env.POSES) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  page.on("console", (m) => { if (m.type() === "error" && !/404|Failed to load/.test(m.text())) console.log("page:", m.text().slice(0, 300)); });
+  await page.goto(`http://127.0.0.1:${srv.address().port}/?ee=1`, { waitUntil: "domcontentloaded" });
+  await page.evaluate(() => window.earthReady);
+  for (const p of JSON.parse(process.env.POSES)) { await page.evaluate((q) => window.shot(q), p); await page.screenshot({ path: `${out}/${p.file}`, type: "jpeg", quality: 88 }); console.log(p.file); }
+  await browser.close(); srv.close(); process.exit(0);
+}
 for (const real of mode === "both" ? [true, false] : [mode === "after"]) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   page.on("console", (m) => { if (process.env.DEBUG || (m.type() === "error" && !/404|Failed to load/.test(m.text()))) console.log("page:", m.text().slice(0, 300)); });

@@ -78,11 +78,14 @@ export const ringDeg = (outlets: number) => 0.8 + 1.6 * Math.sqrt(Math.max(0, Ma
 export type Pose = { lon: number; lat: number; alt: number; tilt: number; heading: number };
 export type Shot = Pose & { name: string; hold: number; move: number };
 
+/** Where a town or district click (and the Tallinn tab) flies: low and tilted, inside the real-data close-up in Estonia (EE_FULL). */
+export const CLOSE_ALT = 1.2, CLOSE_TILT = 55;
+
 export const SHOTS = {
   orbit: { name: "orbit", lon: 22, lat: 40, alt: 10500, tilt: 0, heading: 0 },
   country: { name: "country", lon: 25.0, lat: 58.4, alt: 900, tilt: 28, heading: 0 },
   region: { name: "region", lon: 25.4, lat: 58.75, alt: 210, tilt: 50, heading: -12 },
-  town: { name: "town", lon: 24.75, lat: 59.425, alt: 22, tilt: 55, heading: 20 },
+  town: { name: "town", lon: 24.7445, lat: 59.4355, alt: CLOSE_ALT, tilt: CLOSE_TILT, heading: 20 }, // Tallinn old town, close up
 } as const satisfies Record<string, Pose & { name: string }>;
 export type ShotName = keyof typeof SHOTS;
 
@@ -141,6 +144,13 @@ export function band(alt: number, lo: number, hi: number, soft = 0.7): number {
  *  there (earth-scene uStyl); 1 km still frames a whole old town. */
 export const MIN_ALT = 1;
 export const clampAlt = (alt: number) => Math.max(MIN_ALT, alt);
+/** Mouse wheel / trackpad zoom: altitude after one wheel event (deltaY in px; a trackpad pinch comes as ctrl+wheel with small
+ *  deltas, so it counts more), kept between the floor (km) and 30 000 km; and the tilt that goes with it (flat from high up, 62° low). */
+export function wheelZoom(alt: number, deltaY: number, pinch: boolean, floor: number): { alt: number; tilt: number } {
+  const d = Math.max(-300, Math.min(300, deltaY)) * (pinch ? 0.01 : 0.0012);
+  const a = Math.max(floor, Math.min(30000, alt * Math.exp(d)));
+  return { alt: a, tilt: Math.min(62, Math.max(0, 62 - Math.log2(Math.max(1, a / 8)) * 6)) };
+}
 
 export type Rect = [number, number, number, number]; // left, top, right, bottom (px)
 /** How much of a screen-space story mark (ring, beam) may show, given the HUD's text boxes: 1 when clear, falling to 0 once

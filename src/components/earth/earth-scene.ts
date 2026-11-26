@@ -9,7 +9,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { x2lon, y2lat, arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, tilesFor, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, lerpPose, moveMs, zoneFade, type Rect, MIN_ALT } from "@/lib/earth-pure";
+import { x2lon, y2lat, arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, tilesFor, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, lerpPose, moveMs, zoneFade, type Rect, MIN_ALT, wheelZoom } from "@/lib/earth-pure";
 import { detailFor, detailStale } from "@/lib/intel-view-pure";
 
 import type { EarthData } from "@/lib/earth-data-pure";
@@ -70,7 +70,7 @@ float cloudAt(vec3 n, float t){ vec3 p = n*3.0 + vec3(t*.006, 0., t*.004); float
   return smoothstep(.6 - .14*belt, .95, f) * smoothstep(.5,.62,f + .05); }`;
 const globeVS = `${LOG} varying vec3 vN; varying vec3 vW; void main(){ vN = normalize(position); vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz;
   gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
-const globeFS = `${LOGF} uniform sampler2D uDay; uniform sampler2D uNight; uniform sampler2D uElev; uniform float uT; uniform vec3 uSun; uniform vec3 uCam; varying vec3 vN; varying vec3 vW; ${GEO} ${NOISE} ${CLOUD}
+const globeFS = `${LOGF} uniform sampler2D uDay; uniform sampler2D uNight; uniform sampler2D uElev; uniform float uT; uniform vec3 uSun; uniform vec3 uCam; uniform float uLights; varying vec3 vN; varying vec3 vW; ${GEO} ${NOISE} ${CLOUD}
 float elevRaw(vec2 uv){ vec3 e = texture2D(uElev, uv).rgb * 255.; return e.r*256. + e.g + e.b/256. - 32768.; }
 float elev(vec2 uv){ vec3 e = texture2D(uElev, uv).rgb * 255.; return max(0., e.r*256. + e.g + e.b/256. - 32768.); }
 void main(){ \n#include <logdepthbuf_fragment>\n
@@ -87,7 +87,7 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   float shadow = 1. - .45 * cloudAt(normalize(vN + uSun*.012), uT) * lit;
   day *= relief * shadow;
   vec3 V = normalize(uCam - vW); float rim = pow(1. - max(dot(vN, V), 0.), 2.5) * .55;
-  vec3 c = day * .82 * (0.16 + 1.0*sqrt(max(d, 0.))) * mix(.35, 1., lit) + night * vec3(1.,.78,.45) * 1.6 * (1. - smoothstep(-.2, .08, d));
+  vec3 c = day * .82 * (0.16 + 1.0*sqrt(max(d, 0.))) * mix(.35, 1., lit) + night * vec3(1.,.78,.45) * 1.6 * uLights * (1. - smoothstep(-.2, .08, d)); // uLights: off at city zoom, where 600 m/px lights through a missing imagery tile read as cream blocks
   vec3 Hh = normalize(uSun + V); float spec = pow(max(dot(vN, Hh), 0.), 140.) * .18 * lit * (1. - smoothstep(.06,.14, (day.r+day.g+day.b)/3.)); // sun glint on the sea
   c += spec * vec3(1.,.95,.85) + rim * vec3(.42,.62,.95) * (.1 + .6*lit);
   gl_FragColor = vec4(c, 1.); }`;
@@ -149,6 +149,8 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   vec3 map = mix(mix(vec3(.025,.032,.045), max(photo, 0.), .5), vec3(.004,.012,.03), water * .9); // ~60% photo, water stays a clean shape
   map += vec3(.25,.55,.75) * grid * .1 * uStyl + vec3(.3,.6,.8) * (1. - smoothstep(.0, .25, abs(water - .5))) * .08 * uStyl; // grid + a thin coastline
   map *= mix(.35, 1., lit); // the map base darkens with the vector ground (Black Marble at ~600 m/px is too coarse to light it: it reads as flat blocks)
+  // after dark the city still glows where the vector ground (amber roads) hasn't come: the Black Marble picture, soft and dim
+  map += pow(night, vec3(1.3)) * vec3(1.,.72,.42) * .45 * (1. - lit) * (1. - gm) * (1. - water);
   c = mix(c, map, uStyl);
   c = mix(c, groundLand(lit, duskK(sun), lightsK(sun), dist), gm * (.85 - .85 * water));
   gl_FragColor = vec4(c, uOp * smoothstep(0., .22, vEdge)); }`;
@@ -288,7 +290,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   }
 
   const blank = (c: string) => { const k = document.createElement("canvas"); k.width = k.height = 4; const g = k.getContext("2d")!; g.fillStyle = c; g.fillRect(0, 0, 4, 4); return tex(k); };
-  const U = { uDay: { value: blank("#0b1b33") as THREE.Texture }, uNight: { value: blank("#000") as THREE.Texture }, uElev: { value: blank("#800000") as THREE.Texture }, uT: { value: 0 }, uSun: { value: sunV }, uCam: { value: new THREE.Vector3() } };
+  const U = { uDay: { value: blank("#0b1b33") as THREE.Texture }, uNight: { value: blank("#000") as THREE.Texture }, uElev: { value: blank("#800000") as THREE.Texture }, uT: { value: 0 }, uSun: { value: sunV }, uCam: { value: new THREE.Vector3() }, uLights: { value: 1 } };
   const globe = new THREE.Mesh(new THREE.SphereGeometry(1, 192, 96), new THREE.ShaderMaterial({ vertexShader: globeVS, fragmentShader: globeFS, uniforms: U }));
   scene.add(globe);
   const cloudU = { uSun: { value: sunV }, uT: { value: 0 }, uFade: { value: 1 } };
@@ -636,7 +638,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     p = { ...p, alt: clampAltAt(p.alt, p.lon, p.lat) }; // Estonia's real-data close-up goes lower (earth-ee3d)
     pose = p; applyPose(p);
     const alt = p.alt, t = tMs / 1000;
-    cloudU.uT.value = t; U.uT.value = t; cloudU.uFade.value = band(alt, 3000, 1e9, 1.0); // gone before the country shot: half-faded clouds read as grey blobs
+    cloudU.uT.value = t; U.uT.value = t; U.uLights.value = band(alt, 40, 1e9, 1.2); cloudU.uFade.value = band(alt, 3000, 1e9, 1.0); // gone before the country shot: half-faded clouds read as grey blobs
     for (const q of patches) { q.u.uOp.value = band(alt, q.lo, q.hi, 0.9); q.u.uNightK.value = band(alt, 120, 1e9, 1.5); q.u.uStyl.value = 1 - band(alt, 9, 1e9, 1.4); } // coarse city lights only from high up
     dof.uniforms.uAmt.value = 0.3 * band(alt, 4, 60, 1.2); // no tilt-shift blur on city close-ups: the ground is soft enough
     bU.uOp.value = band(alt, 0.05, BUILDINGS_MAX_ALT, 0.6); bMat.depthWrite = bU.uOp.value > 0.5;
@@ -739,7 +741,35 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   };
   const up = () => { drag = null; };
   addEventListener("pointerup", up);
-  el.onwheel = (e) => { e.preventDefault(); path = null; fly = null; lastMove = performance.now(); pose = { ...pose, alt: Math.max(clampAltAt(0, pose.lon, pose.lat), Math.min(30000, pose.alt * Math.exp(e.deltaY * 0.0012))), tilt: Math.min(62, Math.max(0, 62 - Math.log2(Math.max(1, pose.alt / 8)) * 6)) }; };
+  const zoomBy = (deltaY: number, pinch: boolean) => { path = null; fly = null; lastMove = performance.now(); pose = { ...pose, ...wheelZoom(pose.alt, deltaY, pinch, clampAltAt(0, pose.lon, pose.lat)) }; };
+  // The wheel is caught on the window: in the app the canvas sits under NewsGlobe's layers, so wheel events over the planet often
+  // land on an overlay. Taken when the pointer is over the planet's area and not over the app's chrome or anything that scrolls.
+  const scrolls = (t: EventTarget | null) => {
+    for (let n = t instanceof Element ? t : null; n && n !== document.body; n = n.parentElement) {
+      if (n === el || n === host) return false;
+      if (n.matches("input,textarea,select,[contenteditable],[data-no-earth-wheel]")) return true;
+      const cs = getComputedStyle(n); if (/(auto|scroll)/.test(cs.overflowY + cs.overflowX) && (n.scrollHeight > n.clientHeight + 1 || n.scrollWidth > n.clientWidth + 1)) return true;
+    }
+    return false;
+  };
+  const onWheel = (e: WheelEvent) => {
+    const hb = host.getBoundingClientRect(), x = e.clientX - hb.left, y = e.clientY - hb.top;
+    if (!hb.width || x < 0 || y < 0 || x > hb.width || y > hb.height || !el.isConnected) return;
+    if (e.target !== el && ((o.zones?.() ?? []).some((z) => x >= z[0] && x <= z[2] && y >= z[1] && y <= z[3]) || scrolls(e.target))) return;
+    e.preventDefault(); zoomBy(e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY, e.ctrlKey);
+  };
+  addEventListener("wheel", onWheel, { passive: false });
+  // two-finger pinch on touch screens
+  const touches = new Map<number, [number, number]>(); let pinchD = 0;
+  const tDist = () => { const [a, b] = [...touches.values()]; return a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) : 0; };
+  el.style.touchAction = "none";
+  el.addEventListener("pointerdown", (e) => { if (e.pointerType !== "touch") return; touches.set(e.pointerId, [e.clientX, e.clientY]); if (touches.size === 2) { drag = null; pinchD = tDist(); } });
+  el.addEventListener("pointermove", (e) => {
+    if (!touches.has(e.pointerId)) return; touches.set(e.pointerId, [e.clientX, e.clientY]);
+    if (touches.size === 2) { drag = null; const d = tDist(); if (pinchD && d) zoomBy(Math.log(pinchD / d) / 0.0012, false); pinchD = d; }
+  });
+  const tUp = (e: PointerEvent) => { touches.delete(e.pointerId); pinchD = 0; };
+  el.addEventListener("pointerup", tUp); el.addEventListener("pointercancel", tUp);
   const resize = () => { renderer.setSize(W(), H()); composer.setPixelRatio(pr); composer.setSize(W(), H()); dof.uniforms.uRes.value.set(W() * pr, H() * pr); cam.aspect = W() / H(); cam.updateProjectionMatrix(); };
   const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(resize) : null;
   ro?.observe(host);
@@ -758,7 +788,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     stop() { cancelAnimationFrame(raf); },
     renderPathAt(p: Shot[], ms: number) { frame(poseAt(p, ms).pose, ms); const gl = renderer.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.finish(); },
     dispose() {
-      disposed = true; cancelAnimationFrame(raf); ro?.disconnect(); removeEventListener("pointerup", up); ee?.dispose(); eel?.dispose();
+      disposed = true; cancelAnimationFrame(raf); ro?.disconnect(); removeEventListener("pointerup", up); removeEventListener("wheel", onWheel); ee?.dispose(); eel?.dispose();
       scene.traverse((x) => { const m = x as THREE.Mesh; m.geometry?.dispose(); const mat = m.material as THREE.ShaderMaterial | undefined; if (mat) { for (const u of Object.values(mat.uniforms ?? {})) (u.value as THREE.Texture)?.isTexture && (u.value as THREE.Texture).dispose(); mat.dispose(); } });
       composer.dispose(); renderer.dispose(); renderer.forceContextLoss(); el.remove(); hud.remove(); // give the GPU memory back now, not at GC
     },

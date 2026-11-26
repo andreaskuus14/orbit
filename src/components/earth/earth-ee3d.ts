@@ -32,7 +32,7 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
   float paved = (1. - smoothstep(.05, .12, mx - mn)) * smoothstep(.04, .12, mx); // grey, mid-bright: asphalt and stone paving
   vec3 day = c * (.42 + .5 * sqrt(max(s, 0.))) * mix(vec3(1.), vec3(1.15,.82,.62), dusk * .7);
-  vec3 night = c * (.05 + .3 * dusk) + vec3(.002,.003,.006) + vec3(.03,.04,.075) * dusk + SODIUM * (paved * .11 + .035 + paved * .2 * dusk) * on; // dusk: sky fill and street glow, so evening reads lit (night stays darker)
+  vec3 night = c * (.05 + .3 * dusk) + vec3(.002,.003,.006) + vec3(.03,.04,.075) * dusk + SODIUM * (paved * .05 + .01 + paved * .2 * dusk) * on; // dusk: sky fill and street glow, so evening reads lit (night stays darker)
   c = haze(mix(night, day, lit), vW, max(lit, dusk * .4));
   gl_FragColor = vec4(c, uOp * edgeK(vW)); }`;
 
