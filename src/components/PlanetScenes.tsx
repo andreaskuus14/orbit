@@ -5,7 +5,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
-import { Capsule, Crystals, LightShaft, Many, Motes, Plate, PlanetGround, rockGeometry, type Chip, type CrystalIn, type Inst } from "./world-kit";
+import { Capsule, Crystals, LightShaft, Many, Motes, Plate, PlanetGround, rockGeometry, useWorldTier, type Chip, type CrystalIn, type Inst } from "./world-kit";
 import { lifeGarden } from "@/lib/worlds-v3-pure";
 import { BIZ_STAGES, GATE_ANGLE, GATE_COLOR, VAULT_KIND_COLOR, bizScene, bytes, clip, fmtMin, heightAt, lifeScene, opsScene, podAngle, timeScene, vaultScene, type SceneId } from "@/lib/planet-scenes-pure";
 import { STAGE_COLOR } from "@/lib/living-galaxy-pure";
@@ -245,15 +245,15 @@ function Analytics({ m, reduced }: { m: ReturnType<typeof timeScene>; reduced: b
 
 /** Garden props from worlds-v3-pure lifeGarden (habit positions only): one instanced draw call per kind. */
 function useLifeGarden(pods: { at: [number, number, number] }[]) {
-  const key = pods.map((p) => p.at.join(",")).join(";");
+  const key = pods.map((p) => p.at.join(",")).join(";"), tier = useWorldTier();
   const lg = useMemo(() => {
     const g = lifeGarden(pods), FL = ["#f9a8d4", "#fde68a", "#e9d5ff", "#ffffff", "#fda4af"];
     return {
-      rock: rockGeometry(7.4, 5, 21), disc: new THREE.CylinderGeometry(1, 1, 1, 14), ball: new THREE.IcosahedronGeometry(0.5, 1), stem: new THREE.CylinderGeometry(0.5, 0.7, 1, 7),
+      rock: tier ? rockGeometry(7.6, 8, 21, tier) : rockGeometry(7.4, 5, 21, 0), disc: new THREE.CylinderGeometry(1, 1, 1, tier ? 40 : 14), ball: new THREE.IcosahedronGeometry(0.5, tier ? 3 : 1), stem: new THREE.CylinderGeometry(0.5, 0.7, 1, 7),
       stone: new THREE.MeshStandardMaterial({ color: "#a89f8f", roughness: 0.85 }), pad: new THREE.MeshStandardMaterial({ color: "#4d8a3a", roughness: 0.7 }),
-      leaf: new THREE.MeshStandardMaterial({ color: "#3f7a32", roughness: 0.9, flatShading: true }), bark: new THREE.MeshStandardMaterial({ color: "#5a3e2b", roughness: 1 }),
+      leaf: Object.assign(new THREE.MeshStandardMaterial({ color: "#3f7a32", roughness: 0.9, flatShading: true }), { userData: { foliage: true } }), bark: new THREE.MeshStandardMaterial({ color: "#5a3e2b", roughness: 1 }),
       flower: new THREE.MeshStandardMaterial({ color: "#ffffff", emissive: "#ffd1e8", emissiveIntensity: 0.25, roughness: 0.6 }),
-      blossom: new THREE.MeshStandardMaterial({ color: "#ffb3d1", emissive: "#ff8fbf", emissiveIntensity: 0.18, roughness: 0.8, flatShading: true }),
+      blossom: Object.assign(new THREE.MeshStandardMaterial({ color: "#ffb3d1", emissive: "#ff8fbf", emissiveIntensity: 0.18, roughness: 0.8, flatShading: true }), { userData: { foliage: true } }),
       fall: new THREE.MeshBasicMaterial({ color: "#dff6ff", transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide }),
       stones: g.stones.map((p): Inst => ({ at: [p.x, 0.03, p.z], s: [0.34 * p.s, 0.06, 0.28 * p.s], ry: p.x })),
       pads: g.pads.map((p): Inst => ({ at: [p.x, 0.05, p.z], s: [0.26 * p.s, 0.02, 0.26 * p.s] })),
@@ -264,7 +264,7 @@ function useLifeGarden(pods: { at: [number, number, number] }[]) {
       isles: [[-9, 6, -12, 0.5], [7, 8, -15, 0.4], [-2, 9.5, -19, 0.35]].map(([x, y, z, k]): Inst => ({ at: [x, y, z], s: [k * 0.45, k * 0.45, k * 0.45] })),
       isleTops: [[-9, 6, -12, 0.5], [7, 8, -15, 0.4], [-2, 9.5, -19, 0.35]].map(([x, y, z, k]): Inst => ({ at: [x, y + 0.1, z], s: [k * 3.3, 0.2, k * 3.3] })),
     };
-  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, tier]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { for (const v of Object.values(lg)) if (v instanceof THREE.BufferGeometry || v instanceof THREE.Material) v.dispose(); }, [lg]);
   return lg;
 }

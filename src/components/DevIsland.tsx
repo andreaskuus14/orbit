@@ -5,7 +5,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
-import { Many, Motes, rockGeometry, type Chip, type Inst } from "./world-kit";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { Many, Motes, rockGeometry, useWorldTier, type Chip, type Inst } from "./world-kit";
 import { scatter, type DevIsland } from "@/lib/worlds-v3-pure";
 
 const PINK = "#ff3d8b", CYAN = "#5eead4";
@@ -22,25 +24,35 @@ export function devChips(s: DevIsland, k: (key: string, v?: Record<string, strin
   return out;
 }
 
+/** Falling-water streaks: a tiling alpha texture scrolled down each frame (v4). */
+function fallTexture() {
+  const w = 32, h = 128, d = new Uint8Array(w * h * 4); let seed = 11; const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const cols = Array.from({ length: w }, () => 0.35 + r() * 0.65);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const v = Math.round(255 * Math.min(1, cols[x] * (0.55 + 0.45 * Math.sin((y / h) * Math.PI * 2 * 3 + x * 1.7)) + (r() > 0.97 ? 0.4 : 0))); d.set([v, v, v, 255], (y * w + x) * 4); }
+  const t = new THREE.DataTexture(d, w, h); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; return t;
+}
+
 export function DevIslandScene({ s, reduced }: { s: DevIsland; reduced: boolean }) {
+  const tier = useWorldTier(), hi = tier > 0;
   const mats = useMemo(() => ({
-    rock: new THREE.MeshStandardMaterial({ color: "#6e5a50", roughness: 0.95, flatShading: true }),
-    grass: new THREE.MeshStandardMaterial({ color: "#4f7a2c", roughness: 0.9, flatShading: true }),
+    rock: new THREE.MeshStandardMaterial({ color: hi ? "#3a2f2a" : "#6e5a50", roughness: 0.95, flatShading: !hi }),
+    grass: Object.assign(new THREE.MeshStandardMaterial({ color: hi ? "#3f6b22" : "#4f7a2c", roughness: 0.9, flatShading: !hi }), { userData: { foliage: true } }),
     stone: new THREE.MeshStandardMaterial({ color: "#9a9088", roughness: 0.75, metalness: 0.05, flatShading: true }),
     roof: new THREE.MeshStandardMaterial({ color: "#4b2a3a", roughness: 0.6 }),
     holo: new THREE.MeshBasicMaterial({ color: new THREE.Color(PINK).multiplyScalar(1.8), wireframe: true, toneMapped: false }),
     holoFill: new THREE.MeshBasicMaterial({ color: "#7dd3fc", transparent: true, opacity: 0.08, depthWrite: false, blending: THREE.AdditiveBlending }),
     trunk: new THREE.MeshStandardMaterial({ color: "#4a3426", roughness: 1 }),
-    bloom: new THREE.MeshStandardMaterial({ color: "#ffb7d5", emissive: "#ff7eb6", emissiveIntensity: 0.25, roughness: 0.8, flatShading: true }),
-    pine: new THREE.MeshStandardMaterial({ color: "#244a2a", roughness: 0.9, flatShading: true }),
-    water: new THREE.MeshStandardMaterial({ color: "#1fa6c9", emissive: "#2dd4ff", emissiveIntensity: 0.35, roughness: 0.1, metalness: 0.2 }),
-    fall: new THREE.MeshBasicMaterial({ color: "#cff6ff", transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide }),
+    bloom: Object.assign(new THREE.MeshStandardMaterial({ color: "#ffb7d5", emissive: "#ff7eb6", emissiveIntensity: hi ? 0.12 : 0.25, roughness: 0.8, flatShading: !hi }), { userData: { foliage: true } }),
+    pine: Object.assign(new THREE.MeshStandardMaterial({ color: "#244a2a", roughness: 0.9, flatShading: !hi }), { userData: { foliage: true } }),
+    water: Object.assign(new THREE.MeshStandardMaterial({ color: hi ? "#0f6f8c" : "#1fa6c9", emissive: "#2dd4ff", emissiveIntensity: hi ? 0.18 : 0.35, roughness: 0.05, metalness: 0.2 }), { userData: { realism: { bump: 0.06, freq: 2.5, rough: 0.04, vary: 0.05, streak: 0 } } }),
+    fall: new THREE.MeshBasicMaterial({ color: "#cff6ff", transparent: true, opacity: hi ? 0.8 : 0.55, depthWrite: false, side: THREE.DoubleSide, alphaMap: hi ? fallTexture() : null }),
     drone: new THREE.MeshStandardMaterial({ color: "#e0a526", metalness: 0.7, roughness: 0.35, emissive: "#3dd6ff", emissiveIntensity: 0.2 }),
     bug: new THREE.MeshBasicMaterial({ toneMapped: false }),
-  }), []);
-  const geos = useMemo(() => ({ rock: rockGeometry(5.4, 4.2, 7), islet: rockGeometry(1, 1.4, 3), box: new THREE.BoxGeometry(1, 1, 1), cone: new THREE.ConeGeometry(0.5, 1, 6),
-    ball: new THREE.IcosahedronGeometry(0.5, 1), trunk: new THREE.CylinderGeometry(0.06, 0.09, 1, 6), disc: new THREE.CylinderGeometry(1, 1, 1, 24), spark: new THREE.SphereGeometry(0.06, 6, 6) }), []);
-  useEffect(() => () => { Object.values(mats).forEach((m) => m.dispose()); Object.values(geos).forEach((g) => g.dispose()); }, [mats, geos]);
+  }), [hi]);
+  const geos = useMemo(() => ({ rock: hi ? rockGeometry(5.6, 7, 7, tier) : rockGeometry(5.4, 4.2, 7, 0), islet: rockGeometry(1, hi ? 1.9 : 1.4, 3, hi ? 1 : 0),
+    box: hi ? new RoundedBoxGeometry(1, 1, 1, 2, 0.06) : new THREE.BoxGeometry(1, 1, 1), wire: new THREE.BoxGeometry(1, 1, 1), cone: new THREE.ConeGeometry(0.5, 1, hi ? 16 : 6),
+    ball: hi ? canopy() : new THREE.IcosahedronGeometry(0.5, 1), trunk: new THREE.CylinderGeometry(0.06, 0.09, 1, hi ? 10 : 6), disc: new THREE.CylinderGeometry(1, 1, 1, hi ? 72 : 24), spark: new THREE.SphereGeometry(0.06, 6, 6) }), [hi, tier]);
+  useEffect(() => () => { mats.fall.alphaMap?.dispose(); Object.values(mats).forEach((m) => m.dispose()); Object.values(geos).forEach((g) => g.dispose()); }, [mats, geos]);
 
   const built = useMemo<Inst[]>(() => s.parts.filter((p) => p.built).map((p) => ({ at: [p.at[0], p.at[1] + 0.6, p.at[2]], s: p.size })), [s.parts]);
   const todo = useMemo<Inst[]>(() => s.parts.filter((p) => !p.built).map((p) => ({ at: [p.at[0], p.at[1] + 0.6, p.at[2]], s: p.size })), [s.parts]);
@@ -60,26 +72,29 @@ export function DevIslandScene({ s, reduced }: { s: DevIsland; reduced: boolean 
     if (b) { s.bugs.forEach((p, i) => { const a = p.phase + t * p.speed; o.position.set(Math.cos(a) * p.r, p.y + Math.sin(a * 2 + p.tilt) * 0.4, Math.sin(a) * p.r); o.rotation.set(0, 0, 0); o.scale.setScalar(p.sev === "crash" ? 2 : 1); o.updateMatrix(); b.setMatrixAt(i, o.matrix); }); b.instanceMatrix.needsUpdate = true; }
   };
   useLayoutEffect(() => place(0)); // eslint-disable-line react-hooks/exhaustive-deps
-  useFrame(({ clock }) => { if (reduced) return; const t = clock.elapsedTime; place(t); if (portal.current) portal.current.rotation.z = t * 0.4; });
+  useFrame(({ clock }) => { if (reduced) return; const t = clock.elapsedTime; place(t); if (portal.current) portal.current.rotation.z = t * 0.4; if (mats.fall.alphaMap) mats.fall.alphaMap.offset.y = t * 0.9; });
 
   return (<group>
     {/* the sky planet behind */}
     <mesh position={[18, 14, -40]}><sphereGeometry args={[11, 48, 24]} /><meshStandardMaterial color="#2b3f73" emissive="#1e3a8a" emissiveIntensity={0.35} roughness={0.8} /></mesh>
     {/* island: rock underside, grass top, castle hill */}
     <mesh geometry={geos.rock} material={mats.rock} />
-    <pointLight position={[0, -3.2, 5]} intensity={40} distance={14} decay={1.6} color={PINK} />
+    <pointLight position={[0, hi ? -4.8 : -3.2, 5]} intensity={hi ? 24 : 40} distance={14} decay={1.6} color={PINK} />
     <mesh position={[0, -0.12, 0]} scale={[5.3, 0.25, 5.3]} geometry={geos.disc} material={mats.grass} />
     <mesh position={[0, 0.3, -2.2]} scale={[3.4, 0.7, 2.2]} geometry={geos.disc} material={mats.grass} />
-    <mesh position={[0, -1.3, 0]} rotation-x={Math.PI / 2}><torusGeometry args={[5.3, 0.05, 8, 128]} /><meshBasicMaterial color={new THREE.Color(PINK).multiplyScalar(2.2)} toneMapped={false} /></mesh>
+    <mesh position={[0, hi ? -2.4 : -1.3, 0]} rotation-x={Math.PI / 2}><torusGeometry args={[hi ? 6.4 : 5.3, 0.05, 8, 128]} /><meshBasicMaterial color={new THREE.Color(PINK).multiplyScalar(2.2)} toneMapped={false} /></mesh>
     {/* pond, river and the waterfall off the front edge */}
     <mesh position={[1.2, 0.02, 2.2]} scale={[0.9, 0.04, 0.9]} geometry={geos.disc} material={mats.water} />
-    <mesh position={[1.4, 0.02, 3.9]} scale={[0.35, 0.04, 1.5]} geometry={geos.box} material={mats.water} />
-    <mesh position={[1.4, -1.6, 4.85]} scale={[0.6, 3.3, 1]}><planeGeometry args={[1, 1]} /><primitive object={mats.fall} attach="material" /></mesh>
+    {/* the river runs to the rim and pours off it, outside the ring (v4: it no longer passes through the ring) */}
+    <mesh position={[1.4, 0.02, hi ? 4.2 : 3.9]} scale={[0.35, 0.04, hi ? 2.1 : 1.5]} geometry={geos.box} material={mats.water} />
+    {hi ? <>
+      <mesh position={[1.45, -0.95, 5.72]} rotation-x={0.08} scale={[0.62, 1.9, 1]}><planeGeometry args={[1, 1]} /><primitive object={mats.fall} attach="material" /></mesh>
+    </> : <mesh position={[1.4, -1.6, 4.85]} scale={[0.6, 3.3, 1]}><planeGeometry args={[1, 1]} /><primitive object={mats.fall} attach="material" /></mesh>}
     {/* buildings: solid = built, wireframe = still to build */}
     <Many items={built} geo={geos.box} mat={mats.stone} />
     <Many items={roofs} geo={geos.cone} mat={mats.roof} />
-    <Many items={todo} geo={geos.box} mat={mats.holo} />
-    <Many items={todo} geo={geos.box} mat={mats.holoFill} />
+    <Many items={todo} geo={geos.wire} mat={mats.holo} />
+    <Many items={todo} geo={geos.wire} mat={mats.holoFill} />
     {/* trees */}
     <Many items={flora.trunks} geo={geos.trunk} mat={mats.trunk} />
     <Many items={flora.blooms} geo={geos.ball} mat={mats.bloom} />
@@ -96,4 +111,11 @@ export function DevIslandScene({ s, reduced }: { s: DevIsland; reduced: boolean 
     {s.bugs.length > 0 && <instancedMesh key={`b${s.bugs.length}`} ref={sparks} args={[geos.spark, mats.bug, s.bugs.length]} frustumCulled={false} />}
     <Motes count={reduced ? 30 : 70} color="#ffc2dc" spread={7} height={5} reduced={reduced} />
   </group>);
+}
+
+/** Leafy canopy: an icosphere puffed by low-frequency noise, smooth-shaded (v4). */
+function canopy() {
+  const ico = new THREE.IcosahedronGeometry(0.5, 4); ico.deleteAttribute("normal"); ico.deleteAttribute("uv"); const g = mergeVertices(ico); ico.dispose(); const p = g.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); const n = v.clone().normalize(); const k = 1 + 0.14 * Math.sin(n.x * 7 + n.y * 3) * Math.cos(n.z * 6 - n.y * 4) + 0.06 * Math.sin(n.x * 17 + n.z * 13); v.multiplyScalar(k); p.setXYZ(i, v.x, v.y * 0.92, v.z); }
+  g.computeVertexNormals(); return g;
 }

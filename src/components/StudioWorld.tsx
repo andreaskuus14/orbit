@@ -25,7 +25,9 @@ import StudioDrafts from "./StudioDrafts";
 import LastShorts from "./LastShorts";
 import { StudioShell, type ToolOpen } from "./StudioShell";
 import { ScreenWall, studioChips } from "./StudioScreens";
-import { ChipLayer, ChipProjector, useChipRig } from "./world-kit";
+import { ChipLayer, ChipProjector, Realism, useChipRig } from "./world-kit";
+import { worldTier } from "@/lib/world-realism-pure";
+
 import { IconBack, toast, uiSound } from "./ui";
 import { TOOL_MENU, ago, paceText } from "@/lib/studio-shell-pure";
 import type { StudioMode as Mode } from "@/lib/studio-ui-pure";
@@ -469,6 +471,7 @@ export default function StudioWorld({ onClose, reduced, onOpenTask, flat, open, 
       <WarmCompile world="studio" />
       {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
       <color attach="background" args={["#03050b"]} />
+      <Realism tier={worldTier(q.bloomScale, q.msaa)} sky="#1a0b1e" horizon="#f43f5e" />
       <StageDeck reduced={reduced} />
       <LightScreen reduced={reduced} />
       {q.bloomScale > 0 && !calm && <Rays reduced={reduced} />}{/* planet page: a calm stage, no light rays, fewer and still stars */}

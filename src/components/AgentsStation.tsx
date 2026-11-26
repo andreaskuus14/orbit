@@ -37,7 +37,9 @@ import { BackToSimple, PlanetHome, useManual } from "./PlanetHome";
 import { Button, ErrorState, Loading, PlanetShell } from "./ui";
 import { taskWork } from "@/lib/planet-page-pure";
 import { CREW_R, CrewDeck, DOT, crewAngle } from "./AgentCrew";
-import { ChipLayer, ChipProjector, useChipRig, type Chip } from "./world-kit";
+import { ChipLayer, ChipProjector, Realism, useChipRig, type Chip } from "./world-kit";
+import { worldTier } from "@/lib/world-realism-pure";
+
 
 // AGENTS → a floating obsidian ring station (alien megastructure theme): each agent is a ship circling its docking lane,
 // glowing by status, plotted live on a holographic tactical map behind the station.
@@ -560,6 +562,7 @@ export default function AgentsStation({ flat, onClose, reduced, quality = "auto"
         <WarmCompile world="agents" />
         {quality === "auto" && <PerformanceMonitor onDecline={q.onDecline} />}
         <color attach="background" args={["#020308"]} />
+        <Realism tier={worldTier(q.bloomScale, q.msaa)} sky="#0b1430" horizon="#60a5fa" />
         <Stars radius={70} depth={40} count={reduced ? Math.min(1500, q.stars) : q.stars} factor={2.4} fade speed={reduced ? 0 : 0.35} />
         <ambientLight intensity={0.35} />
         <CrewDeck list={list} status={status} reduced={reduced} onPick={setSelected} />

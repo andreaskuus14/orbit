@@ -3,7 +3,7 @@
 // Quantities and euros are computed in arch-pure.ts from the geometry, never by the AI. Learning tool, not certification.
 import { PlanetBoundary } from "./PlanetBoundary";
 import { WarmCompile } from "./WarmCompile";
-import { memo, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import * as THREE from "three";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
@@ -273,6 +273,13 @@ function Walker({ rects, plot, onExit }: { rects: Rect[]; plot: { w: number; d: 
     camera.position.set(s.x, WALK.eye, s.z);
     camera.rotation.set(s.pitch, s.yaw, 0, "YXZ");
   });
+  return null;
+}
+
+/** Opens the realistic look wide enough to show the whole cliff site (lawn radius r), once per project. */
+function StartWide({ r }: { r: number }) {
+  const camera = useThree((s) => s.camera), invalidate = useThree((s) => s.invalidate);
+  useLayoutEffect(() => { const d = Math.max(30, r * 2.9); camera.position.set(d * 0.62, d * 0.5, d * 0.62); camera.lookAt(0, 0, 0); invalidate(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return null;
 }
 
@@ -595,6 +602,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
           </group>}
           {walk && !paused && <Walker key={scan?.name ?? "model"} rects={scan ? noRects : rects} plot={scanPlot ?? plotWD} onExit={() => setWalk(false)} />}
           {real && !walk && !lesson && <><ArchDims parts={view.parts} top={topM} /><ChipProjector rig={chipRig} chips={dimChips} throttle={0} /><KickFrames /></>}
+          {real && <StartWide key={project} r={Math.max(view.plot.w, view.plot.d) * 0.72} />}
           <OrbitControls makeDefault enabled={!walk} enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced && !walk} autoRotateSpeed={0.8} />
         </Canvas></PlanetBoundary>
       )}
