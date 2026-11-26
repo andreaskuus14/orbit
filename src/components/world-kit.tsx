@@ -370,6 +370,8 @@ export function WorldFX({ scale, msaa, reduced, threshold = 0.85, strength = 0.7
 export type Chip = { id: string; at: [number, number, number]; title: string; value?: string; sub?: string; color: string; prio?: number; dot?: "ok" | "busy" | "warn" | "bad" | "idle";
   /** v8 semantic zoom: 0 whole world (default), 1 parts, 2 single items (shown only when zoomed in near them). */
   lod?: Lod;
+  /** v11: a dimension label (ARCH): a slim pill centred on its line. */
+  dim?: boolean;
   /** v8: the focused item's glass card: steps (done/now/next) and label/value rows. */
   steps?: { label: string; state: "done" | "now" | "next" }[]; rows?: [string, string][] };
 export type ChipRig = { els: Map<string, HTMLDivElement>; root: RefObject<HTMLDivElement | null> };
@@ -380,7 +382,7 @@ export function ChipLayer({ rig, chips, onPick, focus }: { rig: ChipRig; chips: 
   return (
     <div ref={rig.root} className="wchip-layer" aria-hidden={onPick ? undefined : true}>
       {chips.map((c) => (
-        <div key={c.id} ref={(el) => { if (el) rig.els.set(c.id, el); else rig.els.delete(c.id); }} className={focus === c.id ? "wchip wchip-focus" : "wchip"} data-id={c.id} style={{ ["--c" as string]: c.color }}
+        <div key={c.id} ref={(el) => { if (el) rig.els.set(c.id, el); else rig.els.delete(c.id); }} className={focus === c.id ? "wchip wchip-focus" : c.dim ? "wchip wchip-dim" : "wchip"} data-id={c.id} style={{ ["--c" as string]: c.color }}
           onClick={onPick ? () => onPick(c.id) : undefined} role={onPick ? "button" : undefined}>
           <span className="wchip-t">{c.dot && <i className={`wchip-dot ${c.dot}`} />}{c.title}</span>
           {c.value && <b className="wchip-v">{c.value}</b>}
@@ -429,7 +431,7 @@ export function ChipProjector({ rig, chips, throttle = 0.066, zoom, focus, onLev
       const foc = c.id === focus, show = foc || !zoom || chipShows(c.lod, level.current, near, reach);
       v.set(...c.at).project(camera);
       return { id: c.id, x: (v.x * 0.5 + 0.5) * size.width, y: (-v.y * 0.5 + 0.5) * size.height, w: el?.offsetWidth ?? 0, h: el?.offsetHeight ?? 0,
-        prio: (foc ? 1e4 : zoom ? chipPrio(c.lod, level.current, c.prio ?? 1) : c.prio ?? 1) - i * 1e-4, on: show && v.z < 1 && v.z > -1 };
+        prio: (foc ? 1e4 : zoom ? chipPrio(c.lod, level.current, c.prio ?? 1) : c.prio ?? 1) - i * 1e-4, on: show && v.z < 1 && v.z > -1, centre: c.dim };
     });
     const out = layoutChips(ins, { w: size.width, h: size.height }, blocked.current);
     for (const c of chips) {

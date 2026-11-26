@@ -55,3 +55,52 @@ test("rim and meadow spots: inside the rim, deterministic, clear of the house", 
   assert.ok(m.length > 30);
   for (const s of m) assert.ok(!(s.x > -7 && s.x < 7 && s.z > -6 && s.z < 6));
 });
+
+import { farMesh, meadowHeight, meadowRadius, treePlan, undergrowth } from "../src/lib/arch-ground-pure.ts";
+
+test("meadow: big enough for any plot, flat round the house, soft swells, no step at the rim", () => {
+  assert.equal(meadowRadius({ w: 20, d: 20 }), 60); assert.ok(meadowRadius({ w: 60, d: 40 }) >= 132);
+  const r = meadowRadius({ w: 30, d: 25 });
+  for (let a = 0; a < 6.3; a += 0.3) { assert.ok(Math.abs(meadowHeight(0.2, a, r)) === 0); assert.ok(Math.abs(meadowHeight(0.34, a, r)) < 1e-9); assert.ok(Math.abs(meadowHeight(1, a, r)) < 1e-9, "joins the far plane"); }
+  let hi = 0; for (let a = 0; a < 6.3; a += 0.1) for (let rho = 0; rho <= 1; rho += 0.05) hi = Math.max(hi, Math.abs(meadowHeight(rho, a, r)));
+  assert.ok(hi > 0.3 && hi <= 1.4, `${hi}`);
+  assert.equal(groundY(0, 0, r, meadowHeight), 0);
+});
+
+test("tree plan: framing trees stand back and never in the camera's sector; far trees ring the edge; deterministic", () => {
+  const r = 66, fp = { x0: -4, x1: 4, z0: -5, z1: 5 }, camAz = Math.PI / 4, plan = treePlan(r, fp, camAz);
+  assert.deepEqual(plan, treePlan(r, fp, camAz));
+  assert.ok(plan.mid.length >= 11 && plan.mid.length <= 14, `${plan.mid.length}`); assert.equal(plan.far.length, 0); assert.equal(treePlan(r, fp, camAz, 14, 40).far.length, 40);
+  for (const t of plan.mid) {
+    const d = Math.hypot(t.x, t.z);
+    assert.ok(d >= Math.hypot(8, 10) / 2 + 20 - 1e-6, `clear of the house: ${d}`);
+    assert.ok(d <= r * 0.7 + 1e-6, "inside the meadow");
+    const diff = Math.abs(Math.atan2(Math.sin(t.a - camAz), Math.cos(t.a - camAz)));
+    assert.ok(diff >= 0.95 || d >= 0.62 * r, "not in front of the camera");
+  }
+  for (const t of treePlan(r, fp, camAz, 14, 40).far) { const d = Math.hypot(t.x, t.z); assert.ok(d >= r * 0.79 && d <= r * 0.98); }
+  for (let i = 0; i < plan.mid.length; i++) for (let j = i + 1; j < plan.mid.length; j++) assert.ok(Math.hypot(plan.mid[i].x - plan.mid[j].x, plan.mid[i].z - plan.mid[j].z) >= 7 - 1e-6);
+  assert.ok(treePlan(r, null).mid.length > 0, "works without a footprint");
+});
+
+test("undergrowth hugs the trees", () => {
+  const trees = treePlan(66, null).mid, u = undergrowth(trees, 3);
+  assert.equal(u.length, trees.length * 3);
+  for (const p of u) assert.ok(trees.some((t) => Math.hypot(t.x - p.x, t.z - p.z) < 4.5));
+});
+
+test("far ground: starts on the lawn's rim ring, flat, indices in range, colours continue the lawn's", () => {
+  const r = 66, segs = 48, lawn = groundMesh(r, segs, meadowHeight), far = farMesh(r, segs);
+  lawn.rim.forEach((vi, s) => { for (let k = 0; k < 3; k++) assert.ok(Math.abs(lawn.pos[vi * 3 + k] - far.pos[s * 3 + k]) < 1e-9, `seam ${s}`); for (let k = 0; k < 3; k++) assert.ok(Math.abs(lawn.col[vi * 3 + k] - far.col[s * 3 + k]) < 1e-9, "same colour at the seam"); });
+  for (const i of far.idx) assert.ok(i < far.pos.length / 3);
+  for (let i = 1; i < far.pos.length; i += 3) assert.equal(far.pos[i], 0);
+  assert.ok(Math.hypot(far.pos[far.pos.length - 3], far.pos[far.pos.length - 1]) > r * 10);
+});
+
+import { silhouettes } from "../src/lib/arch-ground-pure.ts";
+test("forest-edge silhouettes: n of them across the tile, mixed conifers and round crowns, deterministic", () => {
+  const s = silhouettes(44, 1);
+  assert.equal(s.length, 44); assert.deepEqual(s, silhouettes(44, 1)); assert.notDeepEqual(s, silhouettes(44, 2));
+  for (const t of s) { assert.ok(t.x >= 0 && t.x < 1.02); assert.ok(t.h >= 0.35 && t.h <= 0.95 && t.w > 0); }
+  const c = s.filter((t) => t.conifer).length; assert.ok(c > 16 && c < 38, `${c}`);
+});

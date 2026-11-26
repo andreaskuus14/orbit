@@ -67,9 +67,10 @@ test("town arcs join only towns that share a story, biggest overlap first", () =
   assert.ok(l.every(([p, q]) => p.name !== "C" && q.name !== "C"));
   assert.equal(l[0][0].name + l[0][1].name, "AD"); assert.equal(townLinks([c], 6).length, 0); assert.ok(townLinks([a, b, d], 1).length === 1);
 });
-test("ARCH shows the plate through the ground: shadow-only ground, no cosmetic trees or grid on the plate", () => {
+test("ARCH has no plate behind the editor: a real ground, nothing see-through (v11)", () => {
   const s = readFileSync("src/components/ArchWorld.tsx", "utf8");
-  assert.ok(s.includes("plateOn ? <shadowMaterial") && s.includes("!plateOn && <gridHelper") && s.includes("!ifc && !plateOn && <Trees"));
+  assert.ok(!s.includes("plateOn") && !s.includes("FrameBackdrop") && !s.includes("shadowMaterial"));
+  const h = readFileSync("src/components/arch-textures.ts", "utf8"); assert.ok(!/glass[^\n]*transparent: true/.test(h) && !/depthWrite: false/.test(h), "house glass is opaque");
 });
 
 import { DATA_FLOOR, MOBILE_LABEL_MAX_Y, ZOOM_FX, dataGlow, labelClear } from "../src/lib/frame-fx-pure.ts";

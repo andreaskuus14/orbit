@@ -3,8 +3,8 @@
 // preset) keeps the procedural look. Sources and licences: public/worlds/LICENSES.md.
 
 export type WorldId = "gamedev" | "memory" | "arch" | "life" | "vault" | "studio" | "agents";
-export type AssetId = "fort" | "tree" | "rocks" | "cliff" | "shrub" | "fern" | "flower" | "moonRock"
-  | "plateVaultBack" | "plateVaultSide" | "lantern" | "chest" | "hdriNight" | "hdriDay"
+export type AssetId = "fort" | "tree" | "rocks" | "shrub" | "fern" | "flower" | "moonRock"
+  | "plateVaultBack" | "plateVaultSide" | "lantern" | "chest" | "hdriNight" | "hdriDay" | "hdriDusk"
   | "grassD" | "grassN" | "cliffD" | "cliffN" | "mtnD" | "mtnN" | "mtnH" | "waterN"
   | "woodD" | "woodN" | "woodR" | "roofD" | "roofN" | "roofR" | "stuccoD" | "stuccoN" | "stuccoR";
 
@@ -14,7 +14,6 @@ export const ASSETS: Record<AssetId, Asset> = {
   fort: { file: "models/modular_fort_01.glb", source: "https://polyhaven.com/a/modular_fort_01", worlds: ["gamedev"] },
   tree: { file: "models/island_tree_01.glb", source: "https://polyhaven.com/a/island_tree_01", worlds: ["gamedev", "life", "arch"] },
   rocks: { file: "models/rock_moss_set_01.glb", source: "https://polyhaven.com/a/rock_moss_set_01", worlds: ["gamedev", "life", "arch"] },
-  cliff: { file: "models/coastal_cliff_02.glb", source: "https://polyhaven.com/a/coastal_cliff_02", worlds: ["arch"] },
   shrub: { file: "models/shrub_01.glb", source: "https://polyhaven.com/a/shrub_01", worlds: ["life", "gamedev", "arch"] },
   fern: { file: "models/fern_02.glb", source: "https://polyhaven.com/a/fern_02", worlds: ["life", "arch"] },
   flower: { file: "models/celandine_01.glb", source: "https://polyhaven.com/a/celandine_01", worlds: ["life", "arch"] },
@@ -26,6 +25,8 @@ export const ASSETS: Record<AssetId, Asset> = {
   chest: { file: "models/metal_tool_chest.glb", source: "https://polyhaven.com/a/metal_tool_chest", worlds: ["vault"] },
   hdriNight: { file: "hdri/moonless_golf.hdr", source: "https://polyhaven.com/a/moonless_golf", worlds: ["memory"] },
   hdriDay: { file: "hdri/kloofendal_48d_partly_cloudy_puresky.hdr", source: "https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky", worlds: ["arch"] },
+  // v11: golden-hour sky for the ARCH editor (image light, reflections and the visible sky); the day one stays for the sun study.
+  hdriDusk: { file: "hdri/belfast_sunset_puresky.hdr", source: "https://polyhaven.com/a/belfast_sunset_puresky", worlds: ["arch"] },
   // v6 textures (512 px webp): ground and cliff rock for the islands, mountain rock + its height for ARCH, water ripples.
   grassD: { file: "textures/leafy_grass_diff.webp", source: "https://polyhaven.com/a/leafy_grass", worlds: ["gamedev", "arch"] },
   grassN: { file: "textures/leafy_grass_nor.webp", source: "https://polyhaven.com/a/leafy_grass", worlds: ["gamedev", "arch"] },

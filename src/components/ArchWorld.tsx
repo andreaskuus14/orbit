@@ -57,10 +57,10 @@ import { SiteLayer, SitePanel } from "./ArchSite";
 import { IfcOpen } from "./LocalAi";
 import { OpenInBlender } from "./BlenderEntry";
 import { ArchRender } from "./ArchRender";
-import { ArchHouse, ArchLook, ArchSiteLook } from "./ArchHouse";
-import FrameBackdrop from "./FrameBackdrop";
+import { ArchHouse, ArchLook, ArchSiteLook, DUSK_FOG } from "./ArchHouse";
+import { fovOf, homeShot, partsBox } from "@/lib/arch-camera-pure";
 import { ArchDims, KickFrames, archChips } from "./ArchIsland";
-import { ChipLayer, ChipProjector, useChipRig } from "./world-kit";
+import { ChipLayer, ChipProjector, ShiftForPanel, useChipRig } from "./world-kit";
 import { designHouse } from "@/lib/arch-design-pure";
 import { roofTop } from "@/lib/arch-mesh-pure";
 import { defaultSite, readSite, toModel, type Site } from "@/lib/arch-site-pure";
@@ -279,10 +279,16 @@ function Walker({ rects, plot, onExit }: { rects: Rect[]; plot: { w: number; d: 
   return null;
 }
 
-/** Opens the realistic look wide enough to show the whole cliff site (lawn radius r), once per project. */
-function StartWide({ r }: { r: number }) {
-  const camera = useThree((s) => s.camera), invalidate = useThree((s) => s.invalidate);
-  useLayoutEffect(() => { const d = Math.max(30, r * 2.9); camera.position.set(d * 0.62, d * 0.5, d * 0.62); camera.lookAt(0, 0, 0); invalidate(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+/** Opens the realistic look on a three-quarter view of the house (a 40 mm lens from the south-east, a little above eye level), once per project. */
+function StartShot({ box }: { box: ReturnType<typeof partsBox> }) {
+  const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera, controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void } | null;
+  const size = useThree((s) => s.size), invalidate = useThree((s) => s.invalidate), done = useRef(false);
+  useFrame(() => {
+    if (done.current || !controls) return; done.current = true;
+    const b = box ?? { min: [-5, 0, -4] as [number, number, number], max: [5, 6, 4] as [number, number, number] };
+    const shot = homeShot(b, size.width / Math.max(1, size.height), size.width >= 900 ? 0.3 : 0);
+    camera.fov = shot.fov; camera.position.set(...shot.position); controls.target.set(...shot.target); camera.updateProjectionMatrix(); controls.update(); invalidate();
+  });
   return null;
 }
 
@@ -353,7 +359,7 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
     } catch { return null; }
   }, [dome, sun.date, at.lat, at.lon, north]);
   const SR = site.on ? 90 : 40; // the light (and its shadow box) reaches further when the neighbours are out
-  const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * SR, Math.max(0.5, sunInfo.dir.y * SR), sunInfo.dir.z * SR] : [-34, 4.5, -16]; // no sun study: a low evening sun behind the house
+  const lightPos: [number, number, number] = sun.on && sunInfo ? [sunInfo.dir.x * SR, Math.max(0.5, sunInfo.dir.y * SR), sunInfo.dir.z * SR] : [-30, 7, 14]; // no sun study: a low evening sun from the south-west, raking the south and west faces (the opening shot looks from the south-east)
   const night = sun.on && !!sunInfo && sunInfo.pos.elevationDeg < 0;
   // ARCH studio (5.1–5.4): an open splat scan replaces the model in the canvas; the worker parses and depth-sorts it.
   const [scan, setScan] = useState<ScanData | null>(null), [flip, setFlip] = useState(false), [bump, setBump] = useState(0);
@@ -363,7 +369,8 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const budget = splatBudget(qualityPreset.dpr);
   // the realistic look (ArchHouse): the plain model view of his own house; blueprint, hologram, scans and opened IFC keep their look
   const real = !scan && !holo && !bp && !ifc;
-  const plateOn = !flat && !scan && !holo && !bp && !ifc && !night && worldTier(qualityPreset.bloomScale, qualityPreset.msaa) > 0; // v10: the owner's house plate behind the editor
+  const golden = real && !sun.on; // v11: no sun study running: a golden-hour sky and low evening light
+  const dusk = useMemo(() => new THREE.Color().setRGB(...DUSK_FOG, THREE.LinearSRGBColorSpace), []);
   const bg = scan ? SCAN_BG : holo ? HOLO_C.bg : bp ? BP.bg : night ? "#1c2230" : real ? (sun.on ? "#cfdbe6" : "#c99a7c") : BG;
   const grab = useRef<(() => HTMLCanvasElement) | null>(null);
   const [cmd, setCmd] = useState("");
@@ -562,17 +569,16 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
   const hasResults = !!msg || !!notes || !!lessonMsg;
   return (
     <div role="region" className="absolute inset-0 globe-in" aria-label={tr("arch.region")} style={{ background: bg }}>
-      {plateOn && <FrameBackdrop id="arch" glow="#fdba74" reduced={reduced} paused={paused} />}
       {!flat && (<PlanetBoundary name="arch-scene" quiet>
-        <Canvas key={glr.key} onCreated={(st) => { glr.onCreated(st); r3f.current = st; }} frameloop={paused ? "never" : "demand"} shadows={shadowsOn({ real, sun: sun.on, holo, scan: !!scan })} dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: 45 }} onPointerMissed={() => setSel(null)}>
+        <Canvas key={glr.key} onCreated={(st) => { glr.onCreated(st); r3f.current = st; }} frameloop={paused ? "never" : "demand"} shadows={shadowsOn({ real, sun: sun.on, holo, scan: !!scan })} dpr={[1, qualityPreset.dpr]} camera={{ position: [18, 14, 18], fov: real ? fovOf() : 45 }} onPointerMissed={() => setSel(null)}>
         <WarmCompile world="arch" cap={4000} /* a slow driver shows the house after 4 s at most, not a blank grey plot for 20 s */ />
         <Grab to={grab} />
         <Live on={!paused && loop} />
         {quality === "auto" && loop && <PerformanceMonitor onDecline={qualityPreset.onDecline} /> /* fps only means something while it loops */}
-          {!plateOn && <color attach="background" args={[bg]} />}
-          {!plateOn && <fog attach="fog" args={[bg, real ? 140 : 60, real ? 600 : 140]} />}
+          <color attach="background" args={[golden ? dusk : bg]} />
+          <fog attach="fog" args={golden ? [dusk, 70, 520] : [bg, real ? 140 : 60, real ? 600 : 140]} />
           <WorldTierSet tier={worldTier(qualityPreset.bloomScale, qualityPreset.msaa)} />
-          {real ? <ArchLook sun={lightPos} night={night} reach={lookReach} effects={{ ao: qualityPreset.bloomScale > 0, bloom: qualityPreset.bloomScale, msaa: qualityPreset.msaa }} bare={plateOn} /> : <>
+          {real ? <ArchLook sun={lightPos} night={night} reach={lookReach} effects={{ ao: qualityPreset.bloomScale > 0, bloom: qualityPreset.bloomScale, msaa: qualityPreset.msaa }} golden={golden} /> : <>
           <hemisphereLight args={["#ffffff", "#d6cfc4", 0.9]} />
           <directionalLight position={lightPos} intensity={night ? 0.05 : 1.6} castShadow shadow-mapSize={shadowMap(qualityPreset.bloomScale)} shadow-bias={-0.0004} shadow-camera-left={-SR} shadow-camera-right={SR} shadow-camera-top={SR} shadow-camera-bottom={-SR} shadow-camera-far={SR * 3} /></>}
           {scan ? <SplatCloud scan={scan} worker={worker} cap={budget.cap} maxPx={budget.maxPx} flip={flip}>
@@ -580,17 +586,17 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
           </SplatCloud> : <>
           {real ? <><ArchSiteLook scene={realScene} />{site.on && !lesson && <SiteLayer site={site} set={setSite} parts={scene.parts} />}</>
           : holo ? <><HoloTable w={view.plot.w} d={view.plot.d} /><HoloClock solid={solid} t0={t0} reduced={reduced} /></> : <>
-            <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[view.plot.w, view.plot.d]} />{plateOn ? <shadowMaterial opacity={0.28} /> /* the house photo shows through: only the shadow lands on it */ : <meshStandardMaterial color={bp ? BP.ground : GROUND[view.plot.ground]} roughness={1} />}</mesh>
-            {!plateOn && <gridHelper args={[Math.max(view.plot.w, view.plot.d), Math.max(view.plot.w, view.plot.d), bp ? BP.grid[0] : "#cbbf9f", bp ? BP.grid[1] : "#ddd6c6"]} position={[0, 0.005, 0]} />}
+            <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[view.plot.w, view.plot.d]} /><meshStandardMaterial color={bp ? BP.ground : GROUND[view.plot.ground]} roughness={1} /></mesh>
+            <gridHelper args={[Math.max(view.plot.w, view.plot.d), Math.max(view.plot.w, view.plot.d), bp ? BP.grid[0] : "#cbbf9f", bp ? BP.grid[1] : "#ddd6c6"]} position={[0, 0.005, 0]} />
             <ContactShadows position={[0, 0.01, 0]} scale={Math.max(view.plot.w, view.plot.d)} opacity={0.35} blur={2.5} far={12} />
             {!ifc && <Blueprint parts={view.parts.filter((p) => !hideGroups.has(groupOf(p)))} />}
-            {!ifc && !plateOn && <Trees n={view.plot.trees} w={view.plot.w} d={view.plot.d} />}
+            {!ifc && <Trees n={view.plot.trees} w={view.plot.w} d={view.plot.d} />}
             {site.on && !lesson && !ifc && <SiteLayer site={site} set={setSite} parts={scene.parts} />}
           </>}
           <BuildClock run={run} onStart={setT0} />
           {ifc ? <IfcModelView model={ifc.model} /> : (() => { const at = (i: number) => t0 + 0.6 + i * STEP_S;
             if (real) return <>
-              <ArchHouse scene={realScene} hideRoof={noRoof || !!daylight} fail={failing} selected={sel} onPick={setSel} front={reduced ? undefined : (t) => buildFront(solid, t, t0)} />
+              <ArchHouse scene={realScene} glow={night ? 2.6 : sun.on ? 0.25 : 1.5} hideRoof={noRoof || !!daylight} fail={failing} selected={sel} onPick={setSel} front={reduced ? undefined : (t) => buildFront(solid, t, t0)} />
               {daylight && <DaylightRooms d={daylight} />}
             </>;
             return <>
@@ -608,8 +614,9 @@ function ArchProject({ onClose, reduced, flat, quality = "auto", paused = false,
           </group>}
           {walk && !paused && <Walker key={scan?.name ?? "model"} rects={scan ? noRects : rects} plot={scanPlot ?? plotWD} onExit={() => setWalk(false)} />}
           {real && !walk && !lesson && <><ArchDims parts={view.parts} top={topM} /><ChipProjector rig={chipRig} chips={dimChips} throttle={0} /><KickFrames /></>}
-          {real && <StartWide key={project} r={Math.max(view.plot.w, view.plot.d) * 0.72} />}
-          <OrbitControls makeDefault enabled={!walk} enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced && !walk} autoRotateSpeed={0.8} />
+          {real && <StartShot key={project} box={partsBox(scene.parts)} />}
+          {real && !walk && <ShiftForPanel px={460} />}
+          <OrbitControls makeDefault enabled={!walk} minDistance={real ? 3 : 0} maxDistance={real ? 140 : Infinity} enableDamping maxPolarAngle={Math.PI / 2.05} autoRotate={spin && !reduced && !walk} autoRotateSpeed={0.8} />
         </Canvas></PlanetBoundary>
       )}
       {!flat && real && !walk && !lesson && <ChipLayer rig={chipRig} chips={dimChips} />}

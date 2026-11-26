@@ -73,6 +73,6 @@ function tinted(m: THREE.Material, tint: string): THREE.Material {
 }
 
 /** A Poly Haven HDRI as the scene's lighting (and optionally background). */
-export function AssetEnv({ id, background = false, intensity = 1 }: { id: AssetId; background?: boolean; intensity?: number }) {
-  return <Environment files={assetUrl(id)} background={background} environmentIntensity={intensity} />;
+export function AssetEnv({ id, background = false, intensity = 1, rotation = 0, blur = 0, sky = 1 }: { id: AssetId; background?: boolean; intensity?: number; /** turn the sky about the vertical axis (rad) */ rotation?: number; /** softness of the visible sky, 0..1 */ blur?: number; /** brightness of the visible sky (not the light) */ sky?: number }) {
+  return <Environment files={assetUrl(id)} background={background} environmentIntensity={intensity} environmentRotation={[0, rotation, 0]} backgroundRotation={[0, rotation, 0]} backgroundBlurriness={blur} backgroundIntensity={sky} />;
 }

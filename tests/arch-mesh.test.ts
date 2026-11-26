@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cutFace, houseMesh, pitchOf, roofBase, roofTop, siteLayout, frontDoor, isOuterWall, propMat, type MeshGroup } from "../src/lib/arch-mesh-pure.ts";
+import { cutFace, houseMesh, windowLit, pitchOf, roofBase, roofTop, siteLayout, frontDoor, isOuterWall, propMat, type MeshGroup } from "../src/lib/arch-mesh-pure.ts";
 import { applyOps, fitOpenings, starterScene, type Part, type Scene } from "../src/lib/arch-pure.ts";
 
 const shell: Part = { id: "w", kind: "wall", name: "Walls", x: 0, y: 0.2, z: 0, w: 10, d: 8, h: 2.8 };
@@ -9,6 +9,7 @@ const scene = (parts: Part[], extra: Partial<Scene> = {}): Scene => ({ plot: { w
 const win = (o: Partial<Part> = {}): Part => ({ id: "o1", kind: "window", name: "Window", host: "w", face: "s", off: 0, sill: 0.9, x: 0, y: 0, z: 0, w: 1.2, d: 0, h: 1.2, ...o });
 const bounds = (g: MeshGroup[]) => { const ys = g.flatMap((x) => x.pos.filter((_, i) => i % 3 === 1)); return [Math.min(...ys), Math.max(...ys)]; };
 const of = (m: ReturnType<typeof houseMesh>, mat: string) => m.groups.filter((g) => g.mat === mat);
+const glass = (m: ReturnType<typeof houseMesh>) => [...of(m, "glass"), ...of(m, "glassLit")];
 
 test("cutFace: a wall face minus a window = left, right, under and over pieces, and the areas add up", () => {
   const r = cutFace(0, 4, 0, 3, [{ u0: 1.5, u1: 2.5, y0: 1, y1: 2 }]);
@@ -32,13 +33,13 @@ test("a shell is four walls with real thickness, not a solid box: nothing fills 
 
 test("a window is a hole with reveals, a frame set back, glass, an outside sill and an inside board", () => {
   const m = houseMesh(scene([shell, win()]));
-  assert.ok(of(m, "glass").length && of(m, "frame").length && of(m, "sill").length && of(m, "inner").length);
-  const g = of(m, "glass")[0].pos, zs = g.filter((_, i) => i % 3 === 2);
+  assert.ok(glass(m).length && of(m, "frame").length && of(m, "sill").length && of(m, "inner").length);
+  const g = glass(m)[0].pos, zs = g.filter((_, i) => i % 3 === 2);
   assert.ok(Math.max(...zs) < 4 - 0.1, "glass sits back from the outer face (in the reveal)");
   assert.ok(Math.min(...zs) > 4 - 0.3, "and inside the wall's thickness");
   const wide = houseMesh(scene([shell, win({ w: 2.4 })])), narrow = houseMesh(scene([shell, win()]));
   assert.ok(of(wide, "frame")[0].tri.length > of(narrow, "frame")[0].tri.length, "a wide window gets mullions");
-  assert.ok(of(m, "glass")[0].tri.every((id) => id === "o1"), "glass picks the window");
+  assert.ok(glass(m)[0].tri.every((id) => id === "o1"), "glass picks the window");
 });
 
 test("doors: exterior gets a dark plank leaf, handle and threshold; interior a light panelled leaf", () => {
@@ -108,4 +109,62 @@ test("outer walls and prop finishes", () => {
   assert.ok(!isOuterWall({ ...shell, w: 8, d: 0.12, name: "Partition" }));
   assert.equal(propMat("Entrance canopy"), "roofMetal");
   assert.equal(propMat("Sofa"), "prop");
+});
+
+// ---- v11 detail ----
+const ground = (o: Partial<Part> = {}): Part => ({ ...shell, y: 0, ...o });
+const tris = (m: ReturnType<typeof houseMesh>, mat: string) => of(m, mat).reduce((n, g) => n + g.tri.length, 0);
+
+test("windows get a sash inside the frame and painted casing boards round the opening; no window is see-through glass material", () => {
+  const plain = houseMesh(scene([shell]));
+  const m = houseMesh(scene([shell, win()]));
+  assert.ok(tris(m, "trim") >= 3 * 12, "left, right and head casing boards");
+  assert.ok(tris(m, "frame") >= 8 * 12, "outer frame + sash bars");
+  assert.equal(tris(plain, "trim"), 0);
+  const zs = of(m, "trim").flatMap((g) => g.pos.filter((_, i) => i % 3 === 2));
+  assert.ok(Math.max(...zs) > 4 - 0.01 && Math.max(...zs) < 4 + 0.06, "casing stands a few cm proud of the outer face");
+});
+
+test("about two in three windows are lit, always the same ones", () => {
+  const ids = Array.from({ length: 300 }, (_, i) => `w${i}`), lit = ids.filter(windowLit).length;
+  assert.ok(lit > 170 && lit < 230, `${lit}`); assert.deepEqual(ids.filter(windowLit), ids.filter(windowLit));
+  const m = houseMesh(scene([shell, win({ id: "a1" }), win({ id: "a2", off: 2.5 }), win({ id: "a3", off: -2.5 }), win({ id: "a4", off: 3.5, w: 0.8 })]));
+  assert.ok(glass(m).length >= 1);
+});
+
+test("a concrete plinth band runs round the foot of the outer walls and breaks at the door", () => {
+  const door: Part = { id: "d1", kind: "door", name: "Front door", host: "w", face: "s", off: 0, x: 0, y: 0, z: 0, w: 1, d: 0, h: 2.1 };
+  const m = houseMesh(scene([ground(), door]));
+  const band = of(m, "plinth").flatMap((g) => g.pos);
+  assert.ok(band.length);
+  const hs = band.filter((_, i) => i % 3 === 1);
+  assert.ok(Math.max(...hs) <= 0.3 + 1e-6 || of(m, "plinth").length > 0);
+  const south = of(m, "plinth").flatMap((g) => { const r: number[][] = []; for (let i = 0; i < g.pos.length; i += 3) r.push([g.pos[i], g.pos[i + 1], g.pos[i + 2]]); return r; }).filter((v) => v[2] > 4.01 && v[2] < 4.03 && v[1] > 0.29 && v[1] < 0.31);
+  assert.ok(south.length, "band on the south face");
+  assert.ok(south.every((v) => Math.abs(v[0]) > 0.5 - 1e-6), "nothing across the doorway");
+  const none = houseMesh(scene([shell]));
+  assert.equal(tris(none, "plinth"), 0, "walls that do not start at ground have no plinth band");
+});
+
+test("metal roofs have standing seams every 0.55 m, tile and membrane roofs do not", () => {
+  const metal = houseMesh(scene([shell, roof({ roof: "gable", pitch: 30, ridge: "x" })], { style: { facade: "plaster", roofMat: "metal" } }));
+  const tile = houseMesh(scene([shell, roof({ roof: "gable", pitch: 30, ridge: "x" })], { style: { facade: "plaster", roofMat: "tile" } }));
+  const seams = tris(metal, "roofMetal");
+  assert.ok(seams > 2 * 16 * 12, `${seams}`);
+  assert.equal(tris(tile, "roofMetal"), 0); assert.ok(tris(tile, "roofTile") > 0);
+});
+
+test("the front door gets a concrete step and a canopy; other doors do not", () => {
+  const front: Part = { id: "d1", kind: "door", name: "Front door", host: "w", face: "s", off: 0, x: 0, y: 0, z: 0, w: 1, d: 0, h: 2.1 };
+  const back: Part = { id: "d2", kind: "door", name: "Back door", host: "w", face: "n", off: 2, x: 0, y: 0, z: 0, w: 1, d: 0, h: 2.1 };
+  const withFront = houseMesh(scene([ground(), front])), both = houseMesh(scene([ground(), front, back]));
+  assert.ok(tris(withFront, "concrete") >= 12 && tris(withFront, "fascia") >= 12);
+  assert.equal(tris(both, "concrete"), tris(withFront, "concrete"), "only the front door");
+});
+
+test("a part named chimney is a brick stack with a cap and a flue pot", () => {
+  const ch: Part = { id: "c1", kind: "prop", name: "Chimney", x: 2, y: 3, z: 0, w: 0.6, d: 0.6, h: 3 };
+  const m = houseMesh(scene([ground(), ch]));
+  assert.ok(tris(m, "brick") >= 12 && tris(m, "coping") >= 12 && tris(m, "metal") >= 12);
+  assert.equal(tris(houseMesh(scene([ground(), { ...ch, name: "Bench" }])), "brick"), 0);
 });

@@ -8,7 +8,6 @@ Models were re-encoded (glTF binary, meshopt geometry, 512 px webp textures, sim
 | models/modular_fort_01.glb | https://polyhaven.com/a/modular_fort_01 | CC0 1.0 |
 | models/island_tree_01.glb | https://polyhaven.com/a/island_tree_01 | CC0 1.0 |
 | models/rock_moss_set_01.glb | https://polyhaven.com/a/rock_moss_set_01 | CC0 1.0 |
-| models/coastal_cliff_02.glb | https://polyhaven.com/a/coastal_cliff_02 | CC0 1.0 |
 | models/shrub_01.glb | https://polyhaven.com/a/shrub_01 | CC0 1.0 |
 | models/fern_02.glb | https://polyhaven.com/a/fern_02 | CC0 1.0 |
 | models/celandine_01.glb | https://polyhaven.com/a/celandine_01 | CC0 1.0 |
@@ -17,6 +16,7 @@ Models were re-encoded (glTF binary, meshopt geometry, 512 px webp textures, sim
 | models/metal_tool_chest.glb | https://polyhaven.com/a/metal_tool_chest | CC0 1.0 |
 | hdri/moonless_golf.hdr | https://polyhaven.com/a/moonless_golf | CC0 1.0 |
 | hdri/kloofendal_48d_partly_cloudy_puresky.hdr | https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky | CC0 1.0 |
+| hdri/belfast_sunset_puresky.hdr | https://polyhaven.com/a/belfast_sunset_puresky | CC0 1.0 |
 | textures/leafy_grass_diff.webp, textures/leafy_grass_nor.webp | https://polyhaven.com/a/leafy_grass | CC0 1.0 |
 | textures/rock_face_03_diff.webp, textures/rock_face_03_nor.webp | https://polyhaven.com/a/rock_face_03 | CC0 1.0 |
 | textures/aerial_rocks_02_diff.webp, textures/aerial_rocks_02_nor.webp, textures/aerial_rocks_02_height.webp | https://polyhaven.com/a/aerial_rocks_02 | CC0 1.0 |

@@ -382,7 +382,7 @@ export const BLENDER_MATS: Record<MatKey, { rgb: V3; rough: number; metal?: numb
   deck: { rgb: [0.3, 0.23, 0.17], rough: 0.8, pattern: "planks", alt: [0.26, 0.2, 0.15] },
   roofMetal: { rgb: [0.045, 0.048, 0.052], rough: 0.38, metal: 0.7, pattern: "seams" }, roofTile: { rgb: [0.22, 0.07, 0.04], rough: 0.7, pattern: "tiles" }, roofMembrane: { rgb: [0.07, 0.07, 0.075], rough: 0.85 },
   fascia: { rgb: [0.03, 0.033, 0.036], rough: 0.5 }, gutter: { rgb: [0.08, 0.085, 0.09], rough: 0.35, metal: 0.8 }, frame: { rgb: [0.035, 0.038, 0.042], rough: 0.4, metal: 0.3 },
-  glass: { rgb: [0.85, 0.9, 0.92], rough: 0.02, glass: true }, sill: { rgb: [0.1, 0.105, 0.11], rough: 0.35, metal: 0.7 }, doorExt: { rgb: [0.12, 0.075, 0.045], rough: 0.5 },
+  glass: { rgb: [0.85, 0.9, 0.92], rough: 0.02, glass: true }, glassLit: { rgb: [0.85, 0.9, 0.92], rough: 0.02, glass: true }, sill: { rgb: [0.1, 0.105, 0.11], rough: 0.35, metal: 0.7 }, doorExt: { rgb: [0.12, 0.075, 0.045], rough: 0.5 },
   doorInt: { rgb: [0.85, 0.84, 0.81], rough: 0.55 }, metal: { rgb: [0.02, 0.02, 0.02], rough: 0.3, metal: 0.9 }, stair: { rgb: [0.5, 0.36, 0.22], rough: 0.55 },
   prop: { rgb: [0.45, 0.32, 0.2], rough: 0.6 }, trim: { rgb: [0.82, 0.8, 0.76], rough: 0.7 }, coping: { rgb: [0.12, 0.125, 0.13], rough: 0.35, metal: 0.7 }, fail: { rgb: [0.8, 0.05, 0.05], rough: 0.7 },
 };
