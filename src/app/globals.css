@@ -1128,3 +1128,36 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .cmap-head { display: none; font: 400 11px/1.35 var(--font-inter); color: rgba(226, 234, 245, 0.85); white-space: normal; }
 .cmap-label:hover .cmap-head { display: block; }
 @media (prefers-reduced-motion: reduce) { .cmap-label { transition: none; } }
+
+/* INTELLIGENCE panels over the one map (IntelPanels.tsx): ranked list left, top-story card right of the stage, other stories along the bottom. The map's own big headline and ticker give way to them. */
+.globe-in .earth-lower, .globe-in .earth-timeline { display: none; }
+.ip-head { display: flex; justify-content: space-between; align-items: center; font: 600 0.68rem/1 var(--font-inter, Inter, sans-serif); letter-spacing: 0.12em; text-transform: uppercase; color: rgba(238, 242, 247, 0.62); margin-bottom: 0.55rem; }
+.ip-live { display: inline-flex; align-items: center; gap: 0.3rem; color: #fff; background: #e5484d; border-radius: 4px; padding: 0.18rem 0.4rem; letter-spacing: 0.06em; }
+.ip-live i { width: 5px; height: 5px; border-radius: 50%; background: #fff; }
+.ip-rank, .ip-top, .ip-strip { background: rgba(5, 10, 20, 0.72); border: 1px solid rgba(238, 242, 247, 0.12); border-radius: 10px; padding: 0.75rem; backdrop-filter: blur(10px); text-shadow: none; }
+.ip-rank ol { list-style: none; margin: 0; padding: 0; }
+.ip-rank button { display: grid; grid-template-columns: 1.1rem 1.4rem 1fr 3rem 1.6rem 2.1rem; gap: 0.4rem; align-items: center; width: 100%; padding: 0.3rem 0.25rem; border: 0; border-radius: 6px; background: transparent; color: #eef2f7; font-size: 0.8rem; text-align: left; cursor: pointer; }
+.ip-rank button:hover, .ip-rank button:focus-visible, .ip-rank button.on { background: rgba(255, 255, 255, 0.08); outline: none; }
+.ip-n { color: rgba(238, 242, 247, 0.5); font-size: 0.7rem; }
+.ip-flag { width: 1.4rem; height: 1rem; border-radius: 2px; object-fit: cover; display: inline-block; vertical-align: -0.15em; margin-right: 0.35rem; background: rgba(255, 255, 255, 0.08); }
+.ip-rank .ip-flag { margin: 0; }
+.ip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ip-bar { height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.ip-bar i { display: block; height: 100%; background: linear-gradient(90deg, #f2b35e, #e5484d); }
+.ip-rank b { font-weight: 600; text-align: right; }
+.ip-rank em { font-style: normal; font-size: 0.68rem; color: rgba(238, 242, 247, 0.45); }
+.ip-rank em.up { color: #f2706a; } .ip-rank em.down { color: #5ec9a0; }
+.globe-in.intel-zoned .ip-top { position: absolute; z-index: 14; top: var(--iz-t); right: calc(var(--iz-r) + 0.5rem); width: 324px; }
+.ip-map { position: relative; display: block; overflow: hidden; border-radius: 7px; background: #0b1b33; }
+.ip-map img { position: absolute; max-width: none; filter: saturate(1.25) brightness(.8) contrast(1.1); }
+.ip-map i { position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #f2b35e; box-shadow: 0 0 0 4px rgba(242, 179, 94, 0.25), 0 0 16px 4px rgba(242, 179, 94, 0.6); }
+.ip-top h3 { margin: 0.7rem 0 0.35rem; font: 400 1.35rem/1.2 var(--font-serif, Georgia, serif); color: #fff; }
+.ip-top p { margin: 0; font-size: 0.74rem; color: rgba(238, 242, 247, 0.62); }
+.ip-more { display: inline-block; margin-top: 0.6rem; font-size: 0.78rem; font-weight: 600; color: #f2b35e; }
+.globe-in.intel-zoned .ip-strip { position: absolute; z-index: 14; left: var(--iz-sl); right: calc(var(--iz-r) + 0.5rem); bottom: calc(var(--iz-b) + 1.25rem); }
+.ip-strip > div:last-child { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
+.ip-strip a { display: flex; gap: 0.6rem; align-items: center; color: #eef2f7; text-decoration: none; min-width: 0; }
+.ip-strip a > span:last-child { min-width: 0; } .ip-strip b { display: block; font-size: 0.78rem; font-weight: 500; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ip-strip em { font-style: normal; font-size: 0.68rem; color: rgba(238, 242, 247, 0.55); }
+.ip-strip .ip-map { flex: none; }
+@media (max-width: 1100px) { .globe-in.intel-zoned .ip-top, .globe-in.intel-zoned .ip-strip { display: none; } }

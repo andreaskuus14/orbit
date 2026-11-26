@@ -17,6 +17,7 @@ import { borderLines } from "@/lib/earth-borders-pure";
 import { LAYER, borderK, glide, markerDeg } from "@/lib/earth-layers-pure";
 import { declutter, sunAt } from "@/lib/classic-map-pure";
 import { decodeCountries, type CountryShape } from "@/lib/topo";
+import { flagPath } from "@/lib/intel-rank-pure";
 import { BUILDINGS_MAX_ALT, BZ, TOTAL as MAX_BUILDINGS, extrude, tilesAround, type Building } from "@/lib/earth-buildings-pure";
 import { LIGHT_GLSL } from "@/lib/earth-light-pure";
 import { createEe3d, EE3D_CSS } from "./earth-ee3d";
@@ -72,7 +73,7 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   vec3 c = day * .82 * (0.16 + 1.0*sqrt(max(d, 0.)) + .22*uGrade) * mix(.35, 1., litG) + lights * vec3(1.,.74,.4) * uLights * nightG; // uLights: off at city zoom, where 600 m/px lights through a missing imagery tile read as cream blocks
   vec3 Hh = normalize(uSun + V); float spec = pow(max(dot(vN, Hh), 0.), 140.) * .18 * lit * (1. - smoothstep(.06,.14, (day.r+day.g+day.b)/3.)); // sun glint on the sea
   c += day * .1 * (1. - litG); // the night side keeps its land readable
-  c += spec * vec3(1.,.95,.85) * (1. - .6*uGrade) + rim * vec3(.42,.62,.95) * (.1 + .6*litG + .5*uGrade);
+  c += spec * vec3(1.,.95,.85) * (1. - .6*uGrade) + rim * mix(vec3(.42,.62,.95), vec3(.35,.5,1.), uGrade) * (.1 + .6*litG + .9*uGrade);
   gl_FragColor = vec4(c, 1.); }`;
 
 const cloudFS = `${LOGF} uniform vec3 uSun; uniform float uT; uniform float uFade; varying vec3 vN; varying vec3 vW; ${NOISE} ${CLOUD}
@@ -83,13 +84,14 @@ void main(){ \n#include <logdepthbuf_fragment>\n
 
 const atmoVS = `${LOG} varying vec3 vN; varying vec3 vW; void main(){ vN = normalize(normalMatrix*normal); vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz;
   gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
-const atmoFS = `${LOGF} uniform vec3 uSun; uniform vec3 uCam; varying vec3 vN; varying vec3 vW;
+const atmoFS = `${LOGF} uniform vec3 uSun; uniform vec3 uCam; uniform float uGrade; varying vec3 vN; varying vec3 vW;
 void main(){ \n#include <logdepthbuf_fragment>\n vec3 V = normalize(uCam - vW); vec3 N = normalize(vW);
   float k = pow(clamp(.72 + dot(normalize(vN), vec3(0,0,1)) * 0. - dot(N, -V)*0.0 , 0., 1.), 1.);
   float edge = 1. - abs(dot(N, V)); float i = pow(max(edge, 0.), 3.2) * 1.5;
   float sd = dot(N, uSun), lit = smoothstep(-.3, .35, sd);
   vec3 sky = mix(vec3(1.,.55,.3), vec3(.35,.62,1.), smoothstep(-.05,.3,sd));
-  gl_FragColor = vec4(sky * i * (.05 + 1.2*lit) * k, i * (.05 + lit)); }`;
+  sky = mix(sky, mix(vec3(.62,.3,1.), vec3(.1,.85,.95), smoothstep(-.2,.5,sd)), uGrade * .85); // command-centre: purple to teal
+  gl_FragColor = vec4(sky * i * (.05 + 1.2*mix(lit, .8, uGrade)) * k, i * (.05 + mix(lit, .8, uGrade))); }`;
 
 /** The vector ground's plain land colour after its own day/dusk/night shading and fog, so the terrain around the loaded area can match it. */
 const lin = (h: string) => [1, 3, 5].map((i) => (parseInt(h.slice(i, i + 2), 16) / 255) ** 2).map((v) => v.toFixed(5)).join(",");
@@ -298,7 +300,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   const cloudU = { uSun: { value: sunV }, uT: { value: 0 }, uFade: { value: 1 } };
   const clouds = new THREE.Mesh(new THREE.SphereGeometry(1.006, 160, 80), new THREE.ShaderMaterial({ vertexShader: globeVS, fragmentShader: cloudFS, uniforms: cloudU, transparent: true, depthWrite: false }));
   scene.add(clouds);
-  const atmo = new THREE.Mesh(new THREE.SphereGeometry(1.035, 128, 64), new THREE.ShaderMaterial({ vertexShader: atmoVS, fragmentShader: atmoFS, uniforms: { uSun: { value: sunV }, uCam: U.uCam }, side: THREE.BackSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const atmo = new THREE.Mesh(new THREE.SphereGeometry(1.035, 128, 64), new THREE.ShaderMaterial({ vertexShader: atmoVS, fragmentShader: atmoFS, uniforms: { uSun: { value: sunV }, uCam: U.uCam, uGrade: gradeU }, side: THREE.BackSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
   scene.add(atmo);
 
   // whole-world day/night maps (z3 = 2048² mercator)
@@ -545,7 +547,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: 1, kind: "wx" });
     }
     for (const sw of w.swirls) {
-      const side = (2 * (2.2 + 1.5 * Math.sqrt(Math.min(sw.outlets, 20))) * Math.PI) / 180;
+      const side = (2 * (4 + 2.4 * Math.sqrt(Math.min(sw.outlets, 20))) * Math.PI) / 180;
       const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: swirlFS, uniforms: { uColor: { value: col(sw.color) }, uT: { value: 0 }, uOp: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(side, side), m); mesh.applyMatrix4(tangentAt(sw.lon, sw.lat, 0.003)); layer.add(mesh);
       glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: sw.storm ? 1 : 0.7, kind: "wx" });
@@ -580,7 +582,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(s, s), m);
       mesh.applyMatrix4(tangentAt(r.lon, r.lat, 0.004));
       layer.add(mesh); glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: 1, pts: circle(r.lon, r.lat, (markerDeg(r.outlets) * 111.32), 0.004) }); // country rings give way to the town layer
-      if (ri < 4) label(`<b>${esc(r.label)}</b><i>${r.outlets} ${r.outlets === 1 ? "outlet" : "outlets"}</i>`, r.lon, r.lat, 0.01, 5000, 1e9, ri === 0 ? "ring lead" : "ring"); // names only: the one story is the card below
+      if (ri < 5) { const f = flagPath(r.country); label(`${f ? `<img src="${f}" alt="" onerror="this.remove()">` : ""}<b>${esc(r.label)}</b><i>${r.outlets}</i><span>${esc(cut(r.title, 38))}</span>`, r.lon, r.lat, 0.01, 5000, 1e9, ri === 0 ? "ring lead" : "ring"); }
     }
     for (const a of d.arcs.filter((x) => distKm(x.from, x.to) < 8000).slice(0, 4)) { // short, neat arcs only: a long one would leave the globe
       const pts = arcPoints(a.from, a.to, 80, 0.07).map((p) => new THREE.Vector3(...p));
@@ -604,8 +606,17 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       const beam = new THREE.Mesh(g, m); beam.applyMatrix4(tangentAt(t.lon, t.lat, 0.00004)); layer.add(beam);
       glow.push({ m, lo: 50, hi: 2500, base: k, pts: Array.from({ length: 9 }, (_, i) => new THREE.Vector3(...toXYZ(t.lon, t.lat, (hKm / EARTH_KM) * (i / 8) ** 2))) });
       ringAt(t.lon, t.lat, 2.2 + 3 * Math.sqrt(t.count / max), 50, 2500, k);
-      if (i < 20) label(`<b>${esc(t.name)}</b><i>${t.count}</i>`, t.lon, t.lat, 0.00004, t.kind === "city" ? 5 : 60, t.kind === "city" ? 2200 : 700, `pin ${t.kind}`, t); // a city keeps its name when zoomed in (Tartu at 14 km)
+      if (i < 20) label(i < 3 && t.stories[0] ? `<b>${esc(t.name)}</b><i>${t.count}</i><span>${esc(cut(t.stories[0].title, 44))}</span>` : `<b>${esc(t.name)}</b><i>${t.count}</i>`, t.lon, t.lat, 0.00004, t.kind === "city" ? 5 : 60, t.kind === "city" ? 2200 : 700, `pin ${t.kind}${i < 3 && t.stories[0] ? " big" : ""}`, t); // a city keeps its name when zoomed in (Tartu at 14 km)
     });
+    { // the node network at country zoom: the busiest town linked to the next ones by low glowing arcs
+      const hub = townsOnly.slice(0, 7);
+      for (const b of hub.slice(1)) {
+        const pts = arcPoints(hub[0], b, 48, 0).map((p) => new THREE.Vector3(...p));
+        const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: glowFS, uniforms: { uColor: { value: col("#7fe4ff") }, uT: { value: 0 }, uOp: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+        layer.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 64, 0.0005, 5), m));
+        glow.push({ m, lo: 50, hi: 2500, base: 0.8 });
+      }
+    }
     for (const t of d.towns.filter((x) => x.kind === "district").slice(0, 8)) {
       ringAt(t.lon, t.lat, 0.25 + 0.35 * Math.sqrt(t.count / max), 0.5, 60, 1);
       label(`<b>${esc(t.name)}</b><span>${esc(cut(t.stories[0]?.title ?? "", 48))}</span><i>${t.count}</i>`, t.lon, t.lat, 0.00005, 0.5, 60, "district", t);
@@ -894,10 +905,11 @@ export const EARTH_CSS = EE3D_CSS + EE_LABELS_CSS + `
 .earth-label b{display:block;font-size:13px;font-weight:600;color:var(--ui)}
 .earth-label span{display:block;font-size:12px;line-height:1.35;color:rgba(238,242,247,.82);white-space:normal;width:230px}
 .earth-label i{font-style:normal;font-size:11px;color:var(--accent)}
-.earth-label.ring{margin:0;padding:2px 8px 3px;display:flex;gap:6px;align-items:baseline;border-left:1px solid rgba(238,242,247,.35)}.earth-label.ring b{font-weight:500;font-size:12px}.earth-label.ring.lead{border-left-color:var(--accent)}.earth-label.ring.lead b{font-weight:600;font-size:13px}
+.earth-label.ring{margin:0;padding:6px 10px 7px;display:grid;grid-template-columns:auto auto 1fr;gap:1px 7px;align-items:center;background:rgba(4,10,20,.72);border:1px solid rgba(238,242,247,.16);border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,.45);text-shadow:none}.earth-label.ring img{width:20px;height:14px;border-radius:2px;object-fit:cover;grid-row:1}.earth-label.ring span{grid-column:1/-1;font-size:11px;line-height:1.25;width:auto;max-width:190px;color:rgba(238,242,247,.7)}.earth-label.ring b{font-weight:500;font-size:12px}.earth-label.ring.lead{border-color:rgba(242,179,94,.6)}.earth-label.ring.lead b{font-weight:600;font-size:13px}
 .earth-label.wx{margin:-17px 0 0 -17px;width:34px;display:flex;flex-direction:column;align-items:center;gap:1px}
 .earth-label.wx b{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:15px;font-weight:700;border:1.5px solid currentColor;background:rgba(1,3,8,.45)}
 .earth-label.wx i{color:inherit;font-size:10.5px}.earth-label.wx-L{color:#ff8a70}.earth-label.wx-H{color:#7cc4ff}
+.earth-label.pin.big{display:grid;grid-template-columns:auto 1fr;gap:1px 8px;padding:6px 10px;background:rgba(4,10,20,.72);border:1px solid rgba(127,228,255,.28);border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,.45);text-shadow:none;margin:-12px 0 0 12px}.earth-label.pin.big span{grid-column:1/-1;font-size:11px;line-height:1.25;width:auto;max-width:200px;color:rgba(238,242,247,.72)}.earth-label.pin.big:before{display:none}
 .earth-label.pin{margin:-8px 0 0 9px;display:flex;gap:6px;align-items:baseline;cursor:pointer}
 .earth-label.pin:before{content:"";position:absolute;left:-9px;top:5px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
 .earth-label.pin b{font-size:12px;font-weight:500}.earth-label.pin.city b{font-size:14px;font-weight:600}
