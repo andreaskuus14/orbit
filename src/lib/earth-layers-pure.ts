@@ -29,3 +29,12 @@ export const glide = (cur: number, on: boolean, dt: number) => (on ? Math.min(1,
 
 /** Country marker radius (degrees of arc) from independent outlets: small and precise, grows with the square root, capped. */
 export const markerDeg = (outlets: number) => 0.9 + 0.5 * Math.sqrt(Math.max(0, Math.min(outlets, 30)));
+
+/** News-weather levels as on the legend: how hot a system is against the busiest one. Colours are shared by the swirls and the legend. */
+export const LEVELS = [
+  { key: "crisis", min: 0.7, color: "#c04bff" }, { key: "rising", min: 0.4, color: "#ff7a3c" }, { key: "ongoing", min: 0.18, color: "#f2b35e" }, { key: "stable", min: 0, color: "#3fd6a0" },
+] as const;
+export function stormLevel(outlets: number, max: number): (typeof LEVELS)[number] {
+  const r = max > 0 ? outlets / max : 0;
+  return LEVELS.find((l) => r >= l.min) ?? LEVELS[LEVELS.length - 1];
+}

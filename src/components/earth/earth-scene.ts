@@ -69,8 +69,9 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   // uGrade = 1: the command-centre look (dusk over the whole near side: saturated land, strong city lights); 0: the real time of day
   float litG = mix(lit, .5, uGrade), nightG = mix(1. - smoothstep(-.2, .08, d), .95, uGrade);
   day = mix(vec3(dot(day, vec3(.3,.59,.11))), day, 1. + .5*uGrade);
+  day *= mix(vec3(1.), vec3(.62,.92,1.08), uGrade); // blue-green land, deserts stay warm but quiet
   vec3 lights = pow(max(night, 0.), vec3(mix(1., .72, uGrade))) * mix(1.6, 3.4, uGrade);
-  vec3 c = day * .82 * (0.16 + 1.0*sqrt(max(d, 0.)) + .22*uGrade) * mix(.35, 1., litG) + lights * vec3(1.,.74,.4) * uLights * nightG; // uLights: off at city zoom, where 600 m/px lights through a missing imagery tile read as cream blocks
+  vec3 c = day * .82 * (0.16 + 1.0*sqrt(max(d, 0.)) + .1*uGrade) * mix(.35, 1., litG) + lights * vec3(1.,.74,.4) * uLights * nightG; // uLights: off at city zoom, where 600 m/px lights through a missing imagery tile read as cream blocks
   vec3 Hh = normalize(uSun + V); float spec = pow(max(dot(vN, Hh), 0.), 140.) * .18 * lit * (1. - smoothstep(.06,.14, (day.r+day.g+day.b)/3.)); // sun glint on the sea
   c += day * .1 * (1. - litG); // the night side keeps its land readable
   c += spec * vec3(1.,.95,.85) * (1. - .6*uGrade) + rim * mix(vec3(.42,.62,.95), vec3(.35,.5,1.), uGrade) * (.1 + .6*litG + .9*uGrade);
@@ -159,7 +160,7 @@ void main(){ vS = aSide; vW = aW; vec4 p = projectionMatrix*modelViewMatrix*vec4
   gl_Position = p; gl_Position.xy += vec2(-d.y, d.x) * aSide * uPx * 2. / uRes * p.w; \n#include <logdepthbuf_vertex>\n }`;
 const borderFS = `${LOGF} uniform vec3 uColor; uniform float uOp; varying float vS; varying float vW;
 void main(){ \n#include <logdepthbuf_fragment>\n float core = exp(-vS*vS*22.), soft = exp(-vS*vS*3.4);
-  float a = (soft*.2 + core*.6) * uOp * (.22 + .78*vW);
+  float a = (soft*.32 + core*.75) * uOp * (.3 + .7*vW);
   gl_FragColor = vec4(mix(uColor, vec3(1.), core*.4) * (.9 + .9*vW), a); }`;
 const plainVS = `${LOG} void main(){ gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); \n#include <logdepthbuf_vertex>\n }`;
 const lineFS = `${LOGF} uniform vec3 uColor; uniform float uOp;
@@ -530,7 +531,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   const wxFront = { cold: "#5aa9ff", warm: "#ff7a5c", occluded: "#b98cff" } as const;
   const own: THREE.BufferGeometry[] = [];
   const borderMat = new THREE.ShaderMaterial({ vertexShader: borderVS, fragmentShader: borderFS, transparent: true, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
-    uniforms: { uColor: { value: col(ACCENT) }, uOp: { value: 0 }, uRes: { value: new THREE.Vector2(W(), H()) }, uPx: { value: 1.8 } } });
+    uniforms: { uColor: { value: col(ACCENT) }, uOp: { value: 0 }, uRes: { value: new THREE.Vector2(W(), H()) }, uPx: { value: 4.2 } } });
   function buildWeather(w: EarthWeather) {
     for (const g of own.splice(0)) g.dispose();
     const pos: number[] = [];
@@ -547,7 +548,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: 1, kind: "wx" });
     }
     for (const sw of w.swirls) {
-      const side = (2 * (4 + 2.4 * Math.sqrt(Math.min(sw.outlets, 20))) * Math.PI) / 180;
+      const side = (2 * (4 + 9 * Math.sqrt(sw.rel)) * Math.PI) / 180;
       const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: swirlFS, uniforms: { uColor: { value: col(sw.color) }, uT: { value: 0 }, uOp: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(side, side), m); mesh.applyMatrix4(tangentAt(sw.lon, sw.lat, 0.003)); layer.add(mesh);
       glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: sw.storm ? 1 : 0.7, kind: "wx" });

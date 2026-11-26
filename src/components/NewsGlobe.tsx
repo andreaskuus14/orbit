@@ -10,7 +10,7 @@ import { countryByName, findCountry } from "@/lib/countries-pure";
 import { useManual } from "./planet-manual";
 import EarthView from "./earth/EarthView";
 import IntelBar from "./intel/IntelBar";
-import { OtherStories, RankList, TopStoryCard } from "./intel/IntelPanels";
+import { OtherStories, RankList, TopStoryCard, WeatherLegend } from "./intel/IntelPanels";
 import { nextSnap, parseSnap, rankRows, topStories } from "@/lib/intel-rank-pure";
 import NewsWeatherLayer from "./news-weather/NewsWeatherLayer";
 import { escBack, readWeather, WEATHER_KEY, type Place } from "@/lib/intel-view-pure";
@@ -169,7 +169,7 @@ export default function NewsGlobe({ reduced, focus: goTo, paused = false }: { on
       </form>}
 
       {/* Simple page (INTELLIGENCE panel, not More): the map stays a calm picture; search is the tool behind More. */}
-      {!selected && !search && rows.length > 0 && <RankList rows={rows} selected={selected} onHover={setHover} onPick={setSelected} title={t("ip.rank")} />}
+      {!selected && !search && rows.length > 0 && <RankList rows={rows} selected={selected} onHover={setHover} onPick={setSelected} title={t("ip.rank")} legend={wx ? <WeatherLegend title={t("ip.legend")} names={{ crisis: t("ip.lv.crisis"), rising: t("ip.lv.rising"), ongoing: t("ip.lv.ongoing"), stable: t("ip.lv.stable"), cold: t("ip.lv.cold"), warm: t("ip.lv.warm"), isobar: t("ip.lv.isobar") }} /> : undefined} />}
       {!selected && !search && stories[0] && <TopStoryCard s={stories[0]} label={t("ip.top")} more={t("ip.more")} />}
       {!selected && !search && stories.length > 1 && <OtherStories list={stories.slice(1)} title={t("ip.others")} />}
 

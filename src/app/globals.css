@@ -1161,3 +1161,11 @@ div.story-name, .story-readout:not(.on) .story-name { cursor: default; pointer-e
 .ip-strip em { font-style: normal; font-size: 0.68rem; color: rgba(238, 242, 247, 0.55); }
 .ip-strip .ip-map { flex: none; }
 @media (max-width: 1100px) { .globe-in.intel-zoned .ip-top, .globe-in.intel-zoned .ip-strip { display: none; } }
+.ip-legend { margin-top: 0.8rem; padding-top: 0.7rem; border-top: 1px solid rgba(238, 242, 247, 0.12); }
+.ip-legend ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.32rem; font-size: 0.72rem; color: rgba(238, 242, 247, 0.78); }
+.ip-legend li { display: flex; align-items: center; gap: 0.55rem; }
+.ip-legend .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; margin: 0 0.15rem; }
+.ip-legend .line { width: 22px; height: 2px; border-radius: 1px; flex: none; }
+.ip-cat { flex: none; vertical-align: -0.2em; margin-right: 0.35rem; color: #f2b35e; }
+.ip-top p, .ip-strip em { display: flex; align-items: center; flex-wrap: wrap; }
+.ip-top .ip-flag, .ip-strip .ip-flag { margin: 0 0.35rem 0 0; }
