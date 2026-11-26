@@ -9,6 +9,7 @@ import { Capsule, Crystals, LightShaft, Many, Motes, Plate, PlanetGround, rockGe
 import { lifeGarden } from "@/lib/worlds-v3-pure";
 import { AssetMany, RealOr } from "./world-assets";
 import { Water } from "./world-surfaces";
+import { OrbitalPlanet, RingOf, SkyDome, WindowRing } from "./world-scenery";
 import { BIZ_STAGES, GATE_ANGLE, GATE_COLOR, VAULT_KIND_COLOR, bizScene, bytes, clip, fmtMin, heightAt, lifeScene, opsScene, podAngle, timeScene, vaultScene, type SceneId } from "@/lib/planet-scenes-pure";
 import { STAGE_COLOR } from "@/lib/living-galaxy-pure";
 
@@ -29,7 +30,7 @@ export function buildModel(id: SceneId, json: unknown, now: number): SceneModel 
 
 /** Camera per scene: where it looks from and how far it may move. */
 export const CAMERA: Record<SceneId, { pos: [number, number, number]; target: [number, number, number]; min: number; max: number }> = {
-  operations: { pos: [0, 9.5, 14], target: [0, 0.5, 0], min: 6, max: 30 },
+  operations: { pos: [0, 11, 19], target: [0, 0.5, 0], min: 4, max: 34 },
   vault: { pos: [0, 5.2, 13.5], target: [0, 2.4, 0], min: 5, max: 24 },
   business: { pos: [0, 6.5, 15], target: [0, 3, 0], min: 6, max: 30 },
   analytics: { pos: [0, 11, 17], target: [0, 1.5, 0], min: 6, max: 36 },
@@ -54,8 +55,13 @@ export function sceneChips(s: SceneModel, t: T, zone: (k: string) => string): Ch
           sub: g.today ? tt("w2.today", { n: g.today }) : undefined, color: GATE_COLOR[g.gate], prio: 10 + (g.count ? 5 : 0),
           dot: g.gate === "running" ? "busy" : g.gate === "needs" ? "warn" : g.gate === "failed" ? "bad" : g.gate === "done" ? "ok" : "idle" }; });
       out.push({ id: "hub", at: [0, 3.4, 0], title: tt("w2.hub"), value: s.m.summary.split(",")[0], color: "#22d3ee", prio: 8 });
-      const run = s.m.pods.filter((p) => p.moving), n = run.length;
-      run.slice(0, 3).forEach((p) => { const a = podAngle(p, n); out.push({ id: `p:${p.id}`, at: [Math.cos(a) * 6, 0.8, Math.sin(a) * 6], title: clip(p.title, 30), sub: p.agent || undefined, color: GATE_COLOR.running, prio: 4, dot: "busy" }); });
+      // v8 semantic zoom: lanes (lod 1) carry the newest job of each gate; every pod gets its own label up close (lod 2)
+      const n = s.m.pods.filter((p) => p.moving).length;
+      s.m.gates.forEach((g) => { const a = GATE_ANGLE[g.gate], first = s.m.pods.find((p) => p.gate === g.gate); if (!first) return;
+        out.push({ id: `l:${g.gate}`, at: [Math.cos(a) * 3.4, 0.7, Math.sin(a) * 3.4], title: clip(first.title, 30), sub: zone(g.gate === "needs" ? "waiting" : g.gate), color: GATE_COLOR[g.gate], prio: 6, lod: 1 }); });
+      s.m.pods.forEach((p) => { const a = podAngle(p, n);
+        out.push({ id: `p:${p.id}`, at: [Math.cos(a) * 6, 0.85, Math.sin(a) * 6], title: clip(p.title, 30), sub: [zone(p.gate === "needs" ? "waiting" : p.gate), p.agent].filter(Boolean).join(" · "), color: GATE_COLOR[p.gate], prio: p.moving ? 5 : 3, lod: 2, steps: podSteps(p.gate, zone),
+          dot: p.gate === "running" ? "busy" : p.gate === "needs" ? "warn" : p.gate === "failed" ? "bad" : p.gate === "done" ? "ok" : "idle" }); });
       return out;
     }
     case "vault": return s.m.kinds.map((k): Chip => { const a = (k.from + k.to) / 2;
@@ -71,6 +77,13 @@ export function sceneChips(s: SceneModel, t: T, zone: (k: string) => string): Ch
     case "life": return s.m.pods.map((p) => ({ id: `h:${p.id}`, at: [p.at[0], 1.9, p.at[2]] as [number, number, number], title: clip(p.name, 22),
       value: p.done ? tt("w2.done") : p.due ? tt("w2.notYet") : undefined, sub: p.streak ? tt("w2.streak", { n: p.streak }) : undefined, color: p.done ? "#86efac" : "#ffd9a8", dot: p.done ? "ok" : "idle", prio: p.done ? 2 : 3 }));
   }
+}
+
+/** The focused job's step track: queued -> working -> (needs you) -> done / didn't work. */
+function podSteps(g: string, zone: (k: string) => string): NonNullable<Chip["steps"]> {
+  const order = ["queued", "running", g === "needs" ? "waiting" : null, g === "failed" ? "failed" : "done"].filter(Boolean) as string[];
+  const now = order.indexOf(g === "needs" ? "waiting" : g);
+  return order.map((k, i) => ({ label: zone(k), state: i < now ? "done" : i === now ? (k === "done" ? "done" : "now") : "next" }));
 }
 
 /* ---------- shared bits ---------- */
@@ -106,8 +119,9 @@ function Operations({ m, reduced }: { m: ReturnType<typeof opsScene>; reduced: b
     m.pods.forEach((p, i) => mesh.setColorAt(i, c.set(GATE_COLOR[p.gate]).multiplyScalar(p.moving ? 2.2 : p.gate === "done" ? 0.7 : 1.3)));
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true; place(0); mesh.computeBoundingSphere(); }, [m.pods]); // eslint-disable-line react-hooks/exhaustive-deps
   useFrame(({ clock }) => { if (reduced) return; place(clock.elapsedTime); if (globe.current) globe.current.rotation.y = clock.elapsedTime * 0.15; });
+  const tier = useWorldTier();
   return (<group>
-    <PlanetGround glow="#22d3ee" a="#05080d" b="#101a26" />
+    {tier ? <OpsOrbit nRun={nRun} reduced={reduced} hull={hull} /> : <PlanetGround glow="#22d3ee" a="#05080d" b="#101a26" />}
     {/* deck ring, lane and outer hull */}
     <mesh rotation-x={-Math.PI / 2} position={[0, 0.2, 0]} material={hull}><ringGeometry args={[4.6, 7.1, 128, 1]} /></mesh>
     <mesh position={[0, 0.05, 0]} material={hull}><cylinderGeometry args={[7.2, 7.4, 0.35, 128, 1, true]} /></mesh>
@@ -139,6 +153,46 @@ function Operations({ m, reduced }: { m: ReturnType<typeof opsScene>; reduced: b
       <Capsule args={[0.2, 0.62, 6, 12]} /><meshStandardMaterial color="#d8e6ff" metalness={0.6} roughness={0.25} emissive="#ffffff" emissiveIntensity={0.15} />
     </instancedMesh>
     <Motes count={reduced ? 80 : 220} color="#67e8f9" spread={12} height={5} reduced={reduced} />
+  </group>);
+}
+
+/** v8 OPERATIONS look (tier 1+): the station seen from orbit over a living planet, a lit outer habitat ring on spokes,
+ *  docking arms with clamps, and cargo pods running round the outer track (faster with more jobs running). */
+function OpsOrbit({ nRun, reduced, hull }: { nRun: number; reduced: boolean; hull: THREE.Material }) {
+  const cargo = useRef<THREE.InstancedMesh>(null), N = 28, o = useMemo(() => new THREE.Object3D(), []);
+  const speed = 0.03 + Math.min(6, nRun) * 0.02;
+  const lay = (t: number) => { const m = cargo.current; if (!m) return;
+    for (let i = 0; i < N; i++) { const train = Math.floor(i / 4), a = train * ((Math.PI * 2) / 7) + (i % 4) * 0.075 + t * speed;
+      o.position.set(Math.cos(a) * 10.4, 0.62, Math.sin(a) * 10.4); o.rotation.set(0, -a, 0); o.updateMatrix(); m.setMatrixAt(i, o.matrix); }
+    m.instanceMatrix.needsUpdate = true; };
+  useLayoutEffect(() => { lay(0); cargo.current?.computeBoundingSphere(); }); // eslint-disable-line react-hooks/exhaustive-deps
+  useFrame(({ clock }) => { if (!reduced) lay(clock.elapsedTime); });
+  return (<group>
+    <SkyDome top="#000104" mid="#01040b" low="#02060f" neb="#0b2a4a" neb2="#1a0f3a" nebK={0.35} stars={1} />
+    <OrbitalPlanet at={[-14, -118, -95]} r={100} sun={[1.2, 0.5, -0.2]} reduced={reduced} />
+    <directionalLight position={[30, 12, -6]} intensity={2.2} color="#fff3e0" />
+    <pointLight position={[0, -14, -8]} intensity={40} distance={40} color="#3b82f6" />{/* planet shine from below */}
+    {/* outer habitat ring on spokes, with lit windows */}
+    <mesh position={[0, 0.4, 0]} material={hull}><cylinderGeometry args={[11.2, 11.2, 1.3, 160, 1, true]} /></mesh>
+    <mesh position={[0, 0.4, 0]} material={hull}><cylinderGeometry args={[9.7, 9.7, 1.3, 160, 1, true]} /></mesh>
+    <mesh rotation-x={-Math.PI / 2} position={[0, 1.05, 0]} material={hull}><ringGeometry args={[9.7, 11.2, 160, 1]} /></mesh>
+    <mesh rotation-x={-Math.PI / 2} position={[0, 0.3, 0]}><ringGeometry args={[10.3, 10.5, 160]} /><meshBasicMaterial color={new THREE.Color("#22d3ee").multiplyScalar(1.4)} toneMapped={false} /></mesh>
+    <WindowRing r={11.22} y0={0.0} rows={4} n={220} color="#ffd9a0" k={2.4} lit={0.55} seed={3} />
+    <WindowRing r={9.68} y0={0.1} rows={3} n={180} color="#9be7ff" k={1.8} lit={0.45} seed={7} inward />
+    <WindowRing r={7.42} y0={0.2} rows={2} n={140} color="#ffe2b0" k={2} lit={0.5} seed={11} />
+    <RingOf n={64} r={11.35} y={1.15} size={[0.35, 0.22, 0.5]} color="#1a222e" />
+    <RingOf n={16} r={8.4} y={0.45} size={[2.6, 0.22, 0.32]} color="#18202b" skip={(i) => i % 2 === 1} />
+    {/* docking arms out past the habitat ring, a clamp and a beacon at each end */}
+    {[0.4, 1.65, 2.9, 4.15, 5.4].map((a) => (<group key={a} rotation-y={-a}>
+      <mesh position={[12.6, 0.5, 0]} material={hull}><boxGeometry args={[2.8, 0.26, 0.42]} /></mesh>
+      <mesh position={[14.1, 0.5, 0]} material={hull}><boxGeometry args={[0.5, 0.9, 1.2]} /></mesh>
+      <mesh position={[14.4, 0.95, 0]}><sphereGeometry args={[0.07, 8, 6]} /><meshBasicMaterial color={new THREE.Color("#ff5a5a").multiplyScalar(3)} toneMapped={false} /></mesh>
+    </group>))}
+    {/* cargo pods on the outer track */}
+    <instancedMesh ref={cargo} args={[undefined, undefined, N]}><boxGeometry args={[0.55, 0.32, 0.36]} /><meshStandardMaterial color="#c9a46a" metalness={0.6} roughness={0.35} emissive="#ffb347" emissiveIntensity={0.25} /></instancedMesh>
+    {/* the hub tower above the globe */}
+    <mesh position={[0, 4.2, 0]} material={hull}><cylinderGeometry args={[0.25, 0.5, 2.2, 12]} /></mesh>
+    <mesh position={[0, 5.5, 0]}><sphereGeometry args={[0.09, 8, 6]} /><meshBasicMaterial color={new THREE.Color("#ff5a5a").multiplyScalar(3)} toneMapped={false} /></mesh>
   </group>);
 }
 

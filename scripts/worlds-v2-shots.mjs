@@ -103,6 +103,14 @@ for (const id of IDS) {
   const chips = await page.evaluate(() => [...document.querySelectorAll(".wchip")].map((e) => getComputedStyle(e).opacity === "1").reduce((a, v) => [a[0] + (v ? 1 : 0), a[1] + 1], [0, 0]));
   console.log(`${id}: chips shown ${chips[0]}/${chips[1]}`);
   await page.screenshot({ path: `${OUT}/${TAG}-${id}.png`, timeout: 120_000 });
+  // v8 semantic zoom: WV_ZOOM="operations=l:running>p:t0;vault=..." clicks a part chip (mid shot) then an item chip (zoom shot)
+  const zs = Object.fromEntries((process.env.WV_ZOOM || "").split(";").filter(Boolean).map((x) => x.split("=")));
+  for (const [i, pre] of (zs[id] || "").split(">").filter(Boolean).entries()) {
+    const hit = await page.evaluate((p) => { const el = [...document.querySelectorAll(".wchip")].find((e) => e.dataset.id?.startsWith(p)); el?.click(); return !!el; }, pre);
+    if (!hit) { console.log(`${id}: no chip ${pre}`); break; }
+    await page.waitForTimeout(Number(process.env.WV_ZWAIT || 6000));
+    await page.screenshot({ path: `${OUT}/${TAG}-${id}-${i ? "zoom" : "mid"}.png`, timeout: 120_000 });
+  }
   console.log(`${id}: shot${errs.length ? ` (page errors: ${errs.slice(0, 2).join(" | ")})` : ""}`);
   await ctx.close();
 }
