@@ -8,15 +8,22 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { Chip } from "./world-kit";
+import { FX, GRADE, fxOn, fxUrl, hasFx } from "@/lib/frame-fx-pure";
 import { GLOW, SPOTS, bindSpots, coverScale, dolly, focusFor, frameUrl, onScreen, spotScreen, ZOOM_FRAMES, type FrameId, type Vec2 } from "@/lib/frame-scene-pure";
 
 const VERT = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 const FRAG = `
 precision highp float;
 varying vec2 vUv;
-uniform sampler2D uC, uD, uZC, uZD;
+uniform sampler2D uC, uD, uZC, uZD, uF;
 uniform vec2 uCover, uMouse, uFocus; uniform float uZoom, uFade, uTime, uK, uLife, uHasZoom, uLo, uHi, uPulse, uFlick, uSpeed;
+uniform float uFx, uSat, uGlowK, uVig; uniform vec4 uP1, uP2; // uP1 = flow, ripple, sway, drift; uP2 = flicker, shimmer
+uniform vec4 uRotA[3], uRotB[3]; // x, y, radius, rate / on (1 = swirl)
 float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }
+vec2 rot(vec2 d, float a){ float c = cos(a), s = sin(a); return vec2(c * d.x - s * d.y, s * d.x + c * d.y); }
+const float AS = 1.787;
 vec3 sampleFrame(sampler2D c, sampler2D dm, vec2 p){
   float d = texture2D(dm, vec2(p.x, 1.0 - p.y)).r;
   vec2 s = clamp(p + uMouse * (d - 0.5) * uK * 2.0, 0.002, 0.998);
@@ -25,17 +32,52 @@ vec3 sampleFrame(sampler2D c, sampler2D dm, vec2 p){
   float m = smoothstep(uLo, uHi, l);
   float wave = sin(uTime * uSpeed + p.x * 9.0 + p.y * 7.0 + h21(floor(p * 28.0)) * 6.283);
   float fl = h21(floor(p * 60.0) + floor(uTime * 9.0)) - 0.5;
-  return col * (1.0 + uLife * m * (uPulse * wave + uFlick * fl));
+  return col * (1.0 + uLife * uGlowK * m * (uPulse * wave + uFlick * fl));
+}
+// the alive pass: rotors (windmills, storms, galaxies), then masked displacement (water, wind, clouds); returns the lamp gain
+float alive(inout vec2 p, float k){
+  float t = uTime;
+  for (int i = 0; i < 3; i++) {
+    vec4 a = uRotA[i], b = uRotB[i]; if (b.x < 0.5) continue;
+    vec2 d = (p - a.xy) * vec2(AS, 1.0); float q = length(d) / a.z; if (q >= 1.0) continue;
+    {
+      float ph = fract(t / 24.0), ph2 = fract(ph + 0.5), wa = 1.0 - abs(2.0 * ph - 1.0);
+      float an = a.w * 1.3 * (1.0 - smoothstep(0.35, 1.0, q));
+      vec2 pa = a.xy + rot(d, -ph * an) / vec2(AS, 1.0), pb = a.xy + rot(d, -ph2 * an) / vec2(AS, 1.0);
+      float w = k * smoothstep(1.0, 0.8, q);
+      vec2 n = vec2(vn(d * 9.0 + t * 0.1), vn(d * 9.0 + 7.0 - t * 0.08)) - 0.5;
+      p = mix(p, mix(pb, pa, wa) + n * 0.004 * (1.0 - q), w);
+    }
+  }
+  vec4 m = texture2D(uF, vec2(p.x, 1.0 - p.y));
+  float fo = smoothstep(0.45, 0.6, m.r), wf = fo * m.r, rp = (1.0 - fo) * smoothstep(0.04, 0.12, m.r);
+  float n = vn(vec2(p.x * 230.0, p.y * 12.0 - t * 2.4)), gain = 1.0;
+  p.y += k * uP1.x * wf * (n - 0.5) * 0.004; gain += k * uP1.x * wf * (n - 0.5) * 0.55;
+  p += k * uP1.y * rp * 0.0013 * vec2(sin(p.y * 260.0 + t * 1.7 + vn(p * 40.0) * 6.0), cos(p.x * 210.0 + t * 1.3));
+  float dp = texture2D(uD, vec2(p.x, 1.0 - p.y)).r;
+  float gust = 0.6 + 0.4 * sin(t * 0.37 + p.x * 3.0);
+  p.x += k * uP1.z * m.g * (0.55 + 0.9 * dp) * gust * (sin(t * 1.3 + p.y * 18.0 + p.x * 11.0) * 0.7 + sin(t * 2.3 + p.x * 29.0) * 0.3);
+  float dr = (vn(vec2(p.x * 3.0 - t * 0.05, p.y * 4.0 + t * 0.02)) - 0.5) * 2.0;
+  p += k * uP1.w * m.b * vec2(dr, dr * 0.5);
+  float e = clamp((m.a - 0.25) / 0.75, 0.0, 1.0), sp = h21(floor(p * 40.0));
+  float fl = sin(t * 7.0 + sp * 6.283) * sin(t * 3.1 + sp * 17.0) * uP2.x;
+  float band = pow(0.5 + 0.5 * sin(p.y * 40.0 - t * 1.6 + sp * 3.0), 3.0) * uP2.y * 0.5;
+  return gain * (1.0 + k * e * (fl + band));
 }
 void main(){
   vec2 q = vec2(vUv.x, 1.0 - vUv.y);
   vec2 f = (q - 0.5) * uCover + 0.5;
   vec2 p = uFocus + (f - uFocus) / uZoom;
-  vec3 a = sampleFrame(uC, uD, p);
+  float g = 1.0, k = uFx * (1.0 - uFade);
+  if (k > 0.001) g = alive(p, k);
+  vec3 a = sampleFrame(uC, uD, p) * g;
   vec3 col = a;
   if (uHasZoom > 0.5 && uFade > 0.001) col = mix(a, sampleFrame(uZC, uZD, f), uFade);
+  float l = dot(col, vec3(0.299, 0.587, 0.114));
+  col = mix(vec3(l), col, uSat);
+  col *= 1.0 - smoothstep(0.75, 1.0, l) * (1.0 - uGlowK) * 0.5;
   float v = smoothstep(1.1, 0.35, length(q - 0.5));
-  col *= mix(0.72, 1.0, v);
+  col *= mix(1.0 - uVig * 1.1, 1.0, v);
   gl_FragColor = vec4(col, 1.0);
 }`;
 const PVERT = `attribute vec3 seed; uniform float uTime, uLife; uniform vec2 uCover; varying float vA;
@@ -47,17 +89,22 @@ const PFRAG = `precision mediump float; uniform vec3 uColor; varying float vA; v
 
 type Rt = { mouse: Vec2; mt: Vec2; t: number; tt: number; focus: Vec2; ft: Vec2; fade: number };
 
-function Quad({ id, rt, labels, reduced, hasZoom, tex, color, cover }: {
+function Quad({ id, rt, labels, reduced, hasZoom, tex, fxTex, color, cover }: {
   id: FrameId; rt: React.MutableRefObject<Rt>; labels: React.MutableRefObject<Map<string, { el: HTMLDivElement; x: number; y: number; d: number }>>;
-  reduced: boolean; hasZoom: boolean; tex: THREE.Texture[]; color: string; cover: React.MutableRefObject<Vec2>;
+  reduced: boolean; hasZoom: boolean; tex: THREE.Texture[]; fxTex: THREE.Texture | null; color: string; cover: React.MutableRefObject<Vec2>;
 }) {
+  const fx = fxOn({ reduced }) && fxTex ? FX[id] ?? null : null, gr = GRADE[id];
   const mat = useRef<THREE.ShaderMaterial>(null), pmat = useRef<THREE.ShaderMaterial>(null);
   const uni = useMemo(() => ({
     uC: { value: tex[0] }, uD: { value: tex[1] }, uZC: { value: tex[2] ?? tex[0] }, uZD: { value: tex[3] ?? tex[1] },
     uCover: { value: new THREE.Vector2(1, 1) }, uMouse: { value: new THREE.Vector2() }, uFocus: { value: new THREE.Vector2(0.5, 0.5) },
     uZoom: { value: 1 }, uFade: { value: 0 }, uTime: { value: 0 }, uK: { value: 0.022 }, uLife: { value: reduced ? 0 : 1 }, uHasZoom: { value: hasZoom ? 1 : 0 },
+    uF: { value: fxTex ?? tex[0] }, uFx: { value: fx ? 1 : 0 }, uSat: { value: gr.sat }, uGlowK: { value: gr.glow }, uVig: { value: gr.vig },
+    uP1: { value: new THREE.Vector4(fx?.flow ?? 0, fx?.ripple ?? 0, fx?.sway ?? 0, fx?.drift ?? 0) }, uP2: { value: new THREE.Vector4(fx?.flicker ?? 0, fx?.shimmer ?? 0, 0, 0) },
+    uRotA: { value: [0, 1, 2].map((i) => { const r = fx?.rotors[i]; return new THREE.Vector4(r?.x ?? 0, r?.y ?? 0, r?.r ?? 1, r?.rate ?? 0); }) },
+    uRotB: { value: [0, 1, 2].map((i) => { const r = fx?.rotors[i]; return new THREE.Vector4(r ? 1 : 0, 0, 0, 0); }) },
     uLo: { value: GLOW.lo }, uHi: { value: GLOW.hi }, uPulse: { value: GLOW.pulse }, uFlick: { value: GLOW.flicker }, uSpeed: { value: GLOW.speed },
-  }), [tex, reduced, hasZoom]);
+  }), [tex, fxTex, reduced, hasZoom, fx, gr]);
   const pg = useMemo(() => {
     const g = new THREE.BufferGeometry(), n = 90, a = new Float32Array(n * 3), pos = new Float32Array(n * 3);
     for (let i = 0; i < n * 3; i++) a[i] = Math.random();
@@ -94,6 +141,7 @@ export default function FrameScene({ id, chips, onPick, reduced, paused, glow, o
 }) {
   const [tex, setTex] = useState<THREE.Texture[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [fxTex, setFxTex] = useState<THREE.Texture | null>(null);
   const hasZoom = ZOOM_FRAMES.includes(id);
   const rt = useRef<Rt>({ mouse: [0, 0], mt: [0, 0], t: 0, tt: 0, focus: [0.5, 0.5], ft: [0.5, 0.5], fade: 0 });
   const cover = useRef<Vec2>([1, 1]);
@@ -113,6 +161,13 @@ export default function FrameScene({ id, chips, onPick, reduced, paused, glow, o
     });
     return () => { live = false; };
   }, [id, hasZoom]);
+
+  useEffect(() => { // the effect mask: optional, a missing file just leaves the plate still
+    setFxTex(null); if (reduced || !hasFx(id)) return;
+    let live = true;
+    new THREE.TextureLoader().loadAsync(fxUrl(id)).then((x) => { if (!live) { x.dispose(); return; } x.colorSpace = THREE.NoColorSpace; x.minFilter = THREE.LinearFilter; x.generateMipmaps = false; x.premultiplyAlpha = false; setFxTex(x); }).catch(() => {});
+    return () => { live = false; };
+  }, [id, reduced]);
 
   useEffect(() => {
     const el = root.current; if (!el) return;
@@ -137,7 +192,7 @@ export default function FrameScene({ id, chips, onPick, reduced, paused, glow, o
     <div ref={root} className={backdrop ? "pointer-events-none absolute inset-0" : "absolute inset-0"} aria-hidden={backdrop || undefined} data-frame-scene={id} data-zoomed={zoomed ? "1" : "0"}>
       {tex && (
         <Canvas orthographic frameloop={paused ? "never" : "always"} dpr={[1, 1.5]} gl={{ antialias: false, powerPreference: "high-performance" }} camera={{ position: [0, 0, 1] }}>
-          <Quad id={id} rt={rt} labels={labels} reduced={reduced} hasZoom={tex.length === 4} tex={tex} color={glow} cover={cover} />
+          <Quad id={id} rt={rt} labels={labels} reduced={reduced} hasZoom={tex.length === 4} tex={tex} fxTex={fxTex} color={glow} cover={cover} />
         </Canvas>
       )}
       <div className="wchip-layer">

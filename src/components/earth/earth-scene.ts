@@ -9,7 +9,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { distKm, x2lon, y2lat, arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, lerpPose, moveMs, zoneFade, type Rect, MIN_ALT, wheelZoom } from "@/lib/earth-pure";
+import { distKm, x2lon, y2lat, arcPoints, band, levelAt, lat2y, poseAt, ringDeg, terrarium, toXYZ, EARTH_KM, type Box, type Pose, type Shot, type TileKind, type TownNews, townLinks, lerpPose, moveMs, zoneFade, type Rect, MIN_ALT, wheelZoom } from "@/lib/earth-pure";
 import { detailFor, detailStale } from "@/lib/intel-view-pure";
 
 import type { EarthData, EarthWeather } from "@/lib/earth-data-pure";
@@ -631,13 +631,12 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       ringAt(t.lon, t.lat, 2.2 + 3 * Math.sqrt(t.count / max), 50, 2500, k);
       if (i < 20) label(i < 3 && t.stories[0] ? `<b>${esc(t.name)}</b><i>${t.count}</i><span>${esc(cut(t.stories[0].title, 44))}</span>` : `<b>${esc(t.name)}</b><i>${t.count}</i>`, t.lon, t.lat, 0.00004, t.kind === "city" ? 5 : 60, t.kind === "city" ? 2200 : 700, `pin ${t.kind}${i < 3 && t.stories[0] ? " big" : ""}`, t); // a city keeps its name when zoomed in (Tartu at 14 km)
     });
-    { // the node network at country zoom: the busiest town linked to the next ones by low glowing arcs
-      const hub = townsOnly.slice(0, 7);
-      for (const b of hub.slice(1)) {
-        const pts = arcPoints(hub[0], b, 48, 0).map((p) => new THREE.Vector3(...p));
+    { // the node network at country zoom: thin faint arcs, only between towns that share a story
+      for (const [a, b] of townLinks(townsOnly.slice(0, 30), 6)) {
+        const pts = arcPoints(a, b, 48, 0).map((p) => new THREE.Vector3(...p));
         const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: glowFS, uniforms: { uColor: { value: col("#7fe4ff") }, uT: { value: 0 }, uOp: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
-        layer.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 64, 0.0005, 5), m));
-        glow.push({ m, lo: 50, hi: 2500, base: 0.8 });
+        layer.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 64, 0.00022, 5), m));
+        glow.push({ m, lo: 50, hi: 2500, base: 0.35 });
       }
     }
     for (const t of d.towns.filter((x) => x.kind === "district").slice(0, 8)) {

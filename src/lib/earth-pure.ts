@@ -278,6 +278,13 @@ export const EE_REGIONAL_FEEDS: { url: string; title: string; home: string }[] =
 ];
 
 export type LocalStory = { title: string; url: string; source: string | null; published_at: string | null; summary?: string; feedHome?: string };
+/** Town arcs only between towns whose news shares a story (same link or same headline); at most `max`, the biggest pairs first. */
+export function townLinks(towns: TownNews[], max = 6): [TownNews, TownNews][] {
+  const key = (s: { url?: string; title: string }) => (s.url || s.title).toLowerCase().trim();
+  const sets = towns.map((t) => new Set(t.stories.map(key))), out: { a: number; b: number; n: number }[] = [];
+  for (let i = 0; i < towns.length; i++) for (let j = i + 1; j < towns.length; j++) { let n = 0; for (const k of sets[i]) if (sets[j].has(k)) n++; if (n) out.push({ a: i, b: j, n }); }
+  return out.sort((x, y) => y.n - x.n || towns[y.a].count + towns[y.b].count - towns[x.a].count - towns[x.b].count).slice(0, max).map((o) => [towns[o.a], towns[o.b]]);
+}
 export type TownNews = { name: string; lon: number; lat: number; kind: Place["kind"]; count: number; stories: (LocalStory & { weak: boolean })[] };
 
 /** Pins stories to places: named places first; a regional feed's home town when the story names none. Newest first per place,

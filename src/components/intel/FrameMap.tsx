@@ -6,7 +6,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { displayName, type Hotspot } from "@/lib/geo";
 import { flagPath } from "@/lib/intel-rank-pure";
-import { dolly, fit, FRAME_IDS, FRAMES, PLATE, pinsFor, plateOpacity, type FrameId } from "@/lib/frame-map-pure";
+import { dolly, fit, FRAME_IDS, FRAMES, PAINTED_STORMS, PLATE, pinsFor, plateOpacity, type FrameId } from "@/lib/frame-map-pure";
+import { stormsFrom, WORLD_GRADE } from "@/lib/frame-fx-pure";
 import { PARALLAX, pointerNorm } from "@/lib/frame-parallax-pure";
 import type { TownNews } from "@/lib/earth-pure";
 import { safeHref } from "../CountryDash";
@@ -32,7 +33,7 @@ function Plate({ id, items, hs, active, hover, selected, onPick, reduced }: { id
   useEffect(() => { // depth parallax when the plate has a depth map and WebGL
     if (!cv.current || reduced) return;
     let gone = false;
-    void createPlateGL(cv.current, def.src, def.src.replace(".jpg", "-depth.png"), PARALLAX[id]).then((g) => { if (gone) { g?.dispose(); return; } glRef.current = g; setGl(!!g); });
+    void createPlateGL(cv.current, def.src, def.src.replace(".jpg", "-depth.png"), PARALLAX[id], id === "world" ? { storms: stormsFrom(PAINTED_STORMS), sat: WORLD_GRADE.sat, vig: WORLD_GRADE.vig, calm: WORLD_GRADE.tint, tint: WORLD_GRADE.tintK } : {}).then((g) => { if (gone) { g?.dispose(); return; } glRef.current = g; setGl(!!g); });
     return () => { gone = true; glRef.current?.dispose(); glRef.current = null; setGl(false); };
   }, [id, def.src, reduced]);
   const sym = id === "world" || id === "europe" || id === "estonia";
