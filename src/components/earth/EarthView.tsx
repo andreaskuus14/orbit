@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { motionActive, useUiMotion } from "../motion/motion";
 import type { Hotspot } from "@/lib/geo";
 import { earthData } from "@/lib/earth-data-pure";
-import { introPath, levelAt, SHOTS, type TownNews } from "@/lib/earth-pure";
+import { CLOSE_ALT, CLOSE_TILT, introPath, levelAt, SHOTS, type TownNews } from "@/lib/earth-pure";
 import { inEstonia } from "@/lib/earth-region-pure";
 import type { Place, Rect } from "@/lib/intel-view-pure";
 import { EARTH_VIEW_EVENT } from "../intel/IntelBar";
@@ -52,7 +52,7 @@ export default function EarthView({ on, shot, reduced, paused, onActive, onPlace
         eeMeshUrl: (x, y) => `/api/earth/ee3d?x=${x}&y=${y}`, eePlacesUrl: (x, y) => `/api/earth/ee-places?x=${x}&y=${y}`, eeOrthoUrl: (z, x, y) => `/api/earth/ee-ortho?z=${z}&x=${x}&y=${y}`,
         rightInset: () => inset, // the planet sits in the free space left of the panel
         zones: () => zones, topLimit: () => top,
-        onTown: (t: TownNews) => { void e.focusPlace(t.lon, t.lat); e.flyTo(t.kind === "district" ? { lon: t.lon, lat: t.lat, alt: 5, tilt: 58, heading: 20 } : { lon: t.lon, lat: t.lat, alt: 14, tilt: 58, heading: 15 }); },
+        onTown: (t: TownNews) => { void e.focusPlace(t.lon, t.lat); e.flyTo({ lon: t.lon, lat: t.lat, alt: CLOSE_ALT, tilt: CLOSE_TILT, heading: t.kind === "district" ? 20 : 15 }); },
       });
     } catch { clearInterval(mz); setFailed(true); onFail?.(); return; }
     earth.current = e;

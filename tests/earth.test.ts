@@ -99,3 +99,15 @@ test("camera floor and HUD text zones", () => {
   assert.equal(zoneFade([310, 60, 400, 120], [title]), 1 - 10 / 24, "a 10 px graze only dims it");
   assert.equal(zoneFade([0, 0, 10, 10], []), 1);
 });
+
+test("live close-up: the Tallinn tab and town clicks fly inside the real-data layer; wheel reaches the 300 m floor", async () => {
+  const { CLOSE_ALT, wheelZoom } = await import("../src/lib/earth-pure.ts");
+  const { EE_FULL, EE_MIN_ALT, eeTilesAround, inEstonia } = await import("../src/lib/earth-ee3d-pure.ts");
+  assert.ok(SHOTS.town.alt === CLOSE_ALT && CLOSE_ALT < EE_FULL && CLOSE_ALT > EE_MIN_ALT);
+  assert.ok(inEstonia(SHOTS.town.lon, SHOTS.town.lat) && eeTilesAround(SHOTS.town.lon, SHOTS.town.lat, CLOSE_ALT).length > 0);
+  let a = 22; for (let i = 0; i < 200; i++) a = wheelZoom(a, -120, false, EE_MIN_ALT).alt;
+  assert.equal(a, EE_MIN_ALT);
+  const out = wheelZoom(1.2, 120, false, EE_MIN_ALT); assert.ok(out.alt > 1.2 && out.tilt === 62);
+  assert.ok(wheelZoom(10, -5, true, 1).alt < wheelZoom(10, -5, false, 1).alt); // a trackpad pinch counts more than a 5 px scroll
+  assert.ok(wheelZoom(10, -1e6, false, 1).alt >= 10 * Math.exp(-0.37)); // one huge event can't jump to the floor
+});
