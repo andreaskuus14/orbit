@@ -174,7 +174,7 @@ export default function NewsGlobe({ reduced, focus: goTo, paused = false }: { on
   }, [paused, onTab]);
 
   return (
-    <div className={`absolute inset-0 globe-in earth-on intel-zoned${manual ? " intel-has-list" : ""}`} aria-label={t("ngx.aria")}>
+    <div className={`absolute inset-0 globe-in earth-on intel-zoned${manual || selected || search || rows.length > 0 ? " intel-has-list" : ""}`} aria-label={t("ngx.aria")}>
       <div className="intel-stage" aria-hidden />
       {failed && <p role="status" className="muted pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 text-xs">{t("intel.noGl")}</p>}
 

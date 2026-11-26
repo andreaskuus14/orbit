@@ -77,3 +77,27 @@ import { nearPainted } from "../src/lib/frame-map-pure.ts";
 test("nearPainted: the painted Atlantic storm blocks a live swirl on top of it, open ocean does not", () => {
   assert.ok(nearPainted({ x: 405, y: 383 })); assert.ok(nearPainted({ x: 470, y: 400 })); assert.ok(!nearPainted({ x: 1000, y: 600 }));
 });
+
+import { cover, dollyTransform, FOCUS, outsideOf, pointOnScreen, rectToPlate } from "../src/lib/frame-map-pure.ts";
+test("cover: the plate always covers the view, whatever the size, and the focus lands in the free area", () => {
+  for (const [W, H] of [[1280, 720], [1440, 900], [1920, 1080], [2560, 1080], [900, 1200]]) {
+    const c = cover(W, H, FOCUS.world, { x: W * 0.46, y: H * 0.5 });
+    assert.ok(c.x <= 0 && c.y <= 0 && c.x + PLATE.w * c.s >= W - 1e-6 && c.y + PLATE.h * c.s >= H - 1e-6, `${W}x${H}`);
+    const f = pointOnScreen(FOCUS.world, c); assert.ok(f.x > W * 0.25 && f.x < W * 0.75, `${W}x${H} focus ${f.x}`);
+  }
+});
+test("rectToPlate and pointOnScreen are inverses; outsideOf leaves the free rect clear", () => {
+  const c = cover(1440, 900, FOCUS.europe, { x: 700, y: 450 }), r = { x: 300, y: 200, w: 500, h: 300 }, p = rectToPlate(r, c);
+  const back = pointOnScreen({ x: p.x, y: p.y }, c); assert.ok(Math.abs(back.x - 300) < 1e-6 && Math.abs(back.y - 200) < 1e-6);
+  const free = { x: 336, y: 116, w: 660, h: 668 }, o = outsideOf(free, 1440, 900);
+  assert.ok(o.every((q) => q.x >= free.x + free.w || q.x + q.w <= free.x || q.y >= free.y + free.h || q.y + q.h <= free.y));
+});
+test("dollyTransform keeps the pin still on screen at every zoom", () => {
+  const c = cover(1440, 900, FOCUS.world, { x: 660, y: 450 }), a = { x: 800, y: 250 }, base = pointOnScreen(a, c);
+  for (const d of [1, 1.7, 3.4]) { const t = dollyTransform(c, a, d); assert.ok(Math.abs(t.tx + a.x * t.scale - base.x) < 1e-6 && Math.abs(t.ty + a.y * t.scale - base.y) < 1e-6); }
+});
+test("pinsFor within: pins outside the free rect are dropped", () => {
+  const hs = [{ name: "UK", lon: 0, lat: 51.5, count: 9 }, { name: "Japan", lon: 140, lat: 36, count: 5 }];
+  const all = pinsFor(hs, {}), some = pinsFor(hs, { within: { x: 0, y: 0, w: 700, h: 752 } });
+  assert.equal(all.length, 2); assert.deepEqual(some.map((p) => p.name), ["UK"]);
+});

@@ -71,14 +71,15 @@ function inBox(id: FrameId, lon: number, lat: number): boolean {
   const b = FRAMES[id].bbox; return !b || (lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3]);
 }
 
+export type Rect = { x: number; y: number; w: number; h: number };
 export type Pin = { name: string; x: number; y: number; count: number; r: number; card: boolean; cx: number; cy: number };
 /** Pins for the busiest places on a plate: dot size by story count, cards for the top `cards` that fit. Cards go beside their pin on
  *  the free side, most important first, never over each other or a keep-out box. */
-export function pinsFor(hs: { name: string; lon: number; lat: number; count: number }[], opt: { frame?: FrameId; cards?: number; cardW?: number; cardH?: number; keepOut?: { x: number; y: number; w: number; h: number }[] } = {}): Pin[] {
-  const { frame = "world", cards = 6, cardW = 150, cardH = 46, keepOut = [] } = opt, def = FRAMES[frame];
+export function pinsFor(hs: { name: string; lon: number; lat: number; count: number }[], opt: { frame?: FrameId; cards?: number; cardW?: number; cardH?: number; keepOut?: Rect[]; within?: Rect } = {}): Pin[] {
+  const { frame = "world", cards = 6, cardW = 150, cardH = 46, keepOut = [], within } = opt, def = FRAMES[frame];
   const top = [...hs].filter((h) => h.count > 0).sort((a, b) => b.count - a.count).slice(0, frame === "world" ? 14 : 12), max = Math.max(1, top[0]?.count ?? 1);
   const pts = top.map((h, i) => ({ h, p: def.slots ? { x: def.slots[i % def.slots.length][0], y: def.slots[i % def.slots.length][1] } : platePoint(h.lon, h.lat, frame) }))
-    .filter((e) => (def.slots ? true : inBox(frame, e.h.lon, e.h.lat) && onPlate(e.p, frame))).slice(0, def.slots ? def.slots.length : 99);
+    .filter((e) => (def.slots ? true : inBox(frame, e.h.lon, e.h.lat) && onPlate(e.p, frame)) && (!within || (e.p.x >= within.x && e.p.x <= within.x + within.w && e.p.y >= within.y && e.p.y <= within.y + within.h))).slice(0, def.slots ? def.slots.length : 99);
   const laid = declutter(pts.map((e, i) => ({ id: e.h.name, x: e.p.x, y: e.p.y, w: i < cards ? cardW : 0, h: i < cards ? cardH : 0, rank: i, facing: 1 })), keepOut, PLATE);
   return pts.map((e, i) => {
     const l = laid[i];
@@ -117,4 +118,28 @@ export function plateOpacity(k: number): number { return k <= 0.55 ? 1 : k >= 1 
 export const PAINTED_STORMS: readonly (readonly [number, number, number])[] = [[405, 383, 95], [878, 470, 80], [800, 250, 85]];
 export function nearPainted(p: { x: number; y: number }, pad = 40): boolean {
   return PAINTED_STORMS.some(([x, y, r]) => Math.hypot(p.x - x, p.y - y) < r + pad);
+}
+
+/* ---------- the plate as the full-bleed background of the whole view ---------- */
+
+/** The plate point each level keeps at the centre of the free area (the world's globe, Germany, the middle of Estonia...). */
+export const FOCUS: Record<FrameId, { x: number; y: number }> = {
+  world: { x: 672, y: 400 }, europe: { x: 700, y: 390 }, estonia: { x: 640, y: 400 }, tallinn: { x: 672, y: 376 }, village: { x: 672, y: 376 },
+};
+/** Cover-fit of the plate to a W x H view (never a gap): scale, and the plate's top-left so that `focus` lands on `center`
+ *  (the middle of the free area between the panels), clamped so the plate still covers the whole view. */
+export function cover(W: number, H: number, focus: { x: number; y: number }, center: { x: number; y: number }): { s: number; x: number; y: number } {
+  const s = Math.max(W / PLATE.w, H / PLATE.h), cl = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  return { s, x: cl(center.x - focus.x * s, Math.min(0, W - PLATE.w * s), 0), y: cl(center.y - focus.y * s, Math.min(0, H - PLATE.h * s), 0) };
+}
+/** A screen rect in plate pixels, and a plate point on screen, through a cover transform. */
+export const rectToPlate = (r: Rect, c: { s: number; x: number; y: number }): Rect => ({ x: (r.x - c.x) / c.s, y: (r.y - c.y) / c.s, w: r.w / c.s, h: r.h / c.s });
+export const pointOnScreen = (p: { x: number; y: number }, c: { s: number; x: number; y: number }) => ({ x: c.x + p.x * c.s, y: c.y + p.y * c.s });
+/** The four strips of a W x H view outside the free area: cards keep out of them. */
+export function outsideOf(free: Rect, W: number, H: number): Rect[] {
+  return [{ x: -W, y: -H, w: W + free.x, h: 3 * H }, { x: free.x + free.w, y: -H, w: 2 * W, h: 3 * H }, { x: -W, y: -H, w: 3 * W, h: H + free.y }, { x: -W, y: free.y + free.h, w: 3 * W, h: 2 * H }];
+}
+/** Dolly about the pin A (plate point): the screen transform of the plate at zoom d with A held still. */
+export function dollyTransform(c: { s: number; x: number; y: number }, a: { x: number; y: number }, d: number): { tx: number; ty: number; scale: number } {
+  return { tx: c.x + c.s * a.x * (1 - d), ty: c.y + c.s * a.y * (1 - d), scale: c.s * d };
 }

@@ -3,14 +3,15 @@
 // pins and cards on it. A pick dollies into its pin and crossfades to the next plate (or to the real 3D Earth); the plates lean with the
 // pointer through a depth map when one exists. The world plate carries the live news weather. Maths: lib/frame-map-pure.ts,
 // lib/frame-parallax-pure.ts. Towns: /api/earth/local.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { displayName, type Hotspot } from "@/lib/geo";
 import { flagPath } from "@/lib/intel-rank-pure";
-import { dolly, fit, FRAME_IDS, FRAMES, PAINTED_STORMS, PLATE, pinsFor, plateOpacity, type FrameId } from "@/lib/frame-map-pure";
+import { cover, dollyTransform, FOCUS, FRAME_IDS, FRAMES, PAINTED_STORMS, PLATE, pinsFor, pointOnScreen, rectToPlate, type FrameId, type Rect } from "@/lib/frame-map-pure";
 import { plateGrade, stormsFrom, WORLD_GRADE } from "@/lib/frame-fx-pure";
 import { PARALLAX, pointerNorm } from "@/lib/frame-parallax-pure";
 import type { TownNews } from "@/lib/earth-pure";
 import { safeHref } from "../CountryDash";
+import { EARTH_CSS } from "../earth/earth-scene";
 import FrameWeather from "./FrameWeather";
 import { createPlateGL } from "./plate-gl";
 
@@ -26,9 +27,9 @@ function itemsFor(level: FrameId, hs: Hotspot[], towns: TownNews[]): Item[] {
   return towns.filter((t) => t.kind === "village" && t.count > 0 && t.stories.length).map(mk);
 }
 
-function Plate({ id, items, hs, active, hover, selected, onPick, reduced }: { id: FrameId; items: Item[]; hs: Hotspot[]; active: boolean; hover: string | null; selected: string | null; onPick: (p: Pick) => void; reduced: boolean }) {
-  const def = FRAMES[id], pins = useMemo(() => pinsFor(items, { frame: id, cards: id === "world" ? 6 : id === "europe" ? 8 : 7 }), [items, id]);
-  const byName = useMemo(() => new Map(items.map((i) => [i.name, i])), [items]);
+/** One plate: the picture (GL with depth parallax, or the flat image), and the world's live weather. Pins are drawn apart, in screen px. */
+function Plate({ id, hs, active, reduced, ui }: { id: FrameId; hs: Hotspot[]; active: boolean; reduced: boolean; ui: number }) {
+  const def = FRAMES[id];
   const cv = useRef<HTMLCanvasElement>(null), [gl, setGl] = useState(false), glRef = useRef<Awaited<ReturnType<typeof createPlateGL>>>(null);
   useEffect(() => { // depth parallax when the plate has a depth map and WebGL
     if (!cv.current || reduced) return;
@@ -36,45 +37,51 @@ function Plate({ id, items, hs, active, hover, selected, onPick, reduced }: { id
     void createPlateGL(cv.current, def.src, def.src.replace(".jpg", "-depth.png"), PARALLAX[id], { ...plateGrade(id), ...(id === "world" ? { storms: stormsFrom(PAINTED_STORMS), calm: WORLD_GRADE.tint, tint: WORLD_GRADE.tintK } : {}) }).then((g) => { if (gone) { g?.dispose(); return; } glRef.current = g; setGl(!!g); });
     return () => { gone = true; glRef.current?.dispose(); glRef.current = null; setGl(false); };
   }, [id, def.src, reduced]);
-  const sym = id === "world" || id === "europe" || id === "estonia";
+  useEffect(() => { // the pointer leans the plate (listened on the window: the panels sit over the plate)
+    if (!active || reduced) return;
+    const mv = (e: PointerEvent) => { const n = pointerNorm(e.clientX, e.clientY, innerWidth, innerHeight); glRef.current?.setTarget(n[0], n[1]); };
+    addEventListener("pointermove", mv, { passive: true }); return () => removeEventListener("pointermove", mv);
+  }, [active, reduced]);
   return (
-    <div className="frame-plate-in" onPointerMove={active ? (e) => { const b = e.currentTarget.getBoundingClientRect(), n = pointerNorm(e.clientX - b.left, e.clientY - b.top, b.width, b.height); glRef.current?.setTarget(n[0], n[1]); } : undefined}>
+    <div className="frame-plate-in">
       <canvas ref={cv} className="frame-gl" width={PLATE.w} height={PLATE.h} style={{ display: gl ? "block" : "none" }} aria-hidden />
       {!gl && /* eslint-disable-next-line @next/next/no-img-element */ <img src={def.src} width={PLATE.w} height={PLATE.h} alt="" draggable={false} />}
-      {id === "world" && <FrameWeather hotspots={hs} reduced={reduced} />}
-      {active && pins.map((p) => {
-        const it = byName.get(p.name); if (!it) return null;
-        const on = p.name === (hover ?? selected), fl = it.flag ? flagPath(p.name) : null, drill = sym;
-        const body = (<>
-          <span className="fc-head">{fl && /* eslint-disable-next-line @next/next/no-img-element */ <img src={fl} alt="" />}{displayName(p.name)}<b>{p.count}</b></span>
-          <span className="fc-line">{it.line}</span></>);
-        return (
-          <div key={p.name}>
-            {sym && <button className={`frame-pin${on ? " on" : ""}`} style={{ left: p.x, top: p.y, width: p.r * 2, height: p.r * 2 }} onClick={() => onPick({ name: it.name, lon: it.lon, lat: it.lat, kind: it.kind })} aria-label={`${displayName(p.name)}, ${p.count}`} />}
-            {p.card && (drill || !it.url
-              ? <button className={`frame-card${on ? " on" : ""}`} style={{ left: p.cx, top: p.cy, width: 150 }} onClick={() => onPick({ name: it.name, lon: it.lon, lat: it.lat, kind: it.kind })}>{body}</button>
-              : <a className={`frame-card${on ? " on" : ""}`} style={{ left: p.cx, top: p.cy, width: 190 }} href={safeHref(it.url!)} target="_blank" rel="noreferrer noopener">{body}</a>)}
-          </div>
-        );
-      })}
+      {id === "world" && <FrameWeather hotspots={hs} reduced={reduced} ui={ui} />}
     </div>
   );
 }
+
+type Layer = { id: FrameId; key: number; phase: "enter" | "on" | "leave"; deeper: boolean };
+type View = { W: number; H: number; free: Rect; keep: Rect[] };
+const KEEP = ".ip-top, .ip-strip, .earth-side, .globe-country, .intel-bar, .earth-search, .drawer:not(.drawer-out), .cmdbar, .voice-wake";
 
 export default function FrameMap({ level, hotspots, hover, selected, diveTo, reduced, onPick, onDived, exploreLabel, onExplore }: {
   level: FrameId; hotspots: Hotspot[]; hover: string | null; selected: string | null; diveTo: { lon: number; lat: number } | null; reduced: boolean;
   onPick: (from: FrameId, p: Pick) => void; onDived: () => void; exploreLabel: string; onExplore: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const [box, setBox] = useState({ x: 0, y: 0, w: 0, h: 0 });
-  useEffect(() => { // the free stage between the panels (.intel-stage); the plate fits inside it
+  // The plate is the background of the whole view (cover-fit, behind every panel). The free area between the panels (.intel-stage) only
+  // decides where the picture is centred and where pins and cards may sit. Read every 400 ms and only kept when it changed.
+  const [view, setView] = useState<View | null>(null);
+  useEffect(() => {
     const el = host.current; if (!el) return;
+    let last = "";
     const measure = () => {
-      const h = el.getBoundingClientRect(), st = document.querySelector(".intel-stage")?.getBoundingClientRect();
-      setBox(st ? { x: st.left - h.left, y: st.top - h.top, w: st.width, h: st.height } : { x: 0, y: 0, w: h.width, h: h.height });
+      const h = el.getBoundingClientRect(); if (!h.width) return;
+      const rel = (r: DOMRect): Rect => ({ x: Math.round(r.left - h.left), y: Math.round(r.top - h.top), w: Math.round(r.width), h: Math.round(r.height) });
+      const st = document.querySelector(".intel-stage")?.getBoundingClientRect();
+      const v: View = { W: Math.round(h.width), H: Math.round(h.height), free: st && st.width > 50 ? rel(st) : { x: 0, y: 0, w: Math.round(h.width), h: Math.round(h.height) },
+        keep: Array.from(document.querySelectorAll<HTMLElement>(KEEP)).filter((e) => !el.contains(e) && e.offsetWidth).map((e) => rel(e.getBoundingClientRect())) };
+      const k = JSON.stringify(v); if (k !== last) { last = k; setView(v); }
     };
-    measure(); const ro = new ResizeObserver(measure); ro.observe(el); addEventListener("resize", measure);
-    return () => { ro.disconnect(); removeEventListener("resize", measure); };
+    measure(); const iv = setInterval(measure, 400); const ro = new ResizeObserver(measure); ro.observe(el); addEventListener("resize", measure);
+    return () => { clearInterval(iv); ro.disconnect(); removeEventListener("resize", measure); };
+  }, []);
+
+  // preload the other plates and their depth maps once the first one is up, so a pick never waits on a download
+  useEffect(() => {
+    const t = setTimeout(() => { for (const id of FRAME_IDS) for (const u of [FRAMES[id].src, FRAMES[id].src.replace(".jpg", "-depth.png")]) { const i = new Image(); i.src = u; } }, 800);
+    return () => clearTimeout(t);
   }, []);
 
   // towns for the three Estonian plates, asked for once
@@ -85,51 +92,85 @@ export default function FrameMap({ level, hotspots, hover, selected, diveTo, red
     void fetch("/api/earth/local").then((r) => (r.ok ? r.json() : null)).then((j) => setTowns((j?.towns ?? []) as TownNews[])).catch(() => { asked.current = false; });
   }, [level]);
 
-  // a level change: the old plate dollies toward the picked pin and fades out, the new one fades in from a little closer
-  const [shown, setShown] = useState<FrameId>(level), [from, setFrom] = useState<FrameId | null>(null), [tk, setTk] = useState(1);
-  const aim = useRef({ x: PLATE.w / 2, y: PLATE.h / 2 }), deeper = useRef(true);
-  const lastPick = useRef<Pick | null>(null);
+  // Level changes run on CSS transitions (transform and opacity only, on the compositor): the old plate dollies into the picked pin and
+  // fades, the new one eases in from a little closer. State changes only at the start and the end, so React renders twice, not per frame.
+  const keyN = useRef(1), aim = useRef({ x: PLATE.w / 2, y: PLATE.h / 2 });
+  const [layers, setLayers] = useState<Layer[]>([{ id: level, key: 0, phase: "enter", deeper: true }]); // the first plate fades in too: no jump on load
   useEffect(() => {
-    if (level === shown) return;
-    deeper.current = FRAME_IDS.indexOf(level) > FRAME_IDS.indexOf(shown);
-    setFrom(shown); setShown(level);
-    if (reduced) { setTk(1); setFrom(null); return; }
-    setTk(0); let raf = 0; const t0 = performance.now();
-    const step = (now: number) => { const v = Math.min(1, (now - t0) / 900); setTk(v); if (v < 1) raf = requestAnimationFrame(step); else setFrom(null); };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [level]); // eslint-disable-line react-hooks/exhaustive-deps
-  // the dive to the real 3D Earth
-  const [dk, setDk] = useState(0), doneRef = useRef(onDived); doneRef.current = onDived;
+    setLayers((ls) => {
+      const cur = ls.find((l) => l.phase !== "leave"); if (!cur || cur.id === level) return ls;
+      const deeper = FRAME_IDS.indexOf(level) > FRAME_IDS.indexOf(cur.id), k = keyN.current++;
+      if (reduced) return [{ id: level, key: k, phase: "on", deeper }];
+      return [...ls.filter((l) => l.phase !== "leave").map((l) => ({ ...l, phase: "leave" as const, deeper })), { id: level, key: k, phase: "enter", deeper }];
+    });
+  }, [level, reduced]);
   useEffect(() => {
-    if (!diveTo) { setDk(0); return; }
-    if (reduced) { setDk(1); doneRef.current(); return; }
-    let raf = 0; const t0 = performance.now();
-    const step = (now: number) => { const v = Math.min(1, (now - t0) / 900); setDk(v); if (v < 1) raf = requestAnimationFrame(step); else doneRef.current(); };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
+    if (!view || !layers.some((l) => l.phase === "enter")) return;
+    const r1 = requestAnimationFrame(() => requestAnimationFrame(() => setLayers((ls) => ls.map((l) => (l.phase === "enter" ? { ...l, phase: "on" } : l)))));
+    const t = setTimeout(() => setLayers((ls) => ls.filter((l) => l.phase !== "leave")), 1000);
+    return () => { cancelAnimationFrame(r1); clearTimeout(t); };
+  }, [layers, !!view]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the dive to the real 3D Earth: the plate dollies in and fades, then NewsGlobe drops it
+  const doneRef = useRef(onDived); doneRef.current = onDived;
+  useEffect(() => {
+    if (!diveTo) return;
+    if (reduced) { doneRef.current(); return; }
+    const t = setTimeout(() => doneRef.current(), 950); return () => clearTimeout(t);
   }, [diveTo, reduced]);
 
   const itemsBy = useMemo(() => Object.fromEntries(FRAME_IDS.map((id) => [id, itemsFor(id, hotspots, towns)])) as Record<FrameId, Item[]>, [hotspots, towns]);
-  const f = fit(box.w, box.h, box.x, box.y);
-  if (!box.w) return <div ref={host} className="frame-map" aria-hidden />;
+  const active = layers.find((l) => l.phase === "on") ?? layers[layers.length - 1];
+  const camOf = useCallback((id: FrameId) => view ? cover(view.W, view.H, FOCUS[id], { x: view.free.x + view.free.w * 0.42, y: view.free.y + view.free.h / 2 }) : null, [view]);
+  const cam = camOf(active.id);
+  const pins = useMemo(() => {
+    if (!view || !cam || diveTo || layers.length > 1) return [];
+    const cw = 150 / cam.s, ch = 46 / cam.s, within = rectToPlate({ x: 8, y: view.free.y, w: view.W - 16, h: view.free.h }, cam); // anywhere on the picture that no panel covers
+    const keep = view.keep.map((r) => rectToPlate(r, cam));
+    return pinsFor(itemsBy[active.id], { frame: active.id, cards: active.id === "world" ? 6 : active.id === "europe" ? 8 : 7, cardW: active.id === "tallinn" || active.id === "village" ? 190 / cam.s : cw, cardH: ch, keepOut: keep, within: FRAMES[active.id].slots ? undefined : within });
+  }, [view, cam, diveTo, layers.length, itemsBy, active.id]);
+  if (!view || !cam) return <div ref={host} className="frame-map" aria-hidden />;
+
   const pick = (id: FrameId, p: Pick) => {
-    lastPick.current = p;
-    const def = FRAMES[id], items = itemsBy[id], pin = items.find((i) => i.name === p.name);
-    if (pin && !def.slots) { const q = pinsFor(items, { frame: id }).find((x) => x.name === p.name); if (q) aim.current = { x: q.x, y: q.y }; }
+    const q = pins.find((x) => x.name === p.name); if (q && !FRAMES[id].slots) aim.current = { x: q.x, y: q.y };
     onPick(id, p);
   };
-  const layer = (id: FrameId, op: number, scale: number, key: string, active: boolean) => (
-    <div key={key} className="frame-plate" style={{ left: f.x, top: f.y, width: PLATE.w, height: PLATE.h, opacity: op, transform: `scale(${f.s * scale})`, transformOrigin: `${aim.current.x}px ${aim.current.y}px`, pointerEvents: active ? "auto" : "none" }}>
-      <Plate id={id} items={itemsBy[id]} hs={hotspots} active={active} hover={hover} selected={selected} onPick={(p) => pick(id, p)} reduced={reduced} />
-    </div>
-  );
-  const eased = tk * tk * (3 - 2 * tk), enter = deeper.current ? 1.18 - 0.18 * eased : 0.86 + 0.14 * eased;
+  const layerStyle = (l: Layer): React.CSSProperties => {
+    const c = camOf(l.id)!, a = aim.current;
+    const d = diveTo && l.phase === "on" ? 3.4 : l.phase === "on" ? 1 : l.phase === "leave" ? (l.deeper ? 2.6 : 0.86) : (l.deeper ? 1.18 : 0.86);
+    const t = dollyTransform(c, a, d);
+    return { width: PLATE.w, height: PLATE.h, opacity: l.phase === "on" ? 1 : 0, transform: `translate3d(${t.tx}px, ${t.ty}px, 0) scale(${t.scale})`, pointerEvents: "none" };
+  };
+  const dive = !!diveTo;
+  const strip = view.keep.find((r) => r.w > 300 && r.y > view.H * 0.5 && r.h < 200), floor = strip ? strip.y : view.free.y + view.free.h; // above the stories strip, never under it
+  const ex = { right: view.W - (view.free.x + view.free.w) + 12, bottom: view.H - floor + 12 };
   return (
-    <div ref={host} className="frame-map" style={{ opacity: plateOpacity(dk) }} data-level={shown}>
-      {from && layer(from, plateOpacity(tk), deeper.current ? dolly(tk, 2.6) : 1 - 0.14 * eased, `o-${from}`, false)}
-      {layer(shown, from ? Math.min(1, eased * 1.6) : 1, from ? enter : dolly(dk), `n-${shown}`, !from)}
-      <button className="frame-explore" onClick={onExplore}>{exploreLabel}</button>
+    <div ref={host} className={`frame-map${dive ? " diving" : ""}${reduced ? " still" : ""}`} data-level={active.id}>
+      <style>{EARTH_CSS}</style>
+      {layers.map((l) => (
+        <div key={l.key} className="frame-plate" style={layerStyle(l)}>
+          <Plate id={l.id} hs={hotspots} active={l.phase === "on"} reduced={reduced} ui={1 / camOf(l.id)!.s} />
+        </div>
+      ))}
+      <div className="frame-pins">
+        {pins.map((p) => {
+          const it = itemsBy[active.id].find((i) => i.name === p.name); if (!it) return null;
+          const sc = pointOnScreen({ x: p.x, y: p.y }, cam), cs = pointOnScreen({ x: p.cx, y: p.cy }, cam);
+          const on = p.name === (hover ?? selected), fl = it.flag ? flagPath(p.name) : null, drill = active.id === "world" || active.id === "europe" || active.id === "estonia", wide = !drill && !!it.url;
+          const body = (<>
+            <span className="fc-head">{fl && /* eslint-disable-next-line @next/next/no-img-element */ <img src={fl} alt="" />}{displayName(p.name)}<b>{p.count}</b></span>
+            <span className="fc-line">{it.line}</span></>);
+          const go = () => pick(active.id, { name: it.name, lon: it.lon, lat: it.lat, kind: it.kind });
+          return (
+            <div key={p.name}>
+              {drill && <button className={`frame-pin${on ? " on" : ""}`} style={{ left: sc.x, top: sc.y, width: p.r * 2, height: p.r * 2 }} onClick={go} aria-label={`${displayName(p.name)}, ${p.count}`} />}
+              {p.card && (wide
+                ? <a className={`frame-card${on ? " on" : ""}`} style={{ left: cs.x, top: cs.y, width: 190 }} href={safeHref(it.url!)} target="_blank" rel="noreferrer noopener">{body}</a>
+                : <button className={`frame-card${on ? " on" : ""}`} style={{ left: cs.x, top: cs.y, width: 150 }} onClick={go}>{body}</button>)}
+            </div>
+          );
+        })}
+      </div>
+      <button className="frame-explore" style={ex} onClick={onExplore}>{exploreLabel}</button>
     </div>
   );
 }
