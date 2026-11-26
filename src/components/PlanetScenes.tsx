@@ -14,6 +14,7 @@ import { BIZ_STAGES, GATE_ANGLE, GATE_COLOR, VAULT_KIND_COLOR, bizScene, bytes, 
 import { STAGE_COLOR } from "@/lib/living-galaxy-pure";
 import { MattePlate } from "./world-plates";
 import { ChandelierDetail, VaultArches, VaultBanners, VaultStatues } from "./VaultHallProps";
+import { OpsStationDetail } from "./OpsStation";
 import { CargoPods, Freighters, PodTrack, VaultShelfProps, trackMatrix, type FleetApi } from "./world-props";
 
 type T = (k: never, v?: Record<string, string | number>) => string;
@@ -207,6 +208,7 @@ function OpsOrbit({ nRun, reduced, hull }: { nRun: number; reduced: boolean; hul
     </group>))}
     {/* cargo pods on the outer track */}
     <instancedMesh ref={cargo} args={[undefined, undefined, N]}><boxGeometry args={[0.55, 0.32, 0.36]} /><meshStandardMaterial color="#c9a46a" metalness={0.6} roughness={0.35} emissive="#ffb347" emissiveIntensity={0.25} /></instancedMesh>
+    <OpsStationDetail runningAngle={GATE_ANGLE.running} reduced={reduced} />
     {/* the hub tower above the globe */}
     <mesh position={[0, 4.2, 0]} material={hull}><cylinderGeometry args={[0.25, 0.5, 2.2, 12]} /></mesh>
     <mesh position={[0, 5.5, 0]}><sphereGeometry args={[0.09, 8, 6]} /><meshBasicMaterial color={new THREE.Color("#ff5a5a").multiplyScalar(3)} toneMapped={false} /></mesh>
