@@ -22,11 +22,12 @@ import { countryByName, findCountry, WORLD } from "@/lib/countries-pure";
 import { capShare } from "@/lib/local-news-pure";
 import { FOLLOWS_EVENT } from "./follow-command";
 import { REFRESH_MS } from "@/lib/follows-pure";
-import { useAlienEnv } from "./alien/env";
 import { useManual } from "./planet-manual";
 import NewsWeatherLayer from "./news-weather/NewsWeatherLayer";
 import EarthView from "./earth/EarthView";
 import IntelBar from "./intel/IntelBar";
+import { Arcs2, Halos, useEarthMaterial, type Spot } from "./intel/ClassicLayer";
+import { declutter, relatedPairs, type Box as LBox } from "@/lib/classic-map-pure";
 import { motionActive, useUiMotion } from "./motion/motion";
 import { escBack, readView, VIEW_KEY, type MapView, type Place, type Tab } from "@/lib/intel-view-pure";
 
@@ -343,312 +344,7 @@ function prepGlobe(done: () => void) {
   stepper([pickMap, idTexture, landGeometry, baseStep], (f) => setTimeout(f, 0), done);
 }
 
-/* ---------- shaders ---------- */
-
-const fresnelVS = "varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }";
-const atmosphere = new THREE.ShaderMaterial({
-  transparent: true, side: THREE.BackSide, blending: THREE.AdditiveBlending, depthWrite: false,
-  vertexShader: fresnelVS,
-  fragmentShader: "varying vec3 vN; varying vec3 vV; void main(){ float i = pow(clamp(-dot(vN, vV) * 1.9, 0.0, 1.0), 2.2); vec3 c = mix(vec3(0.35,0.4,0.9), vec3(0.2,0.55,0.95), i); gl_FragColor = vec4(c, 1.0) * i * 0.2; }",
-});
-const rim = new THREE.ShaderMaterial({
-  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-  vertexShader: fresnelVS,
-  fragmentShader: "varying vec3 vN; varying vec3 vV; void main(){ float i = pow(1.0 - clamp(dot(vN, vV), 0.0, 1.0), 3.0); gl_FragColor = vec4(0.31,0.85,1.0,1.0) * i * 0.45; }",
-});
-
-const dotMaterial = new THREE.ShaderMaterial({
-  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-  uniforms: { uTime: { value: 0 }, uScale: { value: 1 }, uFade: { value: 1 } },
-  vertexShader: `attribute float aSize; attribute float aPhase; attribute vec3 aColor; attribute float aRegion; uniform float uTime; uniform float uScale;
-    uniform float uW[7]; varying vec3 vColor; varying float vTw; varying float vVis;
-    void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vColor = aColor;
-      vVis = clamp(uW[int(clamp(aRegion, 0.0, 6.0) + 0.5)], 0.0, 1.0);
-      vTw = 0.7 + 0.3 * sin(uTime * 0.9 + aPhase);
-      float px = aSize * uScale * (0.92 + 0.16 * vTw) / max(-mv.z, 0.1), k = clamp(px / 2.0, 0.0, 1.0);
-      vVis *= k * k; // coverage fade instead of sub-pixel flicker
-      gl_PointSize = max(px, 2.0); gl_Position = projectionMatrix * mv; }`,
-  fragmentShader: `uniform float uFade; varying vec3 vColor; varying float vTw; varying float vVis;
-    void main(){ float d = length(gl_PointCoord - 0.5); float a = 1.0 - smoothstep(0.0, 0.5, d); a = a * a;
-      gl_FragColor = vec4(vColor * (0.75 + 0.25 * (1.0 - smoothstep(0.0, 0.18, d))), clamp(a * (0.35 + 0.2 * vTw) * uFade * vVis, 0.0, 1.0)); }`,
-});
-
-// Data arcs: cyan at the source warming to amber at the far end, a bright head with a comet tail; sparks ride the heads.
-const ARC_HEAD = "float arcPulse(float u, float off){ float d = fract(uTime * 0.28 + off) - u; return d >= 0.0 ? exp(-d * 22.0) : exp(-d * d * 2600.0); }";
-const arcMaterial = new THREE.ShaderMaterial({
-  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-  uniforms: { uTime: { value: 0 }, uFade: { value: 1 }, uColor: { value: new THREE.Color("#5ec8ff") }, uColor2: { value: new THREE.Color("#ffb347") }, uScale: { value: 1 } },
-  vertexShader: "attribute float aU; attribute float aOff; varying float vU; varying float vOff; void main(){ vU = aU; vOff = aOff; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
-  fragmentShader: `uniform float uTime; uniform float uFade; uniform vec3 uColor; uniform vec3 uColor2; varying float vU; varying float vOff; ${ARC_HEAD}
-    void main(){ float pulse = arcPulse(vU, vOff); float base = 0.16 * sin(3.14159 * vU) + 0.04;
-      gl_FragColor = vec4(mix(mix(uColor, uColor2, vU), vec3(0.9, 0.94, 1.0), pulse * 0.35), clamp((base + pulse * 0.55) * uFade, 0.0, 0.8)); }`,
-});
-const arcSparkMaterial = new THREE.ShaderMaterial({
-  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: arcMaterial.uniforms,
-  vertexShader: `attribute float aU; attribute float aOff; uniform float uTime; uniform float uScale; varying float vP; varying float vU; ${ARC_HEAD}
-    void main(){ vU = aU; vP = arcPulse(aU, aOff); vec4 mv = modelViewMatrix * vec4(position,1.0);
-      float px = min(uScale * vP / max(-mv.z, 0.1), 14.0), k = clamp(px / 2.0, 0.0, 1.0); // grows and fades with the head: no pop at a threshold
-      vP *= k * k; gl_PointSize = max(px, 2.0); gl_Position = projectionMatrix * mv; }`,
-  fragmentShader: `uniform float uFade; uniform vec3 uColor; uniform vec3 uColor2; varying float vP; varying float vU;
-    void main(){ vec2 d = gl_PointCoord - 0.5; float a = max(1.0 - dot(d, d) * 4.0, 0.0);
-      gl_FragColor = vec4(min(mix(mix(uColor, uColor2, vU), vec3(0.9, 0.94, 1.0), 0.6) * 1.1, vec3(1.2)), clamp(a * a * vP * uFade, 0.0, 1.0)); }`,
-});
-
-/** Holographic land: cyan particles with amber city flecks, a slow scan band sweeping pole to pole; out-of-region land dims. */
-const landMaterial = new THREE.ShaderMaterial({
-  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-  uniforms: { uTime: { value: 0 }, uScale: { value: 14 }, uW: fade.uW },
-  vertexShader: `attribute float aRegion; attribute float aSeed; uniform float uTime; uniform float uScale; uniform float uW[7]; varying vec3 vC; varying float vA;
-    void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0);
-      float vis = clamp(uW[int(clamp(aRegion, 0.0, 6.0) + 0.5)], 0.0, 1.0);
-      float scan = exp(-pow((fract(position.y * 0.25 + 0.5 - uTime * 0.04) - 0.5) * 18.0, 2.0));
-      float city = step(0.955, aSeed), tw = 0.8 + 0.2 * sin(uTime * (0.4 + aSeed * 0.8) + aSeed * 60.0);
-      vC = mix(vec3(0.32, 0.7, 1.0), vec3(1.0, 0.84, 0.62), city); // blue-white land, warm pearl city flecks
-      float px = min((1.0 + city * 0.7) * uScale / max(-mv.z, 0.1), 6.0), k = clamp(px / 1.6, 0.0, 1.0); // coverage fade, no sub-pixel flicker
-      vA = (0.2 + 0.22 * fract(aSeed * 31.0) + 0.5 * city * tw + 0.3 * scan) * (0.18 + 0.82 * vis) * k * k;
-      gl_PointSize = max(px, 1.6); gl_Position = projectionMatrix * mv; }`,
-  fragmentShader: `varying vec3 vC; varying float vA;
-    void main(){ float d = length(gl_PointCoord - 0.5); float a = 1.0 - smoothstep(0.1, 0.5, d);
-      gl_FragColor = vec4(vC, clamp(a * vA, 0.0, 1.0)); }`,
-});
-
-/** Light columns rising from news hotspots: bright at the ground, a pulse climbing up, faded by region. */
-const columnMaterial = new THREE.ShaderMaterial({
-  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-  uniforms: { uTime: { value: 0 }, uFade: { value: 1 } },
-  vertexShader: `attribute vec3 aColor; attribute float aPhase; attribute float aRegion; uniform float uW[7]; varying vec3 vC; varying float vY; varying float vPh; varying float vVis;
-    void main(){ vC = aColor; vY = position.y; vPh = aPhase; vVis = clamp(uW[int(clamp(aRegion, 0.0, 6.0) + 0.5)], 0.0, 1.0);
-      gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }`,
-  fragmentShader: `uniform float uTime; uniform float uFade; varying vec3 vC; varying float vY; varying float vPh; varying float vVis;
-    void main(){ float y = clamp(vY, 0.0, 1.0), fall = pow(1.0 - y, 1.8);
-      float band = exp(-pow((y - fract(uTime * 0.3 + vPh)) * 7.0, 2.0)) * (1.0 - y);
-      // both faces of the open tube add up, and columns overlap: keep each one well under white
-      float a = clamp((0.32 * fall + 0.38 * band) * uFade * vVis, 0.0, 0.45);
-      gl_FragColor = vec4(mix(vC, vec3(0.88, 0.93, 1.0), band * 0.35 + fall * 0.15), a); }`,
-});
-
 /* ---------- scene pieces ---------- */
-
-/** City-light dots: for each hotspot, points scattered inside the country (more stories → more, brighter dots). */
-function NewsDots({ hotspots, mode, reduced }: { hotspots: Hotspot[]; mode: "news" | "search"; reduced: boolean }) {
-  const geo = useMemo(() => {
-    const pos: number[] = [], col: number[] = [], size: number[] = [], phase: number[] = [], reg: number[] = [];
-    const max = Math.max(1, ...hotspots.map((h) => h.count));
-    const warm = new THREE.Color("#ffe2b8");
-    let seed = 7;
-    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    const gauss = () => Math.sqrt(-2 * Math.log(rnd() + 1e-9)) * Math.cos(2 * Math.PI * rnd());
-    for (const h of hotspots) {
-      const k = Math.sqrt(h.count / max);
-      const idx = INDEX.get(h.name) ?? -1;
-      const bb = idx >= 0 ? BBOX[idx] : { w: 4, h: 4 };
-      const n = Math.round(5 + 55 * k);
-      const base = new THREE.Color(colorFor(h.name, mode)), rid = regionId(h.name);
-      const add = (lat: number, lon: number, s: number) => {
-        const v = toVec(lat, lon, R * 1.004);
-        pos.push(v.x, v.y, v.z);
-        const c = base.clone().lerp(warm, 0.25 + rnd() * 0.35); // warm variation, like city lights
-        col.push(c.r, c.g, c.b); size.push(s); phase.push(rnd() * 6.28); reg.push(rid);
-      };
-      add(h.lat, h.lon, 70 + 90 * k); // the brighter centre of the cluster
-      for (let placed = 0, tries = 0; placed < n && tries < n * 30; tries++) {
-        const lat = h.lat + gauss() * Math.max(0.6, bb.h * 0.22), lon = h.lon + gauss() * Math.max(0.6, bb.w * 0.22);
-        if (idx >= 0 && countryAt(lat, lon) !== idx) continue; // stay inside the borders
-        add(lat, lon, 18 + rnd() * (26 + 36 * k));
-        placed++;
-      }
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute("aColor", new THREE.Float32BufferAttribute(col, 3));
-    g.setAttribute("aSize", new THREE.Float32BufferAttribute(size, 1));
-    g.setAttribute("aPhase", new THREE.Float32BufferAttribute(phase, 1));
-    g.setAttribute("aRegion", new THREE.Float32BufferAttribute(reg, 1));
-    return g;
-  }, [hotspots, mode]);
-  useEffect(() => () => geo.dispose(), [geo]);
-  const mat = useMemo(() => { const m = dotMaterial.clone(); m.uniforms.uW = fade.uW; return m; }, []); // clone() copies uniforms; re-share the fade
-  useEffect(() => () => mat.dispose(), [mat]);
-  const born = useRef(0);
-  useEffect(() => { born.current = 0; }, [geo]);
-  useFrame(({ clock, gl }, dt) => {
-    mat.uniforms.uTime.value = reduced ? 0 : clock.elapsedTime;
-    mat.uniforms.uScale.value = gl.getPixelRatio() * 0.9;
-    born.current = Math.min(1, born.current + dt * 1.2);
-    mat.uniforms.uFade.value = ease(born.current); // new data fades in instead of popping
-  });
-  return <points geometry={geo} material={mat} />;
-}
-
-/** Arcs from the busiest country to the others, with light travelling along them. */
-function Arcs({ hotspots, mode, reduced }: { hotspots: Hotspot[]; mode: "news" | "search"; reduced: boolean }) {
-  const geo = useMemo(() => {
-    const top = hotspots.slice(0, 9);
-    const pos: number[] = [], u: number[] = [], off: number[] = [], index: number[] = [];
-    const pairs: [Hotspot, Hotspot][] = [];
-    for (let i = 1; i < top.length; i++) pairs.push([top[0], top[i]]);
-    for (let i = 1; i + 1 < top.length; i += 2) pairs.push([top[i], top[i + 1]]);
-    const SEG = 64;
-    pairs.forEach(([a, b], p) => {
-      const va = toVec(a.lat, a.lon, 1), vb = toVec(b.lat, b.lon, 1);
-      const angle = va.angleTo(vb);
-      const base = pos.length / 3;
-      for (let s = 0; s <= SEG; s++) {
-        const t = s / SEG;
-        const v = va.clone().lerp(vb, t).normalize().multiplyScalar(R * (1.006 + Math.sin(Math.PI * t) * (0.04 + angle * 0.07)));
-        pos.push(v.x, v.y, v.z); u.push(t); off.push(p * 0.37);
-        if (s) index.push(base + s - 1, base + s);
-      }
-    });
-    const g = new THREE.BufferGeometry(), dots = new THREE.BufferGeometry(); // dots: same vertices, unindexed (each drawn once)
-    for (const d of [g, dots]) {
-      d.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-      d.setAttribute("aU", new THREE.Float32BufferAttribute(u, 1));
-      d.setAttribute("aOff", new THREE.Float32BufferAttribute(off, 1));
-    }
-    g.setIndex(index);
-    return { g, dots };
-  }, [hotspots]);
-  useEffect(() => () => { geo.g.dispose(); geo.dots.dispose(); }, [geo]);
-  const { mat, spark } = useMemo(() => { const m = arcMaterial.clone(), sp = arcSparkMaterial.clone(); sp.uniforms = m.uniforms; return { mat: m, spark: sp }; }, []);
-  useEffect(() => () => { mat.dispose(); spark.dispose(); }, [mat, spark]);
-  useEffect(() => {
-    mat.uniforms.uColor.value.set(mode === "news" ? "#5ec8ff" : "#c084fc");
-    mat.uniforms.uColor2.value.set(mode === "news" ? "#ffb347" : "#e9a8ff");
-  }, [mat, mode]);
-  const born = useRef(0);
-  useEffect(() => { born.current = 0; }, [geo]);
-  useFrame(({ clock, gl }, dt) => {
-    mat.uniforms.uTime.value = reduced ? 0.4 : clock.elapsedTime % 1000;
-    mat.uniforms.uScale.value = gl.getPixelRatio() * 60;
-    born.current = Math.min(1, born.current + dt * 0.8);
-    mat.uniforms.uFade.value = ease(born.current);
-  });
-  return <>
-    <lineSegments geometry={geo.g} material={mat} />
-    {!reduced && <points geometry={geo.dots} material={spark} />}
-  </>;
-}
-
-/** The land particles (shared geometry, see landGeometry). */
-function Land({ reduced }: { reduced: boolean }) {
-  const geo = useMemo(landGeometry, []);
-  useFrame(({ clock, gl }) => {
-    landMaterial.uniforms.uTime.value = reduced ? 2 : clock.elapsedTime % 1000;
-    landMaterial.uniforms.uScale.value = gl.getPixelRatio() * 10;
-  });
-  return <points geometry={geo} material={landMaterial} raycast={() => null} />;
-}
-
-const columnBase = new THREE.CylinderGeometry(1, 1, 1, 10, 1, true).translate(0, 0.5, 0);
-/** One instanced draw for every hotspot's light column; height and width grow with the story count. */
-function Columns({ hotspots, mode, reduced }: { hotspots: Hotspot[]; mode: "news" | "search"; reduced: boolean }) {
-  const mesh = useMemo(() => {
-    const top = hotspots.slice(0, 40), n = Math.max(top.length, 1), max = Math.max(1, ...top.map((h) => h.count));
-    const geo = columnBase.clone(), col = new Float32Array(n * 3), ph = new Float32Array(n), reg = new Float32Array(n);
-    const mat = columnMaterial.clone(); mat.uniforms.uW = fade.uW; // clone() copies uniforms; re-share the fade
-    const m = new THREE.InstancedMesh(geo, mat, n), o = new THREE.Object3D(), up = new THREE.Vector3(0, 1, 0), c = new THREE.Color(), tint = new THREE.Color("#cfe3ff");
-    top.forEach((h, i) => {
-      const k = Math.sqrt(h.count / max), p = toVec(h.lat, h.lon, R * 1.003), w = 0.012 + 0.018 * k;
-      o.position.copy(p); o.quaternion.setFromUnitVectors(up, p.clone().normalize()); o.scale.set(w, 0.25 + 0.8 * k, w);
-      o.updateMatrix(); m.setMatrixAt(i, o.matrix);
-      c.set(colorFor(h.name, mode)).lerp(tint, 0.6); col.set([c.r, c.g, c.b], i * 3);
-      ph[i] = Math.abs(h.lat * 7 + h.lon) % 1; reg[i] = regionId(h.name);
-    });
-    m.count = top.length;
-    geo.setAttribute("aColor", new THREE.InstancedBufferAttribute(col, 3));
-    geo.setAttribute("aPhase", new THREE.InstancedBufferAttribute(ph, 1));
-    geo.setAttribute("aRegion", new THREE.InstancedBufferAttribute(reg, 1));
-    m.raycast = () => {}; // never steals globe clicks
-    m.frustumCulled = false;
-    return m;
-  }, [hotspots, mode]);
-  useEffect(() => () => { mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); mesh.dispose(); }, [mesh]);
-  const born = useRef(0);
-  useEffect(() => { born.current = 0; }, [mesh]);
-  useFrame(({ clock }, dt) => {
-    const u = (mesh.material as THREE.ShaderMaterial).uniforms;
-    u.uTime.value = reduced ? 0.3 : clock.elapsedTime % 1000;
-    born.current = Math.min(1, born.current + dt);
-    u.uFade.value = ease(born.current);
-  });
-  return <primitive object={mesh} />;
-}
-
-/** Obsidian blades orbiting the globe on their own axes (alien palette + reflection map); hidden when the camera dives in. */
-const BLADES = [
-  { r: 1.4, h: 0.009, tilt: [1.45, 0, 0.18], spin: 0.08 },
-  { r: 1.52, h: 0.013, tilt: [1.2, 0.35, -0.25], spin: -0.05 },
-  { r: 1.64, h: 0.01, tilt: [1.62, -0.2, 0.4], spin: 0.035 },
-] as const;
-function ObsidianRings({ reduced }: { reduced: boolean }) {
-  const env = useAlienEnv();
-  const group = useRef<THREE.Group>(null);
-  const spin = useRef<(THREE.Mesh | null)[]>([]);
-  const geos = useMemo(() => BLADES.map((b) => new THREE.TorusGeometry(R * b.r, b.h, 4, 200)), []);
-  const mat = useMemo(() => new THREE.MeshPhysicalMaterial({ color: "#030305", metalness: 0.9, roughness: 0.2, clearcoat: 1, clearcoatRoughness: 0.04,
-    iridescence: 0.35, iridescenceThicknessRange: [180, 520], flatShading: true, emissive: "#0a3346", emissiveIntensity: 0.2, envMapIntensity: 0.55 }), []);
-  useEffect(() => { mat.envMap = env; mat.needsUpdate = true; }, [mat, env]);
-  useEffect(() => () => { geos.forEach((g) => g.dispose()); mat.dispose(); }, [geos, mat]);
-  useFrame(({ camera }, dt) => {
-    if (group.current) group.current.visible = camera.position.length() > 5.6;
-    if (reduced) return;
-    const step = Math.min(Math.max(dt, 0), 0.1);
-    if (group.current) group.current.rotation.y += step * 0.02;
-    for (let i = 0; i < BLADES.length; i++) { const m = spin.current[i]; if (m) m.rotation.z += step * BLADES[i].spin; }
-  });
-  return (
-    <group ref={group}>
-      {BLADES.map((b, i) => (
-        <group key={i} rotation={b.tilt as unknown as [number, number, number]}>
-          <mesh ref={(el) => { spin.current[i] = el; }} geometry={geos[i]} material={mat} scale={[1, 1, 3]} raycast={() => null} />
-        </group>
-      ))}
-    </group>
-  );
-}
-
-/** Thin latitude/longitude lines on a glass shell just above the surface. */
-function Graticule() {
-  const geo = useMemo(() => {
-    const pos: number[] = [], r = R * 1.03, S = 128;
-    for (let lat = -75; lat <= 75; lat += 15) for (let i = 0; i < S; i++) {
-      const a = toVec(lat, (i / S) * 360 - 180, r), b = toVec(lat, ((i + 1) / S) * 360 - 180, r);
-      pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
-    }
-    for (let lon = -180; lon < 180; lon += 30) for (let i = 0; i < S / 2; i++) {
-      const a = toVec(-90 + (i / (S / 2)) * 180, lon, r), b = toVec(-90 + ((i + 1) / (S / 2)) * 180, lon, r);
-      pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    return g;
-  }, []);
-  useEffect(() => () => geo.dispose(), [geo]);
-  return <lineSegments geometry={geo} raycast={() => null}><lineBasicMaterial color="#5fd8ff" transparent opacity={0.07} blending={THREE.AdditiveBlending} depthWrite={false} /></lineSegments>;
-}
-
-/** Pulsing rings on the busiest hotspots. */
-function Ring({ h, k, color, reduced }: { h: Hotspot; k: number; color: string; reduced: boolean }) {
-  const ref = useRef<THREE.Mesh>(null);
-  const { pos, q } = useMemo(() => {
-    const p = toVec(h.lat, h.lon, R * 1.005);
-    return { pos: p, q: new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), p.clone().normalize()) };
-  }, [h.lat, h.lon]);
-  const phase = useMemo(() => Math.abs(h.lat * 7 + h.lon) % 1, [h.lat, h.lon]);
-  useFrame(({ clock }) => {
-    if (!ref.current) return;
-    const t = reduced ? 0.45 : (clock.elapsedTime * 0.45 + phase) % 1;
-    ref.current.scale.setScalar(0.04 + (0.14 + 0.18 * k) * ease(t));
-    (ref.current.material as THREE.MeshBasicMaterial).opacity = 0.32 * (1 - t) * Math.min(1, t * 8); // fades in at the start of each wave: no pop
-  });
-  return (
-    <mesh ref={ref} position={pos} quaternion={q}>
-      <ringGeometry args={[0.82, 1, 64]} />
-      <meshBasicMaterial color={color} transparent side={THREE.DoubleSide} blending={THREE.AdditiveBlending} depthWrite={false} />
-    </mesh>
-  );
-}
 
 /** A country overlay that cross-fades when the country changes. */
 function Overlay({ name, color, max }: { name: string | null; color: string; max: number }) {
@@ -767,8 +463,8 @@ function FollowPulse({ names, reduced }: { names: string[]; reduced: boolean }) 
   return key ? <mesh material={mat} renderOrder={2}><sphereGeometry args={[R * 1.002, 96, 96]} /></mesh> : null;
 }
 
-const markerGeo = new THREE.SphereGeometry(0.018, 12, 12);
-const markerMat = new THREE.MeshBasicMaterial({ color: "#67e8f9", transparent: true, opacity: 0.85 });
+const markerGeo = new THREE.SphereGeometry(0.011, 10, 10);
+const markerMat = new THREE.MeshBasicMaterial({ color: "#dbe7f5", transparent: true, opacity: 0.35 });
 const markerOnMat = new THREE.MeshBasicMaterial({ color: "#a5f3fc", transparent: true, opacity: 0.95 });
 let markerRegions: (string | null)[] | null = null; // lazily: nearest gazetteer region, so region mode hides the others
 
@@ -807,6 +503,8 @@ function Globe({ tint, mode, region, reduced, lit, selected, hover, onPick, onHo
   followed: string[]; tint: Map<string, number>; mode: "news" | "search"; region: string | null; reduced: boolean; lit: string[]; selected: string | null; hover: string | null;
   onPick: (n: string | null) => void; onHover: (n: string | null, x: number, y: number) => void;
 }) {
+  const earth = useEarthMaterial(R); // v2: photoreal Earth (free Sentinel-2 / Black Marble tiles), live day and night
+  useFrame((_, dt) => { earth.u.uDim.value = THREE.MathUtils.damp(earth.u.uDim.value, region ? 0.8 : 1, 6, dt); });
   const texture = baseMap(); // painted once; news and regions are shader inputs, so nothing here repaints
   const table = useMemo(() => { const t = new THREE.DataTexture(new Uint8Array(1024), 256, 1); t.needsUpdate = true; return t; }, []); // raw bytes: sRGB as painted
   const { m: material, u } = useMemo(() => globeMaterial(table), [table]);
@@ -854,86 +552,46 @@ function Globe({ tint, mode, region, reduced, lit, selected, hover, onPick, onHo
         onClick={(e) => { e.stopPropagation(); if (e.delta <= 5) onPick(at(e)); }} // stop: far-side markers sit behind the globe
         onPointerMove={(e) => { e.stopPropagation(); onHover(at(e), e.nativeEvent.clientX, e.nativeEvent.clientY); }}
         onPointerOut={(e) => onHover(null, e.nativeEvent.clientX, e.nativeEvent.clientY)}>
-        <sphereGeometry args={[R, 128, 128]} />
-        <primitive object={material} attach="material" map={texture} />
+        <sphereGeometry args={[R, 160, 96]} />
+        <primitive object={earth.mat} attach="material" />
       </mesh>
-      <Land reduced={reduced} />
-      <Graticule />
       <Markers selected={selected} hover={hover} region={region} onPick={(n) => onPick(n)} onHover={onHover} />
       <Overlay name={hover && hover !== selected ? hover : null} color="rgba(186,230,253,1)" max={0.45} />
       <Overlay name={selected} color="rgba(103,232,249,1)" max={0.9} />
       <Dimmer on={lit.length > 0} />
       <Overlay name={lit.length ? lit.join("|") : null} color="rgba(125,211,252,1)" max={0.9} />
       <FollowPulse names={lit.length ? [] : followed} reduced={reduced} />
-      <mesh material={rim}><sphereGeometry args={[R * 1.003, 96, 96]} /></mesh>
-      <mesh material={atmosphere} scale={1.1}><sphereGeometry args={[R, 96, 96]} /></mesh>
+      <mesh material={earth.atmo} scale={1.06} raycast={() => null}><sphereGeometry args={[R, 96, 64]} /></mesh>
     </group>
   );
 }
 
-/** A HUD dial around the globe: tick marks and arcs that face the viewer and turn slowly. */
-function Dial({ reduced }: { reduced: boolean }) {
-  const group = useRef<THREE.Group>(null);
-  const spin = useRef<THREE.Group>(null);
-  const geo = useMemo(() => {
-    const pos: number[] = [];
-    const circle = (r: number, a0 = 0, a1 = Math.PI * 2, seg = 256) => {
-      for (let i = 0; i < seg; i++) {
-        const t0 = a0 + ((a1 - a0) * i) / seg, t1 = a0 + ((a1 - a0) * (i + 1)) / seg;
-        pos.push(Math.cos(t0) * r, Math.sin(t0) * r, 0, Math.cos(t1) * r, Math.sin(t1) * r, 0);
-      }
-    };
-    circle(R * 1.32);
-    for (let d = 0; d < 360; d += 3) { // ticks; longer every 30°
-      const a = (d * Math.PI) / 180, l = d % 30 === 0 ? 0.11 : 0.045, r = R * 1.32;
-      pos.push(Math.cos(a) * r, Math.sin(a) * r, 0, Math.cos(a) * (r + l), Math.sin(a) * (r + l), 0);
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    const arcs: number[] = [];
-    for (const [a0, a1, r] of [[0.2, 1.3, 1.25], [2.1, 2.9, 1.25], [3.6, 5.2, 1.25], [0.9, 2.4, 1.4], [4.2, 5.6, 1.4]] as const) {
-      const seg = 64;
-      for (let i = 0; i < seg; i++) {
-        const t0 = a0 + ((a1 - a0) * i) / seg, t1 = a0 + ((a1 - a0) * (i + 1)) / seg;
-        arcs.push(Math.cos(t0) * R * r, Math.sin(t0) * R * r, 0, Math.cos(t1) * R * r, Math.sin(t1) * R * r, 0);
-      }
-    }
-    const ga = new THREE.BufferGeometry();
-    ga.setAttribute("position", new THREE.Float32BufferAttribute(arcs, 3));
-    return { g, ga };
-  }, []);
-  useEffect(() => () => { geo.g.dispose(); geo.ga.dispose(); }, [geo]);
-  useFrame(({ camera }, dt) => {
-    group.current?.quaternion.copy(camera.quaternion);
-    if (spin.current && !reduced) spin.current.rotation.z += dt * 0.05;
-  });
-  return (
-    <group ref={group}>
-      <lineSegments geometry={geo.g}><lineBasicMaterial color="#67e8f9" transparent opacity={0.16} depthWrite={false} /></lineSegments>
-      <group ref={spin}>
-        <lineSegments geometry={geo.ga}><lineBasicMaterial color="#a5f3fc" transparent opacity={0.24} depthWrite={false} /></lineSegments>
-      </group>
-    </group>
-  );
-}
-
-/** Projects hotspot names onto the screen as HTML labels; fades out those on the far side. */
-function Labels({ items, refs }: { items: Hotspot[]; refs: React.RefObject<Record<string, HTMLSpanElement | null>> }) {
+/** Glass labels next to each hotspot, placed so they never overlap each other or the panels (declutter in classic-map-pure). */
+function Labels({ items, refs, root }: { items: Hotspot[]; refs: React.RefObject<Record<string, HTMLElement | null>>; root: React.RefObject<HTMLDivElement | null> }) {
   const v = useMemo(() => new THREE.Vector3(), []);
-  const n = useMemo(() => new THREE.Vector3(), []);
   const c = useMemo(() => new THREE.Vector3(), []);
-  const at = useMemo(() => items.map((h) => toVec(h.lat, h.lon, R * 1.02)), [items]); // not per frame
-  useFrame(({ camera, size }) => {
+  const at = useMemo(() => items.map((h) => toVec(h.lat, h.lon, R * 1.004)), [items]);
+  const zones = useRef<{ t: number; z: LBox[] }>({ t: -1, z: [] });
+  useFrame(({ camera, size, clock }) => {
+    const host = root.current;
+    if (host && clock.elapsedTime - zones.current.t > 0.5) { // panels move rarely: re-measure twice a second
+      const o = host.getBoundingClientRect();
+      zones.current = { t: clock.elapsedTime, z: [...host.querySelectorAll<HTMLElement>(".glass, .hud-panel, .intel-bar, nav, form")].filter((e) => e.offsetWidth)
+        .map((e) => { const r = e.getBoundingClientRect(); return { x: r.left - o.left, y: r.top - o.top, w: r.width, h: r.height }; }) };
+    }
     c.copy(camera.position).normalize();
-    items.forEach((h, i) => {
+    const input = items.map((h, i) => {
       const el = refs.current?.[h.name];
-      if (!el) return;
-      v.copy(at[i]);
-      const facing = n.copy(v).normalize().dot(c);
-      v.project(camera);
-      el.style.opacity = String(Math.max(0, Math.min(1, (facing - 0.2) * 4)));
-      el.style.transform = `translate(${((v.x + 1) / 2) * size.width + 10}px, ${((1 - v.y) / 2) * size.height - 9}px)`;
+      v.copy(at[i]); const facing = v.clone().normalize().dot(c); v.project(camera);
+      return { id: h.name, x: ((v.x + 1) / 2) * size.width, y: ((1 - v.y) / 2) * size.height, w: el?.offsetWidth ?? 0, h: el?.offsetHeight ?? 0, rank: i, facing: el ? facing : -1 };
     });
+    for (const p of declutter(input, zones.current.z, { w: size.width, h: size.height })) {
+      const el = refs.current?.[p.id];
+      if (!el) continue;
+      el.style.opacity = p.show ? "1" : "0";
+      el.style.pointerEvents = p.show ? "auto" : "none";
+      if (p.show) el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)`;
+    }
   });
   return null;
 }
@@ -1022,7 +680,9 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
     addEventListener(FOLLOWS_EVENT, get);
     return () => { clearInterval(t); removeEventListener(FOLLOWS_EVENT, get); };
   }, [paused]);
-  const labels = useRef<Record<string, HTMLSpanElement | null>>({});
+  const labels = useRef<Record<string, HTMLElement | null>>({});
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [glOk] = useState(() => { try { const c = document.createElement("canvas"); return !!(c.getContext("webgl2") || c.getContext("webgl")); } catch { return false; } });
   // Only the latest request may update the screen (fast clicks, Clear during a search).
   const loadSeq = useRef(0);
   const searchSeq = useRef(0);
@@ -1147,8 +807,13 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
     return null;
   }, [selected, hs, activeRegion, camTo, tab]);
   const sceneHs = search ? hs : listed; // in region mode only that region's dots, arcs, rings and labels
-  const drawHs = useSameShape(hs), drawScene = useSameShape(sceneHs);
-  const top = lit.length ? hs.filter((h) => lit.includes(h.name)) : sceneHs.slice(0, 8);
+  const drawScene = useSameShape(sceneHs);
+  const top = lit.length ? hs.filter((h) => lit.includes(h.name)) : sceneHs.slice(0, 12);
+  const spots = useMemo<Spot[]>(() => drawScene.slice(0, 24).map((h) => ({ name: h.name, lat: h.lat, lon: h.lon, count: h.count, color: colorFor(h.name, mode) })), [drawScene, mode]);
+  const arcPairs = useMemo(() => {
+    const by = new Map(spots.map((s) => [s.name, s]));
+    return relatedPairs(drawScene.slice(0, 24), 8).filter(([a, b]) => by.has(a) && by.has(b)).map(([a, b, w]) => ({ a: by.get(a)!, b: by.get(b)!, w }));
+  }, [spots, drawScene]);
   const regionTotals = useMemo(() => Object.keys(REGIONS).map((r) => ({ r, n: hs.filter((h) => regionOf(h.name) === r).reduce((a, h) => a + h.count, 0) })), [hs]);
   const onHover = useCallback((name: string | null, x: number, y: number) => {
     tipAt.current = { x, y };
@@ -1190,26 +855,23 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
   }, [motion, paused, onTab]);
 
   return (
-    <div className={`absolute inset-0 globe-in${earthOn ? " earth-on" : ""}${motion ? " intel-zoned" : ""}${manual && motion ? " intel-has-list" : ""}${motion && manual && !search && !earthOn ? " intel-chips" : ""}`} aria-label={t("ngx.aria")}>
+    <div ref={rootRef} className={`absolute inset-0 globe-in classic-v2${earthOn ? " earth-on" : ""}${motion ? " intel-zoned" : ""}${manual && motion ? " intel-has-list" : ""}${motion && manual && !search && !earthOn ? " intel-chips" : ""}`} aria-label={t("ngx.aria")}>
       {motion && <div className="intel-stage" aria-hidden />}
-      {ready && later && !earthOn && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused || weatherOn ? "never" : "always"} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
+      {!glOk && !earthOn && <p role="status" className="muted pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 text-xs">{t("intel.noGl")}</p>}
+      {glOk && ready && later && !earthOn && <Canvas key={glr.key} onCreated={glr.onCreated} frameloop={paused || weatherOn ? "never" : "always"} camera={{ position: [3.6, 1.8, 6.2], fov: 42 }} dpr={[1, dpr]} gl={{ antialias: false, powerPreference: "high-performance" }}>
         {quality === "auto" && <PerformanceMonitor onDecline={() => setLean(true)} />}
         <WarmCompile world="intelligence" />
         <color attach="background" args={["#01040b"]} />
-        <Stars radius={70} depth={40} count={reduced || !manual ? 1200 : 5000} factor={2.4} fade speed={reduced || !manual ? 0 : 0.35} />
+        <Stars radius={70} depth={40} count={2200} factor={2} fade speed={0} />
         <Globe tint={tint} mode={mode} region={activeRegion} reduced={reduced} lit={lit} selected={selected} followed={followed}
           hover={hover} onPick={(n) => setSelected((cur) => (n && n !== cur ? n : n ? null : cur))} onHover={onHover} />
         {/* all dots; out-of-region ones fade out in the shader, so a region switch rebuilds nothing */}
-        <NewsDots hotspots={drawHs} mode={mode} reduced={reduced} />
-        <Arcs hotspots={drawScene} mode={mode} reduced={reduced} />
-        <Columns hotspots={drawHs} mode={mode} reduced={reduced} />
-        <ObsidianRings reduced={reduced} />
-        {(lit.length ? top : sceneHs.slice(0, 6)).map((h) => <Ring key={`${mode}-${h.name}`} h={h} k={Math.sqrt(h.count / (sceneHs[0]?.count || 1))} color={colorFor(h.name, mode)} reduced={reduced} />)}
+        <Halos spots={spots} R={R} reduced={reduced} focus={hover ?? selected} />
+        <Arcs2 pairs={arcPairs} R={R} reduced={reduced} />
         <OrbitControls makeDefault enablePan={false} minDistance={3.2} maxDistance={12} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} autoRotateSpeed={0.3} />
         <Rig focus={focus} reduced={reduced} offsetX={selected ? -40 : 110} />
         {!paused && <ZoomRig home={7.6} reduced={reduced} />}
-        <Dial reduced={reduced} />
-        <Labels items={top} refs={labels} />
+        <Labels items={top} refs={labels} root={rootRef} />
         <EffectComposer multisampling={msaa}>
           <Bloom intensity={reduced ? 0.25 : 0.35} luminanceThreshold={0.9} luminanceSmoothing={0.3} mipmapBlur />
           <Vignette offset={0.25} darkness={0.75} />
@@ -1218,13 +880,15 @@ export default function NewsGlobe({ onClose, reduced, focus: goTo, quality = "au
         </EffectComposer>
         {process.env.NODE_ENV === "development" && <FrameMark name="intelligence" />}
       </Canvas>}
-      {!(ready && later) && !earthOn && <GlobeLoading />}
+      {glOk && !(ready && later) && !earthOn && <GlobeLoading />}
 
       {!earthOn && <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         {top.map((h) => (
-          <span key={`${mode}-${h.name}`} ref={(el) => { labels.current[h.name] = el; }} className="globe-label absolute left-0 top-0" style={{ ["--accent" as string]: colorFor(h.name, mode) }}>
-            {displayName(h.name)} <b>{h.count}</b>
-          </span>
+          <button type="button" tabIndex={-1} key={`${mode}-${h.name}`} ref={(el) => { labels.current[h.name] = el; }} className="cmap-label" style={{ ["--accent" as string]: colorFor(h.name, mode) }}
+            onClick={() => setSelected(h.name === selected ? null : h.name)}>
+            <span className="cmap-name"><i />{displayName(h.name)}<b>{h.count}</b></span>
+            {h.stories[0] && <span className="cmap-head">{h.stories[0].title}</span>}
+          </button>
         ))}
         {hover && (
           <span ref={tip} className="globe-tip" style={{ transform: `translate(${tipAt.current.x + 14}px, ${tipAt.current.y + 12}px)` }}>
