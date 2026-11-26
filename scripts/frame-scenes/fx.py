@@ -168,7 +168,67 @@ def arch(bgr, dep, hue, s, v):
     A = cv2.GaussianBlur(warm * union(lamps), (0, 0), 1.2)
     return dict(R=R, G=G, B=B, A=A)
 
-CFG = dict(life=life, gamedev=gamedev, memory=memory, arch=arch)
+
+def warm_lights(v, s, hue, vmin=0.78, region=None):
+    m = sm(v, vmin - 0.06, vmin + 0.08) * sm(s, 0.3, 0.5) * ((hue > 15) & (hue < 60))
+    m = m * (region if region is not None else 1)
+    return cv2.GaussianBlur(m, (0, 0), 1.2)
+def small_blobs(m, k=9):
+    """Keep only small bright spots (candles, bulbs, engines): top-hat on the mask."""
+    g = (np.clip(m, 0, 1) * 255).astype(np.uint8)
+    t = cv2.morphologyEx(g, cv2.MORPH_TOPHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))).astype(np.float32) / 255
+    return np.clip(t * 2.2, 0, 1)
+
+def vault(bgr, dep, hue, s, v):
+    candles = small_blobs(warm_lights(v, s, hue, 0.8), 13) * (1 - box(380, 0, 650, 110, 8))
+    shaft = poly([(470, 80), (560, 80), (640, 330), (390, 330)], 25)
+    wheel = ell(512, 265, 95, 95, 10) * sm(v, 0.55, 0.8)
+    lamp = warm_lights(v, s, hue, 0.85, box(120, 360, 230, 440, 4) + box(830, 360, 910, 440, 4))
+    A = np.maximum.reduce([candles, wheel * 0.5, lamp * 0.8])
+    return dict(B=shaft * 0.8 * sm(v, 0.5, 0.8) + ell(512, 40, 110, 40, 10) * 0.3, A=A)
+
+def operations(bgr, dep, hue, s, v):
+    cyan = ((hue > 160) & (hue < 205)) * sm(s, 0.3, 0.5) * sm(v, 0.6, 0.8)
+    ring = cv2.GaussianBlur(cyan * ell(430, 355, 420, 230, 6), (0, 0), 1.0)
+    globe = ell(510, 190, 88, 88, 6) * sm(v, 0.45, 0.7)
+    lights = warm_lights(v, s, hue, 0.8) * (1 - ell(510, 300, 340, 190, 6))
+    earth = (1 - sm(dep, 0.35, 0.55)) * (1 - ell(430, 340, 440, 260, 30)) * 0.9
+    return dict(B=cv2.GaussianBlur(earth, (0, 0), 6), A=np.maximum.reduce([ring * 0.9, globe * 0.8, lights * 0.7]))
+
+def business(bgr, dep, hue, s, v):
+    cyan = ((hue > 170) & (hue < 215)) * sm(s, 0.3, 0.5) * sm(v, 0.7, 0.9)
+    lights = np.maximum(small_blobs(cv2.GaussianBlur(cyan, (0, 0), 1.0), 9), small_blobs(warm_lights(v, s, hue, 0.82), 11))
+    planet = box(0, 10, 520, 260, 20) * (1 - sm(dep, 0.4, 0.6))
+    sky = box(560, 0, 1024, 150, 20) * (1 - sm(dep, 0.25, 0.4)) * 0.4
+    return dict(B=cv2.GaussianBlur(np.maximum(planet, sky), (0, 0), 5) * 0.9, A=lights)
+
+def agents(bgr, dep, hue, s, v):
+    scr = np.maximum.reduce([box(80, 72, 265, 207, 3), box(760, 72, 945, 207, 3), box(300, 345, 720, 415, 3), box(110, 255, 200, 330, 3), box(840, 255, 930, 330, 3)]) * sm(v, 0.45, 0.7)
+    globe = ell(510, 170, 105, 105, 6) * sm(v, 0.45, 0.7)
+    rings = ell(510, 20, 230, 40, 6) * sm(v, 0.7, 0.9)
+    return dict(A=np.maximum.reduce([scr * 0.9, globe * 0.8, rings * 0.5]))
+
+def analytics(bgr, dep, hue, s, v):
+    bright = sm(v, 0.7, 0.9) * sm(s, 0.2, 0.5) * ((hue > 190) & (hue < 235))
+    peaks = cv2.GaussianBlur(bright, (0, 0), 1.2) * box(0, 0, 1024, 573, 0)
+    # beams: tall thin bright structures in the upper part; particles rise along them (flow upward, see FX.flowDir)
+    beam = cv2.morphologyEx((bright * box(0, 0, 1024, 330, 4) > 0.5).astype(np.uint8), cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, 25)))
+    beam = cv2.GaussianBlur(cv2.dilate(beam, np.ones((1, 3), np.uint8)).astype(np.float32), (0, 0), 1.2)
+    return dict(R=beam * 0.9, A=np.maximum(peaks * 0.7, beam * 0.5), B=box(0, 0, 1024, 140, 25) * (1 - sm(v, 0.2, 0.4)) * 0.6)
+
+def studio(bgr, dep, hue, s, v):
+    screens = np.maximum.reduce([box(60, 62, 300, 267, 3), box(770, 77, 980, 257, 3), box(320, 127, 760, 277, 3), box(690, 312, 980, 407, 3)]) * sm(v, 0.3, 0.6)
+    red = ((hue < 20) | (hue > 340)) * sm(s, 0.5, 0.7) * sm(v, 0.75, 0.95) * box(0, 0, 1024, 80, 4)
+    return dict(A=np.maximum(screens * 0.85, cv2.GaussianBlur(red, (0, 0), 1.0) * 0.5))
+
+def core(bgr, dep, hue, s, v):
+    return dict(B=sky_drift(dep, None, 0.2, 0.4) * 0.8 + (1 - ell(510, 255, 230, 230, 12)) * box(520, 0, 1024, 260, 30) * 0.6, A=small_blobs(sm(v, 0.8, 0.95) * sm(s, 0.1, 0.4), 7) * 0.7)
+
+def zoom_generic(bgr, dep, hue, s, v):
+    return dict(B=sky_drift(dep, None, 0.2, 0.38) * 0.7, A=small_blobs(sm(v, 0.8, 0.95) * sm(s, 0.2, 0.5), 11) * 0.8)
+
+CFG = dict(life=life, gamedev=gamedev, memory=memory, arch=arch, vault=vault, operations=operations, business=business, agents=agents, analytics=analytics, studio=studio, core=core)
+for _z in ['vault', 'operations', 'business', 'agents', 'memory', 'analytics', 'studio']: CFG['zoom-' + _z] = zoom_generic
 
 if __name__ == "__main__":
-    for id in (sys.argv[1:] or CFG): build(id)
+    for id in (sys.argv[1:] or [k for k in CFG if k not in ('life','gamedev','memory','arch')]): build(id)
