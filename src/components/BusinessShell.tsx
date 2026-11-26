@@ -6,6 +6,7 @@
 // Data: ONE GET /api/business shared by the shell and every sheet; an action patches it in place (business-state-pure).
 // Nothing is sent from here: Needs you only opens the client card, where the two-click Approve & send lives (AGENTS.md rule 6).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { WORLD_PICK, pickTarget } from "@/lib/world-props-pure";
 import { PlanetShell, Section, Button, Card, Empty, Loading, ErrorState, Sheet, WorkCard, toast, uiSound, type MenuItem } from "@/components/ui";
 import { dueFollowups } from "@/lib/business-pure";
 import { mapNodes } from "@/lib/business-map-pure";
@@ -72,6 +73,10 @@ export function BusinessShell({ onClose, focusId = null, onFocus }: { onClose?: 
   const open = useCallback((s: SheetId) => { uiSound("sheetOpen"); setSheet(s); }, []);
   const close = () => { uiSound("sheetClose"); setSheet(null); setLit(""); onFocus?.(null); };
   const pick = useCallback((id: string) => { setLit(id); open("clients"); }, [open]);
+  useEffect(() => { // v9: a click on a deal's freighter in the 3D world opens its client card
+    const on = (e: Event) => { const t = pickTarget((e as CustomEvent).detail, "business"); if (t) pick(t.id); };
+    addEventListener(WORLD_PICK, on); return () => removeEventListener(WORLD_PICK, on);
+  }, [pick]);
   useEffect(() => { if (focusId && st?.prospects.some((p) => p.id === focusId)) pick(focusId); }, [focusId, !!st]); // eslint-disable-line react-hooks/exhaustive-deps
   const missing = !!focusId && !!st && !st.prospects.some((p) => p.id === focusId);
 

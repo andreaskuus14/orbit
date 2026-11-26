@@ -38,7 +38,7 @@ import { BackToSimple, PlanetHome, useManual } from "./PlanetHome";
 import { Button, ErrorState, Loading, PlanetShell } from "./ui";
 import { taskWork } from "@/lib/planet-page-pure";
 import { CREW_R, CrewDeck, DOT, Hangar, crewAngle } from "./AgentCrew";
-import { ChipLayer, ChipProjector, Realism, useChipRig, type Chip } from "./world-kit";
+import { ChipLayer, ChipProjector, Realism, useChipRig, useWorldTier, type Chip } from "./world-kit";
 import { worldTier } from "@/lib/world-realism-pure";
 
 
@@ -410,16 +410,17 @@ function Station({ list, status, selected, reduced, lite, dust, handoffs, runnin
 }) {
   const glow = useGlowTexture(), parts = useShipParts(), metal = useObsidian("#14161d", 0.28);
   const groups = useMemo(() => new Map<string, THREE.Group>(), []);
+  const hangar = useWorldTier() > 0; // v9: in the hangar the crew works at desks: no floating drones, floor map or hand-off beams
   const color = (slug: string) => list.find((a) => a.slug === slug)?.color ?? "#c4b5fd";
   return (
     <>
       <Sky />
       <Dust count={dust} glow={glow} reduced={reduced} />
       <Hub reduced={reduced} lite={lite} />
-      <TacticalMap list={list} status={status} groups={groups} reduced={reduced} />
-      {list.map((a, i) => <Module key={a.slug} agent={a} i={i} n={list.length} status={status[a.slug]} selected={a.slug === selected} reduced={reduced} lite={lite} parts={parts} metal={metal} glow={glow} groups={groups} task={running[a.slug]} onPick={onPick} onHover={onHover} />)}
+      {!hangar && <TacticalMap list={list} status={status} groups={groups} reduced={reduced} />}
+      {!hangar && list.map((a, i) => <Module key={a.slug} agent={a} i={i} n={list.length} status={status[a.slug]} selected={a.slug === selected} reduced={reduced} lite={lite} parts={parts} metal={metal} glow={glow} groups={groups} task={running[a.slug]} onPick={onPick} onHover={onHover} />)}
       {/* team hand-off: previous step's drone → current step's drone */}
-      {handoffs.map(([from, to]) => <Beam key={`${from}>${to}`} source={() => groups.get(from)} target={() => groups.get(to)} color={color(to)} glow={glow} count={lite ? 5 : 10} reduced={reduced} strength={1.4} />)}
+      {!hangar && handoffs.map(([from, to]) => <Beam key={`${from}>${to}`} source={() => groups.get(from)} target={() => groups.get(to)} color={color(to)} glow={glow} count={lite ? 5 : 10} reduced={reduced} strength={1.4} />)}
     </>
   );
 }

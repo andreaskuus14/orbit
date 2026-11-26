@@ -15,7 +15,7 @@ export const DOT: Record<AgentStatus, NonNullable<Chip["dot"]>> = { working: "bu
 export const crewAngle = (i: number, n: number) => Math.PI / 2 + ((i + 0.5) / Math.max(1, n)) * Math.PI * 2;
 
 function Seat({ color, status, i, n, reduced, onPick }: { color: string; status: AgentStatus; i: number; n: number; reduced: boolean; onPick: () => void }) {
-  const a = crewAngle(i, n);
+  const a = crewAngle(i, n), detail = useWorldTier() > 0; // v9: more robot on the hangar tiers
   const arms = useRef<THREE.Group>(null), head = useRef<THREE.Mesh>(null);
   const body = useMemo(() => new THREE.MeshPhysicalMaterial({ color: "#d9dde6", metalness: 0.55, roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.15 }), []);
   const dark = useMemo(() => new THREE.MeshStandardMaterial({ color: "#14161d", metalness: 0.9, roughness: 0.3 }), []);
@@ -49,8 +49,24 @@ function Seat({ color, status, i, n, reduced, onPick }: { color: string; status:
       <mesh ref={head} position={[0, 1.42, 0.06]} material={body}><sphereGeometry args={[0.17, 24, 16]} />
         <mesh position={[0, 0.01, -0.13]} material={visor}><boxGeometry args={[0.24, 0.06, 0.06]} /></mesh>
         <mesh position={[0.17, 0, 0]} rotation-z={Math.PI / 2} material={trim}><torusGeometry args={[0.06, 0.015, 6, 16]} /></mesh>
+        {detail && <>
+          <mesh position={[0, 0.01, -0.105]} material={dark}><boxGeometry args={[0.3, 0.13, 0.05]} /></mesh>
+          <mesh position={[-0.17, 0, 0]} rotation-z={Math.PI / 2} material={trim}><torusGeometry args={[0.06, 0.015, 6, 16]} /></mesh>
+          <mesh position={[0.06, 0.2, 0]} material={dark}><cylinderGeometry args={[0.008, 0.008, 0.16, 5]} /></mesh>
+          <mesh position={[0.06, 0.29, 0]} material={trim}><sphereGeometry args={[0.022, 8, 6]} /></mesh>
+        </>}
       </mesh>
-      <group ref={arms}>{[-1, 1].map((s) => <mesh key={s} position={[s * 0.18, 0.98, -0.25]} rotation-x={-1.2} material={body}><Capsule args={[0.055, 0.34, 4, 8]} /></mesh>)}</group>
+      {detail && <>
+        <mesh position={[0, 1.24, 0.07]} material={dark}><cylinderGeometry args={[0.06, 0.08, 0.12, 10]} /></mesh>
+        {[-1, 1].map((s) => <mesh key={s} position={[s * 0.21, 1.1, 0.03]} material={dark}><sphereGeometry args={[0.075, 12, 8]} /></mesh>)}
+        <mesh position={[0, 0.96, -0.085]} material={dark}><boxGeometry args={[0.3, 0.22, 0.03]} /></mesh>
+        <mesh position={[0, 1.05, -0.1]} material={visor}><boxGeometry args={[0.08, 0.025, 0.012]} /></mesh>
+        {[-1, 1].map((s) => <mesh key={s} position={[s * 0.1, 0.5, -0.14]} rotation-x={Math.PI / 2} material={body}><Capsule args={[0.07, 0.3, 4, 8]} /></mesh>)}
+        {[-1, 1].map((s) => <mesh key={s} position={[s * 0.1, 0.25, -0.34]} material={dark}><cylinderGeometry args={[0.05, 0.06, 0.5, 8]} /></mesh>)}
+        <mesh position={[0, 0.878, -0.5]} material={dark}><boxGeometry args={[0.5, 0.014, 0.17]} /></mesh>
+        <mesh position={[0, 0.887, -0.5]} material={trim}><boxGeometry args={[0.44, 0.004, 0.02]} /></mesh>
+      </>}
+      <group ref={arms}>{[-1, 1].map((s) => <mesh key={s} position={[s * 0.18, 0.98, -0.25]} rotation-x={-1.2} material={body}><Capsule args={[0.055, 0.34, 4, 8]} />{detail && <mesh position={[0, 0.24, 0]} material={dark}><sphereGeometry args={[0.055, 10, 8]} /></mesh>}</mesh>)}</group>
       <mesh position={[0, 0.5, 0.18]} rotation-x={Math.PI / 2} material={body}><Capsule args={[0.16, 0.24, 4, 10]} /></mesh>
       {/* floor pad in the agent's colour */}
       <mesh rotation-x={-Math.PI / 2} position={[0, 0.012, -0.2]}><ringGeometry args={[0.95, 1.0, 48]} /><primitive object={trim} attach="material" /></mesh>

@@ -5,6 +5,7 @@
 // Data: one GET /api/analytics/summary?days=7|30 (totalled on the server). The 7/30 choice drives every block.
 // Actions: POST /api/analytics (calibrate, experiments, queue), /api/usage-meter (budget), /api/agent-scorecard (run now).
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { WORLD_PICK, pickTarget } from "@/lib/world-props-pure";
 import { PlanetShell, Section, Button, Chip, Row, Card, Empty, Loading, ErrorState, Sheet, toast, uiSound, type MenuItem } from "@/components/ui";
 import type { Key } from "@/lib/i18n-core-pure";
 import { eventLabel } from "@/lib/event-label-pure";
@@ -58,6 +59,10 @@ export function AnalyticsShell({ onClose }: { onClose?: () => void }) {
   const open = (s: SheetId) => { uiSound("sheetOpen"); setSheet(s); };
   const close = () => { uiSound("sheetClose"); setSheet(null); };
   const neededBefore = useRef(-1);
+  useEffect(() => { // v9: a click on a project's peak in the 3D world opens the time-per-project sheet
+    const on = (e: Event) => { if (pickTarget((e as CustomEvent).detail, "analytics")) { uiSound("sheetOpen"); setSheet("cost"); } };
+    addEventListener(WORLD_PICK, on); return () => removeEventListener(WORLD_PICK, on);
+  }, []);
 
   const needs = useMemo(() => {
     if (!d) return [];
