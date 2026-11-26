@@ -14,6 +14,7 @@ import { SCENE_SOURCE } from "@/lib/planet-scenes-pure";
 import { useGlRecovery } from "./useGlRecovery";
 import { useLeanQuality } from "./useLeanQuality";
 import { useMountLater, WarmCompile } from "./WarmCompile";
+import { worldTier } from "@/lib/world-realism-pure";
 import type { QualityMode } from "@/lib/quality-pure";
 import { planetById } from "@/lib/planets";
 import type { PlanetWorldId } from "@/lib/planet-worlds-pure";
@@ -63,7 +64,7 @@ export default function PlanetWorld({ id, flat, reduced, quality = "auto", onClo
           <WarmCompile world={id} />
           <color attach="background" args={[th.bg]} />
           <fog attach="fog" args={[th.bg, 26, 70]} />
-          <WorldLights color={th.glow} keyLight={th.key} />
+          <WorldLights color={th.glow} keyLight={th.key} tier={worldTier(q.bloomScale, q.msaa)} />
           {id !== "life" && <Stars radius={90} depth={40} count={reduced ? 600 : Math.min(1500, q.stars)} factor={2} fade speed={reduced ? 0 : 0.15} />}
           {model && <SceneFor s={model} reduced={reduced} />}
           <ShiftForPanel />

@@ -12,6 +12,7 @@ import { useGlRecovery } from "./useGlRecovery";
 import type { MemoryPanel } from "./panels"; // passed in by Orbit: the public demo must not bundle panels (Supabase client)
 import { beliefsPending, takeBeliefsRequest } from "./BeliefsPanel";
 import { studyPending } from "./StudyCards";
+import { worldTier } from "@/lib/world-realism-pure";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
@@ -543,9 +544,9 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
           <color attach="background" args={[BG]} />
           <Stars radius={120} depth={60} count={reduced ? 800 : Math.min(3000, q.stars)} factor={2.2} fade speed={reduced ? 0 : 0.2} />
           <FarRings reduced={reduced} />
-          <WorldLights color="#8b5cf6" keyLight="#e9dcff" />
+          <WorldLights color="#8b5cf6" keyLight="#e9dcff" tier={worldTier(q.bloomScale, q.msaa)} sky="#140c2a" reach={30} />
           {data && <MemoryGround items={data.items} reduced={reduced} />}
-          {sel === null && !query.trim() && <ChipProjector rig={rig} chips={memChips} />}
+          {!query.trim() && <ChipProjector rig={rig} chips={memChips} />}
           {data && <Constellation data={data} at={when} hi={hi} searching={!!query.trim()} reduced={reduced} lite={q.bloomScale === 0} onHover={setHover} onPick={pick} />}
           {data && <FocusLines items={data.items} from={sel} to={near} />}
           {data?.graph && !query.trim() && sel === null && <ClusterHalos graph={data.graph} items={data.items} />}
@@ -561,7 +562,7 @@ export default function MemoryWorld({ onClose, reduced, flat, quality = "auto", 
             </EffectComposer>
           )}
         </Canvas>
-        {sel === null && !query.trim() && <ChipLayer rig={rig} chips={memChips} />}
+        {!query.trim() && <ChipLayer rig={rig} chips={memChips} />}
         <div className="mp-labels" aria-hidden="true">{labels.map((l) => { const m = data!.items[l.i]; return (
           <div key={`${m.id}-${l.main ? "m" : "n"}`} ref={(el) => { if (el) labelEls.current.set(l.i, el); else labelEls.current.delete(l.i); }} className="memory-star-label" data-main={l.main ? "" : undefined}>
             <b>{m.kind === "journal" ? t("mp.journal") : m.title}</b>{l.main && <span>{kindName(m.kind)}{isLearned(m.source) ? ` · ${t("mp.d.learned")}` : ""}</span>}</div>); })}</div>

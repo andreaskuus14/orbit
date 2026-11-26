@@ -2,7 +2,9 @@
 // Shared look for the planet worlds (v2): one lighting rig with a baked studio env (Lightformers, no downloads) so PBR
 // metal and glass read, a curved planet ground with an atmosphere rim, instanced crystals, drifting motes, tuned post
 // FX, and glass chips projected from 3D anchors that never cover each other or the panel (world-chips-pure).
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
+import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { REALISM, surfaceFor, surfaceKey, type Surface, type WorldTier } from "@/lib/world-realism-pure";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Environment, Lightformer } from "@react-three/drei";
@@ -12,8 +14,138 @@ import { layoutChips, type Box } from "@/lib/world-chips-pure";
 
 /* ---------- light ---------- */
 
-/** Key + fill + rim and a baked env (rendered once: frames=1) so metal/glass have something to reflect. */
-export function WorldLights({ color, keyLight = "#fff4e0", warm = 1, env = true }: { color: string; keyLight?: string; warm?: number; env?: boolean }) {
+/* ---------- realism tier (v4) ---------- */
+
+// The tier the open world draws at, shared so Crystals / Motes / islands can pick detail without prop drilling.
+let tierNow: WorldTier = 0;
+const tierSubs = new Set<() => void>();
+const setTier = (t: WorldTier) => { if (t !== tierNow) { tierNow = t; tierSubs.forEach((f) => f()); } };
+export const useWorldTier = () => useSyncExternalStore((f) => { tierSubs.add(f); return () => tierSubs.delete(f); }, () => tierNow, () => 0 as WorldTier);
+
+const skyVert = /* glsl */ `varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`;
+const skyFrag = /* glsl */ `uniform vec3 uTop; uniform vec3 uHor; uniform vec3 uLow; varying vec3 vD;
+  void main(){ float y = vD.y; vec3 c = mix(uHor, uTop, smoothstep(0.0, 0.7, y)); c = mix(c, uLow, smoothstep(0.0, -0.35, y));
+    c += uHor * 1.6 * exp(-abs(y) * 14.0); gl_FragColor = vec4(c, 1.0); }`;
+
+/** Procedural environment: a gradient sky with a glowing horizon band plus a warm key softbox, a coloured rim strip
+ *  and a faint floor bounce, prefiltered once with PMREM. No files. */
+function ProcEnv({ sky, horizon, low, keyLight, rim }: { sky: string; horizon: string; low: string; keyLight: string; rim: string }) {
+  const gl = useThree((s) => s.gl), scene = useThree((s) => s.scene);
+  useEffect(() => {
+    const env = new THREE.Scene(), geos: THREE.BufferGeometry[] = [], mats: THREE.Material[] = [];
+    const add = (g: THREE.BufferGeometry, m: THREE.Material, f?: (o: THREE.Mesh) => void) => { geos.push(g); mats.push(m); const o = new THREE.Mesh(g, m); f?.(o); env.add(o); };
+    add(new THREE.SphereGeometry(50, 48, 24), new THREE.ShaderMaterial({ vertexShader: skyVert, fragmentShader: skyFrag, side: THREE.BackSide, depthWrite: false,
+      uniforms: { uTop: { value: new THREE.Color(sky) }, uHor: { value: new THREE.Color(horizon).multiplyScalar(0.5) }, uLow: { value: new THREE.Color(low) } } }));
+    const panel = (c: string, k: number, pos: [number, number, number], sc: [number, number]) => add(new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(k), side: THREE.DoubleSide }), (o) => { o.position.set(...pos); o.scale.set(sc[0], sc[1], 1); o.lookAt(0, 0, 0); });
+    panel(keyLight, 9, [18, 26, 14], [16, 10]);   // key softbox, high front-right
+    panel(rim, 5, [-22, 6, -20], [6, 26]);        // rim strip behind-left
+    panel(rim, 2.5, [24, 4, -18], [4, 18]);       // second, fainter rim
+    panel(horizon, 0.6, [0, -20, 0], [40, 40]);   // bounce from below
+    const pm = new THREE.PMREMGenerator(gl), rt = pm.fromScene(env, 0.03);
+    const prev = scene.environment, prevI = scene.environmentIntensity;
+    scene.environment = rt.texture; scene.environmentIntensity = 0.85;
+    return () => { scene.environment = prev; scene.environmentIntensity = prevI; rt.dispose(); pm.dispose(); geos.forEach((g) => g.dispose()); mats.forEach((m) => m.dispose()); };
+  }, [gl, scene, sky, horizon, low, keyLight, rim]);
+  return null;
+}
+
+const NOISE_GLSL = /* glsl */ `
+  float rzH(vec3 p){ p = fract(p*0.3183099+0.1); p *= 17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+  float rzN(vec3 x){ vec3 i=floor(x), f=fract(x); f=f*f*(3.0-2.0*f);
+    return mix(mix(mix(rzH(i),rzH(i+vec3(1,0,0)),f.x), mix(rzH(i+vec3(0,1,0)),rzH(i+vec3(1,1,0)),f.x), f.y),
+               mix(mix(rzH(i+vec3(0,0,1)),rzH(i+vec3(1,0,1)),f.x), mix(rzH(i+vec3(0,1,1)),rzH(i+vec3(1,1,1)),f.x), f.y), f.z); }
+  float rzF(vec3 p){ float s=0.0, a=0.5; for(int i=0;i<4;i++){ s+=a*rzN(p); p=p*2.03+vec3(1.7,9.2,3.1); a*=0.5; } return s; }`;
+
+const patched = new WeakSet<THREE.Material>();
+/** Adds procedural detail to a standard material in place: world-space fbm bump, roughness wobble, albedo variation per
+ *  surface and per instance, and brushed-metal streaks. Shader-generated, no texture files. */
+function patchMaterial(m: THREE.MeshStandardMaterial) {
+  if (patched.has(m)) return; patched.add(m);
+  const s = surfaceFor({ metalness: m.metalness, roughness: m.roughness, transparent: m.transparent && m.opacity < 0.99, wireframe: m.wireframe, foliage: !!m.userData.foliage },
+    m.userData.realism as Partial<Surface> | null | undefined);
+  if (!s) return;
+  if (m.flatShading && !m.userData.keepFacets) m.flatShading = false;
+  m.envMapIntensity = m.metalness >= 0.5 ? 1.2 : 0.7;
+  const prev = m.onBeforeCompile;
+  m.onBeforeCompile = (sh, r) => {
+    prev?.call(m, sh, r);
+    sh.uniforms.rzOn = RZ_ON;
+    sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vRW; varying float vSeed;")
+      .replace("#include <project_vertex>", `#include <project_vertex>
+        vec4 rzW = vec4(transformed, 1.0); vSeed = 0.0;
+        #ifdef USE_INSTANCING
+          rzW = instanceMatrix * rzW; vSeed = fract(sin(dot(instanceMatrix[3].xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+        #endif
+        vRW = (modelMatrix * rzW).xyz;`);
+    const f = (v: number) => v.toFixed(4);
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>\nvarying vec3 vRW; varying float vSeed; uniform float rzOn;\n${NOISE_GLSL}`)
+      .replace("#include <color_fragment>", `#include <color_fragment>
+        float rzV = rzF(vRW * ${f(s.freq * 0.35)});
+        diffuseColor.rgb *= 1.0 + rzOn * (${f(s.vary)} * (rzV - 0.5) * 1.6 + ${f(s.vary * 0.7)} * (vSeed - 0.5));
+        diffuseColor.rgb *= 1.0 - rzOn * 0.25 * smoothstep(0.0, -4.0, vRW.y) * ${f(s.bump > 0.3 ? 1 : 0)}; // undersides darker`)
+      .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
+        float rzS = ${f(s.streak)} > 0.0 ? rzN(vRW * vec3(0.6, 38.0, 38.0)) : rzF(vRW * ${f(s.freq)});
+        roughnessFactor = clamp(roughnessFactor + rzOn * ${f(s.rough)} * (rzS - 0.5) * 2.0, 0.03, 1.0);`)
+      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+        if (rzOn > 0.5 && ${f(s.bump)} > 0.0) {
+          vec3 rzP = -vViewPosition; float rzHgt = rzF(vRW * ${f(s.freq)}) * ${f(s.bump)} + rzN(vRW * ${f(s.freq * 4.0)}) * ${f(s.bump * 0.25)};
+          vec3 dpx = dFdx(rzP), dpy = dFdy(rzP); float dhx = dFdx(rzHgt), dhy = dFdy(rzHgt);
+          vec3 r1 = cross(dpy, normal), r2 = cross(normal, dpx); float det = dot(dpx, r1);
+          normal = normalize(abs(det) * normal - sign(det) * (dhx * r1 + dhy * r2));
+        }`);
+  };
+  const key = surfaceKey(s);
+  m.customProgramCacheKey = () => key;
+  m.needsUpdate = true;
+}
+const RZ_ON = { value: 1 };
+
+/** The realism layer for one world canvas: procedural env, soft key-light shadows, depth fog and the material pass.
+ *  tier 0 does nothing (the v3 look). Re-scans the scene twice a second so parts that load later are picked up. */
+export function Realism({ tier, sky = "#121a33", horizon = "#7c8cff", low = "#030308", keyLight = "#fff1dc", rim = "#8fb4ff", fog }: {
+  tier: WorldTier; sky?: string; horizon?: string; low?: string; keyLight?: string; rim?: string; fog?: string }) {
+  const scene = useThree((s) => s.scene), gl = useThree((s) => s.gl);
+  const cfg = REALISM[tier];
+  useEffect(() => { setTier(tier); RZ_ON.value = tier > 0 ? 1 : 0; }, [tier]);
+  useEffect(() => { // shadows: soft PCF on the key light only
+    if (!cfg.shadow) return;
+    const was = gl.shadowMap.enabled; gl.shadowMap.enabled = true; gl.shadowMap.type = THREE.PCFSoftShadowMap; gl.shadowMap.needsUpdate = true;
+    return () => { gl.shadowMap.enabled = was; };
+  }, [gl, cfg.shadow]);
+  useEffect(() => { // depth fog only where the world set none
+    if (!cfg.fog || scene.fog) return;
+    const bg = scene.background instanceof THREE.Color ? scene.background : new THREE.Color(fog ?? low);
+    scene.fog = new THREE.FogExp2(fog ? new THREE.Color(fog) : bg.clone(), cfg.fog * 0.6);
+    return () => { scene.fog = null; };
+  }, [scene, cfg.fog, fog, low]);
+  const acc = useRef(1);
+  useFrame((_, dt) => {
+    if (!tier) return; acc.current += dt; if (acc.current < 0.5) return; acc.current = 0;
+    scene.traverse((o) => {
+      const mesh = o as THREE.Mesh; if (!mesh.isMesh) return;
+      const ms = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      let solid = false;
+      for (const m of ms) if ((m as THREE.MeshStandardMaterial).isMeshStandardMaterial) { patchMaterial(m as THREE.MeshStandardMaterial); solid ||= !m.transparent; }
+      if (cfg.shadow && solid && !mesh.userData.rzShadow) { mesh.userData.rzShadow = 1; mesh.castShadow = true; mesh.receiveShadow = true; }
+    });
+  });
+  if (!cfg.env) return null;
+  return <ProcEnv sky={sky} horizon={horizon} low={low} keyLight={keyLight} rim={rim} />;
+}
+
+/** Key + fill + rim and a baked env (rendered once: frames=1) so metal/glass have something to reflect.
+ *  tier > 0 (v4): procedural PMREM sky instead, a shadow-casting key, a coloured rim, a warm bounce from below. */
+export function WorldLights({ color, keyLight = "#fff4e0", warm = 1, env = true, tier = 0, sky, reach = 14 }: { color: string; keyLight?: string; warm?: number; env?: boolean; tier?: WorldTier; sky?: string; reach?: number }) {
+  if (tier > 0) { const sm = REALISM[tier].shadow; return (<>
+    <hemisphereLight args={["#9fb6ff", "#120c10", 0.18]} />
+    <directionalLight position={[10, 16, 8]} intensity={2.4 * warm} color={keyLight} castShadow shadow-mapSize={[sm, sm]} shadow-bias={-0.0005} shadow-normalBias={0.03} shadow-radius={4}
+      shadow-camera-left={-reach} shadow-camera-right={reach} shadow-camera-top={reach} shadow-camera-bottom={-reach} shadow-camera-near={1} shadow-camera-far={60} />
+    <directionalLight position={[-12, 5, -10]} intensity={1.6} color={color} />{/* rim */}
+    <directionalLight position={[0, -8, 4]} intensity={0.35} color={color} />{/* bounce from below */}
+    <pointLight position={[0, 6, 0]} intensity={18} distance={22} decay={1.8} color={color} />
+    <Realism tier={tier} keyLight={keyLight} rim={color} horizon={color} sky={sky} />
+  </>); }
   return (<>
     <hemisphereLight args={["#9fb6ff", "#07080c", 0.35]} />
     <directionalLight position={[8, 14, 6]} intensity={1.6 * warm} color={keyLight} />
@@ -87,31 +219,48 @@ export function crystalGeometry() {
 }
 export type CrystalIn = { at: [number, number, number]; h: number; w?: number; tilt?: [number, number]; color: string; glow?: number };
 
-/** Many crystals, one draw call. Emissive in the instance colour; glow scales it (0..2). */
+/** Many crystals, one draw call. Emissive in the instance colour; glow scales it (0..2).
+ *  tier > 0 (v4): clear glass (transmission on the top tier) with a second instanced core inside that carries the light,
+ *  so each crystal reads as lit from within. */
 export function Crystals({ items, reduced, intensity = 1.2, onPick }: { items: CrystalIn[]; reduced: boolean; intensity?: number; onPick?: (i: number) => void }) {
-  const ref = useRef<THREE.InstancedMesh>(null);
+  const tier = useWorldTier(), glass = tier > 0, trans = REALISM[tier].glass;
+  const ref = useRef<THREE.InstancedMesh>(null), core = useRef<THREE.InstancedMesh>(null);
   const geo = useMemo(crystalGeometry, []);
   const mat = useMemo(() => {
-    const m = new THREE.MeshPhysicalMaterial({ color: "#ffffff", metalness: 0.1, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.08, flatShading: true,
-      emissive: "#ffffff", emissiveIntensity: intensity, transparent: true, opacity: 0.92, iridescence: 0.3, iridescenceIOR: 1.3, envMapIntensity: 0.5 });
+    const m = glass
+      ? new THREE.MeshPhysicalMaterial({ color: "#ffffff", metalness: 0, roughness: 0.06, clearcoat: 1, clearcoatRoughness: 0.04, flatShading: true, ior: 1.5,
+          transmission: trans ? 0.92 : 0, thickness: 0.6, transparent: !trans, opacity: trans ? 1 : 0.42, emissive: "#ffffff", emissiveIntensity: intensity * 0.22,
+          iridescence: 0.5, iridescenceIOR: 1.3, envMapIntensity: 1.6, specularIntensity: 1, depthWrite: trans })
+      : new THREE.MeshPhysicalMaterial({ color: "#ffffff", metalness: 0.1, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.08, flatShading: true,
+          emissive: "#ffffff", emissiveIntensity: intensity, transparent: true, opacity: 0.92, iridescence: 0.3, iridescenceIOR: 1.3, envMapIntensity: 0.5 });
+    m.userData.realism = null; // keep crystal facets clean
     // emissive follows the instance colour (vertex colour slot): patch so emissive = instance colour * intensity
     m.onBeforeCompile = (s) => { s.fragmentShader = s.fragmentShader.replace("vec3 totalEmissiveRadiance = emissive;", "vec3 totalEmissiveRadiance = emissive * vColor;"); };
     return m;
-  }, [intensity]);
-  useEffect(() => () => { geo.dispose(); mat.dispose(); }, [geo, mat]);
+  }, [intensity, glass, trans]);
+  // opaque on the transmission tier: the glass only refracts opaque things, so the light inside must be opaque to show
+  const coreMat = useMemo(() => trans ? new THREE.MeshBasicMaterial({ color: "#ffffff", toneMapped: false })
+    : new THREE.MeshBasicMaterial({ color: "#ffffff", toneMapped: false, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }), [trans]);
+  useEffect(() => () => { geo.dispose(); mat.dispose(); coreMat.dispose(); }, [geo, mat, coreMat]);
   useLayoutEffect(() => {
     const mesh = ref.current; if (!mesh) return;
-    const o = new THREE.Object3D(), c = new THREE.Color();
+    const o = new THREE.Object3D(), c = new THREE.Color(), k = core.current;
     items.forEach((it, i) => {
       o.position.set(...it.at); o.rotation.set(it.tilt?.[0] ?? 0, (i * 2.39996) % 6.28, it.tilt?.[1] ?? 0);
       const w = it.w ?? it.h * 0.35; o.scale.set(w, it.h, w); o.updateMatrix(); mesh.setMatrixAt(i, o.matrix);
-      mesh.setColorAt(i, c.set(it.color).multiplyScalar(0.35 + 0.65 * Math.min(2, it.glow ?? 1)));
+      const g = Math.min(2, it.glow ?? 1);
+      mesh.setColorAt(i, c.set(it.color).multiplyScalar(glass ? 0.55 + 0.25 * g : 0.35 + 0.65 * g));
+      if (k) { o.scale.set(w * 0.38, it.h * 0.78, w * 0.38); o.position.y += it.h * 0.04; o.updateMatrix(); k.setMatrixAt(i, o.matrix); k.setColorAt(i, c.set(it.color).multiplyScalar(0.9 + 1.1 * g)); }
     });
-    mesh.count = items.length; mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true; mesh.computeBoundingSphere();
-  }, [items]);
-  useFrame(({ clock }) => { if (!reduced) mat.emissiveIntensity = intensity * (0.9 + 0.1 * Math.sin(clock.elapsedTime * 0.8)); });
+    for (const m of [mesh, k]) if (m) { m.count = items.length; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; m.computeBoundingSphere(); }
+  }, [items, glass, trans]);
+  useFrame(({ clock }) => { if (reduced) return; const p = 0.9 + 0.1 * Math.sin(clock.elapsedTime * 0.8);
+    if (glass) { if (coreMat.transparent) coreMat.opacity = 0.75 + 0.2 * p; } else mat.emissiveIntensity = intensity * p; });
   if (!items.length) return null;
-  return <instancedMesh ref={ref} args={[geo, mat, Math.max(1, items.length)]} onClick={onPick ? (e) => { e.stopPropagation(); if (e.instanceId !== undefined) onPick(e.instanceId); } : undefined} />;
+  return <>
+    <instancedMesh ref={ref} args={[geo, mat, Math.max(1, items.length)]} renderOrder={glass && !trans ? 3 : 0} onClick={onPick ? (e) => { e.stopPropagation(); if (e.instanceId !== undefined) onPick(e.instanceId); } : undefined} />
+    {glass && <instancedMesh key={`c${items.length}${trans ? "t" : ""}`} ref={core} args={[geo, coreMat, Math.max(1, items.length)]} renderOrder={2} raycast={() => null} />}
+  </>;
 }
 
 /* ---------- instanced props ---------- */
@@ -122,17 +271,28 @@ export function Many({ items, geo, mat }: { items: Inst[]; geo: THREE.BufferGeom
   const ref = useRef<THREE.InstancedMesh>(null);
   useLayoutEffect(() => { const m = ref.current; if (!m) return; const o = new THREE.Object3D(), c = new THREE.Color();
     items.forEach((it, i) => { o.position.set(...it.at); o.rotation.set(0, it.ry ?? 0, 0); o.scale.set(...it.s); o.updateMatrix(); m.setMatrixAt(i, o.matrix); if (it.color) m.setColorAt(i, c.set(it.color)); });
-    m.count = items.length; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; m.computeBoundingSphere(); }, [items]);
+    m.count = items.length; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; m.computeBoundingSphere(); }, [items, geo, mat]);
   if (!items.length) return null;
-  return <instancedMesh key={items.length} ref={ref} args={[geo, mat, items.length]} />;
+  return <instancedMesh key={`${items.length}:${geo.uuid}`} ref={ref} args={[geo, mat, items.length]} />;
 }
 
-/** Jagged rock underside: a cone whose rim and sides are pushed in and out deterministically. */
-export function rockGeometry(r: number, h: number, seed: number) {
-  const g = new THREE.ConeGeometry(r, h, 18, 5, false); g.rotateX(Math.PI); g.translate(0, -h / 2, 0);
-  const p = g.attributes.position; let s = seed;
-  for (let i = 0; i < p.count; i++) { s = (s * 16807) % 2147483647; const k = 0.82 + (s / 2147483647) * 0.36; p.setXYZ(i, p.getX(i) * k, p.getY(i) * (p.getY(i) < -0.1 ? 0.9 + (s % 7) * 0.03 : 1), p.getZ(i) * k); }
-  g.computeVertexNormals(); return g.toNonIndexed();
+/** Rock underside: an inverted cone pushed in and out by layered noise (ledges + strata), welded so normals are smooth;
+ *  the shader bump adds the fine grain. Deterministic per seed. */
+export function rockGeometry(r: number, h: number, seed: number, detail = 1) {
+  const radial = 18 + detail * 14, rows = 5 + detail * 6;
+  let g: THREE.BufferGeometry = new THREE.ConeGeometry(r, h, radial, rows, false); g.rotateX(Math.PI); g.translate(0, -h / 2, 0);
+  g.deleteAttribute("normal"); g.deleteAttribute("uv"); g = mergeVertices(g);
+  const p = g.attributes.position, hs = (x: number, y: number, z: number) => { const v = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719 + seed * 3.1) * 43758.5453; return v - Math.floor(v); };
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), a = Math.atan2(z, x), d = Math.hypot(x, z);
+    if (d < 1e-4) { p.setY(i, y * (1.05 + hs(seed, 1, 2) * 0.15)); continue; }
+    const t = -y / h; // 0 at the top rim, 1 at the tip
+    const ledge = 0.12 * Math.sin(a * 3 + seed) + 0.08 * Math.sin(a * 7 + seed * 2) + 0.06 * Math.sin(y * 3.1 + a * 2);
+    const strata = 0.05 * Math.sign(Math.sin(y * 4.5 + seed)) * (t > 0.05 ? 1 : 0);
+    const k = 1 + (ledge + strata) * Math.min(1, t * 4) + (hs(x, y, z) - 0.5) * (detail ? 0.12 : 0.36) * Math.min(1, t * 3);
+    p.setXYZ(i, x * k, y * (t > 0.02 ? 1 + (hs(z, x, y) - 0.5) * 0.12 : 1), z * k);
+  }
+  g.computeVertexNormals(); return detail ? g : g.toNonIndexed();
 }
 
 /* ---------- motes ---------- */
@@ -142,7 +302,8 @@ const moteVert = /* glsl */ `attribute float aS; uniform float uT; uniform float
     vec4 mv = modelViewMatrix*vec4(p,1.0); gl_PointSize = (2.0+4.0*aS) * 30.0 / max(-mv.z, 1.0); vA = 0.35+0.65*aS; gl_Position = projectionMatrix*mv; }`;
 const moteFrag = /* glsl */ `uniform vec3 uC; varying float vA; void main(){ vec2 p=gl_PointCoord*2.0-1.0; float a=max(1.0-dot(p,p),0.0); gl_FragColor=vec4(uC*a*a*vA, 1.0); }`;
 /** Slow rising light specks in a box around the scene. */
-export function Motes({ count, color, spread = 18, height = 6, reduced }: { count: number; color: string; spread?: number; height?: number; reduced: boolean }) {
+export function Motes({ count: n, color, spread = 18, height = 6, reduced }: { count: number; color: string; spread?: number; height?: number; reduced: boolean }) {
+  const count = Math.round(n * REALISM[useWorldTier()].dust);
   const geo = useMemo(() => {
     const g = new THREE.BufferGeometry(), p = new Float32Array(count * 3), s = new Float32Array(count);
     let seed = 7; const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);

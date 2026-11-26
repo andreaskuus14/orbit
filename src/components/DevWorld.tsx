@@ -12,6 +12,7 @@ import { ChipLayer, ChipProjector, ShiftForPanel, WorldFX, WorldLights, useChipR
 import { DevIslandScene, devChips } from "./DevIsland";
 import { devIsland } from "@/lib/worlds-v3-pure";
 import { useGlRecovery } from "./useGlRecovery";
+import { worldTier } from "@/lib/world-realism-pure";
 import type { QualityMode } from "@/lib/quality-pure";
 import { useLeanQuality } from "./useLeanQuality";
 import { FrameMark } from "./dev-timing";
@@ -212,7 +213,7 @@ export default function DevWorld({ onClose, reduced, onOpenTask, flat, quality =
         <color attach="background" args={["#050311"]} />
         <fog attach="fog" args={["#050311", 30, 70]} />
         <Stars radius={70} depth={40} count={reduced ? Math.min(1500, q.stars) : q.stars} factor={2.4} fade speed={reduced ? 0 : 0.35} />
-        <WorldLights color="#7dd3fc" keyLight="#ffe6c8" />
+        <WorldLights color="#7dd3fc" keyLight="#ffe6c8" tier={worldTier(q.bloomScale, q.msaa)} sky="#1a1035" reach={9} />
         <DevIslandScene s={island} reduced={reduced} />
         <ChipProjector rig={chipRig} chips={islandChips} />
         <OrbitControls makeDefault enablePan={false} target={[0, 1.2, 0]} minDistance={6} maxDistance={40} maxPolarAngle={Math.PI / 1.9} enableDamping dampingFactor={0.06} rotateSpeed={0.45} zoomSpeed={0.6} />
