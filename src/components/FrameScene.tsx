@@ -17,7 +17,7 @@ precision highp float;
 varying vec2 vUv;
 uniform sampler2D uC, uD, uZC, uZD, uF;
 uniform vec2 uCover, uMouse, uFocus; uniform float uZoom, uFade, uTime, uK, uLife, uHasZoom, uLo, uHi, uPulse, uFlick, uSpeed;
-uniform float uFx, uSat, uGlowK, uVig, uRed, uFlowDir, uNSpots, uZFx; uniform sampler2D uZF; uniform vec2 uSpots[9]; uniform vec4 uP1, uP2; // uP1 = flow, ripple, sway, drift; uP2 = flicker, shimmer
+uniform float uDim, uFx, uSat, uGlowK, uVig, uRed, uFlowDir, uNSpots, uZFx; uniform sampler2D uZF; uniform vec2 uSpots[9]; uniform vec4 uP1, uP2; // uP1 = flow, ripple, sway, drift; uP2 = flicker, shimmer
 uniform vec4 uRotA[3], uRotB[3]; // x, y, radius, rate / on (1 = swirl)
 const float AS = 1.787;
 float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -79,9 +79,10 @@ void main(){
   col = mix(vec3(l), col, uSat);
   float rd = smoothstep(0.22, 0.5, col.r - max(col.g, col.b)); col = mix(col, vec3(l) * vec3(1.05, 0.9, 0.9) * 0.85, uRed * rd); // harsh red blotches: grade down
   col *= 1.0 - smoothstep(0.75, 1.0, l) * (1.0 - uGlowK) * 0.5;
+  col *= uDim;
   float v = smoothstep(1.1, 0.35, length(q - 0.5));
   col *= mix(1.0 - uVig * 1.1, 1.0, v);
-  gl_FragColor = vec4(col, 1.0);
+  gl_FragColor = linearToOutputTexel(vec4(col, 1.0)); // the colour textures are sRGB (decoded to linear on sampling): encode again so the plate matches its source
 }`;
 const PVERT = `attribute vec3 seed; uniform float uTime, uLife; uniform vec2 uCover; varying float vA;
 void main(){ float t = uTime * (0.02 + seed.z * 0.03) * uLife;
@@ -103,7 +104,7 @@ function Quad({ id, rt, labels, reduced, hasZoom, tex, fxTex, zfxTex, spots, col
     uC: { value: tex[0] }, uD: { value: tex[1] }, uZC: { value: tex[2] ?? tex[0] }, uZD: { value: tex[3] ?? tex[1] },
     uCover: { value: new THREE.Vector2(1, 1) }, uMouse: { value: new THREE.Vector2() }, uFocus: { value: new THREE.Vector2(0.5, 0.5) },
     uZoom: { value: 1 }, uFade: { value: 0 }, uTime: { value: 0 }, uK: { value: 0.022 }, uLife: { value: reduced ? 0 : 1 }, uHasZoom: { value: hasZoom ? 1 : 0 },
-    uF: { value: fxTex ?? tex[0] }, uZF: { value: zfxTex ?? tex[0] }, uZFx: { value: fx && zfxTex ? 1 : 0 }, uRed: { value: gr.red ?? 0 }, uFlowDir: { value: fx?.flowDir ?? 1 }, uNSpots: { value: spots.length }, uSpots: { value: Array.from({ length: 9 }, (_, i) => new THREE.Vector2(spots[i]?.x ?? 9, spots[i]?.y ?? 9)) }, uFx: { value: fx ? 1 : 0 }, uSat: { value: gr.sat }, uGlowK: { value: gr.glow }, uVig: { value: gr.vig },
+    uF: { value: fxTex ?? tex[0] }, uZF: { value: zfxTex ?? tex[0] }, uZFx: { value: fx && zfxTex ? 1 : 0 }, uRed: { value: gr.red ?? 0 }, uDim: { value: gr.dim ?? 1 }, uFlowDir: { value: fx?.flowDir ?? 1 }, uNSpots: { value: spots.length }, uSpots: { value: Array.from({ length: 9 }, (_, i) => new THREE.Vector2(spots[i]?.x ?? 9, spots[i]?.y ?? 9)) }, uFx: { value: fx ? 1 : 0 }, uSat: { value: gr.sat }, uGlowK: { value: gr.glow }, uVig: { value: gr.vig },
     uP1: { value: new THREE.Vector4(fx?.flow ?? 0, fx?.ripple ?? 0, fx?.sway ?? 0, fx?.drift ?? 0) }, uP2: { value: new THREE.Vector4(fx?.flicker ?? 0, fx?.shimmer ?? 0, 0, 0) },
     uRotA: { value: [0, 1, 2].map((i) => { const r = fx?.rotors[i]; return new THREE.Vector4(r?.x ?? 0, r?.y ?? 0, r?.r ?? 1, r?.rate ?? 0); }) },
     uRotB: { value: [0, 1, 2].map((i) => { const r = fx?.rotors[i]; return new THREE.Vector4(r ? 1 : 0, 0, 0, 0); }) },

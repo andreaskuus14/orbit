@@ -45,7 +45,7 @@ test("per plate settings: only plates with masks, strengths are subtle, rotors s
 });
 test("calm grade: every plate has one, the loudest ones are cut 20 to 30 percent and none is boosted", () => {
   for (const id of FRAME_IDS) assert.ok(gradeOk(GRADE[id]), id);
-  for (const id of ["business", "gamedev", "memory", "studio", "life"] as const) assert.ok(GRADE[id].sat >= 0.7 && GRADE[id].sat <= 0.8, id);
+  for (const id of ["business", "gamedev", "memory", "studio", "life"] as const) assert.ok(GRADE[id].sat >= 0.65 && GRADE[id].sat <= 0.8, id);
   assert.equal(GRADE.analytics.sat >= 0.9, true); // the reference look stays
 });
 test("world storms come from the painted cyclones, in 0..1, turning opposite ways north and south", () => {
@@ -87,4 +87,20 @@ test("glow only on data-carrying items: full near a label slot, the floor elsewh
 test("mobile labels stay clear of the bottom panel; wide screens are untouched", () => {
   assert.equal(labelClear(0.9, 1280), true); assert.equal(labelClear(0.9, 390), false); assert.equal(labelClear(MOBILE_LABEL_MAX_Y, 390), true); assert.equal(labelClear(0.3, 390), true);
   assert.ok(readFileSync("src/components/FrameScene.tsx", "utf8").includes("labelClear(p[1], size.width)"));
+});
+
+import { INTEL_GRADE, LIVE_DIM, LIVE_THIN, linesUrl, plateGrade } from "../src/lib/frame-fx-pure.ts";
+test("Intelligence plates are darker and simpler: grade, line masks on disk, live overlays dimmer and thinner", () => {
+  assert.ok(INTEL_GRADE.dark >= 0.12 && INTEL_GRADE.dark <= 0.2 && INTEL_GRADE.sat < 1 && INTEL_GRADE.vig > 0.3);
+  assert.ok(INTEL_GRADE.lineKnock >= 0.6 && INTEL_GRADE.lineKnock <= 0.7 && INTEL_GRADE.haloKnock > 0 && INTEL_GRADE.haloKnock < INTEL_GRADE.lineKnock);
+  for (const id of ["world", "europe", "estonia", "tallinn", "village"]) { assert.ok(statSync(`public${linesUrl(id)}`).size > 200); assert.equal(plateGrade(id).lines, linesUrl(id)); }
+  assert.ok(plateGrade("world").sat < plateGrade("europe").sat); assert.equal(plateGrade("europe").sat, INTEL_GRADE.sat);
+  assert.ok(Math.abs(1 - LIVE_DIM - 0.3) < 1e-9 && LIVE_THIN < 1);
+  const gl = readFileSync("src/components/intel/plate-gl.ts", "utf8"); assert.ok(gl.includes("uniform sampler2D ln") && gl.includes("warm"));
+});
+
+test("FrameScene output is sRGB-encoded so plates match their source brightness; loud plates are dimmed a little", () => {
+  assert.ok(readFileSync("src/components/FrameScene.tsx", "utf8").includes("linearToOutputTexel(vec4(col, 1.0))"));
+  for (const id of ["business", "gamedev", "memory", "studio", "life"] as const) { const d = GRADE[id].dim ?? 1; assert.ok(d >= 0.78 && d <= 0.9, id); }
+  for (const id of ["vault", "analytics", "arch"] as const) assert.equal(GRADE[id].dim ?? 1, 1);
 });

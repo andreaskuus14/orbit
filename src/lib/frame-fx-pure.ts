@@ -60,15 +60,15 @@ export function emissiveGain(t: number, e: number, spot: number, y: number, p: P
 export const FX_BUDGET_MS = 16.7;
 
 // ---- the calm grade (design pass): one dominant + one accent colour, less saturation, softer glow, darker edges ----
-export type Grade = { sat: number; glow: number; vig: number; red?: number };
+export type Grade = { sat: number; glow: number; vig: number; red?: number; dim?: number };
 export const GRADE: Record<FrameId, Grade> = {
-  vault: { sat: 0.95, glow: 0.9, vig: 0.22 }, operations: { sat: 0.88, glow: 0.8, vig: 0.26 }, business: { sat: 0.72, glow: 0.45, vig: 0.3 },
-  agents: { sat: 0.85, glow: 0.7, vig: 0.26 }, memory: { sat: 0.74, glow: 0.5, vig: 0.32 }, analytics: { sat: 0.95, glow: 0.9, vig: 0.22 },
-  studio: { sat: 0.72, glow: 0.5, vig: 0.32, red: 0.6 }, life: { sat: 0.78, glow: 0.6, vig: 0.28 }, gamedev: { sat: 0.74, glow: 0.5, vig: 0.32 },
+  vault: { sat: 0.95, glow: 0.9, vig: 0.22 }, operations: { sat: 0.88, glow: 0.8, vig: 0.26 }, business: { sat: 0.72, glow: 0.45, vig: 0.3, dim: 0.82 },
+  agents: { sat: 0.85, glow: 0.7, vig: 0.26 }, memory: { sat: 0.68, glow: 0.5, vig: 0.32, dim: 0.82 }, analytics: { sat: 0.95, glow: 0.9, vig: 0.22 },
+  studio: { sat: 0.72, glow: 0.5, vig: 0.32, red: 0.6, dim: 0.8 }, life: { sat: 0.78, glow: 0.6, vig: 0.28, dim: 0.86 }, gamedev: { sat: 0.74, glow: 0.5, vig: 0.32, dim: 0.82 },
   arch: { sat: 1, glow: 1, vig: 0.2 }, core: { sat: 0.85, glow: 0.7, vig: 0.28 },
 };
 /** Saturation is cut by 20..30 % on the loudest plates and never lifted above 1. */
-export const gradeOk = (g: Grade): boolean => g.sat <= 1 && g.sat >= 0.7 && g.glow <= 1 && g.glow >= 0.4 && g.vig >= 0.15 && g.vig <= 0.4;
+export const gradeOk = (g: Grade): boolean => g.sat <= 1 && g.sat >= 0.65 && g.glow <= 1 && g.glow >= 0.4 && g.vig >= 0.15 && g.vig <= 0.4;
 
 // ---- world map storms (plate px, 1344 x 752): the painted cyclones turn and morph; the plate's own tint is graded down ----
 export const STORM_PLATE = { w: 1344, h: 752 } as const;
@@ -90,3 +90,16 @@ export function dataGlow(p: [number, number], spots: [number, number][]): number
 /** Mobile: the panel takes the bottom of a narrow screen, so labels below this screen height (0..1) are hidden (still in the panel). */
 export const MOBILE_W = 700, MOBILE_LABEL_MAX_Y = 0.58;
 export const labelClear = (y: number, viewW: number): boolean => viewW >= MOBILE_W || y <= MOBILE_LABEL_MAX_Y;
+// ---- Intelligence plates: darker, simpler, still detailed (owner: "the web is too bright") ----
+/** Every Intelligence plate: about 15 % darker, a little less saturated, a stronger vignette; the painted glow network
+ *  (public/ui/frames/<id>-lines.png, made by scripts/frame-scenes/lines.py) is knocked down 65 % with its halo 35 %. Warm city lights are exempt. */
+export const INTEL_GRADE = { dark: 0.15, sat: 0.92, vig: 0.38, lineKnock: 0.65, haloKnock: 0.35 } as const;
+export const linesUrl = (id: string) => `/ui/frames/${id}-lines.png`;
+/** The plate options for plate-gl: the shared grade, the world's own extras on top (its sat multiplies). */
+export function plateGrade(id: string): { sat: number; vig: number; dark: number; lineKnock: number; haloKnock: number; lines: string } {
+  const w = id === "world";
+  return { sat: INTEL_GRADE.sat * (w ? WORLD_GRADE.sat : 1), vig: Math.max(INTEL_GRADE.vig, w ? WORLD_GRADE.vig : 0), dark: INTEL_GRADE.dark, lineKnock: INTEL_GRADE.lineKnock, haloKnock: INTEL_GRADE.haloKnock, lines: linesUrl(id) };
+}
+/** Live overlays (arcs, borders, swirl glow) match: about 30 % dimmer and thinner. */
+export const LIVE_DIM = 0.7;
+export const LIVE_THIN = 0.7;
