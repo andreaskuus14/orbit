@@ -30,3 +30,9 @@ test("the configured Supabase origin is allowed even over plain http; junk adds 
   assert.match(p, /connect-src [^;]*http:\/\/127\.0\.0\.1:54321 ws:\/\/127\.0\.0\.1:54321/);
   assert.doesNotMatch(csp("n", false, "nope"), /undefined|nope/);
 });
+
+test("connect-src allows blob: and data: (GLTFLoader fetches embedded textures via blob URLs)", () => {
+  const p = csp("n");
+  assert.match(p, /connect-src [^;]*blob:/);
+  assert.match(p, /connect-src [^;]*data:/);
+});

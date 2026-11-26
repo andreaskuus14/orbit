@@ -16,7 +16,7 @@ export function csp(nonce: string, dev = false, supabase = ""): string {
     "img-src 'self' data: blob: https:",
     "media-src 'self' data: blob: https:",
     "font-src 'self' data:",
-    "connect-src 'self' https: wss:" + sb + (dev ? " ws:" : ""),
+    "connect-src 'self' blob: data: https: wss:" + sb + (dev ? " ws:" : ""),
     "worker-src 'self' blob:",
     "frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com",
     "object-src 'self'", // VAULT's PDF preview
