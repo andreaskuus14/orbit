@@ -1,0 +1,47 @@
+// Real modelled assets for the planet worlds (v5): CC0 models and HDRIs from Poly Haven, compressed (glTF + meshopt,
+// 512 px webp textures) under public/worlds/. Each world loads only its own files, and only on tier > 0; tier 0 (low
+// preset) keeps the procedural look. Sources and licences: public/worlds/LICENSES.md.
+
+export type WorldId = "gamedev" | "memory" | "arch" | "life" | "vault" | "studio" | "agents";
+export type AssetId = "fort" | "tree" | "rocks" | "cliff" | "shrub" | "fern" | "flower" | "moonRock"
+  | "lantern" | "chest" | "hdriNight" | "hdriDay";
+
+export type Asset = { file: string; source: string; worlds: WorldId[] };
+
+export const ASSETS: Record<AssetId, Asset> = {
+  fort: { file: "models/modular_fort_01.glb", source: "https://polyhaven.com/a/modular_fort_01", worlds: ["gamedev"] },
+  tree: { file: "models/island_tree_01.glb", source: "https://polyhaven.com/a/island_tree_01", worlds: ["gamedev", "life"] },
+  rocks: { file: "models/rock_moss_set_01.glb", source: "https://polyhaven.com/a/rock_moss_set_01", worlds: ["gamedev", "life"] },
+  cliff: { file: "models/coastal_cliff_02.glb", source: "https://polyhaven.com/a/coastal_cliff_02", worlds: ["arch"] },
+  shrub: { file: "models/shrub_01.glb", source: "https://polyhaven.com/a/shrub_01", worlds: ["life", "gamedev"] },
+  fern: { file: "models/fern_02.glb", source: "https://polyhaven.com/a/fern_02", worlds: ["life"] },
+  flower: { file: "models/celandine_01.glb", source: "https://polyhaven.com/a/celandine_01", worlds: ["life"] },
+  moonRock: { file: "models/moon_rock_03.glb", source: "https://polyhaven.com/a/moon_rock_03", worlds: ["memory"] },
+  lantern: { file: "models/Lantern_01.glb", source: "https://polyhaven.com/a/Lantern_01", worlds: ["vault"] },
+  chest: { file: "models/metal_tool_chest.glb", source: "https://polyhaven.com/a/metal_tool_chest", worlds: ["vault"] },
+  hdriNight: { file: "hdri/moonless_golf.hdr", source: "https://polyhaven.com/a/moonless_golf", worlds: ["memory"] },
+  hdriDay: { file: "hdri/kloofendal_48d_partly_cloudy_puresky.hdr", source: "https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky", worlds: ["arch"] },
+};
+
+/** Whole folder may not pass this (bytes); one world's own files may not pass PER_WORLD. */
+export const BUDGET = 15 * 1024 * 1024, PER_WORLD = 6 * 1024 * 1024;
+
+export const assetUrl = (id: AssetId) => `/worlds/${ASSETS[id].file}`;
+/** Real assets only on tier 1+ (medium/high). Low keeps the procedural parts and downloads nothing. */
+export const useRealAssets = (tier: number) => tier > 0;
+export const assetsFor = (w: WorldId) => (Object.keys(ASSETS) as AssetId[]).filter((k) => ASSETS[k].worlds.includes(w));
+
+export type V3 = [number, number, number];
+/** Scale that fits a model of `size` into `target` (w, h, d). uniform: keep proportions, matched to the height. */
+export function fitScale(size: V3, target: V3, uniform: boolean): V3 {
+  const s = (t: number, v: number) => (v > 1e-6 ? t / v : 1);
+  if (uniform) { const k = s(target[1], size[1]); return [k, k, k]; }
+  return [s(target[0], size[0]), s(target[1], size[1]), s(target[2], size[2])];
+}
+
+/** Which fort piece stands in for a game part: towers are round towers, walls thin walls, halls the thick corner block. */
+export function fortPiece(kind: string): string {
+  if (kind === "tower") return "modular_fort_01_tower_round";
+  if (kind === "wall") return "modular_fort_01_wall_thin_straight_01";
+  return "modular_fort_01_wall_thick_corner_01";
+}

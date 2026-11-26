@@ -20,6 +20,8 @@ import { layoutChips, type Box } from "@/lib/world-chips-pure";
 let tierNow: WorldTier = 0;
 const tierSubs = new Set<() => void>();
 const setTier = (t: WorldTier) => { if (t !== tierNow) { tierNow = t; tierSubs.forEach((f) => f()); } };
+/** For canvases that skip <Realism> (ARCH has its own look): still tell the world parts which tier to draw. */
+export function WorldTierSet({ tier }: { tier: WorldTier }) { useEffect(() => { setTier(tier); }, [tier]); return null; }
 export const useWorldTier = () => useSyncExternalStore((f) => { tierSubs.add(f); return () => tierSubs.delete(f); }, () => tierNow, () => 0 as WorldTier);
 
 const skyVert = /* glsl */ `varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`;
