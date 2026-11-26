@@ -12,11 +12,11 @@ export const TABS: readonly Tab[] = [
 
 /** Saved on/off for the news-weather layer. */
 export const WEATHER_KEY = "orbit.intel.weather";
-/** Older builds saved a map choice ("weather" meant the news-weather map): that becomes the layer being on. Default: off. */
+/** Default: ON (the orbit view is the weather map). An older "weather" map choice also means on; an explicit "off" is kept. */
 export function readWeather(get: (k: string) => string | null): boolean {
   const v = get(WEATHER_KEY);
   if (v === "on" || v === "off") return v === "on";
-  return get("orbit.intel.map") === "weather" || get("orbit.earth.view") === "weather";
+  return true;
 }
 
 /** Esc, one step back: anywhere below the whole Earth → the whole Earth; at the whole Earth → nothing (ORBIT's own Esc takes it). */

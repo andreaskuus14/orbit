@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import { readWeather, escBack, detailFor, detailStale, overlaps, TABS, DETAIL_MAX_TILES } from "../src/lib/intel-view-pure.ts";
 
 const store = (o: Record<string, string>) => (k: string) => o[k] ?? null;
-test("weather layer: saved choice wins, an old weather-map choice turns it on, off by default", () => {
-  assert.equal(readWeather(store({})), false);
+test("weather layer: on by default, only an explicit saved off turns it off", () => {
+  assert.equal(readWeather(store({})), true);
   assert.equal(readWeather(store({ "orbit.intel.weather": "on" })), true);
   assert.equal(readWeather(store({ "orbit.intel.weather": "off", "orbit.intel.map": "weather" })), false);
   assert.equal(readWeather(store({ "orbit.intel.map": "weather" })), true);
   assert.equal(readWeather(store({ "orbit.earth.view": "weather" })), true);
-  assert.equal(readWeather(store({ "orbit.intel.map": "classic" })), false);
+  assert.equal(readWeather(store({ "orbit.intel.map": "classic" })), true);
 });
 test("one map: four tabs, all places, no Classic or Weather tab", () => {
   assert.deepEqual(TABS.map((t) => t.id), ["orbit", "country", "region", "town"]);

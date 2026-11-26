@@ -48,7 +48,7 @@ float mercV(float lat){ float l = clamp(lat, -1.4844, 1.4844); return (1. - log(
 
 const globeVS = `${LOG} varying vec3 vN; varying vec3 vW; void main(){ vN = normalize(position); vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz;
   gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
-const globeFS = `${LOGF} uniform sampler2D uDay; uniform sampler2D uNight; uniform sampler2D uElev; uniform float uT; uniform vec3 uSun; uniform vec3 uCam; uniform float uLights; varying vec3 vN; varying vec3 vW; ${GEO} ${NOISE} ${CLOUD}
+const globeFS = `${LOGF} uniform sampler2D uDay; uniform sampler2D uNight; uniform sampler2D uElev; uniform float uT; uniform vec3 uSun; uniform vec3 uCam; uniform float uLights; uniform float uGrade; varying vec3 vN; varying vec3 vW; ${GEO} ${NOISE} ${CLOUD}
 float elevRaw(vec2 uv){ vec3 e = texture2D(uElev, uv).rgb * 255.; return e.r*256. + e.g + e.b/256. - 32768.; }
 float elev(vec2 uv){ vec3 e = texture2D(uElev, uv).rgb * 255.; return max(0., e.r*256. + e.g + e.b/256. - 32768.); }
 void main(){ \n#include <logdepthbuf_fragment>\n
@@ -65,10 +65,14 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   float shadow = 1. - .45 * cloudAt(normalize(vN + uSun*.012), uT) * lit;
   day *= relief * shadow;
   vec3 V = normalize(uCam - vW); float rim = pow(1. - max(dot(vN, V), 0.), 2.5) * .55;
-  vec3 c = day * .82 * (0.16 + 1.0*sqrt(max(d, 0.))) * mix(.35, 1., lit) + night * vec3(1.,.78,.45) * 1.6 * uLights * (1. - smoothstep(-.2, .08, d)); // uLights: off at city zoom, where 600 m/px lights through a missing imagery tile read as cream blocks
+  // uGrade = 1: the command-centre look (dusk over the whole near side: saturated land, strong city lights); 0: the real time of day
+  float litG = mix(lit, .5, uGrade), nightG = mix(1. - smoothstep(-.2, .08, d), .95, uGrade);
+  day = mix(vec3(dot(day, vec3(.3,.59,.11))), day, 1. + .5*uGrade);
+  vec3 lights = pow(max(night, 0.), vec3(mix(1., .72, uGrade))) * mix(1.6, 3.4, uGrade);
+  vec3 c = day * .82 * (0.16 + 1.0*sqrt(max(d, 0.)) + .22*uGrade) * mix(.35, 1., litG) + lights * vec3(1.,.74,.4) * uLights * nightG; // uLights: off at city zoom, where 600 m/px lights through a missing imagery tile read as cream blocks
   vec3 Hh = normalize(uSun + V); float spec = pow(max(dot(vN, Hh), 0.), 140.) * .18 * lit * (1. - smoothstep(.06,.14, (day.r+day.g+day.b)/3.)); // sun glint on the sea
-  c += day * .1 * (1. - lit); // the night side keeps its land readable
-  c += spec * vec3(1.,.95,.85) + rim * vec3(.42,.62,.95) * (.1 + .6*lit);
+  c += day * .1 * (1. - litG); // the night side keeps its land readable
+  c += spec * vec3(1.,.95,.85) * (1. - .6*uGrade) + rim * vec3(.42,.62,.95) * (.1 + .6*litG + .5*uGrade);
   gl_FragColor = vec4(c, 1.); }`;
 
 const cloudFS = `${LOGF} uniform vec3 uSun; uniform float uT; uniform float uFade; varying vec3 vN; varying vec3 vW; ${NOISE} ${CLOUD}
@@ -95,7 +99,7 @@ const GROUND_LAND_GLSL = `vec3 groundLand(float lit, float dusk, float on, float
 const terrVS = `${LOG} attribute vec2 uvM; attribute vec2 uvN; varying vec2 vUv; varying vec2 vUvN; varying vec3 vN; varying vec3 vW; varying float vEdge; attribute float edge; attribute float hm; attribute vec2 uvE; varying float vH; varying vec2 vUvE;
 void main(){ vH = hm; vUvE = uvE; vUv = uvM; vUvN = uvN; vN = normalize(normal); vEdge = edge; vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz;
   gl_Position = projectionMatrix*viewMatrix*w; \n#include <logdepthbuf_vertex>\n }`;
-const terrFS = `${LOGF}${LIGHT_GLSL}${GROUND_LAND_GLSL} uniform vec3 uGC; uniform float uGR; uniform float uGK; uniform sampler2D uDay; uniform sampler2D uNight; uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; uniform float uHaze; uniform float uNightK;
+const terrFS = `${LOGF}${LIGHT_GLSL}${GROUND_LAND_GLSL} uniform vec3 uGC; uniform float uGR; uniform float uGK; uniform sampler2D uDay; uniform sampler2D uNight; uniform vec3 uSun; uniform vec3 uCam; uniform float uOp; uniform float uHaze; uniform float uNightK; uniform float uGrade;
 varying vec2 vUv; varying vec2 vUvN; varying vec3 vN; varying vec3 vW; varying float vEdge; varying float vH; varying vec2 vUvE; uniform sampler2D uLand; uniform float uLakes; uniform float uStyl; uniform vec2 uTexel;
 void main(){ \n#include <logdepthbuf_fragment>\n
   vec4 dayA = texture2D(uDay, vUv); if (dayA.a < .5) discard; // tile not loaded yet: the globe underneath shows instead of black
@@ -113,7 +117,7 @@ void main(){ \n#include <logdepthbuf_fragment>\n
   vec3 V0 = normalize(uCam - vW); float glint = pow(max(dot(reflect(-uSun, up), V0), 0.), 40.) * .35 * lit;
   day = mix(day, vec3(.004,.012,.03) + glint, water * .95);
   float relief = clamp(1. + 4.*dot(normalize(vN) - up, uSun), .55, 1.5);
-  vec3 c = day * (0.32 + 1.1*sqrt(max(sun, 0.))) * mix(.55, 1., lit) * relief * 1.35 * vec3(1.06,1.,.9) + night * vec3(1.,.8,.5) * 0.9 * uNightK * (1. - lit);
+  vec3 c = day * (0.32 + 1.1*sqrt(max(sun, 0.))) * mix(.55, 1., lit) * relief * 1.35 * vec3(1.06,1.,.9) + night * vec3(1.,.8,.5) * 0.9 * (1. + 1.6*uGrade) * uNightK * (1. - lit*(1. - uGrade));
   float dist = length(uCam - vW) * 6371.; float haze = 1. - exp(-dist * uHaze);
   c = mix(c, vec3(.36,.46,.6) * mix(.25, .8, lit), haze * .3 * (1. - water)); // thin blue air in the distance, never over the sea
   // city close-ups: 10 m imagery turns to blur, so it fades into a dark map base (a faint hint of the photo, clean water, a fine
@@ -158,6 +162,12 @@ void main(){ \n#include <logdepthbuf_fragment>\n float core = exp(-vS*vS*22.), s
 const plainVS = `${LOG} void main(){ gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); \n#include <logdepthbuf_vertex>\n }`;
 const lineFS = `${LOGF} uniform vec3 uColor; uniform float uOp;
 void main(){ \n#include <logdepthbuf_fragment>\n gl_FragColor = vec4(uColor, .55 * uOp); }`;
+// a storm seen from orbit: a few spiral arms in the story colour, brighter toward the eye
+const swirlFS = `${LOGF} uniform vec3 uColor; uniform float uT; uniform float uOp; varying vec2 vUv;
+void main(){ \n#include <logdepthbuf_fragment>\n vec2 p = vUv*2.-1.; float r = length(p); if (r > 1.) discard; float a = atan(p.y, p.x);
+  float arm = .5 + .5*sin(3.*a + 7.*sqrt(r) - uT*.35); float body = smoothstep(1., .1, r) * smoothstep(0., .1, r);
+  float f = pow(arm, 1.6) * body * .8 + exp(-r*r*50.) * .9 + exp(-r*r*3.5) * .12;
+  gl_FragColor = vec4(uColor * (1. + exp(-r*r*30.)), f * uOp); }`;
 const beamFS = `${LOGF} uniform vec3 uColor; uniform float uOp; uniform float uT; varying vec2 vUv;
 void main(){ \n#include <logdepthbuf_fragment>\n float a = pow(clamp(1. - vUv.y, 0., 1.), 1.6) * uOp; float side = 1. - abs(vUv.x*2.-1.);
   gl_FragColor = vec4(uColor*1.4, a * side); }`;
@@ -281,7 +291,8 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   }
 
   const blank = (c: string) => { const k = document.createElement("canvas"); k.width = k.height = 4; const g = k.getContext("2d")!; g.fillStyle = c; g.fillRect(0, 0, 4, 4); return tex(k); };
-  const U = { uDay: { value: blank("#0b1b33") as THREE.Texture }, uNight: { value: blank("#000") as THREE.Texture }, uElev: { value: blank("#800000") as THREE.Texture }, uT: { value: 0 }, uSun: { value: sunV }, uCam: { value: new THREE.Vector3() }, uLights: { value: 1 } };
+  const gradeU = { value: 1 }; // 1 = command-centre look (default), 0 = real time of day
+  const U = { uDay: { value: blank("#0b1b33") as THREE.Texture }, uNight: { value: blank("#000") as THREE.Texture }, uElev: { value: blank("#800000") as THREE.Texture }, uT: { value: 0 }, uSun: { value: sunV }, uCam: { value: new THREE.Vector3() }, uGrade: gradeU, uLights: { value: 1 } };
   const globe = new THREE.Mesh(new THREE.SphereGeometry(1, 192, 96), new THREE.ShaderMaterial({ vertexShader: globeVS, fragmentShader: globeFS, uniforms: U }));
   scene.add(globe);
   const cloudU = { uSun: { value: sunV }, uT: { value: 0 }, uFade: { value: 1 } };
@@ -334,7 +345,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("uvM", new THREE.BufferAttribute(uvM, 2)); g.setAttribute("uvN", new THREE.BufferAttribute(uv2, 2));
     g.setAttribute("edge", new THREE.BufferAttribute(edge, 1)); g.setAttribute("hm", new THREE.BufferAttribute(hm, 1)); g.setAttribute("uvE", new THREE.BufferAttribute(uvE, 2)); g.setIndex(idx); g.computeVertexNormals();
     const nightT = tex(night.canvas); // same box, coarser zoom: its own uv would differ only slightly, so share uvM via a matched mosaic box
-    const u = { uDay: { value: tex(day.canvas) as THREE.Texture }, uNight: { value: nightT as THREE.Texture }, uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 }, uHaze: { value: haze }, uNightK: { value: 1 }, uLand: { value: landT as THREE.Texture }, uLakes: { value: lakes }, uStyl: { value: 0 }, ...gM, uTexel: { value: new THREE.Vector2(1.5 / day.canvas.width, 1.5 / day.canvas.height) } };
+    const u = { uDay: { value: tex(day.canvas) as THREE.Texture }, uNight: { value: nightT as THREE.Texture }, uSun: { value: sunV }, uCam: U.uCam, uOp: { value: 0 }, uHaze: { value: haze }, uNightK: { value: 1 }, uGrade: gradeU, uLand: { value: landT as THREE.Texture }, uLakes: { value: lakes }, uStyl: { value: 0 }, ...gM, uTexel: { value: new THREE.Vector2(1.5 / day.canvas.width, 1.5 / day.canvas.height) } };
     const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ vertexShader: terrVS, fragmentShader: terrFS, uniforms: u, transparent: true }));
     mesh.renderOrder = order ?? 2 + patches.length;
     scene.add(mesh);
@@ -533,6 +544,12 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
       layer.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 120, 0.0026, 6), m));
       glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: 1, kind: "wx" });
     }
+    for (const sw of w.swirls) {
+      const side = (2 * (2.2 + 1.5 * Math.sqrt(Math.min(sw.outlets, 20))) * Math.PI) / 180;
+      const m = new THREE.ShaderMaterial({ vertexShader: uvVS, fragmentShader: swirlFS, uniforms: { uColor: { value: col(sw.color) }, uT: { value: 0 }, uOp: { value: 0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(side, side), m); mesh.applyMatrix4(tangentAt(sw.lon, sw.lat, 0.003)); layer.add(mesh);
+      glow.push({ m, lo: LAYER.hotspots.lo, hi: LAYER.hotspots.hi, base: sw.storm ? 1 : 0.7, kind: "wx" });
+    }
     for (const c of w.centres) label(`<b>${c.kind}</b><i>${c.hpa}</i>`, c.lon, c.lat, 0.004, LAYER.hotspots.lo, LAYER.hotspots.hi, `wx wx-${c.kind}`);
   }
   function buildBorders(hot: Record<string, number>) {
@@ -680,7 +697,7 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
     p = { ...p, alt: clampAltAt(p.alt, p.lon, p.lat) }; // Estonia's real-data close-up goes lower (earth-ee3d)
     pose = p; applyPose(p);
     const alt = p.alt, t = tMs / 1000;
-    cloudU.uT.value = t; U.uT.value = t; U.uLights.value = band(alt, 40, 1e9, 1.2); cloudU.uFade.value = band(alt, 3000, 1e9, 1.0); // gone before the country shot: half-faded clouds read as grey blobs
+    cloudU.uT.value = t; U.uT.value = t; U.uLights.value = band(alt, 40, 1e9, 1.2); cloudU.uFade.value = band(alt, 3000, 1e9, 1.0) * (1 - 0.6 * gradeU.value); // gone before the country shot: half-faded clouds read as grey blobs
     for (const q of patches) { q.u.uOp.value = band(alt, q.lo, q.hi, 0.9); q.u.uNightK.value = band(alt, 120, 1e9, 1.5); q.u.uStyl.value = 1 - band(alt, 9, 1e9, 1.4); } // coarse city lights only from high up
     dof.uniforms.uAmt.value = 0.3 * band(alt, 4, 60, 1.2); // no tilt-shift blur on city close-ups: the ground is soft enough
     bU.uOp.value = band(alt, 0.05, BUILDINGS_MAX_ALT, 0.6); bMat.depthWrite = bU.uOp.value > 0.5;
@@ -841,6 +858,8 @@ export function createEarth(host: HTMLElement, o: EarthOpts) {
   return {
     ready: ready.then(() => terrainReady),
     setData, frame, flyTo,
+    /** Look: "grade" = the dusk command-centre grade (default), "live" = the real time of day. */
+    setLook(look: "grade" | "live") { gradeU.value = look === "grade" ? 1 : 0; },
     /** Lights one place (lon/lat) on the map, or none. */
     setFocus(p: { lon: number; lat: number } | null) { fOn = !!p; if (p) { tangentAt(p.lon, p.lat, 0.005).decompose(fMesh.position, fMesh.quaternion, new THREE.Vector3()); } },
     /** News weather layer on/off (glides; `instant` for stills). */
