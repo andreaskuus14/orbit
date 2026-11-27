@@ -91,7 +91,7 @@ test("CORE typed commands return before the Claude request; a longer question st
     const send = h.callbacks.find((f) => f.toString().includes("const message = text.trim()"));
     assert.ok(send);
     await send(text);
-    if (text.startsWith("how")) { assert.deepEqual(h.requests, ["/api/core?stream=1"]); assert.equal(h.calls.length, 0); }
+    if (text.startsWith("how")) { assert.deepEqual(h.requests, ["/api/orbit2"]); assert.equal(h.calls.length, 0); }
     else {
       assert.equal(h.requests.length, 0, text); assert.deepEqual(h.calls, [nav.parseNavCommand(text, { current: "core" })]);
       const reply = h.events.find((e) => e.type === "orbit:command-reply") as CustomEvent;
@@ -108,7 +108,7 @@ test("CORE still accepts an instant command while an earlier answer is in progre
   await send()("peata kõik");
   await answering;
   assert.deepEqual(h.calls, [{ panel: "core", stopAll: true }]);
-  assert.deepEqual(h.requests, ["/api/core?stream=1"]); // only the original question
+  assert.deepEqual(h.requests, ["/api/orbit2"]); // only the original question
 });
 
 test("queued attachments do not route a short command to Claude or get consumed by mute", async () => {

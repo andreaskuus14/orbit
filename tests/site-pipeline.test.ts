@@ -208,11 +208,8 @@ test("Fable #551: owner proof is his own words, data-owner proves nothing, unclo
 });
 
 test("Fable #551: a quote that is only in an attached file is flagged; only his typed text is owner proof", async () => {
-  const { readFileSync } = await import("node:fs");
   const typed = "build a site for my bakery, see the attached file"; // the attached file says: Mari said "Best rye in town"
   const issues = lintSite({ html: [{ path: "index.html", text: '<html lang="en"><meta name="viewport" content="width=device-width"><body><h1>Hi</h1><blockquote data-proof="owner">Best rye in town – Mari</blockquote></body></html>' }], css: [{ path: "css/style.css", text: GOOD_CSS }], images: [], owner: typed });
   assert.ok(issues.some((i) => /isn't in the owner's own|never invent/.test(i)));
-  const call = readFileSync(new URL("../src/lib/core.ts", import.meta.url), "utf8").match(/rememberOwnerText\([^;]*;/)?.[0] ?? "";
-  assert.ok(call && !/attach/.test(call), "attached files never feed owner proof");
   assert.doesNotMatch(SITE_GUIDE, /plan\.md \(mark it data-proof|message or plan\.md/);
 });

@@ -52,7 +52,7 @@ const TOOLS = {
   MakeInBlender: named(() => import("./BlenderEntry"), (m) => m.MakeInBlender),
   PlaytestBot: lazy(() => import("./PlaytestBot")), PersonaPlaytest: lazy(() => import("./PersonaPlaytest")), AiPlaytesters: lazy(() => import("./AiPlaytesters")),
   GameCopilot: lazy(() => import("./GameCopilot")), GridCity: lazy(() => import("./GridCity")), HivePanel: lazy(() => import("./HivePanel")),
-  DevSessions: lazy(() => import("./DevSessions")), CoreConfigPanel: lazy(() => import("./CoreConfigPanel")),
+  DevSessions: lazy(() => import("./DevSessions")),
   EvidenceLog: named(() => import("./GameDevViews"), (m) => m.EvidenceLog), AssetRegister: named(() => import("./GameDevViews"), (m) => m.AssetRegister),
   ReleasePanel: named(() => import("./GameDevViews"), (m) => m.ReleasePanel), UiKitCard: named(() => import("./GameDevViews"), (m) => m.UiKitCard),
   EconomySim: named(() => import("./GameDevViews"), (m) => m.EconomySim), RetentionPanel: named(() => import("./GameDevViews"), (m) => m.RetentionPanel),
@@ -350,7 +350,7 @@ function ToolBody({ id, k, game, world, commit, gk, rising }: { id: ToolId; k: K
     case "economy": return <T.GameCopilot key={gk} world={world} gameId={gameId} />;
     case "files": return <T.RojoPanel />;
     case "sessions": return <T.DevSessions />;
-    case "core": return <T.CoreConfigPanel />;
+    case "core": return <p className="muted text-xs">{`${k("ccfg.title")}: ORBIT 2`}</p>;
     case "evidence": return per && <T.EvidenceLog {...per} />;
     case "register": return per && <T.AssetRegister {...per} />;
     case "release": return per && <T.ReleasePanel {...per} />;

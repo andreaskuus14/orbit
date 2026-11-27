@@ -22,14 +22,8 @@ test("Test connection caches the server's tools (bad names dropped)", { timeout:
   assert.match(P.pluginPromptNow(), /plugin__fake__run_code \{"code": string\}/);
 });
 
-test("the full schema survives discovery and reaches the native tool list; bad arguments fail before running; the structured receipt survives", { timeout: 30_000 }, async () => {
-  const { mcpToolList } = await import("../src/lib/core-mcp-pure.ts");
+test("the full schema survives discovery; bad arguments fail before running; the structured receipt survives", { timeout: 30_000 }, async () => {
   const id = "plugin__fake__book";
-  const [listed] = mcpToolList([id], {}, { ...P.pluginSchemasNow(), [id]: { ...P.pluginSchemasNow()[id], $schema: "http://json-schema.org/draft-07/schema#" } });
-  assert.equal((listed.inputSchema as Record<string, unknown>).$schema, undefined, "the dialect line isn't sent to the model API");
-  const when = (listed.inputSchema as { properties: { when: { properties: { tz: { enum: string[] } }; required: string[] } } }).properties.when;
-  assert.deepEqual(when.properties.tz.enum, ["Europe/Tallinn", "UTC"]);
-  assert.deepEqual(when.required, ["tz", "day"]);
   assert.match(P.pluginPromptNow(), /plugin__fake__book \{"when": \{"tz": "Europe\/Tallinn"\|"UTC", "day": string\}, "tags"\?: string\[\]\}/);
   const bad = await P.runPluginTool(id, { when: { tz: "Mars", day: "Fri" } }, { steps: [], pinned: false });
   assert.match(bad, /^Error: fake book: arguments don't match its schema: \/when\/tz must be equal to one of the allowed values \("Europe\/Tallinn", "UTC"\)/);

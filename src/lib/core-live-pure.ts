@@ -107,7 +107,12 @@ export function coreRunPhase(rows: LiveRow[], streaming: boolean, taskId?: strin
 
 /** Applies one stream event to the rows (immutable). `at` = the event's server time (ms since the turn started). */
 export function applyLive(rows: LiveRow[], ev: LiveEvent): LiveRow[] {
-  if (ev.type === "step") return [...rows, { id: ev.id, tool: ev.tool, label: ev.label, key: ev.key, vars: ev.vars, detail: ev.detail, at: ev.t }];
+  if (ev.type === "step") {
+    const idx = rows.findIndex((r) => r.id === ev.id);
+    const next: LiveRow = { id: ev.id, tool: ev.tool, label: ev.label, key: ev.key, vars: ev.vars, detail: ev.detail, at: ev.t };
+    if (idx >= 0) return rows.map((r, i) => (i === idx ? { ...r, ...next, at: r.at } : r));
+    return [...rows, next];
+  }
   return rows.map((r) => (r.id === ev.id ? { ...r, ms: ev.ms, ok: ev.ok, result: ev.result, ...(ev.blocked && { blocked: true }) } : r));
 }
 

@@ -8,8 +8,8 @@ import { isCurrent } from "./memory-types-pure";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { orbitDataDir } from "./data-dir";
-import { askClaude, coolClaude, emit, FAST_MODEL, recordUsage, type PromptImage } from "./claude";
-import { runCore, warmCore } from "./core";
+import { askClaude, emit, FAST_MODEL, recordUsage, type PromptImage } from "./claude";
+import { runOrbit2 } from "./orbit2";
 import { createMemory } from "./memory";
 import { listDevices, ownerClient, pendingApprovals } from "./remote";
 import { decideApproval } from "./remote-act";
@@ -248,7 +248,6 @@ export async function startCall(sb: SupabaseClient, userId: string, car = false,
       send({ type: "done", ms, path: ahead ? "made ahead" : "live" });
       try { ctrl.close(); } catch { /* cancelled */ }
       warmVoice();
-      void warmCore(sb, userId);
     },
   });
   return new Response(body, { headers: NDJSON });
@@ -289,7 +288,6 @@ export function callTurn(s: Session, input: { audio?: Float32Array; text?: strin
       const ac = (s.busy = new AbortController());
       signal.addEventListener("abort", () => ac.abort(), { once: true });
       s.lastAt = Date.now();
-      void warmCore(s.sb, s.userId); // the last turn used the spare CLI: boot the next one while Whisper runs
       let chain = Promise.resolve(), spoken: string[] = [], path = "", end = false;
       const say = (text: string, filler = false) => {
         spoken.push(text);
@@ -348,18 +346,28 @@ export function callTurn(s: Session, input: { audio?: Float32Array; text?: strin
           const filler = setTimeout(() => { if (!got) { const f = backchannel(heard, s.n, s.said); if (f) say(f, true); } }, 900);
           const sayNew = (t: string) => { if (s.said.has(phraseKey(t))) return; got = true; say(t); }; // never the same line twice in a call
           try {
-            const out = await runCore(s.sb, s.userId, s.turns.slice(-CALL.maxTurns), (delta) => {
-              buf += delta;
-              const r = takeSentences(buf);
-              buf = r.rest;
-              r.done.forEach(sayNew);
-            }, ac.signal, () => { buf = ""; }, s.review && rv ? reviewStyle(callStyle(items, s.who), s.review.summary, rv.flow.step) : callStyle(items, s.who), undefined, undefined, s.attach); // ORBIT's character comes with CORE's prompt (persona "call" surface)
+            const systemAppend = s.review && rv ? reviewStyle(callStyle(items, s.who), s.review.summary, rv.flow.step) : callStyle(items, s.who);
+            const prompt = s.turns.slice(-CALL.maxTurns).map((t) => `${t.role === "user" ? "User" : "ORBIT"}: ${t.content}`).join("\n");
+            const out = await runOrbit2({
+              prompt,
+              systemAppend,
+              signal: ac.signal,
+              onEvent: (ev) => {
+                if (ev.type === "reset") { buf = ""; return; }
+                if (ev.type === "delta" && ev.text) {
+                  buf += ev.text;
+                  const r = takeSentences(buf);
+                  buf = r.rest;
+                  r.done.forEach(sayNew);
+                }
+              },
+            });
             ms.core = Date.now() - t0;
-            path = out.trace.some((x) => x.step === "reflex") ? "reflex" : out.model;
+            path = out.model || "orbit2";
             const r = takeSentences(buf, true);
-            const rest = got ? r.done : takeSentences(out.text, true).done; // nothing streamed (e.g. a reflex): speak the answer
+            const rest = got ? r.done : takeSentences(out.text, true).done;
             rest.forEach(sayNew);
-            if (!got) rest.forEach((t) => say(t)); // every line was a repeat: better said twice than silence
+            if (!got) rest.forEach((t) => say(t));
           } finally { clearTimeout(filler); }
         }
         await chain;
@@ -375,7 +383,6 @@ export function callTurn(s: Session, input: { audio?: Float32Array; text?: strin
         s.attach = undefined; // a screenshot is for its one turn only
         console.info(`[call] turn ${path || "-"} ${Object.entries({ ...ms, total: Date.now() - t0 }).map(([k, v]) => `${k}=${v}ms`).join(" ")}`);
         send({ type: "done", ms, path });
-        if (!end) void warmCore(s.sb, s.userId); // a spare for the next turn
         try { ctrl.close(); } catch { /* cancelled */ }
       }
     },
@@ -405,7 +412,6 @@ export async function endCall(userId: string, id: string): Promise<{ memoryId: s
   if (!s) return { memoryId: null };
   G.sessions.delete(id);
   s.busy?.abort();
-  if (!G.sessions.size) coolClaude();
   let memoryId: string | null = null;
   try {
     if (s.turns.some((t) => t.role === "user")) {

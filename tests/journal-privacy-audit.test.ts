@@ -27,7 +27,7 @@ test("the policy refusal itself quotes the hit (so the report must mask it)", ()
 });
 
 test("cloud-model readers exclude journal rows at the query (no journal text is even fetched)", async () => {
-  for (const f of ["src/lib/core.ts", "src/lib/arch-digest.ts", "src/lib/memory-graph.ts", "src/lib/night-plan.ts", "src/lib/week.ts"])
+  for (const f of ["src/lib/arch-digest.ts", "src/lib/memory-graph.ts", "src/lib/night-plan.ts", "src/lib/week.ts"])
     assert.match(src(f), /\.neq\("kind", "journal"\)/, f);
   assert.match(src("src/lib/morning.ts"), /not\("kind", "in", "\(conversation,journal\)"\)/);
 });

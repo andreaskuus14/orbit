@@ -5,6 +5,7 @@ import { crossSiteBlocked } from "@/lib/csrf";
 import { publicOrigin } from "@/lib/origin-pure";
 import { csp, cspApplies, newNonce } from "@/lib/csp-pure";
 import { missingSettings, missingSettingsText } from "@/lib/release-check-pure";
+import { isLoopbackHost } from "@/lib/orbit2-local-pure";
 import { authUnreachable, supabaseTimeoutMs, TEXT, timeoutSignal } from "@/lib/api-error-pure";
 import { allowHit, clientIp, isCloud, laptopOnlyApi, LAPTOP_ONLY_TEXT, rateRule, type Buckets } from "@/lib/role-pure";
 
@@ -41,9 +42,15 @@ export async function middleware(request: NextRequest) {
   const withCsp = (r: NextResponse) => { if (policy) r.headers.set("Content-Security-Policy", policy); return r; };
   let response = NextResponse.next({ request });
 
-  // Missing Supabase settings: say so plainly instead of a blank page (health still answers, with the reason).
+  // Missing Supabase settings: on local loopback allow the Orbital shell and /api/orbit2 to run directly; elsewhere report 503.
   const missing = missingSettings({ NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY });
   if (missing.length && request.nextUrl.pathname !== "/api/health") {
+    const p = request.nextUrl.pathname;
+    if (isLoopbackHost(request.headers.get("host"), process.env)) {
+      if (p === "/" || p === "/chat" || p.startsWith("/api/orbit2")) return withCsp(response);
+      if (p.startsWith("/api/")) return NextResponse.json({ error: "Supabase not configured in local ORBIT 2 mode" }, { status: 503 });
+      return withCsp(response);
+    }
     return new NextResponse(missingSettingsText(missing), { status: 503, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
   }
   const supabase = createServerClient(

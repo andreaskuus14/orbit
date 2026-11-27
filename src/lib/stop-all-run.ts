@@ -25,7 +25,7 @@ export async function switchStopAll(sb: SupabaseClient, userId: string, on: bool
     await import("@/lib/night-repair").then((m) => m.abortNightRepair()).catch(() => {}); // night repair: its agent call, gate and git steps
     abortDealHunt(); // a running deal hunt (MARKETS → Deals)
     await import("@/lib/feature-scout").then((m) => m.abortFeatureScout()).catch(() => {}); // OPERATIONS → Scout run
-    await import("@/lib/core-turn").then((m) => m.abortCoreTurns()).catch(() => 0); // CORE answers streaming right now
+    await import("@/lib/orbit2").then((m) => m.abortOrbit2Turns()).catch(() => 0); // ORBIT 2 answers streaming right now
     cancelled = (await Promise.all(cancelling)).filter(Boolean).length;
     await clearAutoQueue(); // Profile → Autonomy: queued auto sends/publishes are cancelled
     await import("@/lib/ws-server").then((m) => m.stopAllServers()).catch(() => 0); // local workspace demo servers

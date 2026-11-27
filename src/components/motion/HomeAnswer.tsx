@@ -1,15 +1,16 @@
 "use client";
-// CORE answers on the galaxy home (ui-motion): the big orb above the input thinks, and the answer streams into this card under
-// it, like the approved motion test. "Continue in chat" opens the same conversation in CORE (it reopens the active chat).
-// State rules: lib/home-answer-pure.ts. The orb follows corePhase events, as it does for the CORE drawer.
+// ORBIT 2 answers on the galaxy home: the big orb above the input thinks, live tool steps stream in real time,
+// and the answer streams into this card under it. Follow-ups resume the same ORBIT 2 session.
 import { useEffect, useRef, useState } from "react";
 import { ACTIVE_CHAT_KEY } from "@/lib/core-chats-pure";
 import { NAV_EVENT, type NavTarget } from "@/lib/nav-pure";
 import { takeLines } from "@/lib/streamjson";
+import { applyLive, type LiveEvent, type LiveRow } from "@/lib/core-live-pure";
 import { homeText, startAnswer, statusLine, step, type HomeAnswer as State, type StreamEvent } from "@/lib/home-answer-pure";
 import type { DeepLink } from "@/lib/deeplink-pure";
 import { ChatAnswer } from "../ChatAnswer";
 import { CitedAnswer } from "../CitedAnswer";
+import { CoreActivity } from "../CoreActivity";
 import { getLang, useT } from "../i18n";
 import { numberCitations } from "@/lib/pure";
 import type { Cite } from "@/lib/core-cite-pure";
@@ -24,32 +25,41 @@ export function HomeAnswer({ ask, onContinue, onClose, onConversation, onOpenMem
 }) {
   const { t } = useT();
   const [s, setS] = useState<State>(() => startAnswer(ask.text, ask.conversationId ?? null));
-  const [cites, setCites] = useState<{ citations?: Cite[]; trace?: { step: string; cite?: unknown }[] } | null>(null); // the final answer's sources (numbered like in CORE)
-  const [attempt, setAttempt] = useState(0); // Try again after an error re-asks the same question
-  const [shown, setShown] = useState(""); // paced copy of s.text while it streams
+  const [cites, setCites] = useState<{ citations?: Cite[]; trace?: { step: string; cite?: unknown }[] } | null>(null);
+  const [rows, setRows] = useState<LiveRow[]>([]);
+  const [totalMs, setTotalMs] = useState(0);
+  const [attempt, setAttempt] = useState(0);
+  const [shown, setShown] = useState("");
   const abort = useRef<AbortController | null>(null);
+  const since = useRef(Date.now());
 
   useEffect(() => {
     let state = startAnswer(ask.text, ask.conversationId ?? null);
-    setS(state); setShown(""); setCites(null);
+    let liveRows: LiveRow[] = [];
+    since.current = Date.now();
+    setS(state); setShown(""); setCites(null); setRows([]); setTotalMs(0);
     const ac = new AbortController();
     abort.current = ac;
     const pacer = createPacer(setShown);
     let navTo: NavTarget | null = null;
-    const apply = (ev: StreamEvent & { to?: NavTarget }) => {
+    const apply = (ev: StreamEvent & { to?: NavTarget; sessionId?: string }) => {
       const before = state;
-      state = step(state, ev);
+      const normalized = ev.sessionId && !ev.conversationId ? { ...ev, conversationId: ev.sessionId } : ev;
+      state = step(state, normalized);
       if (state.conversationId && state.conversationId !== before.conversationId) {
         try { localStorage.setItem(ACTIVE_CHAT_KEY, state.conversationId); } catch { /* private mode */ }
         onConversation(state.conversationId);
       }
       if (ev.type === "delta") { pacer.push(state.text); corePhase({ type: "delta" }); }
       else if (ev.type === "reset") pacer.push("");
-      else if (ev.type === "step") corePhase({ type: "tool", tool: ev.label || ev.tool || "" });
-      else if (ev.type === "step_done") corePhase({ type: "tool_end" });
+      else if (ev.type === "step" || ev.type === "step_done") {
+        liveRows = applyLive(liveRows, ev as unknown as LiveEvent);
+        setRows(liveRows);
+        corePhase(ev.type === "step" ? { type: "tool", tool: ev.label || ev.tool || "" } : { type: "tool_end" });
+      }
       else if (ev.type === "navigate" && ev.to) navTo = ev.to;
       else if (ev.type === "done" || ev.type === "bg_done") {
-        pacer.stop(); setShown(state.text); corePhase({ type: "done" }); uiSound("done");
+        pacer.stop(); setShown(state.text); setTotalMs(Date.now() - since.current); corePhase({ type: "done" }); uiSound("done");
         const d = ev as StreamEvent & { citations?: Cite[]; trace?: { step: string; cite?: unknown }[] };
         setCites({ citations: d.citations, trace: d.trace });
       }
@@ -58,9 +68,9 @@ export function HomeAnswer({ ask, onContinue, onClose, onConversation, onOpenMem
     corePhase({ type: "submit" });
     void (async () => {
       try {
-        const res = await fetch("/api/core?stream=1", {
+        const res = await fetch("/api/orbit2", {
           method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
-          body: JSON.stringify({ message: ask.text, conversationId: ask.conversationId ?? null, lang: getLang(), here: ask.here ?? undefined }),
+          body: JSON.stringify({ message: ask.text, sessionId: ask.conversationId ?? null, lang: getLang() }),
         });
         if (!res.ok || !res.body) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error || `Request failed (${res.status})`);
         const reader = res.body.getReader(), dec = new TextDecoder();
@@ -72,11 +82,11 @@ export function HomeAnswer({ ask, onContinue, onClose, onConversation, onOpenMem
           for (const l of lines) apply(JSON.parse(l));
           if (done) { if (buf.trim()) apply(JSON.parse(buf)); break; }
         }
-        if (state.phase !== "done" && state.phase !== "handed" && state.phase !== "error") throw new Error("Connection to CORE was lost");
-        if (navTo) dispatchEvent(new CustomEvent(NAV_EVENT, { detail: navTo })); // after the stream closed, as in the CORE drawer
+        if (state.phase !== "done" && state.phase !== "handed" && state.phase !== "error") throw new Error("Connection to ORBIT 2 was lost");
+        if (navTo) dispatchEvent(new CustomEvent(NAV_EVENT, { detail: navTo }));
       } catch (e) {
         if (ac.signal.aborted) { corePhase({ type: "reset" }); return; }
-        apply({ type: "error", error: e instanceof Error ? e.message : "CORE failed" });
+        apply({ type: "error", error: e instanceof Error ? e.message : "ORBIT 2 failed" });
         corePhase({ type: "error" });
       } finally { pacer.stop(); }
     })();
@@ -97,15 +107,17 @@ export function HomeAnswer({ ask, onContinue, onClose, onConversation, onOpenMem
   const body = s.phase === "done" ? s.text : shown;
   const { text, cut } = homeText(body);
   const live = s.phase === "thinking" || s.phase === "tool" || s.phase === "writing";
-  // Plain words for every state (EN/ET); a failure never shows raw error text: what happened, the question is kept, Try again.
-  const status = s.phase === "thinking" ? t("homeAns.thinking") : s.phase === "handed" ? t("homeAns.handed") : s.phase === "error" ? t("homeAns.failed") : statusLine(s);
+  const status = s.phase === "thinking" ? t("homeAns.thinking") : s.phase === "handed" ? t("homeAns.handed") : s.phase === "error" ? (s.error || t("homeAns.failed")) : statusLine(s);
   return (
     <section className="home-answer glass" aria-live="polite" aria-label={t("homeAns.aria")} aria-busy={live}>
       <p className="home-answer-q">{s.q}</p>
+      {rows.length > 0 && (
+        <CoreActivity rows={rows} running={live} streaming={!!text} since={since.current} totalMs={totalMs} />
+      )}
       {text && s.phase !== "error"
         ? <div className="home-answer-a">{s.phase === "done" && !cut ? <CitedAnswer content={text} citations={cites?.citations} trace={cites?.trace} openMemory={onOpenMemory} />
           : <ChatAnswer text={numberCitations(text, [])} streaming={live} />}</div>
-        : <p className="home-answer-status" data-phase={s.phase} role={s.phase === "error" ? "alert" : undefined}>{status}</p>}
+        : !rows.length && <p className="home-answer-status" data-phase={s.phase} role={s.phase === "error" ? "alert" : undefined}>{status}</p>}
       <div className="home-answer-actions">
         {live ? <button type="button" className="chip" onClick={() => abort.current?.abort()}>{t("homeAns.stop")}</button>
           : s.phase === "error" ? <button type="button" className="chip" onClick={() => setAttempt((n) => n + 1)}>{t("homeAns.retry")}</button>

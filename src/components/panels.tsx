@@ -8,7 +8,6 @@ import { TimeCapsuleSection } from "./TimeCapsuleSection";
 import { PhonePairing } from "./PhonePairing";
 import { PlaceSection } from "./PlaceSection";
 import { AutonomySection } from "./AutonomySection";
-import { CoreEngineSection } from "./CoreEngineSection";
 import { AuthoritySection } from "./AuthoritySection";
 import { PluginsSection } from "./PluginsSection";
 import { WeeklyReviewSetting } from "./RemoteCall";
@@ -338,7 +337,6 @@ export function ProfilePanel() {
     <summary className="chip cursor-pointer">{t("ws.more")} · <span className="muted">{t("set.moreHint")}</span></summary>
     <JobFitSection />
     <PasswordSection />
-    <CoreEngineSection />
     <AuthoritySection />
     <PluginsSection />
     <PhonePairing />

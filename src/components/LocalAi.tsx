@@ -4,15 +4,12 @@ import { Canvas } from "@react-three/fiber";
 import { Bounds, OrbitControls, useGLTF } from "@react-three/drei";
 import { CAPTION_LANGS, CATALOG, MAX_CLONE_CHARS, START_CMD, VOICES, cloneBlocked, encodeWav, isMediaName, spacesCsv, toolState, totalArea, type Health, type IfcSummary, type ToolId } from "@/lib/local-ai-pure";
 import { comfySetup, type ComfyHealth, type ComfyModel } from "@/lib/comfy-pure";
-import type { Autostart } from "@/lib/autostart-pure";
-import type { LocalStatus } from "@/lib/local-model-pure";
 import { useT } from "./i18n";
 import RobloxBuild, { PINK } from "./RobloxBuild";
 import { KaggleBurst } from "./KaggleBurst";
 import { ProgressCard } from "./ProgressCard";
 import type { Progress } from "@/lib/progress-pure";
-import { ErrorState } from "./ui/State";
-import { isComfyView, isHealthView, isPcView, okJson } from "@/lib/json-guard-pure";
+import { isComfyView, isHealthView, okJson } from "@/lib/json-guard-pure";
 
 // Local AI tools (tools/local-ai on his PC): Picture to 3D and Text to 3D (GAME DEV → Assets), Voiceover (STUDIO → Produce),
 // Captions (STUDIO → Produce), Read document (VAULT), Open IFC model (ARCH) and the tool list (OPERATIONS → Local AI). Every result is saved in VAULT; nothing is uploaded. Data: /api/local-ai.
@@ -319,49 +316,6 @@ export function IfcOpen() {
   );
 }
 
-/** OPERATIONS → Local AI: what each tool does, whether it is installed, VRAM, license and the exact setup command. */
-type Pc = { brain: LocalStatus & { using?: string }; autostart: Autostart };
-
-/** "This PC" rows above the tool list: the local brain (Ollama) and Starts with Windows. Data: /api/local-brain. */
-function ThisPc() {
-  const { t } = useT();
-  const [pc, setPc] = useState<Pc | null>(null);
-  const [failed, setFailed] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const check = useCallback(() => { void fetch("/api/local-brain", { cache: "no-store" }).then((r) => okJson<Pc>(r, isPcView)).then((v) => { setPc(v); setFailed(!v); }, () => { setPc(null); setFailed(true); }); }, []);
-  useEffect(check, [check]);
-  const toggle = async (on: boolean) => {
-    setBusy(true); setErr("");
-    try {
-      const r = await fetch("/api/local-brain", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ autostart: on }) });
-      const j = (await r.json()) as { autostart?: Autostart & { log?: string }; error?: string };
-      if (!r.ok || !j.autostart) throw new Error(j.error || `Request failed (${r.status})`);
-      if (j.autostart.on !== on) setErr(j.autostart.log || "It didn't change. Run the command below in PowerShell in the ORBIT folder.");
-      setPc((p) => (p ? { ...p, autostart: j.autostart! } : p));
-    } catch (e) { setErr(msg(e)); } finally { setBusy(false); }
-  };
-  if (!pc) return failed ? <ErrorState title={t("common.cantLoad", { what: t("la.brain") })} retryLabel={t("common.tryAgain")} onRetry={check} /> : null;
-  const a = pc.autostart, b = pc.brain;
-  return (
-    <div className="grid gap-2">
-      <div className="glass grid gap-1 rounded-lg p-2 text-xs">
-        <div className="flex flex-wrap items-center justify-between gap-2"><b>{t("la.brain")}</b>
-          <span style={{ color: b.state === "ok" ? "#4ade80" : b.state === "off" ? undefined : "#fbbf24" }} className={b.state === "off" ? "muted" : undefined}>{t(b.state === "ok" ? "la.ready" : b.state === "fallback" ? "la.fallback" : b.state === "off" ? "la.off" : b.state === "missing" ? "la.notPulled" : "la.notRunning")}</span></div>
-        <p>{b.text}{b.state === "down" ? ` ${t("la.triedStart")}` : ""}</p>
-        <p className="muted">{t("la.brainHelp")} <code className="select-all">powershell -ExecutionPolicy Bypass -File tools\ollama\setup.ps1</code></p>
-      </div>
-      <div className="glass grid gap-1 rounded-lg p-2 text-xs">
-        <div className="flex flex-wrap items-center justify-between gap-2"><b>{t("la.autostart", { s: a.on === null ? "?" : a.on ? t("common.on") : t("common.off") })}</b>
-          {a.on !== null && <button className="chip" disabled={busy} onClick={() => void toggle(!a.on)}>{busy ? t("la.working") : a.on ? t("la.turnOff") : t("la.turnOn")}</button>}</div>
-        <p>{a.text}</p>
-        <p className="muted">{t("la.orPs")} <code className="select-all">{a.command}</code></p>
-        {err && <p style={{ color: "#fbbf24" }} className="whitespace-pre-wrap">{err}</p>}
-      </div>
-    </div>
-  );
-}
-
 export function LocalAiTools() {
   const [h, checkAi] = useHealth();
   const [comfy, setComfy] = useState<(ComfyHealth & { model: ComfyModel }) | null>(null); // ComfyUI is its own service (tools/comfyui)
@@ -370,7 +324,6 @@ export function LocalAiTools() {
   const { lang, t } = useT();
   return (
     <section className="grid gap-3 text-sm" aria-label={t("la.tools")}>
-      <ThisPc />
       <KaggleBurst />
       <GpuJobs />
       <div className="flex flex-wrap items-center justify-between gap-2">

@@ -6,7 +6,8 @@ import { stopAllState } from "@/lib/stop-all";
 import { switchStopAll } from "@/lib/stop-all-run";
 import { listJobs, publishingKey } from "@/lib/clips/factory";
 import { runningStory } from "@/lib/clips/story";
-import { coreTurn } from "@/lib/core-turn";
+import { runOrbit2 } from "@/lib/orbit2";
+import { ndjsonStream } from "@/lib/core-live-pure";
 import { checkHabit } from "@/lib/life";
 import { deviceType, scopeAllows } from "@/lib/screen-pure";
 import { getBrief } from "@/lib/brief";
@@ -105,11 +106,25 @@ export async function POST(req: Request) {
       }
       case "ask": {
         if (!rateOk(`ask:${device.id}`, RATE.ask)) return done(fail("Too many questions: wait a minute", 429));
-        const { text, lang, requestId } = cmd as { text: string; lang?: "et"; requestId?: string };
-        const res = await coreTurn(req, sb, device.userId, { message: text, conversationId: remoteChat(device.id), lang, requestId },
-          { remote: true, onConversation: (id) => S.chat.set(device.id, { id, at: Date.now() }) });
-        if (!res.ok) return done(hidden("core.ask", await res.text().catch(() => ""), res.status));
-        return done(sanitizeStream(res));
+        const { text, lang } = cmd as { text: string; lang?: "et" };
+        const ac = new AbortController();
+        req.signal.addEventListener("abort", () => ac.abort(), { once: true });
+        const stream = ndjsonStream(async (send) => {
+          try {
+            const out = await runOrbit2({
+              prompt: text,
+              sessionId: remoteChat(device.id),
+              systemAppend: lang === "et" ? "Answer in Estonian." : undefined,
+              signal: ac.signal,
+              onEvent: (ev) => send(ev as unknown as Record<string, unknown>),
+            });
+            if (out.sessionId) S.chat.set(device.id, { id: out.sessionId, at: Date.now() });
+          } catch (e) {
+            console.error("[remote] core.ask:", e instanceof Error ? e.message : e);
+            send({ type: "error", error: "ORBIT 2 couldn't answer: try again or check ORBIT on the PC" });
+          }
+        }, () => ac.abort());
+        return done(sanitizeStream(new Response(stream, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform" } })));
       }
       case "habitDone": { // by id only (uuid checked in parseCommand); today, like a tap on the PC
         const r = await checkHabit((cmd as { id: string }).id);

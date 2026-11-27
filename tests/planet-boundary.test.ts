@@ -47,7 +47,7 @@ test("AGENTS and Profile show kit states, not server text", () => {
   assert.doesNotMatch(ag, /StateNote|MaskText|>\{err\}<|AGENTS STATION|>ACTIVITY</);
   const profile = pr.slice(pr.indexOf("export function ProfilePanel"), pr.indexOf("export function ProfilePanel") + 4000);
   assert.doesNotMatch(profile, /e\.message|e2\.message/);
-  for (const f of ["AutonomySection", "AuthoritySection", "CoreEngineSection", "PlaceSection", "PhonePairing", "PersonaSection", "LessonsCard", "PluginsSection", "TimeCapsuleSection", "PasswordSection", "DubVoice"])
+  for (const f of ["AutonomySection", "AuthoritySection", "PlaceSection", "PhonePairing", "PersonaSection", "LessonsCard", "PluginsSection", "TimeCapsuleSection", "PasswordSection", "DubVoice"])
     assert.doesNotMatch(src(`${f}.tsx`), /setErr\(j\?\.error|setMsg\(j\.error|setMsg\(e\.message|\.message : /, f);
 });
 

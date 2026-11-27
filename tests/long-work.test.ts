@@ -52,9 +52,6 @@ test("out of steps before the request is done: hand off, then at most 2 extra bu
   assert.equal(afterBudget(notDone, { background: true, extra: 2, leftMs: 600_000 }), "stop"); // cap reached
   assert.equal(afterBudget("Added all 5 leads.", { background: false, extra: 0, leftMs: 200_000 }), "stop");
   assert.equal(stripMore(notDone), "1 of 5 leads saved; 4 sites left to check.");
-  const { readFile } = await import("node:fs/promises");
-  const core = await readFile(new URL("../src/lib/core.ts", import.meta.url), "utf8");
-  assert.match(core, /if \(more === "handoff"\) throw new CoreHandoff/); assert.match(core, /extra: store\.extra/); // the background run keeps the count
 });
 
 test("dropNote: a lost connection says how long it ran and how long the tab was hidden; other errors stay as they are", async () => {

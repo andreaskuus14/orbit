@@ -5,7 +5,6 @@ import { createForeground } from "../src/lib/foreground-pure.ts";
 import { latencyCheck } from "../src/lib/doctor-pure.ts";
 import { TIERS, decide } from "../src/lib/policy-pure.ts";
 import { EFFECTS } from "../src/lib/approval-pure.ts";
-import { CORE_BUILTINS } from "../src/lib/core-sdk-pure.ts";
 
 test("clip store: short text passes, long text gets a pointer and reads back in full", () => {
   const c = createClipStore(10);
@@ -24,7 +23,6 @@ test("clip store: short text passes, long text gets a pointer and reads back in 
 test("read_more is a T1 read tool in every list", () => {
   assert.equal(TIERS.read_more, "T1");
   assert.equal(EFFECTS.read_more, "read");
-  assert.ok((CORE_BUILTINS as readonly string[]).includes("read_more"));
   assert.ok(decide("read_more", { ref: "r1", offset: 0 }, { stopAll: false, attach: false, pins: false, steps: [], question: "hi" }).allow);
 });
 

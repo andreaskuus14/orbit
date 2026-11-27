@@ -1,27 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pruneToolsForIntent } from "../src/lib/core-mcp-pure.ts";
 import { walkElevation, wallRects } from "../src/lib/arch-walk-pure.ts";
 import type { Part } from "../src/lib/arch-pure.ts";
 import { buildTestEzFuzzSpec, generateFuzzCases } from "../src/lib/roblox-fuzzer-pure.ts";
 import { findProjectArtifacts, formatArtifactContext, recordArtifactPure } from "../src/lib/project-manifest-pure.ts";
-
-test("pruneToolsForIntent keeps core essentials + intent-relevant tools under cap", () => {
-  const all = [
-    "search_memory", "save_memory", "web_search", "fetch_url", "read_more", "navigate", "plan_task",
-    "ws_read", "ws_write", "ws_list", "run_code", "git_summary",
-    "studio_status", "clips_list", "yt_upload",
-    "business_status", "find_lead_candidates", "outreach_draft",
-    "life_status", "life_add_habit", "calendar_events",
-  ];
-  const res = pruneToolsForIntent(all, "redesign my website html and fix css", { max: 12 });
-  assert.equal(res.tools.length, 12);
-  assert.equal(res.prunedCount, all.length - 12);
-  assert.ok(res.tools.includes("search_memory"));
-  assert.ok(res.tools.includes("ws_write"));
-  assert.ok(res.tools.includes("ws_read"));
-  assert.ok(!res.tools.includes("life_add_habit"), "irrelevant tools should be pruned first");
-});
 
 test("arch-walk-pure supports multi-storey floorY wall slicing and stair ramp walkElevation", () => {
   const parts: Part[] = [

@@ -232,9 +232,4 @@ test("unknown plugin tool: plain refusal, no card, and the ledger never gets the
 test("no model or background path to a grant", async () => {
   assert.ok(!Object.keys(TIERS).some((t) => /allow/i.test(t)));
   assert.equal(decide("allow_once", {}, base).allow, false);
-  const src = (f: string) => readFile(new URL(`../src/${f}`, import.meta.url), "utf8");
-  assert.ok(!/allowOnce\.grant\(/.test(await src("lib/core.ts"))); // only the requireUser route grants
-  const route = await src("app/api/core/allow-once/route.ts");
-  assert.equal(route.match(/requireUser\(\)/g)?.length, 2); assert.match(route, /allowOnce\.grant\(/);
-  assert.match(await src("lib/core.ts"), /budget\.background \? ""/); // hook off in background turns
 });

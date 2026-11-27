@@ -1,55 +1,32 @@
-import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { parseStreamJsonLine, takeLines, type StreamResult } from "./streamjson.ts";
-import { streamJsonInput } from "./attach-pure.ts";
-import { recordCall, usageHoldFor } from "./usage-meter.ts";
-import { isLimitAnswer } from "./usage-meter-pure.ts";
-import { claudeDown, localAllowed } from "./local-model-pure.ts";
-import { LOCAL_MODEL, chatLocal } from "./local-llm.ts";
+import { recordCall } from "./usage-meter.ts";
 import { ledgerIssue } from "./ledger-pure.ts";
-import { fallbackModelFor, isRetryableModelError, routedModel } from "./model-routing-pure.ts";
 import { adminClient } from "./supabase/admin.ts";
 import { markEventsDirty } from "./dirty-marks.ts";
+import { ORBIT2_MODEL, runOrbit2 } from "./orbit2.ts";
 
 /** An image sent to the model with the prompt (validated by attach-pure). */
 export type PromptImage = { type: string; data: Uint8Array };
 
-// CORE runs on the local Claude Code CLI (`claude -p`) under your own Claude login, so there is no API key
-// and no per-token bill. ORBIT must therefore run on the machine where `claude` is installed and signed in.
-export const CLAUDE_BIN = process.env.ORBIT_CLAUDE_BIN || "claude";
-export const MODEL = process.env.ORBIT_MODEL || "sonnet";
-/** Stronger (slower) model for the few judgement calls where quality matters most: final clip ranking, niche research. */
-export const SMART_MODEL = process.env.ORBIT_MODEL_SMART || "opus";
-/** Quick model for CORE's short chit-chat turns that need no tools (see pickModel in core-ui.ts). */
-export const FAST_MODEL = process.env.ORBIT_MODEL_FAST || "haiku";
-/** CORE's "deep" tier for clearly hard asks: plan + answer, then one self-check (see pickModel in core-ui.ts). */
-export const DEEP_MODEL = process.env.ORBIT_MODEL_DEEP || "opus";
-/** Claude Code's --effort for deep answers (low|medium|high|xhigh|max); "" or anything else leaves it off.
- *  An older CLI without --effort fails the call, and CORE then redoes the step on the main model. */
-const effortEnv = process.env.ORBIT_DEEP_EFFORT ?? "high";
-export const DEEP_EFFORT = /^(low|medium|high|xhigh|max)$/.test(effortEnv) ? effortEnv : "";
+// All model calls run exclusively through ORBIT 2 via @anthropic-ai/claude-agent-sdk
+// under Andreas's existing Claude Code login (no API key, no claude -p CLI bridge, no Fable, no Ollama fallback).
+export const CLAUDE_BIN = "claude";
+export const MODEL = ORBIT2_MODEL;
+export const SMART_MODEL = ORBIT2_MODEL;
+export const FAST_MODEL = ORBIT2_MODEL;
+export const DEEP_MODEL = ORBIT2_MODEL;
+export const DEEP_EFFORT = "";
 export const TIMEOUT_MS = 120_000;
-/** ORBIT_HAIKU_ROUTING=0 turns the purpose table (model-routing-pure.ts) off: every call then uses the model its caller names, else MODEL. */
-export const ROUTING_ON = process.env.ORBIT_HAIKU_ROUTING !== "0";
-const WIN = process.platform === "win32";
-const HINT = "Install Claude Code and run `claude` once to sign in (or set ORBIT_CLAUDE_BIN to its full path).";
-
-// At most 3 `claude` processes at once across the whole server; the rest queue in two lanes. Foreground (CORE chat,
-// voice) is served first and background (agents, automations, briefings, clips) may hold at most limit-1 slots, so a
-// chat never waits behind a pile of agent work. Kept on globalThis so dev hot reloads don't create a second limit.
-export const MAX_CLI = Number(process.env.ORBIT_CLAUDE_CONCURRENCY) || 3;
-const gl = globalThis as unknown as { __orbitClaudeLanes?: ReturnType<typeof createLaneLimiter> };
-const cliSlot = (gl.__orbitClaudeLanes ??= createLaneLimiter(MAX_CLI));
+export const ROUTING_ON = false;
+export const MAX_CLI = 3;
+export const LOCAL_MODEL = "";
 
 export type Lane = "foreground" | "background";
 export class BusyError extends Error {}
 
 export function createLaneLimiter(max: number, maxBackgroundWaiting = 20) {
   let active = 0, bgActive = 0;
-  const bgMax = Math.max(1, max - 1); // with a limit of 1 there is nothing to reserve
+  const bgMax = Math.max(1, max - 1);
   const waiting: Record<Lane, (() => void)[]> = { foreground: [], background: [] };
   const pump = () => {
     while (active < max) {
@@ -63,7 +40,9 @@ export function createLaneLimiter(max: number, maxBackgroundWaiting = 20) {
   return async function run<T>(lane: Lane, fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     signal?.throwIfAborted();
     const q = waiting[lane];
-    if (lane === "background" && q.length >= maxBackgroundWaiting) throw new BusyError(`ORBIT is busy: ${q.length} Claude jobs are already waiting. Try again in a few minutes.`);
+    if (lane === "background" && q.length >= maxBackgroundWaiting) {
+      throw new BusyError(`ORBIT is busy: ${q.length} Claude jobs are already waiting. Try again in a few minutes.`);
+    }
     await new Promise<void>((resolve, reject) => {
       const go = () => { signal?.removeEventListener("abort", stop); resolve(); };
       const stop = () => { const i = q.indexOf(go); if (i >= 0) { q.splice(i, 1); reject(signal?.reason); } };
@@ -76,14 +55,16 @@ export function createLaneLimiter(max: number, maxBackgroundWaiting = 20) {
   };
 }
 
-/* Agent task budgets: one per task tree (a task and everything it delegates), shared by all its Claude calls. */
+const gl = globalThis as unknown as { __orbitClaudeLanes?: ReturnType<typeof createLaneLimiter> };
+const sdkSlot = (gl.__orbitClaudeLanes ??= createLaneLimiter(MAX_CLI));
+
+/* Agent task budgets: one per task tree (a task and everything it delegates), shared by all its calls. */
 export class BudgetError extends Error {}
 export function createBudget(ms = 8 * 60_000, calls = 12) {
   return { signal: AbortSignal.timeout(ms), minutes: ms / 60_000, calls, used: 0, deadline: Date.now() + ms };
 }
 export type Budget = ReturnType<typeof createBudget>;
 
-/** Call before every Claude call of a task: throws when the task was stopped or its budget is spent. */
 export function chargeCall(b: Budget, signal: AbortSignal) {
   if (b.signal.aborted) throw new BudgetError(`Budget exceeded: the ${b.minutes}-minute limit was reached`);
   signal.throwIfAborted();
@@ -91,13 +72,11 @@ export function chargeCall(b: Budget, signal: AbortSignal) {
   b.used++;
 }
 
-/** Why a task stopped early: its budget ran out, it was cancelled, or neither (a normal error). */
 export function stopKind(b: Budget, signal: AbortSignal, e: unknown): "budget" | "cancelled" | null {
   if (e instanceof BudgetError || b.signal.aborted) return "budget";
   return signal.aborted ? "cancelled" : null;
 }
 
-/** The result of a stopped task: what it had already finished, so stopping never throws work away silently. */
 export function stoppedReport(headline: string, steps: { step: string; detail: string; ok: boolean }[], kids: { agent: string; title: string; status: string }[]) {
   const done = [
     ...steps.filter((s) => s.ok && !["think", "verify", "review", "error"].includes(s.step) && !s.detail.endsWith("working…")).map((s) => `- ${s.step}: ${s.detail.slice(0, 160)}`),
@@ -106,223 +85,87 @@ export function stoppedReport(headline: string, steps: { step: string; detail: s
   return `**${headline}.** ${done.length ? `Completed before stopping:\n${done.join("\n")}` : "Nothing was completed yet."}`;
 }
 
-/** local: answered by the offline brain (Ollama), not Claude: CORE shows a "local brain" badge. */
 export type ClaudeResult = { text: string; inputTokens: number; outputTokens: number; ms: number; local?: boolean };
-
-/** Read-only web tools a call may opt into (AskOpts.web), approved by the owner. Nothing that runs commands, edits files or posts. */
-export const WEB_TOOLS = "WebSearch,WebFetch";
-/** web: "search": WebSearch only. ORBIT then opens the result pages itself through the web ladder (web-ladder.ts: fetch →
- *  Scrapling → headless browser) instead of the CLI's WebFetch, so every page read keeps ORBIT's guards and rung record. */
-export const WEB_SEARCH_ONLY = "WebSearch";
-
-/** Shared setup for every CLI call: system prompt in a temp dir, fixed flags, all tools disabled unless `web`. */
-/** mcp: the call may use only these MCP tools (from the owner's own `claude mcp add` config), every call checked by the
- *  PreToolUse hook in `settings` (a settings JSON file). Built-in tools stay off. Used by the Higgsfield adapter (clips/higgsfield.ts). */
-/** config: a per-call --mcp-config file used alone (--strict-mcp-config, no user settings): CORE's MCP engine (core-mcp.ts). */
-/** env: extra CLI environment (MCP_TOOL_TIMEOUT, ENABLE_TOOL_SEARCH); tools/cwd/pluginDir: CORE's MCP engine boost (core-mcp-boost.ts): built-in tools, the workspace folder, ORBIT's skills plugin. */
 export type McpAccess = { allow: string[]; settings: string; config?: string; tools?: string[]; cwd?: string; env?: Record<string, string>; pluginDir?: string };
-/** A persistent CLI session (ORBIT_CORE_SESSION=resume): the first call creates it with --session-id, later ones --resume it.
- *  The CLI files sessions by working directory, so session calls all run in one fixed dir. */
 export type CliSession = { id: string; resume: boolean };
-const SESSION_DIR = join(tmpdir(), "orbit-core-sessions");
 
-async function prepare(system: string, format: string[], model = MODEL, effort = "", web: boolean | "search" = false, mcp?: McpAccess, session?: CliSession, thinking?: number) {
-  if (!/^[\w.:-]+(?:\[1m\])?$/.test(model)) throw new Error("ORBIT_MODEL / ORBIT_MODEL_SMART / ORBIT_MODEL_FAST / ORBIT_MODEL_DEEP contains invalid characters");
-  // The system prompt goes in a file and the user prompt on stdin, so no user text is ever on the command line.
-  const dir = await mkdtemp(join(tmpdir(), "orbit-"));
-  const sysFile = join(dir, "system.txt");
-  await writeFile(sysFile, system, "utf8");
-  const q = (a: string) => (WIN ? `"${a}"` : a); // Windows needs a shell to run claude.cmd, so quote args there
-  const tools = mcp ? ["--tools", q((mcp.tools ?? []).join(",")), ...(mcp.pluginDir ? ["--plugin-dir", q(mcp.pluginDir)] : []), "--allowedTools", q(mcp.allow.join(",")), "--permission-mode", "dontAsk", "--settings", q(mcp.settings), ...(mcp.config ? ["--mcp-config", q(mcp.config)] : [])]
-    : web ? ["--tools", q(web === "search" ? WEB_SEARCH_ONLY : WEB_TOOLS), "--allowedTools", q(web === "search" ? WEB_SEARCH_ONLY : WEB_TOOLS), "--permission-mode", "dontAsk"] : ["--tools", q("")];
-  if (session && !/^[0-9a-f-]{36}$/i.test(session.id)) throw new Error("Invalid CLI session id");
-  if (session) await mkdir(SESSION_DIR, { recursive: true });
-  const args = ["-p", ...format, ...tools, ...(session ? [session.resume ? "--resume" : "--session-id", session.id] : ["--no-session-persistence"]),
-    // Ignore user-level plugins/hooks/skills and all MCP connectors (CORE gets no tools, or only the read-only web tools with `web`) but keep the login. Not --bare: it skips OAuth.
-    // mcp: user settings are where `claude mcp add -s user` servers come from ("local" alone hides them, tested); the hook still gates every call.
-    "--setting-sources", mcp && !mcp.config ? "user" : "local", ...(mcp?.pluginDir ? [] : ["--disable-slash-commands"]) /* skills plugin needs skills on */, ...(mcp && !mcp.config ? [] : ["--strict-mcp-config"]), "--model", model, ...(effort ? ["--effort", effort] : []), "--system-prompt-file", q(sysFile)];
-  const opts = { stdio: ["pipe", "pipe", "pipe"] as ("pipe")[], env: { ...process.env, ...mcp?.env, ...(thinking ? { MAX_THINKING_TOKENS: String(thinking) } : {}) }, cwd: mcp?.cwd ?? (session ? SESSION_DIR : dir), windowsHide: true }; // thinking: caps the CLI's extended-thinking budget
-  // On Windows, claude may be claude.cmd, which needs a shell; pass one pre-quoted command string (args hold no user text).
-  const start = () => (WIN ? spawn(`${q(CLAUDE_BIN)} ${args.join(" ")}`, { ...opts, shell: true }) : spawn(CLAUDE_BIN, args, opts));
-  return { dir, start };
-}
+export type AskOpts = {
+  lane?: Lane;
+  signal?: AbortSignal;
+  model?: string;
+  images?: PromptImage[];
+  effort?: string;
+  timeoutMs?: number;
+  purpose?: string;
+  web?: boolean | "search";
+  mcp?: McpAccess;
+  onLine?: (line: string) => void;
+  session?: CliSession;
+  thinking?: number;
+  risky?: boolean;
+};
 
-/** Not awaited and never throws: after a timeout kill, Windows keeps the dir locked (EPERM) until the tree exits,
- *  and a cleanup error must not replace the real one. rm itself retries EPERM/EBUSY with backoff. */
-function removeTempDir(dir: string) {
-  rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
-}
-
-/** With shell:true on Windows, kill() only ends cmd.exe and leaves claude running: kill the whole tree there. */
-function killTree(child: { pid?: number; kill: (sig?: NodeJS.Signals) => boolean }) {
-  if (WIN && child.pid) spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" }).on("error", () => child.kill("SIGKILL"));
-  else child.kill("SIGKILL");
-}
-
-// Spare CLIs for voice calls: a `claude` already booted (Windows: ~5 s) and waiting for its prompt. Plain `-p` gives up on
-// stdin after 3 s, but stream-json input waits, so a spare is started with it and gets its prompt as one stream-json message.
-// Only plain text calls (no images, web, MCP or effort) with the exact same system prompt and model take one.
-type Spare = { key: string; dir: string; child: ReturnType<Awaited<ReturnType<typeof prepare>>["start"]>; timer: NodeJS.Timeout; gone: () => void };
-const sg = globalThis as unknown as { __orbitSpares?: Map<string, Spare> };
-const spares = (sg.__orbitSpares ??= new Map());
-const SPARE_MS = 10 * 60_000;
-const SPARE_FORMAT = ["--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
-const spareKey = (system: string, model: string, effort = "", thinking = 0) => `${model}\0${effort}\0${thinking}\0${system}`;
-function dropSpare(sp: Spare, kill: boolean) {
-  if (spares.get(sp.key) === sp) spares.delete(sp.key);
-  clearTimeout(sp.timer);
-  if (kill && sp.child.exitCode === null) killTree(sp.child);
-  if (kill) removeTempDir(sp.dir);
-}
-/** Boot a spare CLI for this system prompt, model, effort and thinking budget unless one is waiting. Never throws. */
-export async function warmClaude(system: string, model = MODEL, opts?: { effort?: string; thinking?: number }): Promise<void> {
-  const effort = opts?.effort ?? "", thinking = opts?.thinking ?? 0;
-  const key = spareKey(system, model, effort, thinking), have = spares.get(key);
-  if (have && have.child.exitCode === null) return;
-  try {
-    const { dir, start } = await prepare(system, SPARE_FORMAT, model, effort, false, undefined, undefined, thinking || undefined);
-    if (spares.get(key)?.child.exitCode === null) { removeTempDir(dir); return; } // a parallel warm won
-    const child = start();
-    const sp: Spare = { key, dir, child, timer: setTimeout(() => dropSpare(sp, true), SPARE_MS), gone: () => dropSpare(sp, true) };
-    sp.timer.unref?.();
-    child.on("error", sp.gone);
-    child.on("exit", sp.gone);
-    spares.set(key, sp);
-  } catch (e) { console.error("[orbit] spare CLI:", e instanceof Error ? e.message : e); }
-}
-/** Stop every spare (the call ended). */
-export const coolClaude = () => { for (const sp of [...spares.values()]) dropSpare(sp, true); };
-function takeSpare(system: string, model: string, opts?: { effort?: string; thinking?: number }): Spare | null {
-  const sp = spares.get(spareKey(system, model, opts?.effort ?? "", opts?.thinking ?? 0));
-  if (!sp || sp.child.exitCode !== null) return null;
-  sp.child.off("exit", sp.gone); sp.child.off("error", sp.gone);
-  dropSpare(sp, false); // its dir now belongs to the call that took it
-  return sp;
-}
-
-/** purpose: what the call is for, for the usage meter (core, agent, goals, autopilot, clips, translate…); default by lane. */
-/** web: allow only WebSearch/WebFetch (read-only); web pages are untrusted, so that call's system prompt must say they are data. */
-export type AskOpts = { lane?: Lane; signal?: AbortSignal; model?: string; images?: PromptImage[]; effort?: string; timeoutMs?: number; purpose?: string; web?: boolean | "search"; mcp?: McpAccess; onLine?: (line: string) => void; session?: CliSession; thinking?: number; risky?: boolean;
-  /** CORE's offline turn with tools (offline-tools.ts), used instead of the plain local answer when this call falls back locally */
-  offline?: () => Promise<ClaudeResult> };
-
-/** Run a Claude CLI call with transparent mid-turn model failover on transient overload/rate-limit errors (before local fallback). */
-async function withModelFailover(
-  model: string | undefined,
-  purpose: string,
-  signal: AbortSignal | undefined,
-  run: (m: string | undefined) => Promise<ClaudeResult>,
-): Promise<ClaudeResult> {
-  try {
-    return await run(model);
-  } catch (e) {
-    if (signal?.aborted) throw e;
-    const msg = e instanceof Error ? e.message : String(e);
-    const next = isRetryableModelError(msg)
-      ? fallbackModelFor(model, { defaultModel: MODEL, smartModel: SMART_MODEL, fastModel: FAST_MODEL, purpose })
-      : null;
-    if (!next) throw e;
-    console.warn(`[orbit] model failover (${purpose}): ${model ?? MODEL} -> ${next} (${msg.slice(0, 120)})`);
-    return run(next);
-  }
-}
-
-/** One headless Claude Code call with all tools disabled (it can only read the prompt and answer), or only the web tools with `web`. Aborting `signal` kills the CLI. */
-export function askClaude(prompt: string | Promise<string>, system: string, { lane = "background", signal, model, images = [], effort, timeoutMs, purpose, web, mcp, onLine, session, thinking, risky, offline }: AskOpts = {}): Promise<ClaudeResult> {
-  const p = purpose ?? laneDefault(lane);
-  model = routedModel(model, p, FAST_MODEL, ROUTING_ON);
-  return withLocal(lane, prompt, system, p, images.length, !!mcp, signal, timeoutMs, !!risky, () => cliSlot(lane, () => withModelFailover(model, p, signal, (m) => runClaudeStream(prompt, system, () => {}, signal, m, images, effort, timeoutMs, p, web, mcp, onLine, session, thinking)), signal), offline);
-}
-
-/** Like askClaude, but calls onDelta with each text chunk as it is generated. Aborting `signal` kills the CLI.
- *  A pending prompt starts the CLI now and writes stdin when it resolves: its ~1 s boot overlaps the caller's prep. */
-export function askClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, lane: Lane = "background", model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose?: string, session?: CliSession, risky = false, offline?: () => Promise<ClaudeResult>): Promise<ClaudeResult> {
-  const p = purpose ?? laneDefault(lane);
-  model = routedModel(model, p, FAST_MODEL, ROUTING_ON);
-  return withLocal(lane, prompt, system, p, images.length, false, signal, timeoutMs, risky, () => cliSlot(lane, () => withModelFailover(model, p, signal, (m) => runClaudeStream(prompt, system, onDelta, signal, m, images, effort, timeoutMs, p, false, undefined, undefined, session)), signal), offline);
-}
 const laneDefault = (lane: Lane) => (lane === "foreground" ? "core" : "background");
 
-/** Offline brain: Ollama model name (ORBIT_LOCAL_LLM_MODEL), "" = off. */
-export { LOCAL_MODEL };
-
-/** Lanes that allow it (localAllowed) go to the local model while the usage hold for their lane is on (foreground: only the real limit), or when Claude fails because it's
- *  unreachable or rate-limited. If the local model fails too, the original Claude error is what the caller sees. */
-async function withLocal(lane: Lane, prompt: string | Promise<string>, system: string, purpose: string, images: number, mcp: boolean, signal: AbortSignal | undefined, timeoutMs: number | undefined, risky: boolean, claude: () => Promise<ClaudeResult>, offline?: () => Promise<ClaudeResult>): Promise<ClaudeResult> {
-  const local = offline ?? (() => askLocal(prompt, system, signal, timeoutMs));
-  if (!localAllowed({ model: LOCAL_MODEL, purpose, images, mcp, risky })) return claude();
-  // background lanes go local under the soft budget too; foreground (owner) only when the real limit is hit
-  if (usageHoldFor(lane)) { if (lane === "foreground") console.warn(`[orbit] Claude limit reached; ${purpose} answered by the local brain (${LOCAL_MODEL})`); return local().catch(claude); }
-  try { return await claude(); } catch (e) {
-    if (signal?.aborted || !claudeDown(e instanceof Error ? e.message : String(e))) throw e;
-    console.warn(`[orbit] Claude unreachable for ${purpose}; answering with the local brain (${LOCAL_MODEL})`);
-    return local().catch(() => { throw e; });
+async function runViaOrbit2(
+  prompt: string | Promise<string>,
+  system: string,
+  onDelta: (text: string) => void,
+  signal?: AbortSignal,
+  timeoutMs?: number,
+  purpose = "background",
+  session?: CliSession,
+): Promise<ClaudeResult> {
+  const resolvedPrompt = await prompt;
+  const ms = timeoutMs ?? TIMEOUT_MS;
+  const timerSignal = AbortSignal.timeout(ms);
+  const combined = signal ? AbortSignal.any([signal, timerSignal]) : timerSignal;
+  const t0 = Date.now();
+  try {
+    const out = await runOrbit2({
+      prompt: resolvedPrompt,
+      systemAppend: system || undefined,
+      sessionId: session?.resume ? session.id : undefined,
+      signal: combined,
+      onEvent: (ev) => {
+        if (ev.type === "delta" && ev.text) onDelta(ev.text);
+      },
+    });
+    recordCall({ purpose, model: out.model, inTok: out.inputTokens, outTok: out.outputTokens, ms: out.ms, ok: true });
+    return { text: out.text, inputTokens: out.inputTokens, outputTokens: out.outputTokens, ms: out.ms };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    recordCall({ purpose, model: ORBIT2_MODEL, inTok: 0, outTok: 0, ms: Date.now() - t0, ok: false }, msg);
+    throw e;
   }
 }
 
-/** One plain Ollama chat call (no tools, no streaming). */
-const askLocal = async (prompt: string | Promise<string>, system: string, signal?: AbortSignal, timeoutMs = TIMEOUT_MS): Promise<ClaudeResult> =>
-  chatLocal(await prompt, system, { signal, timeoutMs });
+/** Run a model call through ORBIT 2 via the Claude Agent SDK. */
+export function askClaude(
+  prompt: string | Promise<string>,
+  system: string,
+  { lane = "background", signal, timeoutMs, purpose, session }: AskOpts = {},
+): Promise<ClaudeResult> {
+  const p = purpose ?? laneDefault(lane);
+  return sdkSlot(lane, () => runViaOrbit2(prompt, system, () => {}, signal, timeoutMs, p, session), signal);
+}
 
-async function runClaudeStream(prompt: string | Promise<string>, system: string, onDelta: (text: string) => void, signal?: AbortSignal, model?: string, images: PromptImage[] = [], effort?: string, timeoutMs?: number, purpose = "background", web: boolean | "search" = false, mcp?: McpAccess, onLine?: (line: string) => void, session?: CliSession, thinking?: number): Promise<ClaudeResult> {
-  if (typeof prompt !== "string") prompt.catch(() => {}); // observed now; its error is reported once the CLI is up
-  signal?.throwIfAborted();
-  const t0 = Date.now();
-  // With images, stdin carries one stream-json user message (image blocks + text); tools stay disabled.
-  const spare = images.length || web || mcp || session ? null : takeSpare(system, model ?? MODEL, { effort, thinking });
-  // Plain -p gives up on stdin after 3 s; a prompt still being built (CORE's prep) goes in as stream-json, which waits.
-  const pending = typeof prompt !== "string";
-  const json = images.length > 0 || !!spare || pending;
-  const input = images.length || pending ? ["--input-format", "stream-json"] : [];
-  const { dir, start } = spare ? { dir: spare.dir, start: () => spare.child } : await prepare(system, [...input, "--output-format", "stream-json", "--verbose", "--include-partial-messages"], model, effort, web, mcp, session, thinking);
-  try {
-    return await new Promise<ClaudeResult>((resolve, reject) => {
-      const child = start();
-      let buf = "";
-      let err = "";
-      let streamed = "";
-      let result: StreamResult | null = null;
-      const onAbort = () => { killTree(child); reject(new DOMException("Stopped", "AbortError")); };
-      signal?.addEventListener("abort", onAbort, { once: true });
-      if (signal?.aborted) onAbort();
-      // The stronger model thinks longer; callers with a hard deadline (CORE's deep tier) pass their own limit.
-      const ms = timeoutMs ?? (model === SMART_MODEL && model !== MODEL ? 3 * TIMEOUT_MS : TIMEOUT_MS);
-      const timer = setTimeout(() => { killTree(child); reject(new Error(`Claude Code timed out after ${ms / 60_000} minutes`)); }, ms);
-      const done = () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); };
-      const handle = (line: string) => {
-        onLine?.(line); // raw stream-json, e.g. to see which URLs the web tools really returned (niche.ts)
-        const ev = parseStreamJsonLine(line);
-        if (ev?.delta) { streamed += ev.delta; onDelta(ev.delta); }
-        if (ev?.result) result = ev.result;
-      };
-      child.stdout.setEncoding("utf8"); // decodes multi-byte characters split across chunks
-      child.stdout.on("data", (d: string) => {
-        const { lines, rest } = takeLines(buf + d);
-        buf = rest;
-        lines.forEach(handle);
-      });
-      child.stderr.on("data", (d) => (err += d));
-      child.on("error", (e) => { done(); reject(new Error(`Could not start "${CLAUDE_BIN}": ${e.message}. ${HINT}`)); });
-      child.on("close", (code) => {
-        done();
-        if (buf.trim()) handle(buf);
-        const r = result as StreamResult | null;
-        if (r && !r.isError && isLimitAnswer(r.text || streamed)) Object.assign(r, { isError: true, text: r.text || streamed }); // limit notice sent as an answer
-        const failed = !r || r.isError || code !== 0;
-        // Usage meter: every call that reached the CLI (a kill by Stop/timeout has no result and isn't counted).
-        if (r) recordCall({ purpose, model: model ?? MODEL, inTok: r.inputTokens + (r.cacheWrite ?? 0), outTok: r.outputTokens, ms: Date.now() - t0, turns: r.turns, cost: r.costUsd, ok: !failed }, failed ? `${r.text} ${err}` : "");
-        else if (err) recordCall({ purpose, model: model ?? MODEL, inTok: 0, outTok: 0, ms: Date.now() - t0, ok: false }, err); // a limit error printed only to stderr
-        if (!r) return reject(new Error(`Claude Code failed: ${err.slice(0, 300) || `exit ${code}`}. ${HINT}`));
-        if (r.isError || code !== 0) return reject(new Error(r.text || err || `claude exited ${code}`));
-        resolve({ text: (r.text || streamed).trim(), inputTokens: r.inputTokens, outputTokens: r.outputTokens, ms: Date.now() - t0 });
-      });
-      child.stdin.on("error", () => { /* EPIPE when the CLI is killed mid-write; the close handler reports it */ });
-      // A prompt that fails to build kills the CLI before it gets any input.
-      Promise.resolve(prompt).then((p) => child.stdin.end(json ? streamJsonInput(p, images) : p), (e) => { done(); killTree(child); reject(e); });
-    });
-  } finally {
-    removeTempDir(dir);
-  }
+/** Streaming variant of askClaude through ORBIT 2 via the Claude Agent SDK. */
+export function askClaudeStream(
+  prompt: string | Promise<string>,
+  system: string,
+  onDelta: (text: string) => void,
+  signal?: AbortSignal,
+  lane: Lane = "background",
+  _model?: string,
+  _images: PromptImage[] = [],
+  _effort?: string,
+  timeoutMs?: number,
+  purpose?: string,
+  session?: CliSession,
+): Promise<ClaudeResult> {
+  const p = purpose ?? laneDefault(lane);
+  return sdkSlot(lane, () => runViaOrbit2(prompt, system, onDelta, signal, timeoutMs, p, session), signal);
 }
 
 const REVIEW_SYSTEM = `You review a draft answer before it is delivered. You have no tools: only read and rewrite.
@@ -334,27 +177,34 @@ Reply with ONLY the final revised answer in Markdown: no preamble, no notes abou
 const cites = (t: string) => [...new Set(t.match(/\[m:[^\]\s]+\]|https?:\/\/[^\s)\]>"]+/g) ?? [])].sort().join(" ");
 const approval = /approv|OK click/i;
 
-/** Pure: may the review's rewrite replace the draft? Not when it is empty or a tool call, changes the cited
- *  memories/links, or drops the approval note. */
 export function acceptReview(draft: string, revised: string): boolean {
   if (!revised || /^\s*\{\s*"(thought|tool)"|<invoke name=/.test(revised)) return false;
   return cites(draft) === cites(revised) && !(approval.test(draft) && !approval.test(revised));
 }
 
-/** One self-check pass (tools stay off, as on every call): the revised answer when acceptReview allows it,
- *  else the draft (also when the review fails). `reviewed` says which. A Stop (abort) still throws. */
-export async function reviewDraft(request: string, draft: string, context: string, opts: AskOpts & { onUsage?: (r: ClaudeResult) => unknown; onFail?: (e: unknown) => unknown } = {}): Promise<{ text: string; reviewed: boolean }> {
+export async function reviewDraft(
+  request: string,
+  draft: string,
+  context: string,
+  opts: AskOpts & { onUsage?: (r: ClaudeResult) => unknown; onFail?: (e: unknown) => unknown } = {},
+): Promise<{ text: string; reviewed: boolean }> {
   try {
-    const r = await askClaude(`${context ? `CONTEXT (data the draft was built from):\n${context.slice(0, 40_000)}\n\n` : ""}REQUEST:\n${request}\n\nDRAFT:\n${draft}\n\nThe final revised answer:`, REVIEW_SYSTEM, opts);
-    if (r.local) return { text: draft, reviewed: false }; // a local model never rewrites Claude's draft
+    const r = await askClaude(
+      `${context ? `CONTEXT (data the draft was built from):\n${context.slice(0, 40_000)}\n\n` : ""}REQUEST:\n${request}\n\nDRAFT:\n${draft}\n\nThe final revised answer:`,
+      REVIEW_SYSTEM,
+      opts,
+    );
     await opts.onUsage?.(r);
     let t = r.text.trim();
-    try { const j = JSON.parse(t.replace(/^```(?:json)?\s*|\s*```$/g, "")); if (typeof j?.final === "string") t = j.final.trim(); } catch { /* plain Markdown, as asked */ }
+    try {
+      const j = JSON.parse(t.replace(/^```(?:json)?\s*|\s*```$/g, ""));
+      if (typeof j?.final === "string") t = j.final.trim();
+    } catch { /* plain Markdown */ }
     return acceptReview(draft, t) ? { text: t, reviewed: true } : { text: draft, reviewed: false };
   } catch (e) {
     if (opts.signal?.aborted) throw e;
     console.error("[orbit] self-review failed; keeping the draft", e);
-    await Promise.resolve(opts.onFail?.(e)).catch(() => {}); // e.g. the reviewer id was rejected: a visible event, not only the console
+    await Promise.resolve(opts.onFail?.(e)).catch(() => {});
     return { text: draft, reviewed: false };
   }
 }
@@ -367,27 +217,25 @@ export async function recordUsage(sb: SupabaseClient, userId: string, purpose: s
   if (error) console.error("[orbit] failed to record usage", error);
 }
 
-/** Append a universe event: the one write path into public.events (the galaxy's realtime pulses and the ledger, ledger-pure.ts).
- *  Ledger types are checked first; a misfit is still saved as a plain event, with a warning. Never throws. */
+/** Append a universe event into public.events. Never throws. */
 export async function emit(sb: SupabaseClient, userId: string, type: string, planet: string, payload: Record<string, unknown> = {}, causedBy?: string | number) {
   const issue = ledgerIssue(type, planet, payload, causedBy === undefined ? undefined : String(causedBy));
   if (issue) console.warn("[orbit] event doesn't fit the ledger, saved as a plain event", type, issue);
   const row: Record<string, unknown> = { user_id: userId, type, planet, payload };
-  markEventsDirty(); // scheduler gates: the events table (and maybe mission/goal/team state) changed
+  markEventsDirty(); // scheduler gates: the events table changed
   let { error } = await sb.from("events").insert(causedBy === undefined ? row : { ...row, caused_by: causedBy });
-  // caused_by arrives with 0016_ledger.sql: before it has run, save the event without the link
   if (error && causedBy !== undefined && (error.code === "42703" || error.code === "PGRST204")) ({ error } = await sb.from("events").insert(row));
   if (error) console.error("[orbit] failed to emit event", type, error);
 }
 
-/** emit() for background work with no session (STUDIO loops): acts for the single profile via the service key; skipped without one. */
+/** emit() for background work with no session. */
 export async function emitAsOwner(type: string, planet: string, payload: Record<string, unknown> = {}) {
   try {
     const sb = adminClient();
     if (!sb) return;
     const { data, error } = await sb.from("profiles").select("id").limit(2);
     if (error) throw error;
-    if (data?.length !== 1) return; // no owner, or more than one: whose event it is would be a guess
+    if (data?.length !== 1) return;
     await emit(sb, data[0].id, type, planet, payload);
   } catch (e) { console.error("[orbit] failed to emit owner event", type, e instanceof Error ? e.message : e); }
 }

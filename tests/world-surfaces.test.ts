@@ -31,5 +31,5 @@ test("heightmap sampling and mountain height", () => {
 test("every file under public/worlds is in the asset list (no stray bytes)", () => {
   const listed = new Set(Object.values(ASSETS).map((a) => a.file));
   const walk = (d: string): string[] => readdirSync(d).flatMap((f) => statSync(join(d, f)).isDirectory() ? walk(join(d, f)) : [join(d, f)]);
-  for (const f of walk("public/worlds")) { const rel = f.slice("public/worlds/".length); if (rel !== "LICENSES.md" && !rel.startsWith("frames/")) assert.ok(listed.has(rel), rel); }
+  for (const f of walk("public/worlds")) { const rel = f.replace(/\\/g, "/").slice("public/worlds/".length); if (rel !== "LICENSES.md" && !rel.startsWith("frames/")) assert.ok(listed.has(rel), rel); }
 });

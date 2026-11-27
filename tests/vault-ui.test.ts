@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { around, fileActions, fileDate, filterFiles, groupOf, highlight, isJournalName, jobCard, plainError, searchesInside, size, statusLine, storageMap, vaultChanges } from "../src/lib/vault-ui-pure.ts";
-import { isJournalName as coreJournal } from "../src/lib/offline-tools-pure.ts";
 import { doneShare } from "../src/lib/progress-pure.ts";
 import type { TmRecord } from "../src/lib/time-machine-pure.ts";
 
@@ -58,8 +57,8 @@ test("sizes are 1024-based with the locale's decimal sign; status line", () => {
 });
 
 test("file actions: journal-looking files never go to a model", () => {
-  assert.equal(isJournalName("my-journal.txt"), true);
-  for (const n of ["journal.md", "Päevik 2026.txt", "paevik.pdf", "diary.docx", "life.json", "school.pdf", "notes.txt"]) assert.equal(isJournalName(n), coreJournal(n), n);
+  for (const n of ["my-journal.txt", "journal.md", "Päevik 2026.txt", "paevik.pdf", "diary.docx", "life.json"]) assert.equal(isJournalName(n), true, n);
+  for (const n of ["school.pdf", "notes.txt"]) assert.equal(isJournalName(n), false, n);
   const j = fileActions({ name: "diary.pdf", type: "pdf", size: 10 }, 4e6);
   assert.equal(j.ask, false); assert.equal(j.skill, false); assert.equal(j.memory, false); assert.equal(j.podcast, false);
   const p = fileActions({ name: "invoice.pdf", type: "pdf", size: 10 }, 4e6);

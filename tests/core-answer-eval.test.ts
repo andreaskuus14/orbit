@@ -84,13 +84,3 @@ test("wiring is deterministic and does not mutate inputs", () => {
   const input = Object.freeze({ question: "Search the web", answer: "I searched the web.", tools, playbookRules: Object.freeze(["no emoji"]) });
   const before = JSON.stringify(input); assert.deepEqual(coreAnswerEval(input), coreAnswerEval(input)); assert.equal(JSON.stringify(input), before);
 });
-
-test("CORE uses the advisory on the final full and reflex paths without retries or extra tool steps", () => {
-  const core = readFileSync(new URL("../src/lib/core.ts", import.meta.url), "utf8");
-  assert.match(core, /inspectAnswer\(question, answer, trace, playbookRules, evalTools(?:, verdict)?\)/); // + the independent verifier's verdict (verifier.ts)
-  assert.match(core, /inspectAnswer\(question, text, trace, rules\)/);
-  assert.ok(core.indexOf("inspectAnswer(question, answer") > core.indexOf("answer = rv.text"));
-  const helper = core.slice(core.indexOf("function inspectAnswer("), core.indexOf("function styleBlock("));
-  assert.match(helper, /last\.answerEval =/); assert.match(helper, /setImmediate\(/); assert.match(helper, /console\.info\(log\)/);
-  assert.doesNotMatch(helper, /\bawait\b|askClaude|onReset|trace\.push|answer\s*=/);
-});

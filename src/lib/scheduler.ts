@@ -127,11 +127,8 @@ async function tick(sb: SupabaseClient) {
     if (!limited) await maybeNightShift(sb, (users ?? []).map((u) => u.id));
     // Red-team twin (redteam.ts): once a day from 03:00, ORBIT attacks its own guards with mocked models (nothing leaves the PC); failures → OPERATIONS → Safety + night repair. Not awaited; never throws.
     void import("./redteam").then((m) => m.maybeRedTeam());
-    // ORBIT exam: one run per Tallinn night; serial real CORE requests, synthetic inputs only, LIFE cases never enter a model.
-    const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Tallinn", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
-    if (!limited && hour >= 2 && hour < 6) void import("./orbit-exam").then((m) => m.maybeOrbitExam(sb, (users ?? []).map((u) => u.id))).catch((e) => console.error("[orbit] nightly exam failed:", e instanceof Error ? e.message : e));
-    // Night repair and the 100-task exam share the model lane; defer repair while the exam is active.
-    if (!limited) void import("./orbit-exam").then(async (exam) => { if (!exam.orbitExamRunning()) await import("./night-repair").then((m) => m.maybeNightRepair(sb, (users ?? []).map((u) => u.id))); });
+    // Night repair runs directly (the old CORE exam engine has been removed).
+    if (!limited) void import("./night-repair").then((m) => m.maybeNightRepair(sb, (users ?? []).map((u) => u.id))).catch((e) => console.error("[orbit] night repair failed:", e instanceof Error ? e.message : e));
     // Weekly BUSINESS niche scout (background lane, read-only web tools); not awaited: a run takes minutes. It re-checks Stop-all and usageHold itself.
     if (!limited && allows("research", "background").ok) void maybeWeeklyScout().catch((e) => console.error("[orbit] niche scout check failed:", e instanceof Error ? e.message : e));
     // Weekly e-Business Register refresh (registry.ts): only after his first "Get registry data" click; public open-data files in, nothing out. Not awaited; never throws.

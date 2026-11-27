@@ -38,7 +38,6 @@ import { LessonChip } from "./LessonsCard";
 import { getLang, useT } from "./i18n";
 import { usedLine } from "@/lib/core-used-pure";
 import { FailureReport } from "./FailureReport";
-import { AllowOnceCard } from "./AllowOnceCard";
 import { turnFailed } from "@/lib/failure-report-pure";
 import { ChatSheet, chatsApi, useCoreChats } from "./CoreChats";
 import { ACTIVE_CHAT_KEY, CORE_NEW_CHAT, CORE_PROJECT_REQUEST_KEY, projectChatRequest, codeBlocks } from "@/lib/core-chats-pure";
@@ -275,9 +274,9 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
     const flush = () => pacer.stop();
     try {
       if (levelRef.current !== "auto") setLevel("auto");
-      const res = await fetch("/api/core?stream=1", {
+      const res = await fetch("/api/orbit2", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
-        body: JSON.stringify({ message, conversationId: convo.current, projectId: convo.current ? undefined : newProject ?? undefined, voice: talk, lang: getLang(), level: levelRef.current === "auto" ? undefined : levelRef.current, here: at ?? hereLink(), screen: look ? true : undefined, attachments: files.length ? files.map((f) => ({ name: f.name, data: f.data })) : undefined }),
+        body: JSON.stringify({ message, sessionId: convo.current, voice: talk, lang: getLang() }),
       });
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}));
@@ -517,7 +516,6 @@ export function CorePanel({ initial, initialSkill, initialHere, onConsumed, onOp
           <ul className="mt-1 space-y-0.5">{m.trace.map((s, n) => <li key={n}>{s.ok ? "✓" : "✗"} <b>{s.step}</b> · {s.ms}ms · {s.detail}</li>)}</ul>
         </details>
       )}
-      {!busy && m.trace?.map((s, n) => s.policy?.allowOnce && <AllowOnceCard key={s.policy.allowOnce.id} id={s.policy.allowOnce.id} tool={s.step} journal={s.policy.allowOnce.journal} onRetry={() => void send(tr("once.retry"))} />)}
       {m.role === "assistant" && turnFailed(m) && (
         <div className="mt-2"><FailureReport input={{ kind: "turn", id: chatId, relatedIds: chatId ? [chatId] : [], model: m.model ?? null, error: m.error ? m.content : null,
           trace: m.trace ?? [], request: msgs[i - 1]?.role === "user" ? msgs[i - 1].content : "", answer: m.error ? "" : m.content }} /></div>

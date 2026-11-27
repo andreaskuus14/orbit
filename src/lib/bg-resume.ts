@@ -93,13 +93,43 @@ export async function resumeBackgroundTurns(sb: SupabaseClient, userId: string, 
   } catch (e) { console.error("[orbit] background turn sweep:", msg(e)); }
 }
 
-// What a resume needs from the rest of ORBIT, loaded lazily (core.ts is heavy); tests/bg-resume-io passes fakes.
+// What a resume needs from the rest of ORBIT, loaded lazily; tests/bg-resume-io passes fakes.
+type ResumeTurnOut = { text: string; citations?: unknown[]; trace?: { step: string; ok?: boolean }[] };
 type ResumeDeps = {
-  finishBackground: typeof import("./core-turn").finishBackground; runCoreFor: typeof import("./core").runCoreFor; BACKGROUND_TURN_MS: number;
-  chatProjectContext: typeof import("./core-chats").chatProjectContext; coreSessionStore: typeof import("./durable").coreSessionStore; parseLang: typeof import("./i18n-pure").parseLang;
+  finishBackground: (sb: SupabaseClient, userId: string, cid: string, taskId: string, title: string, run: (signal: AbortSignal) => Promise<ResumeTurnOut>, stop?: TurnStop) => Promise<{ answer: string } | null>;
+  runCoreFor: (ms: number, background: boolean, sb: SupabaseClient, userId: string, history: { role: "user" | "assistant"; content: string }[], onDelta: undefined, signal: AbortSignal, ...rest: unknown[]) => Promise<ResumeTurnOut>;
+  BACKGROUND_TURN_MS: number;
+  chatProjectContext: typeof import("./core-chats").chatProjectContext;
+  coreSessionStore: typeof import("./durable").coreSessionStore;
+  parseLang: typeof import("./i18n-pure").parseLang;
 };
 const loadDeps = async (): Promise<ResumeDeps> => {
-  const [{ finishBackground }, { runCoreFor }, { BACKGROUND_TURN_MS }, { chatProjectContext }, { coreSessionStore }, { parseLang }] = await Promise.all([import("./core-turn"), import("./core"), import("./long-work-pure"), import("./core-chats"), import("./durable"), import("./i18n-pure")]);
+  const [{ runOrbit2 }, { BACKGROUND_TURN_MS }, { chatProjectContext }, { coreSessionStore }, { parseLang }] = await Promise.all([
+    import("./orbit2"),
+    import("./long-work-pure"),
+    import("./core-chats"),
+    import("./durable"),
+    import("./i18n-pure"),
+  ]);
+  const finishBackground: ResumeDeps["finishBackground"] = async (sb, userId, cid, taskId, _title, run, stop) => {
+    try {
+      const out = await run(stop?.lost ?? new AbortController().signal);
+      await sb.from("messages").insert({ user_id: userId, conversation_id: cid, role: "assistant", content: out.text });
+      await sb.from("tasks").update({ status: "done", result: out.text, finished_at: new Date().toISOString() }).eq("id", taskId);
+      await stop?.();
+      return { answer: out.text };
+    } catch (e) {
+      const err = msg(e);
+      await sb.from("tasks").update({ status: "failed", error: err, finished_at: new Date().toISOString() }).eq("id", taskId);
+      await stop?.();
+      return { answer: `_${err}_` };
+    }
+  };
+  const runCoreFor: ResumeDeps["runCoreFor"] = async (_ms, _bg, _sb, _uid, history, _onDelta, signal) => {
+    const prompt = history.map((h) => `${h.role}: ${h.content}`).join("\n");
+    const out = await runOrbit2({ prompt, signal });
+    return { text: out.text, citations: [], trace: out.trace };
+  };
   return { finishBackground, runCoreFor, BACKGROUND_TURN_MS, chatProjectContext, coreSessionStore, parseLang };
 };
 

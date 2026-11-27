@@ -10,7 +10,7 @@ import { switchStopAll } from "@/lib/stop-all-run";
 import { listJobs } from "@/lib/clips/factory";
 import { callLive, ringNow } from "@/lib/call";
 import { pushProblem } from "@/lib/remote-push";
-import { coreTurn } from "@/lib/core-turn";
+import { runOrbit2 } from "@/lib/orbit2";
 import { emit } from "@/lib/claude";
 
 export const dynamic = "force-dynamic";
@@ -87,14 +87,22 @@ export async function POST(req: Request) {
       }
       case "ask": {
         const text = typeof body.text === "string" ? body.text.trim() : "";
-        if (!text || text.length > MAX_ASK_CHARS) return done(say("Say a question for CORE.", 400));
+        if (!text || text.length > MAX_ASK_CHARS) return done(say("Say a question for ORBIT.", 400));
         if (!rateOk(`ask:sc:${sc.id}`, RATE.ask)) return done(say("Too many questions: wait a minute.", 429));
         const key = `sc:${sc.id}`;
-        const res = await coreTurn(req, sb, sc.userId, { message: text, voice: true, conversationId: remoteChat(key) },
-          { remote: true, onConversation: (id) => S.chat.set(key, { id, at: Date.now() }) });
-        const j = (await res.json().catch(() => ({}))) as { answer?: string; error?: string };
-        if (!res.ok || typeof j.answer !== "string") { console.error("[shortcut] ask:", j.error ?? res.status); return done(say("CORE couldn't answer. Try again or check ORBIT on the PC.", 502)); }
-        return done(say(speakable(j.answer)));
+        try {
+          const out = await runOrbit2({
+            prompt: text,
+            sessionId: remoteChat(key),
+            systemAppend: "This was asked out loud via Shortcut: keep your reply brief and speakable.",
+            signal: req.signal,
+          });
+          if (out.sessionId) S.chat.set(key, { id: out.sessionId, at: Date.now() });
+          return done(say(speakable(out.text)));
+        } catch (e) {
+          console.error("[shortcut] ask:", e instanceof Error ? e.message : e);
+          return done(say("ORBIT couldn't answer. Try again or check ORBIT on the PC.", 502));
+        }
       }
     }
   } catch (e) {
